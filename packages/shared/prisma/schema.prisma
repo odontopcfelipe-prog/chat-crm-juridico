@@ -1479,7 +1479,16 @@ model FinancialTransaction {
   recurrence_pattern    String? // MENSAL, TRIMESTRAL, SEMESTRAL, ANUAL
   recurrence_day        Int? // Dia do mês para vencimento (1-31)
   recurrence_end_date   DateTime? // Quando parar (null = indefinido)
-  parent_transaction_id String? // Referência à transação mãe
+  parent_transaction_id String? // Referência à transação mãe (recorrência) OU âncora de grupo de parcelas (Contas a Pagar)
+
+  // Parcelamento de conta a pagar (Contas a Pagar — compra em N vezes, valores EXATOS)
+  // As N parcelas compartilham o mesmo parent_transaction_id (âncora do grupo).
+  installment_sequence Int? // nº da parcela (1..N)
+  installment_total    Int? // total de parcelas (N)
+  // Origem do lançamento. 'PAYABLES' = criado no módulo Contas a Pagar (fixa/
+  // parcelada/gasto do dia). null = despesa de outra origem (comissão, diária,
+  // caixa, afiliado) — NÃO deve aparecer na tela de Contas a Pagar.
+  source               String?
 
   // Vínculos opcionais
   lead_id                   String?

@@ -21,6 +21,7 @@ export type Permission =
   | 'view_chat'
   | 'view_clinical'      | 'edit_clinical'
   | 'view_financial'     | 'manage_financial'  | 'operate_cash'
+  | 'manage_payables'
   | 'view_proposals'     | 'manage_proposals'
   | 'override_price'
   | 'view_reports'
@@ -79,6 +80,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Dar entrada, saida e AJUSTE de saldo no estoque', group: 'financeiro' },
   { key: 'operate_cash', label: 'Operar caixa',
     description: 'Lancar entradas/saidas e fechar o caixa do dia (sem mexer em cobrancas)', group: 'financeiro' },
+  { key: 'manage_payables', label: 'Contas a pagar',
+    description: 'Cadastrar/pagar contas fixas, parceladas e gastos do dia (só adm/gerente)', group: 'financeiro' },
 
   // ─── Marketing / CRM ────────────────────────────────────────
   { key: 'view_marketing', label: 'CRC e Marketing',
@@ -431,6 +434,7 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'Users',     icon: '👥', label: 'Pacientes',     desc: 'Base completa de pacientes.',   href: '/atendimento/pacientes',           badgeKey: 'patients_total',   tone: 'sky'     },
         { lucide: 'LineChart', icon: '🎯', label: 'CRC',           desc: 'Recuperação e relacionamento.', href: '/atendimento/crm',                 badgeKey: 'crc_queue',        tone: 'rose'    },
         { lucide: 'Wallet',    icon: '💰', label: 'Financeiro',    desc: 'Caixa, cobranças e contratos.', href: '/atendimento/financeiro',          badgeKey: 'financeiro_today', tone: 'emerald' },
+        { lucide: 'ReceiptText', icon: '📥', label: 'Contas a pagar', desc: 'Contas fixas, parceladas e gastos do dia.', href: '/atendimento/financeiro/contas-a-pagar', tone: 'rose' },
         { lucide: 'UserCog',   icon: '👥', label: 'Equipe',        desc: 'Profissionais e permissões.',   href: '/atendimento/settings/users',      badgeKey: 'team_count',       tone: 'sky'     },
         { lucide: 'Megaphone', icon: '📢', label: 'Marketing',     desc: 'Campanhas e captação.',         href: '/atendimento/marketing/analytics', badgeKey: 'marketing_active', tone: 'amber'   },
         { lucide: 'FileText',  icon: '📄', label: 'Relatórios',    desc: 'Indicadores e metas.',          href: '/atendimento/relatorios',          badgeKey: 'reports_pct',      tone: 'violet'  },
@@ -526,6 +530,7 @@ const HREF_TO_PERMISSION: Record<string, Permission> = {
   '/atendimento/return-alerts':            'view_marketing',
   '/atendimento/financeiro':               'manage_financial',
   '/atendimento/financeiro/dashboard':     'view_financial',
+  '/atendimento/financeiro/contas-a-pagar': 'manage_payables',
   '/atendimento/caixa':                    'operate_cash',
   '/atendimento/relatorios':               'view_reports',
   '/atendimento/marketing/analytics':      'view_marketing',
@@ -543,6 +548,7 @@ const PERMISSION_TO_BALAO: Partial<Record<Permission, HomeAction>> = {
   view_financial:   { lucide: 'LineChart',     icon: '📊', label: 'Visão geral', desc: 'Caixa e indicadores.',        href: '/atendimento/financeiro/dashboard', tone: 'emerald' },
   manage_financial: { lucide: 'Receipt',       icon: '🧾', label: 'Cobranças',   desc: 'Boletos e recebimentos.',     href: '/atendimento/financeiro',           tone: 'violet'  },
   operate_cash:     { lucide: 'Wallet',        icon: '💵', label: 'Caixa',       desc: 'Entradas, saídas e fechamento do dia.', href: '/atendimento/caixa',      tone: 'emerald' },
+  manage_payables:  { lucide: 'ReceiptText',   icon: '📥', label: 'Contas a pagar', desc: 'Contas fixas, parceladas e gastos do dia.', href: '/atendimento/financeiro/contas-a-pagar', tone: 'rose' },
   view_reports:     { lucide: 'PieChart',      icon: '📈', label: 'Relatórios',  desc: 'Indicadores e metas.',        href: '/atendimento/relatorios',           tone: 'rose'    },
   manage_users:     { lucide: 'UserCog',       icon: '👥', label: 'Equipe',      desc: 'Profissionais e permissões.', href: '/atendimento/settings/users',       tone: 'sky'     },
   view_settings:    { lucide: 'Settings',      icon: '⚙️', label: 'Configurações', desc: 'Ajustes do sistema.',       href: '/atendimento/settings',             tone: 'amber'   },

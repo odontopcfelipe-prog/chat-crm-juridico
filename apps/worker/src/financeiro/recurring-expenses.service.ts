@@ -48,49 +48,58 @@ export class RecurringExpensesService {
         );
         if (!shouldGenerate) continue;
 
-        // Verificar se já gerou filha neste mês
-        const startOfMonth = new Date(currentYear, currentMonth, 1);
-        const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
-
-        const existingChild = await this.prisma.financialTransaction.findFirst({
-          where: {
-            parent_transaction_id: parent.id,
-            date: { gte: startOfMonth, lte: endOfMonth },
-          },
-        });
-
-        if (existingChild) continue; // Já gerou este mês
-
-        // Calcular data de vencimento
+        // Janela do mês + vencimento — TUDO em meio-dia/UTC (naive-UTC de Maceió),
+        // igual ao parcelamento (payables), pra não escorregar 1 dia em outro fuso.
+        const startOfMonth = new Date(Date.UTC(currentYear, currentMonth, 1, 0, 0, 0));
+        const endOfMonth = new Date(Date.UTC(currentYear, currentMonth + 1, 0, 23, 59, 59));
         const day = parent.recurrence_day || 1;
-        const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
-        const dueDate = new Date(currentYear, currentMonth, Math.min(day, maxDay));
+        const maxDay = new Date(Date.UTC(currentYear, currentMonth + 1, 0)).getUTCDate();
+        const dueDate = new Date(Date.UTC(currentYear, currentMonth, Math.min(day, maxDay), 12, 0, 0));
 
-        // Criar filha
-        await this.prisma.financialTransaction.create({
-          data: {
-            tenant_id: parent.tenant_id,
-            type: parent.type,
-            category: parent.category,
-            description: parent.description,
-            amount: parent.amount,
-            date: dueDate,
-            due_date: dueDate,
-            payment_method: parent.payment_method,
-            status: 'PENDENTE',
-            visible_to_dentist: (parent as any).visible_to_dentist,
-            dentist_id: (parent as any).dentist_id,
-            lead_id: parent.lead_id,
-            notes: parent.notes,
-            parent_transaction_id: parent.id,
-            is_recurring: false,
-          },
-        });
-
-        generated++;
-        this.logger.log(
-          `[RECURRING] Gerada: "${parent.description}" | R$ ${Number(parent.amount).toFixed(2)} | venc. ${dueDate.toLocaleDateString('pt-BR')}`,
-        );
+        // Anti-duplicação atômica (2 workers/deploy sobreposto): advisory lock por
+        // mãe+mês + re-checagem DENTRO da transação (check-then-act não bastava).
+        const lockKey = `payrec:${parent.id}:${currentYear}-${currentMonth}`;
+        try {
+          const created = await this.prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', lockKey);
+            const existingChild = await tx.financialTransaction.findFirst({
+              where: {
+                parent_transaction_id: parent.id,
+                date: { gte: startOfMonth, lte: endOfMonth },
+              },
+            });
+            if (existingChild) return false; // Já gerou este mês
+            await tx.financialTransaction.create({
+              data: {
+                tenant_id: parent.tenant_id,
+                source: (parent as any).source ?? null, // herda a origem (ex.: PAYABLES)
+                type: parent.type,
+                category: parent.category,
+                description: parent.description,
+                amount: parent.amount,
+                date: dueDate,
+                due_date: dueDate,
+                payment_method: parent.payment_method,
+                status: 'PENDENTE',
+                visible_to_dentist: (parent as any).visible_to_dentist,
+                dentist_id: (parent as any).dentist_id,
+                lead_id: parent.lead_id,
+                notes: parent.notes,
+                parent_transaction_id: parent.id,
+                is_recurring: false,
+              } as any,
+            });
+            return true;
+          });
+          if (created) {
+            generated++;
+            this.logger.log(
+              `[RECURRING] Gerada: "${parent.description}" | R$ ${Number(parent.amount).toFixed(2)} | venc. ${dueDate.toISOString().slice(0, 10)}`,
+            );
+          }
+        } catch (e: any) {
+          this.logger.warn(`[RECURRING] Falha ao gerar filha da mãe ${parent.id}: ${e?.message}`);
+        }
       }
 
       if (generated > 0) {

@@ -1,0 +1,465 @@
+'use client';
+
+/**
+ * Contas a Pagar — acesso só ADM/gerente (permissão manage_payables).
+ * 2 abas: "Contas Fixas" (parceladas + recorrentes variáveis) e "Gastos do dia".
+ * Tudo é DESPESA (FinancialTransaction) via endpoints /payables/* (gate próprio).
+ */
+
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
+  CalendarClock, Repeat, Layers, Receipt, AlertTriangle,
+} from 'lucide-react';
+import api from '@/lib/api';
+import { showError, showSuccess } from '@/lib/toast';
+import { useUserPermissions } from '@/lib/useUserPermissions';
+
+// ─── Helpers ──────────────────────────────────────────────────
+const fmt = (v: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+
+/** "hoje" no fuso de Maceió (UTC-3) como YYYY-MM-DD. */
+const maceioTodayStr = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+/** due_date/date vêm como ISO (gravado ao meio-dia UTC) → fatiar dá o dia certo. */
+const dayOf = (iso?: string | null) => (iso ? iso.slice(0, 10) : '');
+const brDate = (iso?: string | null) => {
+  const s = dayOf(iso);
+  if (!s) return '--';
+  const [y, m, d] = s.split('-');
+  return `${d}/${m}/${y.slice(2)}`;
+};
+
+interface Tx {
+  id: string;
+  description: string;
+  category: string;
+  amount: number | string;
+  date: string;
+  due_date: string | null;
+  paid_at: string | null;
+  payment_method: string | null;
+  status: string;
+  is_recurring: boolean;
+  recurrence_pattern: string | null;
+  recurrence_day: number | null;
+  installment_sequence: number | null;
+  installment_total: number | null;
+  parent_transaction_id: string | null;
+}
+interface Category { id: string; name: string; type: string; }
+
+const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
+
+export default function ContasAPagarPage() {
+  const router = useRouter();
+  const { hasPermission, ready } = useUserPermissions();
+  const allowed = hasPermission('manage_payables');
+
+  const [tab, setTab] = useState<'fixas' | 'dia'>('fixas');
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [cats, setCats] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState(() => maceioTodayStr().slice(0, 7)); // YYYY-MM
+  const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
+
+  const monthRange = useCallback(() => {
+    const [y, m] = month.split('-').map(Number);
+    const start = ymd(new Date(Date.UTC(y, m - 1, 1, 12)));
+    const end = ymd(new Date(Date.UTC(y, m, 0, 12)));
+    return { start, end };
+  }, [month]);
+
+  const load = useCallback(async () => {
+    if (!allowed) return;
+    setLoading(true);
+    try {
+      const { start, end } = monthRange();
+      const [txRes, catRes] = await Promise.all([
+        api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500`),
+        api.get('/payables/categories'),
+      ]);
+      const data = (txRes.data?.data ?? txRes.data ?? []) as Tx[];
+      setTxs(data.map((t) => ({ ...t, amount: Number(t.amount) })));
+      setCats((catRes.data ?? []) as Category[]);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao carregar contas a pagar');
+    } finally {
+      setLoading(false);
+    }
+  }, [allowed, monthRange]);
+
+  useEffect(() => { if (ready && allowed) load(); }, [ready, allowed, load]);
+
+  // ─── Gate ───────────────────────────────────────────────────
+  if (!ready) {
+    return <div className="flex-1 flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+  }
+  if (!allowed) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
+        <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center"><Shield className="w-8 h-8 text-destructive/60" /></div>
+        <div>
+          <h3 className="text-base font-bold text-foreground">Sem autorização</h3>
+          <p className="text-[13px] text-muted-foreground mt-1 max-w-sm">Contas a Pagar é restrito ao administrador e ao gerente. Solicite o desbloqueio com o administrador.</p>
+        </div>
+        <button onClick={() => router.push('/atendimento/dashboard')} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-lg border border-border hover:bg-accent transition-colors"><Home size={14} /> Voltar ao Início</button>
+      </div>
+    );
+  }
+
+  // ─── Derivados ──────────────────────────────────────────────
+  const today = maceioTodayStr();
+  const num = (t: Tx) => Number(t.amount);
+  const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
+  const pend = txs.filter((t) => t.status === 'PENDENTE');
+  const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
+  const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
+  const pagasMes = txs.filter((t) => t.status === 'PAGO');
+  const kpiVencidas = vencidas.reduce((s, t) => s + num(t), 0);
+  const kpiAVencer = aVencer.reduce((s, t) => s + num(t), 0);
+  const kpiPago = pagasMes.reduce((s, t) => s + num(t), 0);
+
+  const listForTab = txs.filter((t) => (tab === 'fixas' ? isFixed(t) : !isFixed(t)));
+
+  // ─── Ações ──────────────────────────────────────────────────
+  const pay = async (t: Tx) => {
+    try {
+      await api.patch(`/payables/transactions/${t.id}`, { status: 'PAGO', paid_at: new Date().toISOString() });
+      showSuccess('Conta marcada como paga');
+      load();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao pagar'); }
+  };
+  const del = async (t: Tx) => {
+    if (!confirm(`Excluir "${t.description}"?`)) return;
+    try {
+      await api.delete(`/payables/transactions/${t.id}`);
+      showSuccess('Conta removida');
+      load();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao excluir'); }
+  };
+  const saveAmount = async (t: Tx, amount: number) => {
+    try {
+      await api.patch(`/payables/transactions/${t.id}`, { amount });
+      showSuccess('Valor ajustado');
+      load();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao ajustar'); }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Receipt className="w-5 h-5 text-rose-500" /> Contas a Pagar</h1>
+            <p className="text-[13px] text-muted-foreground">Contas fixas, parceladas e gastos do dia — só adm/gerente.</p>
+          </div>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background" />
+        </div>
+
+        {/* KPIs */}
+        <div className="grid grid-cols-3 gap-3">
+          <Kpi label="Vencidas" value={fmt(kpiVencidas)} tone="rose" count={vencidas.length} />
+          <Kpi label="A vencer no mês" value={fmt(kpiAVencer)} tone="amber" count={aVencer.length} />
+          <Kpi label="Pago no mês" value={fmt(kpiPago)} tone="emerald" count={pagasMes.length} />
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-1 border-b border-border">
+          <TabBtn active={tab === 'fixas'} onClick={() => setTab('fixas')} icon={<Layers size={15} />} label="Contas Fixas" />
+          <TabBtn active={tab === 'dia'} onClick={() => setTab('dia')} icon={<CalendarClock size={15} />} label="Gastos do dia" />
+        </div>
+
+        {/* Ações da aba */}
+        <div className="flex flex-wrap gap-2">
+          {tab === 'fixas' ? (
+            <>
+              <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
+              <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
+            </>
+          ) : (
+            <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+          )}
+        </div>
+
+        {/* Lista */}
+        {loading ? (
+          <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <TxList
+            items={listForTab}
+            today={today}
+            onPay={pay}
+            onDelete={del}
+            onSaveAmount={saveAmount}
+            emptyLabel={tab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
+          />
+        )}
+      </div>
+
+      {modal === 'parcelada' && <ParceladaModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'recorrente' && <RecorrenteModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'dia' && <GastoDoDiaModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+    </div>
+  );
+}
+
+// ─── Componentes ──────────────────────────────────────────────
+function Kpi({ label, value, tone, count }: { label: string; value: string; tone: 'rose' | 'amber' | 'emerald'; count: number }) {
+  const toneCls = tone === 'rose' ? 'text-rose-500' : tone === 'amber' ? 'text-amber-500' : 'text-emerald-500';
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`text-lg font-bold ${toneCls}`}>{value}</div>
+      <div className="text-[11px] text-muted-foreground">{count} conta(s)</div>
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button onClick={onClick} className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-bold border-b-2 -mb-px transition-colors ${active ? 'border-rose-500 text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>{icon}{label}</button>
+  );
+}
+
+function TxList({ items, today, onPay, onDelete, onSaveAmount, emptyLabel }: {
+  items: Tx[]; today: string;
+  onPay: (t: Tx) => void; onDelete: (t: Tx) => void; onSaveAmount: (t: Tx, v: number) => void; emptyLabel: string;
+}) {
+  if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">{emptyLabel}</div>;
+  const order = (t: Tx) => (t.status === 'PAGO' ? 2 : t.due_date && dayOf(t.due_date) < today ? 0 : 1);
+  const sorted = [...items].sort((a, b) => order(a) - order(b) || (dayOf(a.due_date) < dayOf(b.due_date) ? -1 : 1));
+  return (
+    <div className="space-y-2">
+      {sorted.map((t) => <TxRow key={t.id} t={t} today={today} onPay={onPay} onDelete={onDelete} onSaveAmount={onSaveAmount} />)}
+    </div>
+  );
+}
+
+function TxRow({ t, today, onPay, onDelete, onSaveAmount }: { t: Tx; today: string; onPay: (t: Tx) => void; onDelete: (t: Tx) => void; onSaveAmount: (t: Tx, v: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(Number(t.amount)));
+  const paid = t.status === 'PAGO';
+  const overdue = !paid && t.due_date && dayOf(t.due_date) < today;
+
+  const badge = t.installment_total
+    ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500">{t.installment_sequence}/{t.installment_total}</span>
+    : t.is_recurring
+      ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> fixa</span>
+      : t.parent_transaction_id
+        ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> mês</span>
+        : null;
+
+  return (
+    <div className={`rounded-xl border p-3 flex items-center gap-3 ${overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-bold text-foreground truncate">{t.description}</span>
+          {badge}
+          {paid && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 inline-flex items-center gap-0.5"><Check size={9} /> pago</span>}
+          {overdue && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 inline-flex items-center gap-0.5"><AlertTriangle size={9} /> vencida</span>}
+        </div>
+        <div className="text-[12px] text-muted-foreground">{t.category} · venc. {brDate(t.due_date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
+      </div>
+      {editing ? (
+        <div className="flex items-center gap-1">
+          <input type="number" step="0.01" value={val} onChange={(e) => setVal(e.target.value)} className="w-24 px-2 py-1 text-sm rounded border border-border bg-background" autoFocus />
+          <button onClick={() => { const v = parseFloat(val); if (v > 0) { onSaveAmount(t, v); setEditing(false); } }} className="p-1.5 rounded bg-emerald-500 text-white"><Check size={14} /></button>
+          <button onClick={() => { setEditing(false); setVal(String(Number(t.amount))); }} className="p-1.5 rounded border border-border"><X size={14} /></button>
+        </div>
+      ) : (
+        <>
+          <div className="text-sm font-bold text-foreground tabular-nums">{fmt(Number(t.amount))}</div>
+          <div className="flex items-center gap-1">
+            {!paid && <button title="Ajustar valor" onClick={() => setEditing(true)} className="p-1.5 rounded border border-border hover:bg-accent"><Pencil size={13} /></button>}
+            {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={14} /></button>}
+            <button title="Excluir" onClick={() => onDelete(t)} className="p-1.5 rounded border border-border hover:bg-accent text-rose-500"><Trash2 size={13} /></button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Modais ───────────────────────────────────────────────────
+function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-card border border-border p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-foreground">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-accent"><X size={18} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-[12px] font-bold text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-border bg-background';
+
+function CategorySelect({ cats, value, onChange }: { cats: Category[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
+      <option value="">Selecione…</option>
+      {cats.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+    </select>
+  );
+}
+
+function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [total, setTotal] = useState('');
+  const [installments, setInstallments] = useState('10');
+  const [firstDue, setFirstDue] = useState(maceioTodayStr());
+  const [method, setMethod] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const n = parseInt(installments || '0', 10);
+  const totalNum = parseFloat(total || '0');
+  const perParcela = n > 0 && totalNum > 0 ? totalNum / n : 0;
+
+  const submit = async () => {
+    if (!description.trim() || !category || !(totalNum > 0) || !(n >= 1)) { showError('Preencha descrição, categoria, valor e parcelas'); return; }
+    setSaving(true);
+    try {
+      await api.post('/payables/installment-plan', {
+        description: description.trim(), category, total_amount: totalNum, installments: n,
+        first_due_date: firstDue, payment_method: method || undefined,
+      });
+      showSuccess(`${n} parcela(s) criada(s)`);
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao criar parcelamento'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Nova conta parcelada" onClose={onClose}>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Compra de cadeira odontológica" /></Field>
+      <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor total (R$)"><input type="number" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={inputCls} placeholder="10000" /></Field>
+        <Field label="Parcelas"><input type="number" min="1" max="60" value={installments} onChange={(e) => setInstallments(e.target.value)} className={inputCls} /></Field>
+      </div>
+      <Field label="1º vencimento"><input type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} className={inputCls} /></Field>
+      <Field label="Forma (opcional)">
+        <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+          <option value="">--</option>
+          {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      {perParcela > 0 && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">{n}x de <strong>{fmt(perParcela)}</strong> (a última ajusta os centavos) · 1 conta por mês a partir de {brDate(firstDue)}</div>}
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Criar {n || ''} parcelas</button>
+    </ModalShell>
+  );
+}
+
+function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [amount, setAmount] = useState('');
+  const [day, setDay] = useState('10');
+  const [method, setMethod] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const amt = parseFloat(amount || '0');
+    const d = parseInt(day || '0', 10);
+    if (!description.trim() || !category || !(amt > 0) || !(d >= 1 && d <= 31)) { showError('Preencha descrição, categoria, valor estimado e dia (1-31)'); return; }
+    setSaving(true);
+    try {
+      // 1ª ocorrência: vencimento no dia deste mês (o cron gera os meses seguintes).
+      // date=due_date ancorados ao meio-dia UTC pra a competência bater com o mês.
+      const todayStr = maceioTodayStr();
+      const [y, m] = todayStr.split('-');
+      const maxDay = new Date(Date.UTC(Number(y), Number(m), 0, 12)).getUTCDate();
+      const dueIso = `${y}-${m}-${String(Math.min(d, maxDay)).padStart(2, '0')}T12:00:00.000Z`;
+      await api.post('/payables/transactions', {
+        description: description.trim(), category, amount: amt,
+        date: dueIso, due_date: dueIso, status: 'PENDENTE', payment_method: method || undefined,
+        is_recurring: true, recurrence_pattern: 'MENSAL', recurrence_day: d,
+      });
+      showSuccess('Conta recorrente cadastrada');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao cadastrar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Nova conta recorrente (mensal)" onClose={onClose}>
+      <p className="text-[12px] text-muted-foreground">Água, energia, internet… Cadastra o valor estimado; o sistema gera 1 conta por mês e você <strong>ajusta o valor real</strong> antes de pagar.</p>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Energia elétrica" /></Field>
+      <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor estimado (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="450" /></Field>
+        <Field label="Dia do vencimento"><input type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} /></Field>
+      </div>
+      <Field label="Forma (opcional)">
+        <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+          <option value="">--</option>
+          {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Cadastrar conta fixa</button>
+    </ModalShell>
+  );
+}
+
+function GastoDoDiaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('DINHEIRO');
+  const [paid, setPaid] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const amt = parseFloat(amount || '0');
+    if (!description.trim() || !category || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
+    setSaving(true);
+    try {
+      // competência = HOJE em Maceió, ancorada ao meio-dia UTC (naive-UTC) pra
+      // não escorregar de dia/mês à noite.
+      const dateIso = `${maceioTodayStr()}T12:00:00.000Z`;
+      await api.post('/payables/transactions', {
+        description: description.trim(), category, amount: amt,
+        date: dateIso, payment_method: method || undefined,
+        status: paid ? 'PAGO' : 'PENDENTE', paid_at: paid ? new Date().toISOString() : undefined,
+      });
+      showSuccess('Gasto lançado');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao lançar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Lançar gasto do dia" onClose={onClose}>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Material de limpeza" /></Field>
+      <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
+        <Field label="Forma">
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+            {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje
+      </label>
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Lançar gasto</button>
+    </ModalShell>
+  );
+}

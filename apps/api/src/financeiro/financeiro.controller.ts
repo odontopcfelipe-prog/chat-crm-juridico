@@ -55,6 +55,9 @@ export class FinanceiroController {
       type,
       category,
       status,
+      // A tela financeira legada NÃO mostra contas a pagar (aluguel/folha/fornecedor)
+      // — elas vivem no módulo Contas a Pagar, restrito a adm/gerente (manage_payables).
+      excludeSource: 'PAYABLES',
       legalCaseId,
       leadId,
       dentistId,
@@ -85,7 +88,7 @@ export class FinanceiroController {
     @Body() body: UpdateTransactionDto,
     @Request() req: any,
   ) {
-    return this.service.updateTransaction(id, body, req.user.tenant_id, req.user.id);
+    return this.service.updateTransaction(id, body, req.user.tenant_id, req.user.id, 'PAYABLES');
   }
 
   @RequiresPermission('manage_financial')
@@ -94,7 +97,7 @@ export class FinanceiroController {
     @Param('id') id: string,
     @Request() req: any,
   ) {
-    return this.service.deleteTransaction(id, req.user.tenant_id, req.user.id);
+    return this.service.deleteTransaction(id, req.user.tenant_id, req.user.id, 'PAYABLES');
   }
 
   // Fase 5 — Lançar Diária (DESPESA category='DIARIA' a partir do daily_rate).
@@ -128,7 +131,7 @@ export class FinanceiroController {
     @Body() body: { amount: number; payment_method?: string },
     @Request() req: any,
   ) {
-    return this.service.partialPayment(id, body.amount, body.payment_method, req.user.tenant_id, req.user.id);
+    return this.service.partialPayment(id, body.amount, body.payment_method, req.user.tenant_id, req.user.id, 'PAYABLES');
   }
 
   @Get('audit-log')

@@ -53,13 +53,21 @@ export class FinanceiroService {
 
   // ─── Helpers ────────────────────────────────────────────
 
-  private async verifyTransactionAccess(id: string, tenantId?: string) {
+  private async verifyTransactionAccess(id: string, tenantId?: string, forbidSource?: string) {
     const record = await this.prisma.financialTransaction.findUnique({
       where: { id },
     });
     if (!record) throw new NotFoundException('Transacao nao encontrada');
-    if (tenantId && record.tenant_id && record.tenant_id !== tenantId) {
+    // fail-safe: quando o caller tem tenant, um record de tenant diferente OU
+    // NULO nega (antes o `record.tenant_id &&` deixava passar linhas de tenant
+    // nulo — IDOR). SUPER_ADMIN chega sem tenantId e continua passando.
+    if (tenantId && record.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
+    }
+    // A tela legada passa forbidSource='PAYABLES' pra não editar/cancelar por id
+    // uma conta a pagar sensível (só o módulo Contas a Pagar mexe nessas).
+    if (forbidSource && (record as any).source === forbidSource) {
+      throw new NotFoundException('Transacao nao encontrada');
     }
     return record;
   }
@@ -69,7 +77,7 @@ export class FinanceiroService {
       where: { id },
     });
     if (!record) throw new NotFoundException('Categoria nao encontrada');
-    if (tenantId && record.tenant_id && record.tenant_id !== tenantId) {
+    if (tenantId && record.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
     return record;
@@ -82,6 +90,8 @@ export class FinanceiroService {
     type?: string;
     category?: string;
     status?: string;
+    source?: string;
+    excludeSource?: string;
     legalCaseId?: string;
     leadId?: string;
     dentistId?: string;
@@ -95,6 +105,10 @@ export class FinanceiroService {
     if (query.tenantId) where.tenant_id = query.tenantId;
     if (query.type) where.type = query.type;
     if (query.category) where.category = query.category;
+    // source: filtro positivo (payables usa source='PAYABLES') OU exclusão (a tela
+    // legada passa excludeSource='PAYABLES' pra NÃO mostrar contas a pagar sensíveis).
+    if (query.source) where.source = query.source;
+    else if (query.excludeSource) where.source = { not: query.excludeSource };
     if (query.status) {
       where.status = query.status;
     } else {
@@ -118,7 +132,19 @@ export class FinanceiroService {
     if (query.startDate || query.endDate) {
       const dateFilter: any = {};
       if (query.startDate) dateFilter.gte = new Date(query.startDate);
-      if (query.endDate) dateFilter.lte = new Date(query.endDate);
+      // endDate date-only ('YYYY-MM-DD') vira MEIA-NOITE UTC → cortava lançamentos
+      // do último dia (gravados ao meio-dia). Expande pro fim do dia. (naive-UTC)
+      if (query.endDate) {
+        dateFilter.lte = /T/.test(query.endDate)
+          ? new Date(query.endDate)
+          : new Date(query.endDate + 'T23:59:59.999Z');
+      }
+
+      // Carry-over de dívidas antigas SÓ quando o período inclui hoje/futuro
+      // (endDate >= agora). Compara com o "agora" de Maceió (UTC-3) pra não
+      // apagar o carry-over do mês corrente na janela noturna da virada do mês.
+      const maceioNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      const includeCarryOver = !!query.startDate && (!query.endDate || new Date(dateFilter.lte ?? query.endDate) >= maceioNow);
 
       // Transações do período + vencidas de meses ANTERIORES (não do mesmo mês)
       const existingOr = where.OR || [];
@@ -129,9 +155,9 @@ export class FinanceiroService {
         { OR: [
           { date: dateFilter },
           // Dívidas de meses anteriores: date ANTES do período + still PENDENTE
-          ...(query.startDate ? [{
+          ...(includeCarryOver ? [{
             status: 'PENDENTE',
-            date: { lt: new Date(query.startDate) },
+            date: { lt: new Date(query.startDate as string) },
           }] : []),
         ]},
       ];
@@ -255,11 +281,12 @@ export class FinanceiroService {
     );
   }
 
-  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string }) {
+  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string }) {
     // STUBBED: legal_case_id/honorario_payment_id removidos Fase 0.2
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: data.tenant_id,
+        source: data.source ?? null,
         type: data.type,
         category: data.category,
         description: data.description,
@@ -364,8 +391,8 @@ export class FinanceiroService {
     return tx;
   }
 
-  async updateTransaction(id: string, data: UpdateTransactionDto, tenantId?: string, actorId?: string) {
-    await this.verifyTransactionAccess(id, tenantId);
+  async updateTransaction(id: string, data: UpdateTransactionDto, tenantId?: string, actorId?: string, forbidSource?: string) {
+    await this.verifyTransactionAccess(id, tenantId, forbidSource);
 
     const updateData: any = {};
 
@@ -410,8 +437,8 @@ export class FinanceiroService {
   /**
    * Recebimento parcial: cria transação PAGO com o valor recebido e reduz o original.
    */
-  async partialPayment(id: string, amount: number, paymentMethod?: string, tenantId?: string, actorId?: string) {
-    const original = await this.verifyTransactionAccess(id, tenantId);
+  async partialPayment(id: string, amount: number, paymentMethod?: string, tenantId?: string, actorId?: string, forbidSource?: string) {
+    const original = await this.verifyTransactionAccess(id, tenantId, forbidSource);
 
     if (original.status === 'PAGO') {
       throw new ConflictException('Transação já está paga');
@@ -469,8 +496,8 @@ export class FinanceiroService {
     return { partial: partialTx, remaining };
   }
 
-  async deleteTransaction(id: string, tenantId?: string, actorId?: string) {
-    const tx = await this.verifyTransactionAccess(id, tenantId);
+  async deleteTransaction(id: string, tenantId?: string, actorId?: string, forbidSource?: string) {
+    const tx = await this.verifyTransactionAccess(id, tenantId, forbidSource);
 
     const actionType = tx.type === 'DESPESA' ? 'DESPESA_EXCLUIDA' : 'RECEITA_EXCLUIDA';
     await this.logAction(actorId || null, actionType, id, tx.tenant_id, {
@@ -807,6 +834,7 @@ export class FinanceiroService {
         icon: cat.icon,
         is_default: true,
       })),
+      skipDuplicates: true, // corrida de seed concorrente não estoura P2002
     });
 
     return this.findAllCategories(tenantId);
