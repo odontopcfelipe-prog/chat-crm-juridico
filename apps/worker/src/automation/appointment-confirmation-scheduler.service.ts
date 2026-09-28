@@ -29,8 +29,17 @@ export class AppointmentConfirmationSchedulerService {
   async scheduleConfirmations() {
     try {
       const now = new Date();
-      const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const in25h = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+      // FUSO — start_at guarda a hora LOCAL de Maceió num campo UTC (naive), mas `now`
+      // é UTC real. Sem trazer `now` pro mesmo referencial, a janela [now+24h,now+25h)
+      // comparada ao start_at naive selecionava o evento 3h CEDO: a confirmação da
+      // consulta das 8h saía ~5h da manhã (fora do horário comercial). Ajusta `now` pro
+      // relógio de parede de Maceió (−3h) → a confirmação sai no mesmo horário do dia
+      // da consulta, no dia anterior (dentro do comercial). Mesmo referencial que o
+      // enqueueReminders já usa (+3h no start_at).
+      const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const nowNaive = new Date(now.getTime() - MACEIO_OFFSET_MS);
+      const in24h = new Date(nowNaive.getTime() + 24 * 60 * 60 * 1000);
+      const in25h = new Date(nowNaive.getTime() + 25 * 60 * 60 * 1000);
 
       // Onda 17.61 — TODOS os atendimentos com paciente (CONSULTA + PROCEDIMENTO +
       // RETORNO), AGENDADO, em 24-25h. Antes era so CONSULTA — procedimento/retorno

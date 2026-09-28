@@ -37,8 +37,15 @@ export class AppointmentOrtoReminderService {
   async sendOrtoReminders() {
     try {
       const now = new Date();
-      const in1h = new Date(now.getTime() + 60 * 60 * 1000);
-      const in2h = new Date(now.getTime() + 120 * 60 * 1000);
+      // FUSO — start_at é hora LOCAL de Maceió em campo UTC (naive); `now` é UTC real.
+      // Sem o ajuste, a janela [now+1h,now+2h) comparada ao start_at naive pegava o
+      // evento ~4-5h antes (não ~1h). Traz `now` pro relógio de parede de Maceió (−3h)
+      // pra o lembrete sair de fato ~1h antes do portão. (Sem trava de 8h aqui de
+      // propósito: um lembrete "1h antes" de um portão das 8h precisa sair ~7h.)
+      const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const nowNaive = new Date(now.getTime() - MACEIO_OFFSET_MS);
+      const in1h = new Date(nowNaive.getTime() + 60 * 60 * 1000);
+      const in2h = new Date(nowNaive.getTime() + 120 * 60 * 1000);
 
       const eligible = await this.prisma.calendarEvent.findMany({
         where: {

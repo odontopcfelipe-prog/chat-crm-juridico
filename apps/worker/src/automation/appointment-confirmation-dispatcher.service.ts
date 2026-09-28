@@ -34,6 +34,16 @@ export class AppointmentConfirmationDispatcherService {
   @Cron('5 * * * *', { timeZone: 'America/Maceio' })
   async dispatchPending() {
     try {
+      // HORÁRIO COMERCIAL (regra do dono) — a confirmação de agendamento NUNCA sai fora
+      // de 8h–17h de Maceió. O scheduler cria a linha a qualquer hora; o envio real só
+      // acontece no comercial. Linha criada cedo fica PENDENTE (sent_at:null) e sai no
+      // 1º tick >=8h. Disparos de FECHAMENTO de venda são event-driven e não passam por
+      // aqui — seguem saindo na hora, mesmo à noite, de propósito.
+      const maceioHour = new Date(Date.now() - 3 * 60 * 60 * 1000).getUTCHours();
+      if (maceioHour < 8 || maceioHour > 17) {
+        return;
+      }
+
       const pending = await this.prisma.appointmentConfirmation.findMany({
         where: {
           sent_at: null,
