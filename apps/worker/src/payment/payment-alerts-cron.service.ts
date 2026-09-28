@@ -513,7 +513,7 @@ export class PaymentAlertsCronService {
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
-        codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
+        codigo: (c.pix_copy_paste || undefined), // SO o PIX copia-e-cola (pagar baixa o boleto sozinho); barcode/nossoNumero NAO e PIX
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         venceEm,
         tipo,
@@ -650,7 +650,7 @@ export class PaymentAlertsCronService {
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
-        codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
+        codigo: (c.pix_copy_paste || undefined), // SO o PIX copia-e-cola (pagar baixa o boleto sozinho); barcode/nossoNumero NAO e PIX
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         tipo,
       });
