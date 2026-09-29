@@ -18,10 +18,22 @@
  */
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
-import { PDFDocument as PDFLibDocument } from 'pdf-lib';
+import { PDFDocument as PDFLibDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Onda 17.32.xx — Preenchimento dos termos oficiais (PDFs comprados, sem campos
+ * de formulário) escrevendo os dados POR CIMA das linhas. As coordenadas de cada
+ * branco foram extraídas 1× (via pdfjs) e assadas em contract-templates/
+ * overlay-map.json — em runtime só desenhamos com pdf-lib (sem dependência de
+ * pdfjs em produção). Cada campo tem uma `key` (patient_name, dentist_cro, …)
+ * cujo valor vem do paciente/clínica/data. Se um termo mudar no Eduzz, regerar
+ * o mapa (script em scratch/pdf-overlay).
+ */
+interface OverlayField { key: string; page: number; x: number; y: number; w: number; size: number }
+interface OverlayEntry { numPages: number; isMenor: boolean; fields: OverlayField[] }
 
 /**
  * Onda 14.32 — Mapeamento docId → nome do PDF anexo em contract-templates/.
@@ -48,8 +60,40 @@ export class ContractPdfService {
   /** Onda 14.32 — Caminho dos PDFs anexos. Resolvido via __dirname pra
    *  funcionar tanto em dev (src/) quanto em producao (dist/). */
   private readonly templatesDir = path.join(__dirname, 'contract-templates');
+  /** Cache do overlay-map.json: undefined = ainda não lido; null = falhou. */
+  private overlayMapCache?: Record<string, OverlayEntry> | null;
 
   constructor(private prisma: PrismaService) {}
+
+  /** Carrega (e cacheia) o mapa de coordenadas dos termos oficiais. */
+  private async loadOverlayMap(): Promise<Record<string, OverlayEntry> | null> {
+    if (this.overlayMapCache !== undefined) return this.overlayMapCache;
+    try {
+      const raw = await fs.readFile(path.join(this.templatesDir, 'overlay-map.json'), 'utf8');
+      this.overlayMapCache = JSON.parse(raw) as Record<string, OverlayEntry>;
+    } catch (e: any) {
+      this.logger.warn(`[Contract PDF] overlay-map.json não carregado (${e?.message}) — termos sairão com as linhas em branco`);
+      this.overlayMapCache = null;
+    }
+    return this.overlayMapCache;
+  }
+
+  /** Escreve um valor por cima de um branco (encolhe a fonte pra caber na linha). */
+  private drawOverlayField(page: PDFPage, text: string, f: OverlayField, font: PDFFont) {
+    const maxW = Math.max((f.w || 60) - 3, 18);
+    let size = Math.min(f.size || 9, 9.5);
+    const widthAt = (sz: number) => {
+      try { return font.widthOfTextAtSize(text, sz); } catch { return font.widthOfTextAtSize(text.replace(/[^\x00-\xff]/g, ''), sz); }
+    };
+    if (widthAt(size) > maxW) size = Math.max(5.3, (size * maxW) / widthAt(size));
+    try {
+      page.drawText(text, { x: f.x + 2, y: f.y + 2, size, font, color: rgb(0, 0, 0) });
+    } catch {
+      // char fora do WinAnsi: remove os não-latinos e tenta de novo (não quebra o PDF)
+      const safe = text.replace(/[^\x00-\xff]/g, '');
+      if (safe) { try { page.drawText(safe, { x: f.x + 2, y: f.y + 2, size, font, color: rgb(0, 0, 0) }); } catch { /* desiste desse campo */ } }
+    }
+  }
 
   /**
    * Onda 17.32.30 — Le o PDF de um template (termo) direto do disco.
@@ -227,9 +271,38 @@ export class ContractPdfService {
       return mainPdfBuffer;
     }
 
-    // 3. Mescla via pdf-lib: principal + cada PDF anexo na ordem dos
-    //    selected_documents.
-    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment);
+    // 3. Dados pra PREENCHER os termos oficiais (escritos por cima das linhas).
+    //    responsavel_* ficam de fora de propósito (dado do responsável legal
+    //    não fica no sistema → linha em branco pra assinar à mão).
+    const p = contract.quote.patient || {};
+    const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
+    const patientResidencia = [
+      cs(p.address),
+      cs(p.address_number) ? `nº ${cs(p.address_number)}` : '',
+      cs(p.neighborhood),
+    ].filter(Boolean).join(', ');
+    const now = new Date();
+    const fillData: Record<string, string> = {
+      patient_name: cs(p.name),
+      patient_rg: cs(p.rg),
+      patient_cpf: cs(p.cpf),
+      patient_address: patientResidencia,
+      patient_city: cs(p.city),
+      patient_cep: cs(p.zip_code),
+      dentist_name: contratado.resp,
+      dentist_cro: contratado.cro,
+      clinic_address: contratado.consultorio,
+      clinic_city: contratado.cidade,
+      clinic_cep: contratado.cep,
+      date_city: contratado.cidade,
+      date_day: String(now.getDate()).padStart(2, '0'),
+      date_month: now.toLocaleDateString('pt-BR', { month: 'long' }),
+      date_year: String(now.getFullYear()),
+    };
+
+    // 4. Mescla via pdf-lib: principal + cada PDF anexo, PREENCHENDO os termos
+    //    oficiais por cima das linhas na ordem dos selected_documents.
+    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment, fillData);
   }
 
   /**
@@ -247,6 +320,9 @@ export class ContractPdfService {
     phone: string;
     email: string;
     endereco: string;
+    consultorio: string;
+    cidade: string;
+    cep: string;
     cidadeUf: string;
     resp: string;
     cro: string;
@@ -286,13 +362,19 @@ export class ContractPdfService {
     const cidadeUf = cidade ? (uf ? `${cidade} - ${uf}` : cidade) : '';
 
     const numero = clean(tenant?.address_number);
-    const enderecoParts = [
+    const cep = clean(tenant?.zip_code);
+    // Só a rua (sem cidade/CEP) — os termos oficiais têm brancos separados
+    // pra cidade e CEP do consultório.
+    const consultorio = [
       clean(tenant?.address),
       numero ? `nº ${numero}` : '',
       clean(tenant?.address_complement),
       clean(tenant?.neighborhood),
+    ].filter(Boolean).join(', ');
+    const enderecoParts = [
+      consultorio,
       cidade ? (uf ? `${cidade}/${uf}` : cidade) : '',
-      clean(tenant?.zip_code) ? `CEP ${clean(tenant?.zip_code)}` : '',
+      cep ? `CEP ${cep}` : '',
     ].filter(Boolean);
     const endereco = enderecoParts.join(', ');
 
@@ -308,7 +390,7 @@ export class ContractPdfService {
     }
     const qualificacao = qualParts.join(', ');
 
-    return { nome, cnpj, phone, email, endereco, cidadeUf, resp, cro, qualificacao };
+    return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, resp, cro, qualificacao };
   }
 
   /**
@@ -336,9 +418,14 @@ export class ContractPdfService {
   private async mergeWithAttachments(
     mainPdfBuffer: Buffer,
     docIds: string[],
+    fillData?: Record<string, string>,
   ): Promise<Buffer> {
     try {
       const merged = await PDFLibDocument.load(mainPdfBuffer);
+      // Fonte + mapa de coordenadas pra PREENCHER os termos oficiais por cima.
+      const overlay = fillData ? await this.loadOverlayMap() : null;
+      let overlayFont: PDFFont | null = null;
+      if (overlay) { try { overlayFont = await merged.embedFont(StandardFonts.Helvetica); } catch { overlayFont = null; } }
       for (const docId of docIds) {
         const pdfPath = await this.resolveExtraDocPath(docId);
         if (!pdfPath) continue;
@@ -349,10 +436,27 @@ export class ContractPdfService {
             attachedDoc,
             attachedDoc.getPageIndices(),
           );
+          // Índice (no doc mesclado) da 1ª página deste anexo — pra desenhar
+          // o overlay na página certa (o termo de implante tem 2 páginas).
+          const baseIndex = merged.getPageCount();
           for (const page of copiedPages) {
             merged.addPage(page);
           }
-          this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath})`);
+          // Preenche os brancos do termo (se há mapa/fonte e dados).
+          const filename = EXTRA_DOCUMENT_PDF_MAP[docId];
+          const entry = overlay && filename ? overlay[filename] : null;
+          if (entry && overlayFont && fillData) {
+            let n = 0;
+            for (const f of entry.fields) {
+              const val = fillData[f.key];
+              if (!val) continue; // ex: responsavel_* fica em branco
+              const pageIdx = baseIndex + (f.page || 0);
+              if (pageIdx < merged.getPageCount()) { this.drawOverlayField(merged.getPage(pageIdx), val, f, overlayFont); n++; }
+            }
+            this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath}) + ${n} campos preenchidos`);
+          } else {
+            this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath})`);
+          }
         } catch (e: unknown) {
           // Se falhar a mesclagem de um anexo especifico, loga e segue.
           // Operador pode tentar pre-visualizar de novo apos corrigir o
