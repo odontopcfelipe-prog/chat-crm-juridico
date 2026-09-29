@@ -1208,6 +1208,18 @@ export default function FinanceiroPage() {
               </button>
             );
           })}
+          {/* Contas a Pagar — só adm/gerente (manage_payables). Abre a tela dedicada
+              (restrita); o setor financeiro/recepção nem vê o atalho. */}
+          {hasPermission('manage_payables') && (
+            <button
+              onClick={() => router.push('/atendimento/financeiro/contas-a-pagar')}
+              title="Contas a pagar (adm/gerente)"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap text-rose-500 hover:bg-rose-500/10"
+            >
+              <Receipt className="w-3 h-3 shrink-0 hidden md:inline-block" />
+              Contas a pagar
+            </button>
+          )}
         </div>
 
         {/* ─── TAB: Resumo ─── */}
