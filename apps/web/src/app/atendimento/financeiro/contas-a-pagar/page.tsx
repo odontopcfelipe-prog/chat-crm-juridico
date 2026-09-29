@@ -330,17 +330,17 @@ function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; on
         : null;
 
   return (
-    <div className={`rounded-xl border p-3 flex items-center gap-3 ${overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
+    <div className={`rounded-xl border p-3 flex items-center gap-3 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-bold text-foreground truncate">{t.description}</span>
+          <span className={`text-sm font-bold truncate ${paid ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{t.description}</span>
           {badge}
-          {paid && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 inline-flex items-center gap-0.5"><Check size={9} /> pago</span>}
+          {paid && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 inline-flex items-center gap-0.5"><Check size={9} /> pago{t.paid_at ? ` ${brDate(t.paid_at)}` : ''}</span>}
           {overdue && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 inline-flex items-center gap-0.5"><AlertTriangle size={9} /> vencida</span>}
         </div>
         <div className="text-[12px] text-muted-foreground">{t.category} · venc. {brDate(t.due_date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
       </div>
-      <div className="text-sm font-bold text-foreground tabular-nums">{fmt(Number(t.amount))}</div>
+      <div className={`text-sm font-bold tabular-nums ${paid ? 'text-emerald-600' : 'text-foreground'}`}>{fmt(Number(t.amount))}</div>
       <div className="flex items-center gap-1">
         {!paid && <button title="Editar (valor e vencimento)" onClick={() => onEdit(t)} className="p-1.5 rounded border border-border hover:bg-accent"><Pencil size={13} /></button>}
         {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={14} /></button>}
