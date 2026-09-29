@@ -39,11 +39,24 @@ export class CreatePayableDto {
 
   @IsOptional() @IsString() notes?: string;
 
+  // Conciliação de caixa: se vier account_id + status PAGO, o gasto entra no
+  // fechamento de caixa do dia (debita a conta escolhida). Sem account_id = só
+  // despesa gerencial (não passa pela gaveta).
+  @IsOptional() @IsString() account_id?: string;
+
   // Recorrência (conta fixa mensal variável — água/luz/internet)
   @IsOptional() @IsBoolean() is_recurring?: boolean;
   @IsOptional() @IsString() recurrence_pattern?: string;
   @IsOptional() @IsInt() @Min(1) @Max(31) recurrence_day?: number;
   @IsOptional() @IsString() recurrence_end_date?: string;
+}
+
+/** Pagar uma conta a pagar debitando o caixa do dia (conta + forma). */
+export class PayViaCaixaDto {
+  @IsString() @IsNotEmpty() account_id: string;
+
+  @IsString() @IsIn(['DINHEIRO', 'CARTAO', 'PIX', 'TRANSFERENCIA'])
+  payment_method: string;
 }
 
 /** Editar/pagar uma conta a pagar. Sem `type` (não pode virar RECEITA). */

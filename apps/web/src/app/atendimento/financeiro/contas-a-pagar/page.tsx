@@ -22,7 +22,6 @@ const fmt = (v: number) =>
 
 /** "hoje" no fuso de Maceió (UTC-3) como YYYY-MM-DD. */
 const maceioTodayStr = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
 /** due_date/date vêm como ISO (gravado ao meio-dia UTC) → fatiar dá o dia certo. */
 const dayOf = (iso?: string | null) => (iso ? iso.slice(0, 10) : '');
 const brDate = (iso?: string | null) => {
@@ -50,8 +49,13 @@ interface Tx {
   parent_transaction_id: string | null;
 }
 interface Category { id: string; name: string; type: string; }
+interface CashAccount { id: string; name: string; kind: string; active: boolean; }
 
 const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
+// Formas aceitas pelo caixa (o gasto/pagamento que passa pela gaveta).
+const CAIXA_METHODS = ['DINHEIRO', 'CARTAO', 'PIX', 'TRANSFERENCIA'];
+// Forma sugerida por tipo de conta.
+const METHOD_BY_KIND: Record<string, string> = { CAIXA: 'DINHEIRO', BANCO: 'PIX', CARTAO: 'CARTAO' };
 
 export default function ContasAPagarPage() {
   const router = useRouter();
@@ -61,14 +65,19 @@ export default function ContasAPagarPage() {
   const [tab, setTab] = useState<'fixas' | 'dia'>('fixas');
   const [txs, setTxs] = useState<Tx[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => maceioTodayStr().slice(0, 7)); // YYYY-MM
   const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
+  const [payTarget, setPayTarget] = useState<Tx | null>(null);
 
   const monthRange = useCallback(() => {
     const [y, m] = month.split('-').map(Number);
-    const start = ymd(new Date(Date.UTC(y, m - 1, 1, 12)));
-    const end = ymd(new Date(Date.UTC(y, m, 0, 12)));
+    // Bordas do mês no fuso de Maceió (UTC-3), casando com a janela do caixa:
+    // dia 1 00:00 Maceió = 03:00Z; fim = dia 1 do mês seguinte 02:59:59.999Z
+    // (= último dia 23:59:59.999 Maceió). Assim o gasto lançado à noite não pula.
+    const start = new Date(Date.UTC(y, m - 1, 1, 3, 0, 0, 0)).toISOString();
+    const end = new Date(Date.UTC(y, m, 1, 2, 59, 59, 999)).toISOString();
     return { start, end };
   }, [month]);
 
@@ -77,13 +86,15 @@ export default function ContasAPagarPage() {
     setLoading(true);
     try {
       const { start, end } = monthRange();
-      const [txRes, catRes] = await Promise.all([
+      const [txRes, catRes, accRes] = await Promise.all([
         api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500`),
         api.get('/payables/categories'),
+        api.get('/payables/accounts'),
       ]);
       const data = (txRes.data?.data ?? txRes.data ?? []) as Tx[];
       setTxs(data.map((t) => ({ ...t, amount: Number(t.amount) })));
       setCats((catRes.data ?? []) as Category[]);
+      setAccounts((accRes.data ?? []) as CashAccount[]);
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao carregar contas a pagar');
     } finally {
@@ -192,7 +203,7 @@ export default function ContasAPagarPage() {
           <TxList
             items={listForTab}
             today={today}
-            onPay={pay}
+            onPay={(t) => setPayTarget(t)}
             onDelete={del}
             onSaveAmount={saveAmount}
             emptyLabel={tab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
@@ -202,7 +213,8 @@ export default function ContasAPagarPage() {
 
       {modal === 'parcelada' && <ParceladaModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'recorrente' && <RecorrenteModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'dia' && <GastoDoDiaModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {payTarget && <PayModal tx={payTarget} accounts={accounts} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
     </div>
   );
 }
@@ -417,27 +429,40 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
   );
 }
 
-function GastoDoDiaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[]; accounts: CashAccount[]; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('DINHEIRO');
+  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [method, setMethod] = useState(METHOD_BY_KIND[accounts[0]?.kind] || 'DINHEIRO');
   const [paid, setPaid] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const onAccountChange = (id: string) => {
+    setAccountId(id);
+    const acc = accounts.find((a) => a.id === id);
+    if (acc) setMethod(METHOD_BY_KIND[acc.kind] || 'DINHEIRO');
+  };
 
   const submit = async () => {
     const amt = parseFloat(amount || '0');
     if (!description.trim() || !category || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
+    if (paid && !accountId) { showError('Escolha a conta de onde saiu o dinheiro (pra bater no caixa)'); return; }
     setSaving(true);
     try {
-      // competência = HOJE em Maceió, ancorada ao meio-dia UTC (naive-UTC) pra
-      // não escorregar de dia/mês à noite.
-      const dateIso = `${maceioTodayStr()}T12:00:00.000Z`;
-      await api.post('/payables/transactions', {
-        description: description.trim(), category, amount: amt,
-        date: dateIso, payment_method: method || undefined,
-        status: paid ? 'PAGO' : 'PENDENTE', paid_at: paid ? new Date().toISOString() : undefined,
-      });
+      if (paid) {
+        // Pago hoje → passa pelo CAIXA (debita a conta, entra no fechamento do dia).
+        await api.post('/payables/transactions', {
+          description: description.trim(), category, amount: amt,
+          status: 'PAGO', account_id: accountId, payment_method: method,
+        });
+      } else {
+        // Pendente → só despesa gerencial (competência ao meio-dia UTC de hoje).
+        await api.post('/payables/transactions', {
+          description: description.trim(), category, amount: amt,
+          status: 'PENDENTE', date: `${maceioTodayStr()}T12:00:00.000Z`,
+        });
+      }
       showSuccess('Gasto lançado');
       onSaved();
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao lançar'); }
@@ -448,18 +473,75 @@ function GastoDoDiaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
     <ModalShell title="Lançar gasto do dia" onClose={onClose}>
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Material de limpeza" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <Field label="Valor (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
+      <label className="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje (entra no caixa)
+      </label>
+      {paid && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Conta (de onde saiu)">
+            <select value={accountId} onChange={(e) => onAccountChange(e.target.value)} className={inputCls}>
+              <option value="">Selecione…</option>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Forma">
+            <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+              {CAIXA_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+        </div>
+      )}
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Lançar gasto</button>
+    </ModalShell>
+  );
+}
+
+function PayModal({ tx, accounts, onClose, onSaved, onQuickPay }: { tx: Tx; accounts: CashAccount[]; onClose: () => void; onSaved: () => void; onQuickPay: () => Promise<void> }) {
+  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [method, setMethod] = useState(METHOD_BY_KIND[accounts[0]?.kind] || 'DINHEIRO');
+  const [saving, setSaving] = useState(false);
+
+  const onAccountChange = (id: string) => {
+    setAccountId(id);
+    const acc = accounts.find((a) => a.id === id);
+    if (acc) setMethod(METHOD_BY_KIND[acc.kind] || 'DINHEIRO');
+  };
+
+  const payCaixa = async () => {
+    if (!accountId) { showError('Escolha a conta'); return; }
+    setSaving(true);
+    try {
+      await api.post(`/payables/transactions/${tx.id}/pay`, { account_id: accountId, payment_method: method });
+      showSuccess('Pago e lançado no caixa');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao pagar'); }
+    finally { setSaving(false); }
+  };
+
+  const quick = async () => {
+    setSaving(true);
+    try { await onQuickPay(); } finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title={`Pagar: ${tx.description}`} onClose={onClose}>
+      <div className="text-sm text-muted-foreground">Valor: <strong className="text-foreground">{fmt(Number(tx.amount))}</strong></div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
+        <Field label="Conta (de onde saiu)">
+          <select value={accountId} onChange={(e) => onAccountChange(e.target.value)} className={inputCls}>
+            <option value="">Selecione…</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
         <Field label="Forma">
           <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
-            {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+            {CAIXA_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </Field>
       </div>
-      <label className="flex items-center gap-2 text-sm text-foreground">
-        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje
-      </label>
-      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Lançar gasto</button>
+      <button disabled={saving} onClick={payCaixa} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Pagar e lançar no caixa</button>
+      <button disabled={saving} onClick={quick} className="w-full py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent">Só marcar como pago (sem passar pelo caixa)</button>
     </ModalShell>
   );
 }

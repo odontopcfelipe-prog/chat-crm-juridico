@@ -2,7 +2,8 @@ import { Injectable, BadRequestException, ForbiddenException, NotFoundException,
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
-import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto } from './payables.dto';
+import { CaixaService } from '../caixa/caixa.service';
+import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto, PayViaCaixaDto } from './payables.dto';
 
 /**
  * Contas a Pagar (Accounts Payable).
@@ -15,6 +16,7 @@ import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto } from './
  * Acesso: o controller inteiro exige @RequiresPermission('manage_payables').
  */
 const SOURCE = 'PAYABLES';
+const CAIXA_METHODS = ['DINHEIRO', 'CARTAO', 'PIX', 'TRANSFERENCIA'];
 
 @Injectable()
 export class PayablesService {
@@ -23,6 +25,7 @@ export class PayablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly financeiro: FinanceiroService,
+    private readonly caixa: CaixaService,
   ) {}
 
   // ─── Datas (naive-UTC de Maceió: ancora ao meio-dia UTC pra não pular dia) ──
@@ -78,6 +81,7 @@ export class PayablesService {
       tenantId,
       type: 'DESPESA',
       source: SOURCE,
+      periodField: 'due_date', // competência da conta a pagar = vencimento
       status: params.status,
       category: params.category,
       startDate: params.startDate,
@@ -98,16 +102,58 @@ export class PayablesService {
     return cats.filter((c: any) => c.type === 'DESPESA');
   }
 
+  /** Contas do caixa (CashAccount) pro seletor de "onde saiu o dinheiro". */
+  async getAccounts(tenantId?: string) {
+    const tid = this.requireTenant(tenantId);
+    const accounts = await this.caixa.listAccounts(tid);
+    return accounts.filter((a: any) => a.active);
+  }
+
   // ─── Criar / editar / pagar / excluir ──────────────────────────────────────
   createPayable(dto: CreatePayableDto, tenantId: string, actorId?: string) {
     const tid = this.requireTenant(tenantId);
+    // Gasto pago via caixa: account_id + status PAGO → debita a gaveta do dia
+    // (entra no fechamento). source=PAYABLES pra aparecer também em Contas a Pagar.
+    if (dto.account_id && dto.status === 'PAGO') {
+      // Forma tem que ser uma que o caixa reconhece (senão cai no balde online e
+      // distorce a conferência física). Espelha o @IsIn do PayViaCaixaDto.
+      const method = dto.payment_method || 'DINHEIRO';
+      if (!CAIXA_METHODS.includes(method)) {
+        throw new BadRequestException('Forma de pagamento inválida para o caixa (use DINHEIRO/CARTAO/PIX/TRANSFERENCIA)');
+      }
+      return this.caixa.addMovement(
+        tid,
+        actorId || '',
+        {
+          direction: 'SAIDA',
+          amount: dto.amount,
+          method,
+          account_id: dto.account_id,
+          description: dto.description,
+          category: dto.category,
+        } as any,
+        { source: SOURCE },
+      );
+    }
+    // Despesa gerencial (pendente, ou paga sem passar pela gaveta)
+    const { account_id, ...rest } = dto as any;
     return this.financeiro.createTransaction({
-      ...(dto as any),
+      ...rest,
       type: 'DESPESA',
       source: SOURCE,
       visible_to_dentist: false,
       tenant_id: tid,
       actor_id: actorId,
+    });
+  }
+
+  /** Paga uma conta a pagar existente debitando o caixa do dia. */
+  async payViaCaixa(id: string, dto: PayViaCaixaDto, tenantId: string, actorId?: string) {
+    const tid = this.requireTenant(tenantId);
+    await this.assertPayable(id, tid);
+    return this.caixa.payExistingViaCaixa(id, tid, actorId || '', {
+      account_id: dto.account_id,
+      payment_method: dto.payment_method,
     });
   }
 

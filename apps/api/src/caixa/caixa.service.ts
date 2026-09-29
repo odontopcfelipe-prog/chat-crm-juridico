@@ -198,10 +198,14 @@ export class CaixaService {
     return { cash_date: cashDate, closing, accounts, movements, totals };
   }
 
-  async addMovement(tenantId: string, userId: string, dto: AddMovementDto) {
+  // opts.source: marca a origem do lançamento (ex.: 'PAYABLES' quando vem do
+  // módulo Contas a Pagar). Assim o gasto aparece no caixa E na tela de contas a
+  // pagar, sem vazar pra tela financeira legada (que filtra por source).
+  async addMovement(tenantId: string, userId: string, dto: AddMovementDto, opts?: { source?: string }) {
     if (!(dto.amount > 0)) throw new BadRequestException('Valor deve ser maior que zero.');
     const acc = await this.prisma.cashAccount.findUnique({ where: { id: dto.account_id } });
     if (!acc || acc.tenant_id !== tenantId) throw new NotFoundException('Conta nao encontrada');
+    if (!acc.active) throw new BadRequestException('Conta desativada — reative-a para lançar nela.');
     // Anti-IDOR: lead informado tem que ser do próprio tenant (senão ignora).
     let leadId: string | null = null;
     if (dto.lead_id) {
@@ -229,12 +233,52 @@ export class CaixaService {
         account_id: dto.account_id,
         cash_closing_id: closing.id,
         lead_id: leadId,
+        source: opts?.source ?? null,
+        visible_to_dentist: opts?.source ? false : undefined,
       } as any,
     });
     await this.logAction(userId, dto.direction === 'SAIDA' ? 'CAIXA_SAIDA' : 'CAIXA_ENTRADA', tx.id, {
-      valor: r2(dto.amount), forma: dto.method, conta: acc.name,
+      valor: r2(dto.amount), forma: dto.method, conta: acc.name, origem: opts?.source,
     });
     return tx;
+  }
+
+  // Paga uma DESPESA JÁ EXISTENTE (ex.: conta a pagar PENDENTE) debitando o caixa
+  // do dia: seta PAGO + conta + fechamento + data de HOJE (competência de caixa =
+  // dia do pagamento), mantendo o due_date original. Reusa a trava de dia aberto.
+  async payExistingViaCaixa(
+    txId: string,
+    tenantId: string,
+    userId: string,
+    opts: { account_id: string; payment_method: string },
+  ) {
+    const acc = await this.prisma.cashAccount.findUnique({ where: { id: opts.account_id } });
+    if (!acc || acc.tenant_id !== tenantId) throw new NotFoundException('Conta nao encontrada');
+    if (!acc.active) throw new BadRequestException('Conta desativada — reative-a para pagar nela.');
+    const tx = await this.prisma.financialTransaction.findUnique({ where: { id: txId } });
+    if (!tx || tx.tenant_id !== tenantId) throw new NotFoundException('Lancamento nao encontrado');
+    if (tx.status === 'PAGO') throw new BadRequestException('Este lançamento já está pago.');
+    // Não ressuscita um cancelado como pago (o cancelamento tem valor de auditoria).
+    if (tx.status === 'CANCELADO') throw new BadRequestException('Este lançamento foi cancelado e não pode ser pago.');
+    const closing = await this.ensureTodayClosing(tenantId, userId);
+    if (!OPEN_STATES.includes(closing.status)) {
+      throw new BadRequestException('O caixa do dia ja foi fechado. Peca ao admin pra devolver antes de lancar.');
+    }
+    const updated = await this.prisma.financialTransaction.update({
+      where: { id: txId },
+      data: {
+        status: 'PAGO',
+        paid_at: new Date(),
+        date: new Date(), // competência de caixa = dia do pagamento (aparece no dia)
+        payment_method: opts.payment_method,
+        account_id: opts.account_id,
+        cash_closing_id: closing.id,
+      } as any,
+    });
+    await this.logAction(userId, 'CAIXA_SAIDA', txId, {
+      valor: Number(tx.amount), forma: opts.payment_method, conta: acc.name, origem: (tx as any).source,
+    });
+    return updated;
   }
 
   // Só remove lançamento MANUAL do caixa (tem account_id, sem cobrança), enquanto

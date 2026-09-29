@@ -13,7 +13,7 @@ import {
 import { PayablesService } from './payables.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
-import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto } from './payables.dto';
+import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto, PayViaCaixaDto } from './payables.dto';
 
 /**
  * Contas a Pagar — acesso restrito a ADM/gerente (manage_payables).
@@ -54,6 +54,12 @@ export class PayablesController {
     return this.service.getCategories(req.user.tenant_id);
   }
 
+  // Contas do caixa (pra escolher onde saiu o dinheiro na conciliação).
+  @Get('accounts')
+  accounts(@Request() req: any) {
+    return this.service.getAccounts(req.user.tenant_id);
+  }
+
   // Lançar conta / gasto do dia / conta recorrente (sempre DESPESA + source=PAYABLES)
   @Post('transactions')
   create(@Body() body: CreatePayableDto, @Request() req: any) {
@@ -64,6 +70,12 @@ export class PayablesController {
   @Post('installment-plan')
   installmentPlan(@Body() body: CreateInstallmentPlanDto, @Request() req: any) {
     return this.service.createInstallmentPlan(body, req.user.tenant_id, req.user.id);
+  }
+
+  // Pagar debitando o caixa do dia (conta + forma) — entra no fechamento.
+  @Post('transactions/:id/pay')
+  pay(@Param('id') id: string, @Body() body: PayViaCaixaDto, @Request() req: any) {
+    return this.service.payViaCaixa(id, body, req.user.tenant_id, req.user.id);
   }
 
   @Patch('transactions/:id')

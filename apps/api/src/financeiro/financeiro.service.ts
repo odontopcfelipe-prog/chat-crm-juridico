@@ -92,6 +92,7 @@ export class FinanceiroService {
     status?: string;
     source?: string;
     excludeSource?: string;
+    periodField?: string; // 'date' (padrão) | 'due_date' (Contas a Pagar)
     legalCaseId?: string;
     leadId?: string;
     dentistId?: string;
@@ -146,20 +147,27 @@ export class FinanceiroService {
       const maceioNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
       const includeCarryOver = !!query.startDate && (!query.endDate || new Date(dateFilter.lte ?? query.endDate) >= maceioNow);
 
+      // Campo do período: 'date' (padrão, competência = lançamento) ou 'due_date'
+      // (Contas a Pagar: competência = VENCIMENTO — assim uma conta paga via caixa
+      // continua no mês do vencimento, não pula pro mês do pagamento). Gasto sem
+      // due_date cai no 'date'.
+      const byDue = query.periodField === 'due_date';
+      const periodOr: any[] = byDue
+        ? [{ due_date: dateFilter }, { due_date: null, date: dateFilter }]
+        : [{ date: dateFilter }];
+      const carryOver = includeCarryOver
+        ? [byDue
+            ? { status: 'PENDENTE', due_date: { lt: new Date(query.startDate as string) } }
+            : { status: 'PENDENTE', date: { lt: new Date(query.startDate as string) } }]
+        : [];
+
       // Transações do período + vencidas de meses ANTERIORES (não do mesmo mês)
       const existingOr = where.OR || [];
       delete where.OR;
       where.AND = [
         ...(where.AND || []),
         ...(existingOr.length > 0 ? [{ OR: existingOr }] : []),
-        { OR: [
-          { date: dateFilter },
-          // Dívidas de meses anteriores: date ANTES do período + still PENDENTE
-          ...(includeCarryOver ? [{
-            status: 'PENDENTE',
-            date: { lt: new Date(query.startDate as string) },
-          }] : []),
-        ]},
+        { OR: [...periodOr, ...carryOver] },
       ];
     }
 
