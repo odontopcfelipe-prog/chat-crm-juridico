@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
-  CalendarClock, Repeat, Layers, Receipt, AlertTriangle,
+  CalendarClock, Repeat, Layers, Receipt, AlertTriangle, ArrowLeft,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -22,6 +22,10 @@ const fmt = (v: number) =>
 
 /** "hoje" no fuso de Maceió (UTC-3) como YYYY-MM-DD. */
 const maceioTodayStr = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+/** Preferências da tela (aba/empresa/mês) — persistem no refresh. localStorage é
+ *  best-effort (private/bloqueado pode lançar), então tudo em try/catch. */
+const readLS = (k: string): string => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const writeLS = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignora */ } };
 /** Aceita número no formato BR (vírgula decimal, ponto milhar) OU com ponto decimal.
  *  Ex.: "5.437,96"→5437.96 · "5437,96"→5437.96 · "5437.96"→5437.96 · "1.000"→1000. */
 const parseBRLNumber = (s: string): number => {
@@ -79,14 +83,15 @@ export default function ContasAPagarPage() {
   const { hasPermission, ready } = useUserPermissions();
   const allowed = hasPermission('manage_payables');
 
-  const [tab, setTab] = useState<'fixas' | 'dia'>('fixas');
+  // Estado da tela persistido no refresh (aba/empresa/mês).
+  const [tab, setTab] = useState<'fixas' | 'dia'>(() => (readLS('payables_tab') === 'dia' ? 'dia' : 'fixas'));
   const [txs, setTxs] = useState<Tx[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompany, setSelectedCompany] = useState<string>(''); // '' = clínica
+  const [selectedCompany, setSelectedCompany] = useState<string>(() => readLS('payables_company')); // '' = clínica
   const [loading, setLoading] = useState(true);
-  const [month, setMonth] = useState(() => maceioTodayStr().slice(0, 7)); // YYYY-MM
+  const [month, setMonth] = useState(() => readLS('payables_month') || maceioTodayStr().slice(0, 7)); // YYYY-MM
   const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
   const [editTarget, setEditTarget] = useState<Tx | null>(null);
@@ -128,12 +133,19 @@ export default function ContasAPagarPage() {
     if (!allowed) return;
     try {
       const { data } = await api.get('/payables/companies');
-      setCompanies((data ?? []) as Company[]);
+      const list = (data ?? []) as Company[];
+      setCompanies(list);
+      // Se a empresa persistida foi apagada/desativada, volta pra clínica (evita erro no filtro).
+      setSelectedCompany((cur) => (cur && !list.some((c) => c.id === cur) ? '' : cur));
     } catch { /* silencioso */ }
   }, [allowed]);
 
   useEffect(() => { if (ready && allowed) load(); }, [ready, allowed, load]);
   useEffect(() => { if (ready && allowed) loadCompanies(); }, [ready, allowed, loadCompanies]);
+  // Persiste a preferência da tela pra o refresh continuar na mesma.
+  useEffect(() => { writeLS('payables_tab', tab); }, [tab]);
+  useEffect(() => { writeLS('payables_company', selectedCompany); }, [selectedCompany]);
+  useEffect(() => { writeLS('payables_month', month); }, [month]);
 
   // Criar / renomear empresa (prompt simples — ferramenta de admin).
   const newCompany = async () => {
@@ -209,6 +221,10 @@ export default function ContasAPagarPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
+        {/* Voltar pra tela anterior (Financeiro / Início) */}
+        <button onClick={() => router.back()} className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground -mb-1">
+          <ArrowLeft size={16} /> Voltar
+        </button>
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
