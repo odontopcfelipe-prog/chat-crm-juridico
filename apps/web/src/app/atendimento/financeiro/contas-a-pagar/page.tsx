@@ -22,6 +22,24 @@ const fmt = (v: number) =>
 
 /** "hoje" no fuso de Maceió (UTC-3) como YYYY-MM-DD. */
 const maceioTodayStr = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+/** Aceita número no formato BR (vírgula decimal, ponto milhar) OU com ponto decimal.
+ *  Ex.: "5.437,96"→5437.96 · "5437,96"→5437.96 · "5437.96"→5437.96 · "1.000"→1000. */
+const parseBRLNumber = (s: string): number => {
+  let cleaned = (s || '').trim().replace(/[^\d.,]/g, '');
+  if (cleaned.includes(',')) {
+    // Formato BR: vírgula = decimal, pontos = milhar.
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes('.')) {
+    // Sem vírgula: um único ponto com ≤2 casas é decimal (5437.96); qualquer
+    // outra combinação de pontos é separador de milhar (1.000 / 1.000.000).
+    const single = cleaned.indexOf('.') === cleaned.lastIndexOf('.');
+    const decimals = cleaned.length - cleaned.lastIndexOf('.') - 1;
+    if (!(single && decimals <= 2)) cleaned = cleaned.replace(/\./g, '');
+  }
+  return parseFloat(cleaned);
+};
+/** Valor pra editar num input BR (vírgula): 5437.96 → "5437,96". */
+const toBRLInput = (n: number) => Number(n).toFixed(2).replace('.', ',');
 /** due_date/date vêm como ISO (gravado ao meio-dia UTC) → fatiar dá o dia certo. */
 const dayOf = (iso?: string | null) => (iso ? iso.slice(0, 10) : '');
 const brDate = (iso?: string | null) => {
@@ -70,6 +88,7 @@ export default function ContasAPagarPage() {
   const [month, setMonth] = useState(() => maceioTodayStr().slice(0, 7)); // YYYY-MM
   const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
+  const [editTarget, setEditTarget] = useState<Tx | null>(null);
 
   const monthRange = useCallback(() => {
     const [y, m] = month.split('-').map(Number);
@@ -151,13 +170,6 @@ export default function ContasAPagarPage() {
       load();
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao excluir'); }
   };
-  const saveAmount = async (t: Tx, amount: number) => {
-    try {
-      await api.patch(`/payables/transactions/${t.id}`, { amount });
-      showSuccess('Valor ajustado');
-      load();
-    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao ajustar'); }
-  };
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -204,8 +216,8 @@ export default function ContasAPagarPage() {
             items={listForTab}
             today={today}
             onPay={(t) => setPayTarget(t)}
+            onEdit={(t) => setEditTarget(t)}
             onDelete={del}
-            onSaveAmount={saveAmount}
             emptyLabel={tab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
           />
         )}
@@ -215,6 +227,7 @@ export default function ContasAPagarPage() {
       {modal === 'recorrente' && <RecorrenteModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {payTarget && <PayModal tx={payTarget} accounts={accounts} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
+      {editTarget && <EditModal tx={editTarget} cats={cats} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load(); }} />}
     </div>
   );
 }
@@ -237,23 +250,21 @@ function TabBtn({ active, onClick, icon, label }: { active: boolean; onClick: ()
   );
 }
 
-function TxList({ items, today, onPay, onDelete, onSaveAmount, emptyLabel }: {
+function TxList({ items, today, onPay, onEdit, onDelete, emptyLabel }: {
   items: Tx[]; today: string;
-  onPay: (t: Tx) => void; onDelete: (t: Tx) => void; onSaveAmount: (t: Tx, v: number) => void; emptyLabel: string;
+  onPay: (t: Tx) => void; onEdit: (t: Tx) => void; onDelete: (t: Tx) => void; emptyLabel: string;
 }) {
   if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">{emptyLabel}</div>;
   const order = (t: Tx) => (t.status === 'PAGO' ? 2 : t.due_date && dayOf(t.due_date) < today ? 0 : 1);
   const sorted = [...items].sort((a, b) => order(a) - order(b) || (dayOf(a.due_date) < dayOf(b.due_date) ? -1 : 1));
   return (
     <div className="space-y-2">
-      {sorted.map((t) => <TxRow key={t.id} t={t} today={today} onPay={onPay} onDelete={onDelete} onSaveAmount={onSaveAmount} />)}
+      {sorted.map((t) => <TxRow key={t.id} t={t} today={today} onPay={onPay} onEdit={onEdit} onDelete={onDelete} />)}
     </div>
   );
 }
 
-function TxRow({ t, today, onPay, onDelete, onSaveAmount }: { t: Tx; today: string; onPay: (t: Tx) => void; onDelete: (t: Tx) => void; onSaveAmount: (t: Tx, v: number) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(String(Number(t.amount)));
+function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; onPay: (t: Tx) => void; onEdit: (t: Tx) => void; onDelete: (t: Tx) => void }) {
   const paid = t.status === 'PAGO';
   const overdue = !paid && t.due_date && dayOf(t.due_date) < today;
 
@@ -276,22 +287,12 @@ function TxRow({ t, today, onPay, onDelete, onSaveAmount }: { t: Tx; today: stri
         </div>
         <div className="text-[12px] text-muted-foreground">{t.category} · venc. {brDate(t.due_date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
       </div>
-      {editing ? (
-        <div className="flex items-center gap-1">
-          <input type="number" step="0.01" value={val} onChange={(e) => setVal(e.target.value)} className="w-24 px-2 py-1 text-sm rounded border border-border bg-background" autoFocus />
-          <button onClick={() => { const v = parseFloat(val); if (v > 0) { onSaveAmount(t, v); setEditing(false); } }} className="p-1.5 rounded bg-emerald-500 text-white"><Check size={14} /></button>
-          <button onClick={() => { setEditing(false); setVal(String(Number(t.amount))); }} className="p-1.5 rounded border border-border"><X size={14} /></button>
-        </div>
-      ) : (
-        <>
-          <div className="text-sm font-bold text-foreground tabular-nums">{fmt(Number(t.amount))}</div>
-          <div className="flex items-center gap-1">
-            {!paid && <button title="Ajustar valor" onClick={() => setEditing(true)} className="p-1.5 rounded border border-border hover:bg-accent"><Pencil size={13} /></button>}
-            {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={14} /></button>}
-            <button title="Excluir" onClick={() => onDelete(t)} className="p-1.5 rounded border border-border hover:bg-accent text-rose-500"><Trash2 size={13} /></button>
-          </div>
-        </>
-      )}
+      <div className="text-sm font-bold text-foreground tabular-nums">{fmt(Number(t.amount))}</div>
+      <div className="flex items-center gap-1">
+        {!paid && <button title="Editar (valor e vencimento)" onClick={() => onEdit(t)} className="p-1.5 rounded border border-border hover:bg-accent"><Pencil size={13} /></button>}
+        {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={14} /></button>}
+        <button title="Excluir" onClick={() => onDelete(t)} className="p-1.5 rounded border border-border hover:bg-accent text-rose-500"><Trash2 size={13} /></button>
+      </div>
     </div>
   );
 }
@@ -330,6 +331,42 @@ function CategorySelect({ cats, value, onChange }: { cats: Category[]; value: st
   );
 }
 
+function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState(tx.description);
+  const [category, setCategory] = useState(tx.category);
+  const [amount, setAmount] = useState(toBRLInput(Number(tx.amount)));
+  const [dueDate, setDueDate] = useState(dayOf(tx.due_date));
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const amt = parseBRLNumber(amount);
+    if (!description.trim() || !category || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
+    setSaving(true);
+    try {
+      await api.patch(`/payables/transactions/${tx.id}`, {
+        description: description.trim(), category, amount: amt,
+        due_date: dueDate ? `${dueDate}T12:00:00.000Z` : undefined,
+      });
+      showSuccess('Conta atualizada');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao salvar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Editar conta" onClose={onClose}>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} /></Field>
+      <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="5.437,96" /></Field>
+        <Field label="Vencimento"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputCls} /></Field>
+      </div>
+      {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Conta fixa: o vencimento muda só desta ocorrência. Os próximos meses o sistema gera sozinho (todo mês).</div>}
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Salvar</button>
+    </ModalShell>
+  );
+}
+
 function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -340,7 +377,7 @@ function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose:
   const [saving, setSaving] = useState(false);
 
   const n = parseInt(installments || '0', 10);
-  const totalNum = parseFloat(total || '0');
+  const totalNum = parseBRLNumber(total || '0');
   const perParcela = n > 0 && totalNum > 0 ? totalNum / n : 0;
 
   const submit = async () => {
@@ -362,7 +399,7 @@ function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose:
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Compra de cadeira odontológica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor total (R$)"><input type="number" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={inputCls} placeholder="10000" /></Field>
+        <Field label="Valor total (R$)"><input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={inputCls} placeholder="10000" /></Field>
         <Field label="Parcelas"><input type="number" min="1" max="60" value={installments} onChange={(e) => setInstallments(e.target.value)} className={inputCls} /></Field>
       </div>
       <Field label="1º vencimento"><input type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} className={inputCls} /></Field>
@@ -387,7 +424,7 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
-    const amt = parseFloat(amount || '0');
+    const amt = parseBRLNumber(amount || '0');
     const d = parseInt(day || '0', 10);
     if (!description.trim() || !category || !(amt > 0) || !(d >= 1 && d <= 31)) { showError('Preencha descrição, categoria, valor estimado e dia (1-31)'); return; }
     setSaving(true);
@@ -415,7 +452,7 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Energia elétrica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor estimado (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="450" /></Field>
+        <Field label="Valor estimado (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="450" /></Field>
         <Field label="Dia do vencimento"><input type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} /></Field>
       </div>
       <Field label="Forma (opcional)">
@@ -445,7 +482,7 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
   };
 
   const submit = async () => {
-    const amt = parseFloat(amount || '0');
+    const amt = parseBRLNumber(amount || '0');
     if (!description.trim() || !category || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
     if (paid && !accountId) { showError('Escolha a conta de onde saiu o dinheiro (pra bater no caixa)'); return; }
     setSaving(true);
@@ -473,7 +510,7 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
     <ModalShell title="Lançar gasto do dia" onClose={onClose}>
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Material de limpeza" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
-      <Field label="Valor (R$)"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
+      <Field label="Valor (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
       <label className="flex items-center gap-2 text-sm text-foreground">
         <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje (entra no caixa)
       </label>
