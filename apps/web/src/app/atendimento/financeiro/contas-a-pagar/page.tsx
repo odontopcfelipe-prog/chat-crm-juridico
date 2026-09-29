@@ -38,8 +38,6 @@ const parseBRLNumber = (s: string): number => {
   }
   return parseFloat(cleaned);
 };
-/** Valor pra editar num input BR (vírgula): 5437.96 → "5437,96". */
-const toBRLInput = (n: number) => Number(n).toFixed(2).replace('.', ',');
 /** due_date/date vêm como ISO (gravado ao meio-dia UTC) → fatiar dá o dia certo. */
 const dayOf = (iso?: string | null) => (iso ? iso.slice(0, 10) : '');
 const brDate = (iso?: string | null) => {
@@ -322,6 +320,26 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-border bg-background';
 
+/** Formata dígitos como moeda BR preenchendo da direita (centavos): "458936" → "4.589,36". */
+const formatMoneyDigits = (raw: string): string => {
+  const cents = parseInt((raw || '').replace(/\D/g, ''), 10);
+  if (!Number.isFinite(cents)) return '';
+  return (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+/** Campo de dinheiro com máscara BR automática (digite só números). */
+function MoneyInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <input
+      inputMode="numeric"
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, '') ? formatMoneyDigits(e.target.value) : '')}
+      placeholder={placeholder || '0,00'}
+      className={inputCls}
+    />
+  );
+}
+
 function CategorySelect({ cats, value, onChange }: { cats: Category[]; value: string; onChange: (v: string) => void }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
@@ -334,7 +352,7 @@ function CategorySelect({ cats, value, onChange }: { cats: Category[]; value: st
 function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState(tx.description);
   const [category, setCategory] = useState(tx.category);
-  const [amount, setAmount] = useState(toBRLInput(Number(tx.amount)));
+  const [amount, setAmount] = useState(formatMoneyDigits(String(Math.round(Number(tx.amount) * 100))));
   const [dueDate, setDueDate] = useState(dayOf(tx.due_date));
   const [saving, setSaving] = useState(false);
 
@@ -358,7 +376,7 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="5.437,96" /></Field>
+        <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
         <Field label="Vencimento"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputCls} /></Field>
       </div>
       {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Conta fixa: o vencimento muda só desta ocorrência. Os próximos meses o sistema gera sozinho (todo mês).</div>}
@@ -399,7 +417,7 @@ function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose:
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Compra de cadeira odontológica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor total (R$)"><input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={inputCls} placeholder="10000" /></Field>
+        <Field label="Valor total (R$)"><MoneyInput value={total} onChange={setTotal} /></Field>
         <Field label="Parcelas"><input type="number" min="1" max="60" value={installments} onChange={(e) => setInstallments(e.target.value)} className={inputCls} /></Field>
       </div>
       <Field label="1º vencimento"><input type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} className={inputCls} /></Field>
@@ -452,7 +470,7 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Energia elétrica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor estimado (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="450" /></Field>
+        <Field label="Valor estimado (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
         <Field label="Dia do vencimento"><input type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} /></Field>
       </div>
       <Field label="Forma (opcional)">
@@ -510,7 +528,7 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
     <ModalShell title="Lançar gasto do dia" onClose={onClose}>
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Material de limpeza" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
-      <Field label="Valor (R$)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} placeholder="120" /></Field>
+      <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
       <label className="flex items-center gap-2 text-sm text-foreground">
         <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje (entra no caixa)
       </label>
