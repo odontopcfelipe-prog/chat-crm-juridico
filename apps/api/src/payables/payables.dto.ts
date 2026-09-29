@@ -49,6 +49,9 @@ export class CreatePayableDto {
   @IsOptional() @IsString() recurrence_pattern?: string;
   @IsOptional() @IsInt() @Min(1) @Max(31) recurrence_day?: number;
   @IsOptional() @IsString() recurrence_end_date?: string;
+
+  /** Empresa (multi-empresa). Omitido/null = CLÍNICA (padrão). */
+  @IsOptional() @IsString() company_id?: string;
 }
 
 /** Pagar uma conta a pagar debitando o caixa do dia (conta + forma). */
@@ -108,4 +111,16 @@ export class CreateInstallmentPlanDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /** Empresa (multi-empresa). Omitido/null = CLÍNICA (padrão). */
+  @IsOptional() @IsString() company_id?: string;
+}
+
+/** Empresa do Contas a Pagar (só as OUTRAS além da clínica). */
+export class CreateCompanyDto {
+  @IsString() @IsNotEmpty() name: string;
+}
+export class UpdateCompanyDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
 }

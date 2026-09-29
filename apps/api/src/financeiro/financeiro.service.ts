@@ -92,6 +92,7 @@ export class FinanceiroService {
     status?: string;
     source?: string;
     excludeSource?: string;
+    companyId?: string | null; // Contas a Pagar: null = clínica, id = outra empresa
     periodField?: string; // 'date' (padrão) | 'due_date' (Contas a Pagar)
     legalCaseId?: string;
     leadId?: string;
@@ -110,6 +111,8 @@ export class FinanceiroService {
     // legada passa excludeSource='PAYABLES' pra NÃO mostrar contas a pagar sensíveis).
     if (query.source) where.source = query.source;
     else if (query.excludeSource) where.source = { not: query.excludeSource };
+    // Empresa (Contas a Pagar): quando o caller escopa, null = clínica, id = outra.
+    if (query.companyId !== undefined) where.company_id = query.companyId;
     if (query.status) {
       where.status = query.status;
     } else {
@@ -289,12 +292,13 @@ export class FinanceiroService {
     );
   }
 
-  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string }) {
+  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string; company_id?: string | null }) {
     // STUBBED: legal_case_id/honorario_payment_id removidos Fase 0.2
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: data.tenant_id,
         source: data.source ?? null,
+        company_id: data.company_id ?? null,
         type: data.type,
         category: data.category,
         description: data.description,
@@ -628,6 +632,9 @@ export class FinanceiroService {
     if (tenantId) where.tenant_id = tenantId;
     // Exclude cancelled from aggregation
     where.status = { not: 'CANCELADO' };
+    // Só a CLÍNICA (company_id null). Contas de OUTRAS empresas do Contas a Pagar
+    // (company_id != null) não entram nos números da clínica.
+    where.company_id = null;
 
     if (startDate || endDate) {
       where.date = {};
@@ -711,6 +718,7 @@ export class FinanceiroService {
     const where: any = { status: { not: 'CANCELADO' } };
     if (tenantId) where.tenant_id = tenantId;
     if (dentistId) where.dentist_id = dentistId;
+    where.company_id = null; // só a clínica (outras empresas fora do fluxo de caixa dela)
 
     if (startDate || endDate) {
       where.date = {};

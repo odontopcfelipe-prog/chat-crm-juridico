@@ -13,7 +13,7 @@ import {
 import { PayablesService } from './payables.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
-import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto, PayViaCaixaDto } from './payables.dto';
+import { CreateInstallmentPlanDto, CreatePayableDto, UpdatePayableDto, PayViaCaixaDto, CreateCompanyDto, UpdateCompanyDto } from './payables.dto';
 
 /**
  * Contas a Pagar — acesso restrito a ADM/gerente (manage_payables).
@@ -30,6 +30,7 @@ export class PayablesController {
 
   @Get('transactions')
   list(
+    @Query('companyId') companyId: string,
     @Query('status') status: string,
     @Query('category') category: string,
     @Query('startDate') startDate: string,
@@ -40,6 +41,7 @@ export class PayablesController {
   ) {
     return this.service.listPayables({
       tenantId: req.user.tenant_id,
+      companyId: companyId || undefined, // undefined = clínica (padrão)
       status,
       category,
       startDate,
@@ -52,6 +54,22 @@ export class PayablesController {
   @Get('categories')
   categories(@Request() req: any) {
     return this.service.getCategories(req.user.tenant_id);
+  }
+
+  // ─── Empresas (multi-empresa; a clínica é o padrão, não aparece aqui) ───────
+  @Get('companies')
+  companies(@Request() req: any) {
+    return this.service.listCompanies(req.user.tenant_id);
+  }
+
+  @Post('companies')
+  createCompany(@Body() body: CreateCompanyDto, @Request() req: any) {
+    return this.service.createCompany(body, req.user.tenant_id);
+  }
+
+  @Patch('companies/:id')
+  updateCompany(@Param('id') id: string, @Body() body: UpdateCompanyDto, @Request() req: any) {
+    return this.service.updateCompany(id, body, req.user.tenant_id);
   }
 
   // Contas do caixa (pra escolher onde saiu o dinheiro na conciliação).

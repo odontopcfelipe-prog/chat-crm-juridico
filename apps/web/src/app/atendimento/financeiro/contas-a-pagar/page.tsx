@@ -66,6 +66,7 @@ interface Tx {
 }
 interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
+interface Company { id: string; name: string; }
 
 const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
 // Formas aceitas pelo caixa (o gasto/pagamento que passa pela gaveta).
@@ -82,11 +83,14 @@ export default function ContasAPagarPage() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>(''); // '' = clínica
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => maceioTodayStr().slice(0, 7)); // YYYY-MM
   const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
   const [editTarget, setEditTarget] = useState<Tx | null>(null);
+  const isClinic = !selectedCompany;
 
   const monthRange = useCallback(() => {
     const [y, m] = month.split('-').map(Number);
@@ -103,8 +107,9 @@ export default function ContasAPagarPage() {
     setLoading(true);
     try {
       const { start, end } = monthRange();
+      const companyQ = selectedCompany ? `&companyId=${selectedCompany}` : '';
       const [txRes, catRes, accRes] = await Promise.all([
-        api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500`),
+        api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500${companyQ}`),
         api.get('/payables/categories'),
         api.get('/payables/accounts'),
       ]);
@@ -117,9 +122,41 @@ export default function ContasAPagarPage() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, monthRange]);
+  }, [allowed, monthRange, selectedCompany]);
+
+  const loadCompanies = useCallback(async () => {
+    if (!allowed) return;
+    try {
+      const { data } = await api.get('/payables/companies');
+      setCompanies((data ?? []) as Company[]);
+    } catch { /* silencioso */ }
+  }, [allowed]);
 
   useEffect(() => { if (ready && allowed) load(); }, [ready, allowed, load]);
+  useEffect(() => { if (ready && allowed) loadCompanies(); }, [ready, allowed, loadCompanies]);
+
+  // Criar / renomear empresa (prompt simples — ferramenta de admin).
+  const newCompany = async () => {
+    const name = window.prompt('Nome da nova empresa:')?.trim();
+    if (!name) return;
+    try {
+      const { data } = await api.post('/payables/companies', { name });
+      showSuccess('Empresa criada');
+      await loadCompanies();
+      if (data?.id) setSelectedCompany(data.id);
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao criar empresa'); }
+  };
+  const renameCompany = async () => {
+    if (!selectedCompany) return;
+    const cur = companies.find((c) => c.id === selectedCompany);
+    const name = window.prompt('Novo nome da empresa:', cur?.name || '')?.trim();
+    if (!name) return;
+    try {
+      await api.patch(`/payables/companies/${selectedCompany}`, { name });
+      showSuccess('Empresa renomeada');
+      loadCompanies();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao renomear'); }
+  };
 
   // ─── Gate ───────────────────────────────────────────────────
   if (!ready) {
@@ -176,9 +213,27 @@ export default function ContasAPagarPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Receipt className="w-5 h-5 text-rose-500" /> Contas a Pagar</h1>
-            <p className="text-[13px] text-muted-foreground">Contas fixas, parceladas e gastos do dia — só adm/gerente.</p>
+            <p className="text-[13px] text-muted-foreground">
+              {isClinic ? 'Contas fixas, parceladas e gastos do dia — só adm/gerente.' : 'Empresa separada — não entra no caixa/relatórios da clínica.'}
+            </p>
           </div>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background" />
+          <div className="flex items-center gap-2">
+            {/* Empresa: '' = clínica; opção especial cria nova */}
+            <select
+              value={selectedCompany}
+              onChange={(e) => { if (e.target.value === '__new__') { e.target.value = selectedCompany; newCompany(); } else setSelectedCompany(e.target.value); }}
+              className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background font-semibold"
+              title="Empresa"
+            >
+              <option value="">🏥 Clínica</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="__new__">➕ Nova empresa…</option>
+            </select>
+            {!isClinic && (
+              <button onClick={renameCompany} title="Renomear empresa" className="p-1.5 rounded-lg border border-border hover:bg-accent"><Pencil size={14} /></button>
+            )}
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background" />
+          </div>
         </div>
 
         {/* KPIs */}
@@ -221,10 +276,10 @@ export default function ContasAPagarPage() {
         )}
       </div>
 
-      {modal === 'parcelada' && <ParceladaModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'recorrente' && <RecorrenteModal cats={cats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {payTarget && <PayModal tx={payTarget} accounts={accounts} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
+      {modal === 'parcelada' && <ParceladaModal cats={cats} companyId={selectedCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={selectedCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} companyId={selectedCompany} isClinic={isClinic} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {payTarget && <PayModal tx={payTarget} accounts={accounts} isClinic={isClinic} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
       {editTarget && <EditModal tx={editTarget} cats={cats} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load(); }} />}
     </div>
   );
@@ -385,7 +440,7 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
   );
 }
 
-function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+function ParceladaModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [total, setTotal] = useState('');
@@ -405,6 +460,7 @@ function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose:
       await api.post('/payables/installment-plan', {
         description: description.trim(), category, total_amount: totalNum, installments: n,
         first_due_date: firstDue, payment_method: method || undefined,
+        company_id: companyId || undefined,
       });
       showSuccess(`${n} parcela(s) criada(s)`);
       onSaved();
@@ -433,7 +489,7 @@ function ParceladaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose:
   );
 }
 
-function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
@@ -457,6 +513,7 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
         description: description.trim(), category, amount: amt,
         date: dueIso, due_date: dueIso, status: 'PENDENTE', payment_method: method || undefined,
         is_recurring: true, recurrence_pattern: 'MENSAL', recurrence_day: d,
+        company_id: companyId || undefined,
       });
       showSuccess('Conta recorrente cadastrada');
       onSaved();
@@ -484,7 +541,7 @@ function RecorrenteModal({ cats, onClose, onSaved }: { cats: Category[]; onClose
   );
 }
 
-function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[]; accounts: CashAccount[]; onClose: () => void; onSaved: () => void }) {
+function GastoDoDiaModal({ cats, accounts, companyId, isClinic, onClose, onSaved }: { cats: Category[]; accounts: CashAccount[]; companyId: string; isClinic: boolean; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
@@ -502,22 +559,20 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
   const submit = async () => {
     const amt = parseBRLNumber(amount || '0');
     if (!description.trim() || !category || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
-    if (paid && !accountId) { showError('Escolha a conta de onde saiu o dinheiro (pra bater no caixa)'); return; }
+    if (isClinic && paid && !accountId) { showError('Escolha a conta de onde saiu o dinheiro (pra bater no caixa)'); return; }
     setSaving(true);
     try {
-      if (paid) {
-        // Pago hoje → passa pelo CAIXA (debita a conta, entra no fechamento do dia).
-        await api.post('/payables/transactions', {
-          description: description.trim(), category, amount: amt,
-          status: 'PAGO', account_id: accountId, payment_method: method,
-        });
+      const body: any = { description: description.trim(), category, amount: amt, company_id: companyId || undefined };
+      if (paid && isClinic) {
+        // Clínica + pago → passa pelo CAIXA (debita a conta, entra no fechamento).
+        body.status = 'PAGO'; body.account_id = accountId; body.payment_method = method;
+      } else if (paid) {
+        // Outra empresa + pago → só marca pago (não mexe no caixa da clínica).
+        body.status = 'PAGO'; body.date = `${maceioTodayStr()}T12:00:00.000Z`; body.paid_at = new Date().toISOString();
       } else {
-        // Pendente → só despesa gerencial (competência ao meio-dia UTC de hoje).
-        await api.post('/payables/transactions', {
-          description: description.trim(), category, amount: amt,
-          status: 'PENDENTE', date: `${maceioTodayStr()}T12:00:00.000Z`,
-        });
+        body.status = 'PENDENTE'; body.date = `${maceioTodayStr()}T12:00:00.000Z`;
       }
+      await api.post('/payables/transactions', body);
       showSuccess('Gasto lançado');
       onSaved();
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao lançar'); }
@@ -530,9 +585,9 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
       <label className="flex items-center gap-2 text-sm text-foreground">
-        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago hoje (entra no caixa)
+        <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> Já pago{isClinic ? ' hoje (entra no caixa)' : ''}
       </label>
-      {paid && (
+      {paid && isClinic && (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Conta (de onde saiu)">
             <select value={accountId} onChange={(e) => onAccountChange(e.target.value)} className={inputCls}>
@@ -552,7 +607,7 @@ function GastoDoDiaModal({ cats, accounts, onClose, onSaved }: { cats: Category[
   );
 }
 
-function PayModal({ tx, accounts, onClose, onSaved, onQuickPay }: { tx: Tx; accounts: CashAccount[]; onClose: () => void; onSaved: () => void; onQuickPay: () => Promise<void> }) {
+function PayModal({ tx, accounts, isClinic, onClose, onSaved, onQuickPay }: { tx: Tx; accounts: CashAccount[]; isClinic: boolean; onClose: () => void; onSaved: () => void; onQuickPay: () => Promise<void> }) {
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [method, setMethod] = useState(METHOD_BY_KIND[accounts[0]?.kind] || 'DINHEIRO');
   const [saving, setSaving] = useState(false);
@@ -582,21 +637,30 @@ function PayModal({ tx, accounts, onClose, onSaved, onQuickPay }: { tx: Tx; acco
   return (
     <ModalShell title={`Pagar: ${tx.description}`} onClose={onClose}>
       <div className="text-sm text-muted-foreground">Valor: <strong className="text-foreground">{fmt(Number(tx.amount))}</strong></div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Conta (de onde saiu)">
-          <select value={accountId} onChange={(e) => onAccountChange(e.target.value)} className={inputCls}>
-            <option value="">Selecione…</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Forma">
-          <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
-            {CAIXA_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </Field>
-      </div>
-      <button disabled={saving} onClick={payCaixa} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Pagar e lançar no caixa</button>
-      <button disabled={saving} onClick={quick} className="w-full py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent">Só marcar como pago (sem passar pelo caixa)</button>
+      {isClinic ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Conta (de onde saiu)">
+              <select value={accountId} onChange={(e) => onAccountChange(e.target.value)} className={inputCls}>
+                <option value="">Selecione…</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Forma">
+              <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+                {CAIXA_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
+          </div>
+          <button disabled={saving} onClick={payCaixa} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Pagar e lançar no caixa</button>
+          <button disabled={saving} onClick={quick} className="w-full py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-accent">Só marcar como pago (sem passar pelo caixa)</button>
+        </>
+      ) : (
+        <>
+          <p className="text-[12px] text-muted-foreground">Empresa separada — o pagamento só é registrado (não entra no caixa da clínica).</p>
+          <button disabled={saving} onClick={quick} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Marcar como pago</button>
+        </>
+      )}
     </ModalShell>
   );
 }

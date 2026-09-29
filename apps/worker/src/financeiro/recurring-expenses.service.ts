@@ -73,6 +73,7 @@ export class RecurringExpensesService {
               data: {
                 tenant_id: parent.tenant_id,
                 source: (parent as any).source ?? null, // herda a origem (ex.: PAYABLES)
+                company_id: (parent as any).company_id ?? null, // herda a empresa (senão vaza pra clínica)
                 type: parent.type,
                 category: parent.category,
                 description: parent.description,

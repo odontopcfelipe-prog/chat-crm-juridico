@@ -1489,6 +1489,10 @@ model FinancialTransaction {
   // parcelada/gasto do dia). null = despesa de outra origem (comissão, diária,
   // caixa, afiliado) — NÃO deve aparecer na tela de Contas a Pagar.
   source               String?
+  // Empresa (Contas a Pagar multi-empresa). null = a CLÍNICA (padrão — entra no
+  // caixa/relatórios da clínica). Não-null = outra empresa do dono (só rastreio,
+  // fora do caixa/relatórios da clínica). Ver model PayableCompany.
+  company_id           String?
 
   // Vínculos opcionais
   lead_id                   String?
@@ -1518,6 +1522,20 @@ model FinancialTransaction {
   @@index([due_date, status])
   @@index([account_id])
   @@index([cash_closing_id])
+  @@index([company_id])
+}
+
+/// Empresa do módulo Contas a Pagar (multi-empresa). Só as OUTRAS empresas do
+/// dono; a clínica é o padrão (company_id null nas transações). Escopo por tenant.
+model PayableCompany {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  name       String
+  sort_order Int      @default(0)
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  @@index([tenant_id, active])
 }
 
 model FinancialCategory {

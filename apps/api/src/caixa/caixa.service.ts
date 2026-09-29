@@ -67,6 +67,7 @@ export class CaixaService {
   private caixaWhere(tenantId: string, startUTC: Date, endUTC: Date) {
     return {
       tenant_id: tenantId,
+      company_id: null, // caixa/fechamento é SÓ da clínica; contas de outras empresas ficam de fora
       status: 'PAGO',
       date: { gte: startUTC, lt: endUTC },
       OR: [

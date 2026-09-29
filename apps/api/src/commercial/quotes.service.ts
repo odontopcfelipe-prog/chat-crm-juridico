@@ -4249,14 +4249,15 @@ export class QuotesService {
 
     const [entradasTx, saidasTx, boletos, compensados, atrasoAgg, atrasoRows, negoc] = await Promise.all([
       // Entradas do dia (RECEITA PAGO) — com QUEM pagou (lead) e a forma.
+      // company_id null = só a clínica (contas de outras empresas ficam fora do resumo).
       this.prisma.financialTransaction.findMany({
-        where: { tenant_id: tenantId, type: 'RECEITA', status: 'PAGO', date: win },
+        where: { tenant_id: tenantId, type: 'RECEITA', status: 'PAGO', company_id: null, date: win },
         select: { amount: true, payment_method: true, description: true, lead: { select: { name: true } } },
         orderBy: { amount: 'desc' }, take: 100,
       }),
       // Saídas do dia (DESPESA PAGO) — com a descrição/categoria e a forma.
       this.prisma.financialTransaction.findMany({
-        where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', date: win },
+        where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', company_id: null, date: win },
         select: { amount: true, payment_method: true, description: true, category: true },
         orderBy: { amount: 'desc' }, take: 100,
       }),
