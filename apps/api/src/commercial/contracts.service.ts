@@ -171,6 +171,41 @@ export class ContractsService {
   }
 
   /**
+   * Atualiza os documentos extras selecionados de um contrato AINDA EM RASCUNHO
+   * (DRAFT, nao pulado). Permite o operador marcar/desmarcar termos DEPOIS de
+   * criar o contrato — antes disso os checkboxes ficavam travados e a unica
+   * saida era cancelar + recriar. So mexe enquanto nao foi enviado/assinado.
+   */
+  async updateDocuments(
+    contractId: string,
+    tenantId: string,
+    userId: string,
+    selected_documents: string[],
+  ) {
+    const contract = await this.assertContractAndGet(contractId, tenantId);
+    if (contract.status !== 'DRAFT' || contract.skipped) {
+      throw new BadRequestException(
+        'Só dá pra mudar os documentos enquanto o contrato está em rascunho (não enviado).',
+      );
+    }
+    // Mesma sanitizacao do createForQuote: so strings, dedup, max 20.
+    const docs = Array.isArray(selected_documents)
+      ? Array.from(new Set(
+          selected_documents.filter((d): d is string => typeof d === 'string').slice(0, 20),
+        ))
+      : [];
+
+    const updated = await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { selected_documents: docs },
+      include: { events: { orderBy: { occurred_at: 'asc' } } },
+    });
+
+    this.logger.log(`[Contract] ${contractId} docs atualizados: [${docs.join(',')}]`);
+    return updated;
+  }
+
+  /**
    * Onda 14.24 — Transicao generica de status com evento associado.
    * Centraliza validacao (transicoes invalidas viram BadRequest).
    */

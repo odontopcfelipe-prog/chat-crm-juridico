@@ -1351,6 +1351,17 @@ export class CommercialController {
     return this.contractsService.findOne(id, user.tenant_id);
   }
 
+  /** Atualiza os documentos extras de um contrato AINDA EM RASCUNHO (DRAFT).
+   *  Permite marcar/desmarcar termos depois de criado, sem cancelar + recriar. */
+  @Patch('contracts/:id/documents')
+  updateContractDocuments(
+    @Param('id') id: string,
+    @Body() body: { selected_documents?: string[] },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.updateDocuments(id, user.tenant_id, user.id, body?.selected_documents || []);
+  }
+
   /** Marca como enviado (Fase 1: manual). */
   @Post('contracts/:id/send')
   sendContract(@Param('id') id: string, @Authenticated() user: AuthUser) {

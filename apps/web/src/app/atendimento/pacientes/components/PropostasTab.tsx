@@ -3099,15 +3099,32 @@ function ContratoCard({
 
   useEffect(() => { load(); }, [load]);
 
-  const toggleDoc = (id: string) => {
+  const toggleDoc = async (id: string) => {
     const doc = CONTRACT_DOCUMENTS.find((d) => d.id === id);
     if (doc?.core) return; // core nao pode ser desmarcado
-    setSelectedDocs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    // Editável enquanto NÃO há contrato, ou enquanto o contrato está em rascunho.
+    if (contract && (contract.status !== 'DRAFT' || contract.skipped)) return;
+    const next = new Set(selectedDocs);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedDocs(next);
+    // Já existe contrato DRAFT? Persiste a mudança na hora — senão o preview e o
+    // "Baixar PDF" usariam os documentos antigos (o problema do "marquei e não foi").
+    if (contract && contract.status === 'DRAFT' && !contract.skipped) {
+      const extras = Array.from(next).filter(
+        (x) => !CONTRACT_DOCUMENTS.find((d) => d.id === x)?.core,
+      );
+      try {
+        const { data } = await api.patch<ContractMinimal>(
+          `/contracts/${contract.id}/documents`,
+          { selected_documents: extras },
+        );
+        setContract(data);
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { message?: string } } };
+        showError(e?.response?.data?.message || 'Erro ao atualizar documentos');
+      }
+    }
   };
 
   const createContract = async () => {
@@ -3294,6 +3311,9 @@ function ContratoCard({
   // ── Render unificado (estado sem contrato e com contrato) ──────────
   const totalLabel = total !== undefined ? `R$ ${fmtBRL(total)}` : '—';
   const isTerminal = contract?.skipped || contract?.status === 'SIGNED' || contract?.status === 'CANCELLED' || contract?.status === 'EXPIRED';
+  // Documentos travados = contrato já existe e NÃO está mais em rascunho editável.
+  // Sem contrato ou em DRAFT (não pulado) = pode marcar/desmarcar termos.
+  const docsLocked = !!contract && (contract.status !== 'DRAFT' || contract.skipped);
   return (
     <div className="mb-4 rounded-xl border border-border bg-card overflow-hidden">
       {/* Header */}
@@ -3364,11 +3384,11 @@ function ContratoCard({
                       const hasTemplate = DOCS_WITH_TEMPLATE.has(doc.id);
                       return (
                         <li key={doc.id} className="flex items-center gap-2">
-                          <label className={`flex items-center gap-2.5 flex-1 ${isCore || !!contract ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                          <label className={`flex items-center gap-2.5 flex-1 ${isCore || docsLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              disabled={isCore || busy || !!contract}
+                              disabled={isCore || busy || docsLocked}
                               onChange={() => toggleDoc(doc.id)}
                               className="w-4 h-4 rounded border-border accent-violet-600 shrink-0"
                             />
