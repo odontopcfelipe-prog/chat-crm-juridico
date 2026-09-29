@@ -167,23 +167,27 @@ function OrcamentosPageInner() {
       ? list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter)
       : list;
     if (isPropostas) {
-      // Aba 'aprovados' = fechados (ACCEPTED), por ordem. Aba 'aguardando' = rascunho
-      // (montar) + enviado (aguardando decisão). Recusados/expirados não entram aqui.
-      l = propostaTab === 'aprovados'
-        ? l.filter((q) => q.status === 'ACCEPTED')
-        : l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
+      // TIPO é o filtro PRINCIPAL (Propostas / Vendas rápidas / Todas) e o status
+      // (Aprovados / Aguardando negociação) é sub-filtro DENTRO de cada tipo. "Todas"
+      // mostra os dois tipos + os dois status juntos (visão geral, sem sub-filtro).
+      if (tipoFilter === 'todas') {
+        // Universo de propostas/vendas: rascunho + enviado + aceito (fora recusado/expirado).
+        l = l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED');
+      } else {
+        // Sub-filtro de status: aprovados = fechados (ACCEPTED); aguardando = rascunho+enviado.
+        l = propostaTab === 'aprovados'
+          ? l.filter((q) => q.status === 'ACCEPTED')
+          : l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
+        // Sub-filtro de tipo: Propostas = proposta real; Vendas rápidas = venda rápida.
+        l = l.filter((q) => (tipoFilter === 'vendas' ? !!q.is_venda_rapida : !q.is_venda_rapida));
+      }
     } else {
       // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
       l = l.filter((q) => q.status !== 'SENT');
     }
-    // Separa venda rápida x proposta real (só na visão Propostas). Padrão 'propostas'
-    // esconde as vendas rápidas (R$150/avaliação) pra não misturar com os planos.
-    if (isPropostas && tipoFilter !== 'todas') {
-      l = l.filter((q) => (tipoFilter === 'vendas' ? !!q.is_venda_rapida : !q.is_venda_rapida));
-    }
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
-    if (isPropostas && propostaTab !== 'aprovados') {
+    if (isPropostas && tipoFilter !== 'todas' && propostaTab === 'aguardando') {
       // Aguardando: UM por PACIENTE — clicar no nome já puxa TODAS as propostas dele.
       // Aprovados mostra TODA proposta aprovada (não deduplica), por ordem de criação.
       const seen = new Set<string>();
@@ -195,7 +199,7 @@ function OrcamentosPageInner() {
       });
     }
     // Aprovados = por ORDEM DE VENDA (accepted_at desc; fallback created_at).
-    if (isPropostas && propostaTab === 'aprovados') {
+    if (isPropostas && tipoFilter !== 'todas' && propostaTab === 'aprovados') {
       l = [...l].sort((a, b) => {
         const ta = new Date(a.accepted_at || a.created_at).getTime();
         const tb = new Date(b.accepted_at || b.created_at).getTime();
@@ -373,9 +377,11 @@ function OrcamentosPageInner() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isPropostas
-              ? (propostaTab === 'aprovados'
-                ? 'Propostas aprovadas — pacientes que fecharam, por ordem. Clique na ficha pra agendar a consulta e não perder ninguém.'
-                : 'Propostas a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.')
+              ? (tipoFilter === 'todas'
+                ? 'Tudo junto — propostas e vendas rápidas, aprovadas e em negociação.'
+                : propostaTab === 'aprovados'
+                ? `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} aprovadas — quem fechou, por ordem. Clique na ficha pra agendar a consulta e não perder ninguém.`
+                : `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.`)
               : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.'}
           </p>
         </div>
@@ -454,29 +460,8 @@ function OrcamentosPageInner() {
       {/* Filtros */}
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
-          {/* Abas da visão PROPOSTAS: Aguardando negociação | Aprovados (fechados). */}
-          {isPropostas && (
-          <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-            {([
-              { key: 'aprovados' as const, label: 'Aprovados' },
-              { key: 'aguardando' as const, label: 'Aguardando negociação' },
-            ]).map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setPropostaTab(t.key)}
-                className={`px-3 py-1.5 rounded text-xs font-medium ${
-                  propostaTab === t.key
-                    ? (t.key === 'aprovados' ? 'bg-emerald-600 text-white' : 'bg-primary text-primary-foreground')
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          )}
-          {/* Separa proposta REAL x venda rápida — pra não misturar os R$150/avaliação
-              com os planos. Padrão "Propostas". */}
+          {/* Abas de TIPO (PRINCIPAL): Propostas | Vendas rápidas | Todas. Cada tipo no
+              seu lugar — o status (Aprovados/Aguardando) é sub-filtro logo abaixo. */}
           {isPropostas && (
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
             {([
@@ -490,6 +475,28 @@ function OrcamentosPageInner() {
                 className={`px-3 py-1.5 rounded text-xs font-medium ${
                   tipoFilter === t.key
                     ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          )}
+          {/* Sub-filtro de STATUS — DENTRO de Propostas e de Vendas rápidas (não em "Todas",
+              que é a visão geral). Aprovados = fechados; Aguardando = rascunho + enviado. */}
+          {isPropostas && tipoFilter !== 'todas' && (
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
+            {([
+              { key: 'aprovados' as const, label: 'Aprovados' },
+              { key: 'aguardando' as const, label: 'Aguardando negociação' },
+            ]).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setPropostaTab(t.key)}
+                className={`px-3 py-1.5 rounded text-xs font-medium ${
+                  propostaTab === t.key
+                    ? (t.key === 'aprovados' ? 'bg-emerald-600 text-white' : 'bg-primary text-primary-foreground')
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -629,7 +636,7 @@ function OrcamentosPageInner() {
       ) : (
         /* Aprovados = painel de vendas (estilo pedidos e-commerce); demais = tabela plana. */
         <div className="bg-card border border-border rounded-xl overflow-x-auto">
-          {isPropostas && propostaTab === 'aprovados' ? (
+          {isPropostas && tipoFilter !== 'todas' && propostaTab === 'aprovados' ? (
             <SalesTable quotes={filteredList} router={router} />
           ) : (
             <QuoteTable
