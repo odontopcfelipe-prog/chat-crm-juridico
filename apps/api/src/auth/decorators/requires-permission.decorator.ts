@@ -64,6 +64,10 @@ export class PermissionsGuard implements CanActivate {
     if (roles.includes('SUPER_ADMIN')) return true;
 
     const perms = await this.resolveUserPermissions(user.id, roles);
+    // Expõe as permissões resolvidas pro handler (ex.: /financeiro/audit-log precisa
+    // saber se o caller tem manage_payables pra esconder linhas de aluguel/folha de
+    // quem só tem view_financial). Só é setado quando a rota tem @RequiresPermission.
+    req.userPermissions = perms;
     if (required.some((p) => perms.has(p))) return true;
 
     // code:'PERMISSION_DENIED' => o frontend mostra a mensagem amigável

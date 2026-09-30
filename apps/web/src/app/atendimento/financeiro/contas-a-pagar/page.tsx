@@ -10,8 +10,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
-  CalendarClock, Repeat, Layers, Receipt, AlertTriangle, ArrowLeft,
-  Eye, EyeOff, Users, FileText, TrendingUp,
+  CalendarClock, Repeat, Layers, AlertTriangle, ArrowLeft,
+  Eye, EyeOff, Users, FileText, TrendingUp, DollarSign,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -86,7 +86,13 @@ const METHOD_BY_KIND: Record<string, string> = { CAIXA: 'DINHEIRO', BANCO: 'PIX'
 export default function ContasAPagarPage() {
   const router = useRouter();
   const { hasPermission, ready } = useUserPermissions();
-  const allowed = hasPermission('manage_payables');
+  // O painel virou O Financeiro. Acesso por OR: adm/gerente (manage_payables) OU setor
+  // financeiro (view_financial). O que é SENSÍVEL (aluguel/folha/fornecedor + multi-empresa)
+  // fica gateado POR ABA em manage_payables — o financeiro entra mas NÃO vê essas contas.
+  const canManagePayables = hasPermission('manage_payables');
+  const canViewFinancial = hasPermission('view_financial');
+  const canManageFinancial = hasPermission('manage_financial'); // criar/editar receita
+  const allowed = canManagePayables || canViewFinancial;
 
   // Estado da tela persistido no refresh (aba/empresa/mês).
   type PanelTab = 'fixas' | 'dia' | 'entradas' | 'pacientes' | 'log';
@@ -97,13 +103,14 @@ export default function ContasAPagarPage() {
   const [txs, setTxs] = useState<Tx[]>([]); // saídas (fixas ou gastos, conforme a aba)
   const [entradas, setEntradas] = useState<Tx[]>([]); // RECEITA (aba Entradas)
   const [logRows, setLogRows] = useState<LogRow[]>([]); // aba Log
-  const [cats, setCats] = useState<Category[]>([]);
+  const [cats, setCats] = useState<Category[]>([]); // categorias de DESPESA (payables)
+  const [receitaCats, setReceitaCats] = useState<Category[]>([]); // categorias de RECEITA (Nova Receita)
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>(() => readLS('payables_company')); // '' = clínica
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => readLS('payables_month') || maceioTodayStr().slice(0, 7)); // YYYY-MM
-  const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
+  const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia' | 'receita'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
   const [editTarget, setEditTarget] = useState<Tx | null>(null);
   // Resumo discreto de cobranças (Saldo Asaas / A Receber / Atrasado) + olho.
@@ -111,11 +118,18 @@ export default function ContasAPagarPage() {
   const [receber, setReceber] = useState<ValCount | null>(null);
   const [atrasado, setAtrasado] = useState<ValCount | null>(null);
   const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
-  const isClinic = !selectedCompany;
-  const canViewFinancial = hasPermission('view_financial'); // p/ o resumo de cobranças (dashboard)
-  // Abas só-clínica (as outras empresas só têm as saídas).
-  const CLINIC_TABS: PanelTab[] = ['entradas', 'pacientes', 'log'];
-  const effTab: PanelTab = !isClinic && CLINIC_TABS.includes(tab) ? 'fixas' : tab;
+  // Empresa só é selecionável por quem tem manage_payables; o financeiro nunca sai da clínica.
+  const effCompany = canManagePayables ? selectedCompany : '';
+  const isClinic = !effCompany;
+  // Abas de SAÍDA (aluguel/folha/fornecedor) — só adm/gerente (manage_payables).
+  const SAIDA_TABS: PanelTab[] = ['fixas', 'dia'];
+  // Abas do financeiro geral (não sensível) — view_financial; só na clínica.
+  const FIN_TABS: PanelTab[] = ['entradas', 'pacientes', 'log'];
+  const availableTabs: PanelTab[] = [
+    ...(canManagePayables ? SAIDA_TABS : []),
+    ...(canViewFinancial && isClinic ? FIN_TABS : []),
+  ];
+  const effTab: PanelTab = availableTabs.includes(tab) ? tab : (availableTabs[0] ?? 'fixas');
 
   const monthRange = useCallback(() => {
     const [y, m] = month.split('-').map(Number);
@@ -133,17 +147,21 @@ export default function ContasAPagarPage() {
     setLoading(true);
     try {
       const { start, end } = monthRange();
-      const companyQ = selectedCompany ? `&companyId=${selectedCompany}` : '';
+      const companyQ = effCompany ? `&companyId=${effCompany}` : '';
       if (effTab === 'fixas') {
+        if (!canManagePayables) { setTxs([]); return; } // saídas sensíveis: só adm/gerente
         const { data } = await api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500${companyQ}`);
         setTxs(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
       } else if (effTab === 'dia') {
+        if (!canManagePayables) { setTxs([]); return; }
         const { data } = await api.get(`/payables/gastos?startDate=${start}&endDate=${end}&limit=500${companyQ}`);
         setTxs(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
       } else if (effTab === 'entradas') {
+        if (!canViewFinancial) { setEntradas([]); return; }
         const { data } = await api.get(`/financeiro/transactions?type=RECEITA&startDate=${start}&endDate=${end}&limit=200`);
         setEntradas(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
       } else if (effTab === 'log') {
+        if (!canViewFinancial) { setLogRows([]); return; }
         const { data } = await api.get('/financeiro/audit-log?limit=60');
         setLogRows((data?.data ?? data ?? []) as LogRow[]);
       }
@@ -152,23 +170,33 @@ export default function ContasAPagarPage() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, monthRange, selectedCompany, effTab]);
+  }, [allowed, monthRange, effCompany, effTab, canManagePayables, canViewFinancial]);
 
-  // Refs (categorias/contas) — carregadas 1× pros modais.
+  // Refs de DESPESA (categorias/contas do payables) — só quem gerencia payables.
   const loadRefs = useCallback(async () => {
-    if (!allowed) return;
+    if (!canManagePayables) return;
     try {
       const [catRes, accRes] = await Promise.all([api.get('/payables/categories'), api.get('/payables/accounts')]);
       setCats((catRes.data ?? []) as Category[]);
       setAccounts((accRes.data ?? []) as CashAccount[]);
     } catch { /* silencioso */ }
-  }, [allowed]);
+  }, [canManagePayables]);
 
-  // Resumo discreto de cobranças (só clínica + quem tem view_financial).
-  const loadSummary = useCallback(async () => {
-    if (!allowed || !isClinic) return;
-    try { const b = await api.get('/payment-gateway/balance'); setAsaasBalance(b.data?.balance ?? b.data?.value ?? null); } catch { setAsaasBalance(null); }
+  // Categorias de RECEITA (pro modal Nova Receita) — quem vê financeiro.
+  const loadReceitaCats = useCallback(async () => {
     if (!canViewFinancial) return;
+    try {
+      const { data } = await api.get('/financeiro/categories');
+      setReceitaCats(((data ?? []) as Category[]).filter((c) => c.type === 'RECEITA'));
+    } catch { /* silencioso */ }
+  }, [canViewFinancial]);
+
+  // Resumo discreto de cobranças (só clínica + quem tem view_financial). O saldo Asaas
+  // e o dashboard são o mundo A RECEBER (view_financial) — um gerente só-manage_payables
+  // não vê (por isso o gate vem ANTES do fetch do balance).
+  const loadSummary = useCallback(async () => {
+    if (!allowed || !isClinic || !canViewFinancial) return;
+    try { const b = await api.get('/payment-gateway/balance'); setAsaasBalance(b.data?.balance ?? b.data?.value ?? null); } catch { setAsaasBalance(null); }
     try {
       const { start, end } = monthRange();
       const { data } = await api.get(`/financeiro/dashboard?startDate=${start}&endDate=${end}`);
@@ -178,7 +206,7 @@ export default function ContasAPagarPage() {
   }, [allowed, isClinic, canViewFinancial, monthRange]);
 
   const loadCompanies = useCallback(async () => {
-    if (!allowed) return;
+    if (!canManagePayables) return; // multi-empresa é dado sensível do dono
     try {
       const { data } = await api.get('/payables/companies');
       const list = (data ?? []) as Company[];
@@ -186,12 +214,16 @@ export default function ContasAPagarPage() {
       // Se a empresa persistida foi apagada/desativada, volta pra clínica (evita erro no filtro).
       setSelectedCompany((cur) => (cur && !list.some((c) => c.id === cur) ? '' : cur));
     } catch { /* silencioso */ }
-  }, [allowed]);
+  }, [canManagePayables]);
 
   useEffect(() => { if (ready && allowed) load(); }, [ready, allowed, load]);
-  useEffect(() => { if (ready && allowed) loadRefs(); }, [ready, allowed, loadRefs]);
-  useEffect(() => { if (ready && allowed) loadCompanies(); }, [ready, allowed, loadCompanies]);
+  useEffect(() => { if (ready && canManagePayables) loadRefs(); }, [ready, canManagePayables, loadRefs]);
+  useEffect(() => { if (ready && canManagePayables) loadCompanies(); }, [ready, canManagePayables, loadCompanies]);
+  useEffect(() => { if (ready && canViewFinancial) loadReceitaCats(); }, [ready, canViewFinancial, loadReceitaCats]);
   useEffect(() => { if (ready && allowed) loadSummary(); }, [ready, allowed, loadSummary]);
+  // Se a aba persistida não está disponível pra este usuário/empresa, normaliza o
+  // estado pro fallback (senão o localStorage grava uma aba que ele não pode usar).
+  useEffect(() => { if (tab !== effTab) setTab(effTab); }, [tab, effTab]);
   // Persiste a preferência da tela pra o refresh continuar na mesma.
   useEffect(() => { writeLS('payables_tab', tab); }, [tab]);
   useEffect(() => { writeLS('payables_company', selectedCompany); }, [selectedCompany]);
@@ -270,6 +302,15 @@ export default function ContasAPagarPage() {
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao excluir'); }
   };
 
+  // Rótulo/ícone de cada aba (a barra é montada só com as abas permitidas).
+  const TAB_META: Record<PanelTab, { label: string; icon: React.ReactNode }> = {
+    fixas: { label: 'Contas Fixas', icon: <Layers size={15} /> },
+    dia: { label: 'Gastos do dia', icon: <CalendarClock size={15} /> },
+    entradas: { label: 'Entradas', icon: <TrendingUp size={15} /> },
+    pacientes: { label: 'Pacientes', icon: <Users size={15} /> },
+    log: { label: 'Log', icon: <FileText size={15} /> },
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
@@ -280,25 +321,33 @@ export default function ContasAPagarPage() {
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Receipt className="w-5 h-5 text-rose-500" /> Contas a Pagar</h1>
+            <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><DollarSign className="w-5 h-5 text-emerald-500" /> Financeiro</h1>
             <p className="text-[13px] text-muted-foreground">
-              {isClinic ? 'Contas fixas, parceladas e gastos do dia — só adm/gerente.' : 'Empresa separada — não entra no caixa/relatórios da clínica.'}
+              {!isClinic
+                ? 'Empresa separada — não entra no caixa/relatórios da clínica.'
+                : canManagePayables
+                  ? 'Contas, gastos, entradas e pacientes da clínica.'
+                  : 'Entradas, pacientes e log da clínica.'}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Empresa: '' = clínica; opção especial cria nova */}
-            <select
-              value={selectedCompany}
-              onChange={(e) => { if (e.target.value === '__new__') { e.target.value = selectedCompany; newCompany(); } else setSelectedCompany(e.target.value); }}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background font-semibold"
-              title="Empresa"
-            >
-              <option value="">🏥 Clínica</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              <option value="__new__">➕ Nova empresa…</option>
-            </select>
-            {!isClinic && (
-              <button onClick={renameCompany} title="Renomear empresa" className="p-1.5 rounded-lg border border-border hover:bg-accent"><Pencil size={14} /></button>
+            {/* Empresa (multi-empresa) — dado sensível do dono: só adm/gerente */}
+            {canManagePayables && (
+              <>
+                <select
+                  value={selectedCompany}
+                  onChange={(e) => { if (e.target.value === '__new__') { e.target.value = selectedCompany; newCompany(); } else setSelectedCompany(e.target.value); }}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background font-semibold"
+                  title="Empresa"
+                >
+                  <option value="">🏥 Clínica</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="__new__">➕ Nova empresa…</option>
+                </select>
+                {!isClinic && (
+                  <button onClick={renameCompany} title="Renomear empresa" className="p-1.5 rounded-lg border border-border hover:bg-accent"><Pencil size={14} /></button>
+                )}
+              </>
             )}
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background" />
           </div>
@@ -325,15 +374,11 @@ export default function ContasAPagarPage() {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs — montadas só com as abas que o usuário pode ver */}
         <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
-          <TabBtn active={effTab === 'fixas'} onClick={() => setTab('fixas')} icon={<Layers size={15} />} label="Contas Fixas" />
-          <TabBtn active={effTab === 'dia'} onClick={() => setTab('dia')} icon={<CalendarClock size={15} />} label="Gastos do dia" />
-          {isClinic && <>
-            <TabBtn active={effTab === 'entradas'} onClick={() => setTab('entradas')} icon={<TrendingUp size={15} />} label="Entradas" />
-            <TabBtn active={effTab === 'pacientes'} onClick={() => setTab('pacientes')} icon={<Users size={15} />} label="Pacientes" />
-            <TabBtn active={effTab === 'log'} onClick={() => setTab('log')} icon={<FileText size={15} />} label="Log" />
-          </>}
+          {availableTabs.map((t) => (
+            <TabBtn key={t} active={effTab === t} onClick={() => setTab(t)} icon={TAB_META[t].icon} label={TAB_META[t].label} />
+          ))}
         </div>
 
         {/* Ações da aba */}
@@ -347,6 +392,11 @@ export default function ContasAPagarPage() {
             ) : (
               <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
             )}
+          </div>
+        )}
+        {effTab === 'entradas' && canManageFinancial && (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setModal('receita')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"><Plus size={15} /> Nova receita</button>
           </div>
         )}
 
@@ -371,9 +421,10 @@ export default function ContasAPagarPage() {
         )}
       </div>
 
-      {modal === 'parcelada' && <ParceladaModal cats={cats} companyId={selectedCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={selectedCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} companyId={selectedCompany} isClinic={isClinic} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'parcelada' && <ParceladaModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} companyId={effCompany} isClinic={isClinic} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'receita' && <NovaReceitaModal cats={receitaCats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {payTarget && <PayModal tx={payTarget} accounts={accounts} isClinic={isClinic} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
       {editTarget && <EditModal tx={editTarget} cats={cats} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load(); }} />}
     </div>
@@ -834,5 +885,77 @@ function LogTab({ rows }: { rows: LogRow[] }) {
         );
       })}
     </div>
+  );
+}
+
+// ─── Modal Nova Receita (lançar entrada avulsa) ───────────────────────────────
+// Gate no botão por manage_financial; grava RECEITA em FinancialTransaction (mesma
+// fonte da recepção). Categoria = lista de RECEITA OU texto livre (category é string,
+// não FK), então não precisa de CRUD de categoria separado.
+function NovaReceitaModal({ cats, onClose, onSaved }: { cats: Category[]; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [customCat, setCustomCat] = useState('');
+  const [useCustom, setUseCustom] = useState(cats.length === 0);
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(maceioTodayStr());
+  const [method, setMethod] = useState('');
+  const [received, setReceived] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Se as categorias de RECEITA chegarem DEPOIS do modal montar (fetch lento), volta
+  // pro select (o initializer só roda na montagem). Só dispara na transição 0→N.
+  useEffect(() => { if (cats.length > 0) setUseCustom(false); }, [cats.length]);
+
+  const submit = async () => {
+    const amt = parseBRLNumber(amount || '0');
+    const cat = (useCustom ? customCat : category).trim();
+    if (!description.trim() || !cat || !(amt > 0)) { showError('Preencha descrição, categoria e valor'); return; }
+    setSaving(true);
+    try {
+      const body: any = {
+        type: 'RECEITA', description: description.trim(), category: cat, amount: amt,
+        date: `${date}T12:00:00.000Z`, status: received ? 'PAGO' : 'PENDENTE',
+        payment_method: method || undefined,
+      };
+      if (received) body.paid_at = new Date().toISOString();
+      await api.post('/financeiro/transactions', body);
+      showSuccess('Receita lançada');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao lançar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Nova receita" onClose={onClose}>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Recebimento avulso" /></Field>
+      <Field label="Categoria">
+        {useCustom ? (
+          <div className="flex gap-2">
+            <input value={customCat} onChange={(e) => setCustomCat(e.target.value)} className={inputCls} placeholder="Nova categoria" />
+            {cats.length > 0 && <button type="button" onClick={() => setUseCustom(false)} className="px-2 rounded-lg border border-border text-[12px] font-semibold hover:bg-accent">Lista</button>}
+          </div>
+        ) : (
+          <select value={category} onChange={(e) => { if (e.target.value === '__outra__') { setUseCustom(true); setCategory(''); } else setCategory(e.target.value); }} className={inputCls}>
+            <option value="">Selecione…</option>
+            {cats.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            <option value="__outra__">➕ Outra…</option>
+          </select>
+        )}
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
+        <Field label="Data"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field>
+      </div>
+      <Field label="Forma (opcional)">
+        <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+          <option value="">--</option>
+          {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      <label className="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" checked={received} onChange={(e) => setReceived(e.target.checked)} /> Já recebido
+      </label>
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Lançar receita</button>
+    </ModalShell>
   );
 }

@@ -600,11 +600,21 @@ export class FinanceiroService {
 
   // ─── Audit Log ─────────────────────────────────────────
 
-  async getAuditLog(tenantId: string | undefined, dentistId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0) {
+  async getAuditLog(tenantId: string | undefined, dentistId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0, canSeePayables = true) {
     const where: any = { entity: 'FINANCEIRO' };
     // Escopo por clínica — o Log estava sem filtro de tenant e vazava movimentações
     // de outros tenants (IDOR). Linhas antigas sem tenant_id ficam ocultas (fail-safe).
     if (tenantId) where.tenant_id = tenantId;
+
+    // Sigilo de contas a pagar: quem NÃO tem manage_payables (ex.: setor financeiro só
+    // com view_financial) não pode ver no Log as ações de DESPESA/folha/parcela/diária
+    // (aluguel/folha/fornecedor têm descrição+categoria+valor no meta). O audit-log
+    // nunca filtrou source — este gate por ação fecha o vazamento (inclui linhas legadas).
+    if (!canSeePayables) {
+      where.action = {
+        notIn: ['DESPESA_CRIADA', 'DESPESA_EDITADA', 'DESPESA_PAGA', 'DESPESA_EXCLUIDA', 'CONTA_PARCELADA_CRIADA', 'DIARIA_LANCADA'],
+      };
+    }
 
     if (startDate || endDate) {
       where.created_at = {};
@@ -643,6 +653,10 @@ export class FinanceiroService {
     // Só a CLÍNICA (company_id null). Contas de OUTRAS empresas do Contas a Pagar
     // (company_id != null) não entram nos números da clínica.
     where.company_id = null;
+    // Contas a pagar (aluguel/folha/fornecedor) vivem no módulo Contas a Pagar (só
+    // manage_payables). Este summary genérico é view_financial → NÃO soma PAYABLES
+    // (mesma regra do GET /transactions). {not:X} inclui source=null (receita/legado).
+    where.source = { not: 'PAYABLES' };
 
     if (startDate || endDate) {
       where.date = {};
@@ -727,6 +741,7 @@ export class FinanceiroService {
     if (tenantId) where.tenant_id = tenantId;
     if (dentistId) where.dentist_id = dentistId;
     where.company_id = null; // só a clínica (outras empresas fora do fluxo de caixa dela)
+    where.source = { not: 'PAYABLES' }; // contas a pagar não entram no fluxo de caixa genérico (view_financial)
 
     if (startDate || endDate) {
       where.date = {};

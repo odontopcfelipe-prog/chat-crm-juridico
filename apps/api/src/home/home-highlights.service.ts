@@ -264,7 +264,7 @@ export class HomeHighlightsService {
         { value: this.brl(vencendo),  label: 'vencendo hoje', tone: 'amber'   },
         { value: inadimplentes,       label: 'inadimplentes', tone: 'rose'    },
       ],
-      cta: { label: 'Abrir financeiro', href: '/atendimento/financeiro' },
+      cta: { label: 'Abrir financeiro', href: '/atendimento/financeiro/contas-a-pagar' },
     };
   }
 

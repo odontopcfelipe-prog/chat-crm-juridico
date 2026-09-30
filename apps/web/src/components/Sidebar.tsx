@@ -754,13 +754,18 @@ export function Sidebar() {
       show: hasPermission('view_financial') && perms.canViewFinanceiro,
     },
     financeiro: {
+      // O Financeiro virou o painel único (contas-a-pagar): Entradas/Pacientes/Log pro
+      // setor financeiro (view_financial) + Contas Fixas/Gastos pro adm/gerente
+      // (manage_payables, gate por aba dentro do painel). A tela antiga /atendimento/financeiro
+      // agora só redireciona pra cá.
       label: 'Financeiro',
-      href: '/atendimento/financeiro',
+      href: '/atendimento/financeiro/contas-a-pagar',
       icon: <Wallet size={20} strokeWidth={2} />,
-      // Match restrito: nao casa com /financeiro/dashboard nem /financeiro/parcelas
-      match: (p) => p === '/atendimento/financeiro' || p.startsWith('/atendimento/financeiro?'),
-      // Onda 17.32.120
-      show: hasPermission('view_financial') && perms.canViewFinanceiro,
+      match: (p) => p.startsWith('/atendimento/financeiro/contas-a-pagar') || p === '/atendimento/financeiro',
+      // Gate por PERMISSÃO (não por papel): o painel abre pra view_financial OU
+      // manage_payables. Sem o && canViewFinanceiro, o gerente (manage_payables via
+      // grant sobre papel fora de ADMIN/FINANCEIRO/DENTIST) também vê o item.
+      show: hasPermission('view_financial') || hasPermission('manage_payables'),
     },
     boletos: {
       // Boletos saiu das abas internas do Financeiro e virou item do menu.

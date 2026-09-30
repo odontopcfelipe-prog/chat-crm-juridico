@@ -143,7 +143,12 @@ export class FinanceiroController {
     @Query('offset') offset: string,
     @Request() req: any,
   ) {
-    return this.service.getAuditLog(req.user.tenant_id, dentistId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'));
+    // Só quem tem manage_payables (ou SUPER_ADMIN) vê no Log as ações de contas a pagar
+    // (aluguel/folha/fornecedor). O PermissionsGuard expõe req.userPermissions.
+    const canSeePayables =
+      (Array.isArray(req.user?.roles) && req.user.roles.includes('SUPER_ADMIN')) ||
+      !!req.userPermissions?.has?.('manage_payables');
+    return this.service.getAuditLog(req.user.tenant_id, dentistId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'), canSeePayables);
   }
 
   // ─── Summary & Cash Flow ───────────────────────────────

@@ -39,7 +39,7 @@ export function RevenueTrendChart({ data, loading }: Props) {
       icon={<TrendingUp size={15} className="text-primary" />}
       loading={loading}
       linkLabel="Ver financeiro"
-      linkHref="/atendimento/financeiro"
+      linkHref="/atendimento/financeiro/contas-a-pagar"
     >
       {!data || data.months.length === 0 ? (
         <div className="h-56 flex items-center justify-center text-sm text-muted-foreground">
