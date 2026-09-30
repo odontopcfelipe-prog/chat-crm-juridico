@@ -13,7 +13,9 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 type ItemInput = {
@@ -77,6 +79,10 @@ export class QuotesService {
     // sem ciclo hoje, mas defensivo contra ordem de init.
     @Optional() @Inject(forwardRef(() => TreatmentPlansService))
     private treatmentPlans?: TreatmentPlansService,
+    // Fila do FECHAMENTO — agenda a negociação + boleto da entrada 3 min DEPOIS da
+    // apresentação (sequência: apresentação → 3min → negociação → entrada; parcelas D+1).
+    // @Optional: em testes/boot sem Redis o fluxo cai no envio imediato (fallback).
+    @Optional() @InjectQueue('fechamento-jobs') private fechamentoQueue?: Queue,
   ) {}
 
   async create(
@@ -1478,39 +1484,191 @@ export class QuotesService {
         }
       }
 
-      // Âncora — só quando a venda é BOLETO e o fluxo de boletos está ligado: substitui
-      // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
-      // seguinte). Em PIX/cartão NÃO ancora (a dedup do cron não olha data, então uma
-      // âncora sem boleto poderia suprimir uma apresentação legítima futura do plano).
-      // Gate pela ENTREGA (D+2), não pela apresentação — a âncora serve pra LIBERAR os
-      // boletos. Toggle próprio BOLETO_DELIVERY_ENABLED; se nunca setado, herda a
-      // apresentação (compat).
-      let entregaLigada = false;
-      if (terms.forma === 'BOLETO') {
-        const del = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
-        if (del) entregaLigada = del.value === 'true';
-        else {
-          const intro = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
-          entregaLigada = intro?.value === 'true';
-        }
-      }
-      if (entregaLigada) {
-        await this.prisma.auditLog
-          .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'negociacao_aprovada' } } })
-          .catch((e: any) => this.logger.warn(`[NEGOCIACAO_APROVADA] âncora não gravou (plano ${planId}): ${e?.message}`));
-      } else if (terms.forma === 'BOLETO') {
-        // PROMESSA SEM ENTREGA: a mensagem que acabou de sair diz que o financeiro
-        // manda os boletos, mas a ENTREGA ("Envio dos boletos") está DESLIGADA.
-        // Os dois disparos são toggles independentes — o paciente ficaria esperando.
-        this.logger.warn(
-          `[NEGOCIACAO_APROVADA] Plano ${planId}: avisei o paciente que os boletos vêm, mas ` +
-          `"Envio dos boletos" está DESLIGADO (BOLETO_DELIVERY_ENABLED_${tenantId}) — ninguém vai entregar. ` +
-          `Ligue na Central de Disparos ou use "Enviar boleto do mês".`,
-        );
-      }
+      // NÃO ancora mais aqui. Antes a negociação gravava a âncora BOLETO_INTRO — o que
+      // SUPRIMIA a apresentação D+1 (o cron deduplica por essa âncora), então a
+      // apresentação nunca saía. Agora a APRESENTAÇÃO (sendApresentacao, disparada no
+      // fechamento ANTES da negociação) é quem ancora. Assim a sequência que o dono
+      // configurou roda: apresentação → 3min → negociação → entrada → parcelas D+1.
     } catch (e: any) {
       this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
     }
+  }
+
+  /**
+   * APRESENTAÇÃO (D+0, ABRE a sequência do fechamento) — o financeiro se apresenta.
+   * REUSA o template `boleto_intro` (o mesmo do disparo "Apresentação · 1 dia após a
+   * venda"), mas agora sai NO FECHAMENTO, ANTES da negociação (que vem 3 min depois).
+   * ANCORA o plano (AuditLog BOLETO_INTRO) — o que (a) faz o cron D+1 pular a
+   * apresentação (dedup, sem repetir) e (b) LIBERA a entrega dos boletos no dia
+   * seguinte (a régua/boleto-delivery lê essa âncora). Espelha o gate do cron:
+   * só MANDA a msg se apresentação + entrega ligadas; se só a entrega, apenas ancora
+   * (sem mandar). Best-effort. Dedup por venda (não manda 2×).
+   */
+  private async sendApresentacao(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null; phone?: string | null } | null,
+  ): Promise<void> {
+    try {
+      const ws = this.whatsapp;
+      const phone = patient?.phone?.trim();
+      if (!tenantId) return;
+
+      // Dedup por venda — se já tem âncora, não repete (nem manda, nem re-ancora).
+      const ja = await this.prisma.auditLog.findFirst({
+        where: { entity: 'BOLETO_INTRO', entity_id: planId },
+        select: { id: true },
+      });
+      if (ja) return;
+
+      // Toggles (mesma régua do cron): apresentação (BOLETO_INTRO_ENABLED) + entrega
+      // (BOLETO_DELIVERY_ENABLED; se nunca setada, herda a apresentação).
+      const [introRow, delRow] = await Promise.all([
+        this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } }),
+        this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } }),
+      ]);
+      const introEnabled = introRow?.value === 'true';
+      const deliveryEnabled = delRow ? delRow.value === 'true' : introEnabled;
+
+      // Só apresenta se apresentação + entrega ligadas E há telefone/WhatsApp. Se só a
+      // entrega está ligada, apenas ANCORA (libera os boletos D+1) sem mandar a msg.
+      if (introEnabled && deliveryEnabled && ws && phone) {
+        const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+        const firstName = (patient?.name || 'paciente').split(' ')[0];
+        let template = DEFAULT_BOLETO_INTRO;
+        const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('boleto_intro', tenantId) } });
+        if (tplRow?.value) {
+          try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* default */ }
+        }
+        const msg = template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica).trim();
+        const instance = (await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO'))
+          || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
+        const res = await ws.sendText(phone, msg, instance);
+        if (!this.wasSent(res)) {
+          this.logger.warn(`[APRESENTACAO] Evolution recusou (plano ${planId}, ${phone}): ${JSON.stringify(res).slice(0, 150)} — NÃO ancoro (tenta o cron D+1).`);
+          return;
+        }
+        await this.prisma.dispatchLog
+          .create({ data: { tenant_id: tenantId, type: 'boleto_intro', channel: 'WHATSAPP', recipient_name: patient?.name || null, recipient_phone: phone, status: 'SENT', external_message_id: (res as any)?.key?.id || null, sent_at: new Date() } })
+          .catch(() => undefined);
+        await this.prisma.auditLog
+          .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'fechamento' } } })
+          .catch((e: any) => this.logger.warn(`[APRESENTACAO] âncora não gravou (plano ${planId}): ${e?.message}`));
+        this.logger.log(`[APRESENTACAO] enviada no fechamento (plano ${planId}); negociação sai em 3 min.`);
+      } else if (deliveryEnabled) {
+        // Só entrega ligada (ou sem telefone): apenas ancora pra liberar os boletos D+1.
+        await this.prisma.auditLog
+          .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'fechamento' } } })
+          .catch(() => undefined);
+        this.logger.log(`[APRESENTACAO] plano ${planId}: só ancorei (apresentação off ou sem telefone) — boletos liberam D+1.`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[APRESENTACAO] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /**
+   * ENTREGA DA ENTRADA (D+0, no fim da sequência do fechamento) — manda o BOLETO da
+   * entrada (e do sinal, se houver) + o PIX DO BOLETO, dizendo que é a entrada. A
+   * entrada vence no ato e precisa ser paga já (as PARCELAS vêm no D+1). Marca a peça
+   * (BOLETO_DELIVERY_PIECE) pra a entrega D+1 NÃO reenviar a entrada. Best-effort.
+   */
+  private async sendEntradaCobranca(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null; phone?: string | null } | null,
+  ): Promise<void> {
+    try {
+      const ws = this.whatsapp;
+      const phone = patient?.phone?.trim();
+      if (!ws || !phone || !tenantId) return;
+
+      const charges = await this.prisma.paymentGatewayCharge.findMany({
+        where: {
+          treatment_plan_id: planId,
+          kind: { in: ['SINAL', 'ENTRADA'] },
+          status: { notIn: ['RECEIVED', 'CONFIRMED', 'DELETED', 'CANCELLED', 'REFUNDED'] },
+          received_in_cash: false,
+        },
+        orderBy: { kind: 'asc' },
+      });
+      if (charges.length === 0) return;
+
+      const instance = (await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO'))
+        || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
+      const brl = (v: any) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const firstName = (patient?.name || 'paciente').split(' ')[0];
+
+      let asaas: any = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { AsaasClient } = require('../payment-gateway/asaas/asaas-client');
+        asaas = this.moduleRef.get(AsaasClient, { strict: false });
+      } catch { /* sem asaas: manda só o boleto (link) */ }
+
+      for (const c of charges) {
+        const label = c.kind === 'SINAL' ? 'sinal' : 'entrada';
+        const due = c.due_date ? new Date(c.due_date).toLocaleDateString('pt-BR') : null;
+        const boletoUrl = c.boleto_url || c.invoice_url || null;
+
+        let m1 = `${firstName}, pra garantir seu tratamento, segue o *boleto da ${label}* de *${brl(c.amount)}*`
+          + (due ? ` (vence em *${due}*)` : '') + '.';
+        if (boletoUrl) m1 += `\n\n🔗 Boleto:\n${boletoUrl}`;
+        m1 += `\n\nSe preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇`;
+
+        const r1 = await ws.sendText(phone, m1, instance);
+        if (!this.wasSent(r1)) {
+          this.logger.warn(`[ENTRADA-COBRANCA] Evolution recusou a msg da ${label} (plano ${planId}): ${JSON.stringify(r1).slice(0, 150)}`);
+          continue;
+        }
+
+        let pix = c.pix_copy_paste;
+        if (!pix && c.external_id && c.gateway === 'ASAAS' && asaas?.getPixQrCode) {
+          try {
+            const data = await asaas.getPixQrCode(c.external_id, tenantId);
+            pix = data?.payload || null;
+            if (pix) {
+              await this.prisma.paymentGatewayCharge
+                .update({ where: { id: c.id }, data: { pix_copy_paste: pix, ...(data?.encodedImage ? { pix_qr_code: data.encodedImage } : {}) } })
+                .catch(() => undefined);
+            }
+          } catch (e: any) {
+            this.logger.warn(`[ENTRADA-COBRANCA] falha ao buscar PIX da ${label} (plano ${planId}): ${e?.message}`);
+          }
+        }
+        if (pix) await ws.sendText(phone, pix, instance);
+
+        // Marca a peça pra a entrega D+1 NÃO reenviar a entrada (só as parcelas).
+        if (c.external_id) {
+          await this.prisma.auditLog
+            .create({ data: { entity: 'BOLETO_DELIVERY_PIECE', entity_id: `${planId}:${c.external_id}`, action: 'sent', meta_json: { tenant_id: tenantId, source: 'fechamento_entrada' } } })
+            .catch(() => undefined);
+        }
+        this.logger.log(`[ENTRADA-COBRANCA] ${label} entregue (boleto${pix ? ' + PIX' : ''}) — plano ${planId}.`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[ENTRADA-COBRANCA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /**
+   * Roda a 2ª etapa da sequência do fechamento (3 min após a apresentação): negociação
+   * aprovada + boleto da entrada. Chamado pelo processador da fila `fechamento-jobs`
+   * (job com delay) OU, no fallback (sem Redis), direto no fechamento. Best-effort.
+   */
+  async runFechamentoDeferido(payload: {
+    tenantId: string;
+    planId: string;
+    terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string };
+  }): Promise<void> {
+    const { tenantId, planId, terms } = payload;
+    const plan = await this.prisma.treatmentPlan.findUnique({
+      where: { id: planId },
+      select: { patient: { select: { name: true, phone: true } } },
+    });
+    const patient = plan?.patient || null;
+    await this.sendNegociacaoAprovada(tenantId, planId, patient, terms);
+    await this.sendEntradaCobranca(tenantId, planId, patient);
   }
 
   /**
@@ -2079,14 +2237,40 @@ export class QuotesService {
       `entrada R$ ${(data.down_payment_value - (data.signal_value || 0))} + ${data.installment_count}x R$ ${data.installment_value}`,
     );
 
-    // Negociação aprovada (D+0) — confirma as condições (entrada + parcelas + total).
-    await this.sendNegociacaoAprovada(tenantId, plan.id, quoteCheck.patient, {
+    // SEQUÊNCIA DO FECHAMENTO (config do dono): (1) APRESENTAÇÃO agora → (2) NEGOCIAÇÃO
+    // aprovada em 3 min → (3) BOLETO da entrada logo após → (4) PARCELAS no dia seguinte.
+    // 1) Apresentação abre a sequência e ANCORA (libera os boletos D+1 + faz o cron D+1
+    //    pular a apresentação).
+    const termosFechamento = {
       entrada: Number(data.down_payment_value) || 0,
       parcelas: data.installment_count,
       valorParcela: Number(data.installment_value) || 0,
       total: Number((result as { total_financed?: number }).total_financed) || 0,
-      forma: 'BOLETO', // financiamento é sempre boleto → habilita a âncora dos boletos
-    });
+      forma: 'BOLETO',
+    };
+    await this.sendApresentacao(tenantId, plan.id, quoteCheck.patient);
+    // 2+3) Negociação + boleto da entrada, 3 min depois (fila). Sem Redis/fila → manda já.
+    const fechamentoPayload = { tenantId, planId: plan.id, terms: termosFechamento };
+    let agendou = false;
+    if (this.fechamentoQueue) {
+      try {
+        await this.fechamentoQueue.add('deferido', fechamentoPayload, {
+          delay: 3 * 60 * 1000,
+          jobId: `fechamento-${plan.id}`,
+          removeOnComplete: true,
+          removeOnFail: true,
+        });
+        agendou = true;
+      } catch (e: any) {
+        this.logger.warn(`[FECHAMENTO] Falha ao agendar negociação+entrada (plano ${plan.id}): ${e?.message} — enviando imediato.`);
+      }
+    }
+    if (!agendou) {
+      // Fallback: sem fila, dispara já (best-effort, não bloqueia o retorno).
+      this.runFechamentoDeferido(fechamentoPayload).catch((e: any) =>
+        this.logger.warn(`[FECHAMENTO] runFechamentoDeferido (fallback) falhou (plano ${plan.id}): ${e?.message}`),
+      );
+    }
 
     // Notificação interna de VENDA FEITA (financiamento).
     await this.sendVendaFeita(tenantId, plan.id, quoteCheck.patient, {

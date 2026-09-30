@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { QuotesService } from './quotes.service';
+import { FechamentoProcessor } from './fechamento.processor';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
 import { QuoteCouponsService } from './quote-coupons.service';
@@ -35,9 +37,13 @@ import { FileStorageService } from '../media/filesystem.service';
     // Hook Funil 2: ao criar Quote, move Lead vinculado pra "Em Fechamento"
     // (LeadsService resolvido via ModuleRef em QuotesService.advanceLeadToEmFechamento)
     LeadsModule,
+    // Sequência do fechamento: negociação + boleto da entrada saem 3 min DEPOIS da
+    // apresentação, via job com delay nesta fila (processada pelo FechamentoProcessor).
+    BullModule.registerQueue({ name: 'fechamento-jobs' }),
   ],
   controllers: [CommercialController],
   providers: [
+    FechamentoProcessor,
     QuotesService,
     QuotePdfService,
     QuoteTemplatesService,
