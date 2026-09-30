@@ -51,6 +51,26 @@ export class PayablesController {
     });
   }
 
+  // "Gastos do dia" — todas as saídas avulsas (inclui comissão/diária/caixa na clínica).
+  @Get('gastos')
+  gastos(
+    @Query('companyId') companyId: string,
+    @Query('status') status: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('limit') limit: string,
+    @Request() req: any,
+  ) {
+    return this.service.listGastos({
+      tenantId: req.user.tenant_id,
+      companyId: companyId || undefined,
+      status,
+      startDate,
+      endDate,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
   @Get('categories')
   categories(@Request() req: any) {
     return this.service.getCategories(req.user.tenant_id);

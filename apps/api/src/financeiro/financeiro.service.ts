@@ -93,6 +93,7 @@ export class FinanceiroService {
     source?: string;
     excludeSource?: string;
     companyId?: string | null; // Contas a Pagar: null = clínica, id = outra empresa
+    loose?: boolean; // só lançamentos AVULSOS (não recorrente/parcela) — "Gastos do dia"
     periodField?: string; // 'date' (padrão) | 'due_date' (Contas a Pagar)
     legalCaseId?: string;
     leadId?: string;
@@ -113,6 +114,13 @@ export class FinanceiroService {
     else if (query.excludeSource) where.source = { not: query.excludeSource };
     // Empresa (Contas a Pagar): quando o caller escopa, null = clínica, id = outra.
     if (query.companyId !== undefined) where.company_id = query.companyId;
+    // "Gastos do dia": só saídas AVULSAS — exclui recorrentes/parcelas (que são as
+    // "Contas Fixas"). Inclui comissão/diária/caixa/etc (não têm esses marcadores).
+    if (query.loose) {
+      where.is_recurring = false;
+      where.parent_transaction_id = null;
+      where.installment_total = null;
+    }
     if (query.status) {
       where.status = query.status;
     } else {

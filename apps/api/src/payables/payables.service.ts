@@ -94,6 +94,35 @@ export class PayablesService {
     } as any);
   }
 
+  /** "Gastos do dia" = TODAS as saídas AVULSAS do escopo (não recorrentes/parcelas,
+   *  que são as Contas Fixas). Diferente de listPayables: NÃO filtra por source, então
+   *  na clínica inclui comissão/diária/caixa/afiliado; nas outras empresas, os gastos
+   *  avulsos daquela empresa. */
+  async listGastos(params: {
+    tenantId?: string;
+    companyId?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const tenantId = this.requireTenant(params.tenantId);
+    const companyId = await this.resolveCompanyId(params.companyId, tenantId);
+    return this.financeiro.findAllTransactions({
+      tenantId,
+      type: 'DESPESA',
+      companyId,
+      loose: true,
+      periodField: 'due_date',
+      status: params.status,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      limit: params.limit,
+      offset: params.offset,
+    } as any);
+  }
+
   /** Categorias de DESPESA — semeia lazy se o tenant ainda não tiver nenhuma. */
   async getCategories(tenantId?: string) {
     const tid = this.requireTenant(tenantId);

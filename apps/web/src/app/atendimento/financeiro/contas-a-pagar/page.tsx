@@ -11,10 +11,12 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
   CalendarClock, Repeat, Layers, Receipt, AlertTriangle, ArrowLeft,
+  Eye, EyeOff, Users, FileText, TrendingUp,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import PacientesSummaryTab from '../components/PacientesSummaryTab';
 
 // ─── Helpers ──────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -67,10 +69,13 @@ interface Tx {
   installment_sequence: number | null;
   installment_total: number | null;
   parent_transaction_id: string | null;
+  lead?: { name?: string } | null;
 }
 interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
 interface Company { id: string; name: string; }
+interface LogRow { id: string; action: string; created_at: string; actor?: { name?: string } | null; meta_json?: any }
+interface ValCount { value: number; count: number }
 
 const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
 // Formas aceitas pelo caixa (o gasto/pagamento que passa pela gaveta).
@@ -84,8 +89,14 @@ export default function ContasAPagarPage() {
   const allowed = hasPermission('manage_payables');
 
   // Estado da tela persistido no refresh (aba/empresa/mês).
-  const [tab, setTab] = useState<'fixas' | 'dia'>(() => (readLS('payables_tab') === 'dia' ? 'dia' : 'fixas'));
-  const [txs, setTxs] = useState<Tx[]>([]);
+  type PanelTab = 'fixas' | 'dia' | 'entradas' | 'pacientes' | 'log';
+  const [tab, setTab] = useState<PanelTab>(() => {
+    const t = readLS('payables_tab');
+    return (['fixas', 'dia', 'entradas', 'pacientes', 'log'] as string[]).includes(t) ? (t as PanelTab) : 'fixas';
+  });
+  const [txs, setTxs] = useState<Tx[]>([]); // saídas (fixas ou gastos, conforme a aba)
+  const [entradas, setEntradas] = useState<Tx[]>([]); // RECEITA (aba Entradas)
+  const [logRows, setLogRows] = useState<LogRow[]>([]); // aba Log
   const [cats, setCats] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -95,7 +106,16 @@ export default function ContasAPagarPage() {
   const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
   const [editTarget, setEditTarget] = useState<Tx | null>(null);
+  // Resumo discreto de cobranças (Saldo Asaas / A Receber / Atrasado) + olho.
+  const [asaasBalance, setAsaasBalance] = useState<number | null>(null);
+  const [receber, setReceber] = useState<ValCount | null>(null);
+  const [atrasado, setAtrasado] = useState<ValCount | null>(null);
+  const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
   const isClinic = !selectedCompany;
+  const canViewFinancial = hasPermission('view_financial'); // p/ o resumo de cobranças (dashboard)
+  // Abas só-clínica (as outras empresas só têm as saídas).
+  const CLINIC_TABS: PanelTab[] = ['entradas', 'pacientes', 'log'];
+  const effTab: PanelTab = !isClinic && CLINIC_TABS.includes(tab) ? 'fixas' : tab;
 
   const monthRange = useCallback(() => {
     const [y, m] = month.split('-').map(Number);
@@ -107,27 +127,55 @@ export default function ContasAPagarPage() {
     return { start, end };
   }, [month]);
 
+  // Dados da ABA ativa (saídas fixas/gastos, entradas ou log). Pacientes se vira sozinho.
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
     try {
       const { start, end } = monthRange();
       const companyQ = selectedCompany ? `&companyId=${selectedCompany}` : '';
-      const [txRes, catRes, accRes] = await Promise.all([
-        api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500${companyQ}`),
-        api.get('/payables/categories'),
-        api.get('/payables/accounts'),
-      ]);
-      const data = (txRes.data?.data ?? txRes.data ?? []) as Tx[];
-      setTxs(data.map((t) => ({ ...t, amount: Number(t.amount) })));
-      setCats((catRes.data ?? []) as Category[]);
-      setAccounts((accRes.data ?? []) as CashAccount[]);
+      if (effTab === 'fixas') {
+        const { data } = await api.get(`/payables/transactions?startDate=${start}&endDate=${end}&limit=500${companyQ}`);
+        setTxs(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
+      } else if (effTab === 'dia') {
+        const { data } = await api.get(`/payables/gastos?startDate=${start}&endDate=${end}&limit=500${companyQ}`);
+        setTxs(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
+      } else if (effTab === 'entradas') {
+        const { data } = await api.get(`/financeiro/transactions?type=RECEITA&startDate=${start}&endDate=${end}&limit=200`);
+        setEntradas(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
+      } else if (effTab === 'log') {
+        const { data } = await api.get('/financeiro/audit-log?limit=60');
+        setLogRows((data?.data ?? data ?? []) as LogRow[]);
+      }
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao carregar contas a pagar');
+      showError(e?.response?.data?.message || 'Falha ao carregar');
     } finally {
       setLoading(false);
     }
-  }, [allowed, monthRange, selectedCompany]);
+  }, [allowed, monthRange, selectedCompany, effTab]);
+
+  // Refs (categorias/contas) — carregadas 1× pros modais.
+  const loadRefs = useCallback(async () => {
+    if (!allowed) return;
+    try {
+      const [catRes, accRes] = await Promise.all([api.get('/payables/categories'), api.get('/payables/accounts')]);
+      setCats((catRes.data ?? []) as Category[]);
+      setAccounts((accRes.data ?? []) as CashAccount[]);
+    } catch { /* silencioso */ }
+  }, [allowed]);
+
+  // Resumo discreto de cobranças (só clínica + quem tem view_financial).
+  const loadSummary = useCallback(async () => {
+    if (!allowed || !isClinic) return;
+    try { const b = await api.get('/payment-gateway/balance'); setAsaasBalance(b.data?.balance ?? b.data?.value ?? null); } catch { setAsaasBalance(null); }
+    if (!canViewFinancial) return;
+    try {
+      const { start, end } = monthRange();
+      const { data } = await api.get(`/financeiro/dashboard?startDate=${start}&endDate=${end}`);
+      setReceber(data?.a_receber_total ?? null);
+      setAtrasado(data?.atrasado ?? null);
+    } catch { setReceber(null); setAtrasado(null); }
+  }, [allowed, isClinic, canViewFinancial, monthRange]);
 
   const loadCompanies = useCallback(async () => {
     if (!allowed) return;
@@ -141,11 +189,14 @@ export default function ContasAPagarPage() {
   }, [allowed]);
 
   useEffect(() => { if (ready && allowed) load(); }, [ready, allowed, load]);
+  useEffect(() => { if (ready && allowed) loadRefs(); }, [ready, allowed, loadRefs]);
   useEffect(() => { if (ready && allowed) loadCompanies(); }, [ready, allowed, loadCompanies]);
+  useEffect(() => { if (ready && allowed) loadSummary(); }, [ready, allowed, loadSummary]);
   // Persiste a preferência da tela pra o refresh continuar na mesma.
   useEffect(() => { writeLS('payables_tab', tab); }, [tab]);
   useEffect(() => { writeLS('payables_company', selectedCompany); }, [selectedCompany]);
   useEffect(() => { writeLS('payables_month', month); }, [month]);
+  useEffect(() => { writeLS('payables_showvalues', showValues ? '1' : '0'); }, [showValues]);
 
   // Criar / renomear empresa (prompt simples — ferramenta de admin).
   const newCompany = async () => {
@@ -191,15 +242,16 @@ export default function ContasAPagarPage() {
   const today = maceioTodayStr();
   const num = (t: Tx) => Number(t.amount);
   const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
-  const pend = txs.filter((t) => t.status === 'PENDENTE');
+  const isSaidasTab = effTab === 'fixas' || effTab === 'dia';
+  // fixas: filtra as fixas do que veio; dia: já vem só não-fixa do /payables/gastos.
+  const listForTab = effTab === 'fixas' ? txs.filter(isFixed) : txs;
+  const pend = listForTab.filter((t) => t.status === 'PENDENTE');
   const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
   const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
-  const pagasMes = txs.filter((t) => t.status === 'PAGO');
+  const pagasMes = listForTab.filter((t) => t.status === 'PAGO');
   const kpiVencidas = vencidas.reduce((s, t) => s + num(t), 0);
   const kpiAVencer = aVencer.reduce((s, t) => s + num(t), 0);
   const kpiPago = pagasMes.reduce((s, t) => s + num(t), 0);
-
-  const listForTab = txs.filter((t) => (tab === 'fixas' ? isFixed(t) : !isFixed(t)));
 
   // ─── Ações ──────────────────────────────────────────────────
   const pay = async (t: Tx) => {
@@ -252,34 +304,61 @@ export default function ContasAPagarPage() {
           </div>
         </div>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-3 gap-3">
-          <Kpi label="Vencidas" value={fmt(kpiVencidas)} tone="rose" count={vencidas.length} />
-          <Kpi label="A vencer no mês" value={fmt(kpiAVencer)} tone="amber" count={aVencer.length} />
-          <Kpi label="Pago no mês" value={fmt(kpiPago)} tone="emerald" count={pagasMes.length} />
-        </div>
+        {/* Resumo discreto de cobranças (só clínica) — valores escondidos, olho revela */}
+        {isClinic && (asaasBalance !== null || receber || atrasado) && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button onClick={() => setShowValues((v) => !v)} title={showValues ? 'Esconder valores' : 'Mostrar valores'} className="inline-flex items-center gap-1 px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground rounded-lg border border-border">
+              {showValues ? <EyeOff size={13} /> : <Eye size={13} />} {showValues ? 'Esconder' : 'Ver valores'}
+            </button>
+            {asaasBalance !== null && <SummaryChip label="Saldo Asaas" value={fmt(asaasBalance)} show={showValues} tone={asaasBalance < 0 ? 'rose' : 'emerald'} />}
+            {receber && <SummaryChip label="A receber" value={fmt(receber.value)} sub={`${receber.count}`} show={showValues} tone="sky" />}
+            {atrasado && <SummaryChip label="Atrasado" value={fmt(atrasado.value)} sub={`${atrasado.count}`} show={showValues} tone="rose" />}
+          </div>
+        )}
+
+        {/* KPIs — só nas abas de saída (Contas Fixas / Gastos do dia) */}
+        {isSaidasTab && (
+          <div className="grid grid-cols-3 gap-3">
+            <Kpi label="Vencidas" value={fmt(kpiVencidas)} tone="rose" count={vencidas.length} />
+            <Kpi label="A vencer no mês" value={fmt(kpiAVencer)} tone="amber" count={aVencer.length} />
+            <Kpi label="Pago no mês" value={fmt(kpiPago)} tone="emerald" count={pagasMes.length} />
+          </div>
+        )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-border">
-          <TabBtn active={tab === 'fixas'} onClick={() => setTab('fixas')} icon={<Layers size={15} />} label="Contas Fixas" />
-          <TabBtn active={tab === 'dia'} onClick={() => setTab('dia')} icon={<CalendarClock size={15} />} label="Gastos do dia" />
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
+          <TabBtn active={effTab === 'fixas'} onClick={() => setTab('fixas')} icon={<Layers size={15} />} label="Contas Fixas" />
+          <TabBtn active={effTab === 'dia'} onClick={() => setTab('dia')} icon={<CalendarClock size={15} />} label="Gastos do dia" />
+          {isClinic && <>
+            <TabBtn active={effTab === 'entradas'} onClick={() => setTab('entradas')} icon={<TrendingUp size={15} />} label="Entradas" />
+            <TabBtn active={effTab === 'pacientes'} onClick={() => setTab('pacientes')} icon={<Users size={15} />} label="Pacientes" />
+            <TabBtn active={effTab === 'log'} onClick={() => setTab('log')} icon={<FileText size={15} />} label="Log" />
+          </>}
         </div>
 
         {/* Ações da aba */}
-        <div className="flex flex-wrap gap-2">
-          {tab === 'fixas' ? (
-            <>
-              <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
-              <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
-            </>
-          ) : (
-            <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
-          )}
-        </div>
+        {isSaidasTab && (
+          <div className="flex flex-wrap gap-2">
+            {effTab === 'fixas' ? (
+              <>
+                <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
+                <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
+              </>
+            ) : (
+              <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+            )}
+          </div>
+        )}
 
-        {/* Lista */}
-        {loading ? (
+        {/* Conteúdo da aba */}
+        {effTab === 'pacientes' ? (
+          <PacientesSummaryTab />
+        ) : loading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        ) : effTab === 'log' ? (
+          <LogTab rows={logRows} />
+        ) : effTab === 'entradas' ? (
+          <EntradasTab items={entradas} />
         ) : (
           <TxList
             items={listForTab}
@@ -287,7 +366,7 @@ export default function ContasAPagarPage() {
             onPay={(t) => setPayTarget(t)}
             onEdit={(t) => setEditTarget(t)}
             onDelete={del}
-            emptyLabel={tab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
+            emptyLabel={effTab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
           />
         )}
       </div>
@@ -678,5 +757,82 @@ function PayModal({ tx, accounts, isClinic, onClose, onSaved, onQuickPay }: { tx
         </>
       )}
     </ModalShell>
+  );
+}
+
+// ─── Resumo discreto de cobranças (Saldo Asaas / A Receber / Atrasado) ────────
+// Valor escondido por padrão; o olho no cabeçalho revela. Nunca aparece pra
+// outras empresas (só clínica) — é dado sensível do gateway.
+function SummaryChip({ label, value, sub, show, tone }: { label: string; value: string; sub?: string; show: boolean; tone: 'rose' | 'emerald' | 'sky' }) {
+  const toneCls = tone === 'rose' ? 'text-rose-500' : tone === 'sky' ? 'text-sky-500' : 'text-emerald-500';
+  return (
+    <div className="rounded-lg border border-border bg-card px-2.5 py-1 text-right leading-tight">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}{sub ? ` · ${sub}` : ''}</div>
+      <div className={`text-[13px] font-bold tabular-nums ${show ? toneCls : 'text-muted-foreground'}`}>{show ? value : '••••••'}</div>
+    </div>
+  );
+}
+
+// ─── Aba Entradas (RECEITA do mês, só leitura) ────────────────────────────────
+// Espelho das entradas do Financeiro — o lançamento continua na tela de recepção;
+// aqui é a visão consolidada pro adm/gerente (mesma fonte, nada é duplicado).
+function EntradasTab({ items }: { items: Tx[] }) {
+  if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Nenhuma entrada neste mês.</div>;
+  const total = items.reduce((s, t) => s + Number(t.amount), 0);
+  const sorted = [...items].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
+  return (
+    <div className="space-y-2">
+      <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 flex items-center justify-between">
+        <span className="text-[12px] font-bold uppercase tracking-wide text-emerald-600">Total de entradas · {items.length}</span>
+        <span className="text-lg font-bold tabular-nums text-emerald-600">{fmt(total)}</span>
+      </div>
+      {sorted.map((t) => (
+        <div key={t.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-foreground truncate">{t.description}</div>
+            <div className="text-[12px] text-muted-foreground">{t.category}{t.lead?.name ? ` · ${t.lead.name}` : ''} · {brDate(t.date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
+          </div>
+          <div className="text-sm font-bold tabular-nums text-emerald-600">{fmt(Number(t.amount))}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Aba Log (auditoria do financeiro) ────────────────────────────────────────
+const LOG_LABELS: Record<string, { label: string; tone: string }> = {
+  DESPESA_CRIADA: { label: 'Despesa criada', tone: 'text-rose-500' },
+  RECEITA_CRIADA: { label: 'Receita criada', tone: 'text-emerald-500' },
+  DESPESA_EDITADA: { label: 'Despesa editada', tone: 'text-amber-500' },
+  RECEITA_EDITADA: { label: 'Receita editada', tone: 'text-amber-500' },
+  DESPESA_PAGA: { label: 'Despesa paga', tone: 'text-emerald-500' },
+  PAGAMENTO_RECEBIDO: { label: 'Pagamento recebido', tone: 'text-emerald-500' },
+  PAGAMENTO_PARCIAL: { label: 'Pagamento parcial', tone: 'text-sky-500' },
+  DIARIA_LANCADA: { label: 'Diária lançada', tone: 'text-violet-500' },
+  DESPESA_EXCLUIDA: { label: 'Despesa excluída', tone: 'text-rose-500' },
+  RECEITA_EXCLUIDA: { label: 'Receita excluída', tone: 'text-rose-500' },
+};
+function LogTab({ rows }: { rows: LogRow[] }) {
+  if (rows.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Sem movimentações registradas.</div>;
+  const dt = (iso: string) => { try { return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => {
+        const meta = (r.meta_json || {}) as any;
+        const info = LOG_LABELS[r.action] || { label: r.action.replace(/_/g, ' ').toLowerCase(), tone: 'text-foreground' };
+        return (
+          <div key={r.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[11px] font-bold uppercase tracking-wide ${info.tone}`}>{info.label}</span>
+                {meta.descricao && <span className="text-sm font-semibold text-foreground truncate">{meta.descricao}</span>}
+              </div>
+              <div className="text-[12px] text-muted-foreground">{r.actor?.name || 'Sistema'} · {dt(r.created_at)}{meta.categoria ? ` · ${meta.categoria}` : ''}</div>
+            </div>
+            {meta.valor != null && <div className="text-sm font-bold tabular-nums text-foreground">{fmt(Number(meta.valor))}</div>}
+          </div>
+        );
+      })}
+    </div>
   );
 }

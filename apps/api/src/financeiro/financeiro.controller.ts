@@ -23,10 +23,10 @@ import {
 } from './financeiro.dto';
 
 @UseGuards(JwtAuthGuard)
-// Onda 17.32.128 — Fase 6: financeiro exige permissao view_financial
-// (setores financeiro + admin tem por default; demais ganham via
-// extra_grants quando ADMIN do tenant liberar)
-@RequiresPermission('view_financial')
+// Leitura do financeiro: view_financial OU manage_payables (OR). O painel Contas
+// a Pagar (adm/gerente) reusa estes GETs (entradas/pacientes/log/dashboard). As
+// MUTAÇÕES continuam com @RequiresPermission('manage_financial') no método (override).
+@RequiresPermission('view_financial', 'manage_payables')
 @Controller('financeiro')
 export class FinanceiroController {
   constructor(
