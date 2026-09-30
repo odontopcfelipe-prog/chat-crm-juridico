@@ -26,6 +26,7 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useSocketEvent } from '@/lib/SocketProvider';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 // Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
@@ -1091,7 +1092,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   interface ApproveAndBillResult {
     quote_id: string;
     plan_id: string;
-    charge: { id: string; status: string };
+    charge: { id: string; status: string; external_id?: string | null };
     billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
     installment_count?: number;
     pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
@@ -9810,6 +9811,7 @@ function ApproveBillResultDialog({
     plan_id: string;
     billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
     installment_count?: number;
+    charge?: { id: string; status: string; external_id?: string | null };
     pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
     boleto?: { url: string; barcode: string | null } | null;
     invoice_url?: string | null;
@@ -9819,6 +9821,34 @@ function ApproveBillResultDialog({
 }) {
   const [copied, setCopied] = useState(false);
   const copyPasteCode = result.pix?.copyPaste || '';
+
+  // Onda 18.x — PIX AO VIVO na tela (igual à venda rápida): quando o Asaas confirma,
+  // o modal troca NA HORA pra "Pagamento efetuado com sucesso". Canal principal =
+  // socket `financial_update`; rede de segurança = poll leve do status a cada 4s.
+  const PAID = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+  const externalId = result.charge?.external_id || null;
+  const watchingPix = result.billing_type === 'PIX' && !!result.pix && !!externalId;
+  const [paid, setPaid] = useState(false);
+  useSocketEvent<{ type?: string; externalId?: string; newStatus?: string }>('financial_update', (ev) => {
+    if (!watchingPix || paid) return;
+    if (ev?.externalId === externalId && PAID.includes(String(ev?.newStatus))) setPaid(true);
+  });
+  useEffect(() => {
+    if (!watchingPix || paid) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const { data: st } = await api.get<{ status: string | null }>(
+          `/payment-gateway/charges/asaas/status/${externalId}`,
+        );
+        if (alive && st?.status && PAID.includes(st.status)) setPaid(true);
+      } catch { /* silencioso — tenta de novo no próximo tick */ }
+    };
+    const id = setInterval(tick, 4000);
+    return () => { alive = false; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchingPix, paid, externalId]);
+  useEffect(() => { if (paid) showSuccess('Pagamento PIX confirmado!'); }, [paid]);
 
   return (
     <div
@@ -9864,7 +9894,22 @@ function ApproveBillResultDialog({
               </p>
             </div>
           )}
-          {result.billing_type === 'PIX' && result.pix && (
+          {result.billing_type === 'PIX' && result.pix && paid && (
+            // AO VIVO — o Asaas confirmou o pagamento: troca o QR pela confirmação
+            // (a tela costuma ficar virada pro paciente no balcão).
+            <div className="text-center py-8">
+              <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/40 animate-[pulse_1.2s_ease-in-out_2]">
+                <Check size={56} strokeWidth={3} />
+              </div>
+              <p className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 mb-2">
+                Pagamento efetuado com sucesso!
+              </p>
+              <p className="text-lg font-semibold text-foreground">
+                Obrigado por ser nosso paciente 💚
+              </p>
+            </div>
+          )}
+          {result.billing_type === 'PIX' && result.pix && !paid && (
             <>
               <div className="bg-muted/20 border border-border rounded-lg p-4 text-center">
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold mb-2">
@@ -9879,6 +9924,11 @@ function ApproveBillResultDialog({
                 <p className="text-[10px] text-muted-foreground mt-2">
                   Válido até {new Date(result.pix.expirationDate).toLocaleString('pt-BR')}
                 </p>
+                {watchingPix && (
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-2 flex items-center justify-center gap-1.5">
+                    <Loader2 size={11} className="animate-spin" /> Aguardando o pagamento…
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-foreground block mb-1">
