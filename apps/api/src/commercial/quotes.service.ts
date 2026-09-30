@@ -1594,6 +1594,27 @@ export class QuotesService {
       });
       if (charges.length === 0) return;
 
+      // SÓ o que vence AGORA sai no fechamento (o "pra pagar já"). Uma entrada/sinal com
+      // vencimento FUTURO (ex.: entrada pro dia 15) NÃO sai aqui — ela chega pelo fluxo
+      // normal dos boletos (entrega + régua perto do vencimento). Assim, num plano com
+      // SINAL (hoje) + ENTRADA (futura), só o sinal é cobrado no ato.
+      const maceioNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      const todayStr = maceioNow.toISOString().slice(0, 10);
+      const devidasAgora = charges.filter((c) => {
+        if (!c.due_date) return true; // sem vencimento = imediata
+        return new Date(c.due_date).toISOString().slice(0, 10) <= todayStr;
+      });
+      if (devidasAgora.length === 0) {
+        this.logger.log(`[ENTRADA-COBRANCA] plano ${planId}: entrada/sinal só vencem no futuro — não cobro agora (vão pelo fluxo normal dos boletos).`);
+        return;
+      }
+
+      // PIX copia-e-cola VÁLIDO (EMV) — rejeita URL (o Asaas às vezes devolve o link do
+      // boleto no lugar do payload; sem isso, a "mensagem do PIX" saía com a URL do boleto).
+      const isPixCode = (s?: string | null): s is string =>
+        !!s && !/^https?:\/\//i.test(s.trim()) &&
+        (s.trim().startsWith('000201') || /br\.gov\.bcb\.pix|pix\.asaas\.com/i.test(s));
+
       const instance = (await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO'))
         || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
       const brl = (v: any) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -1606,39 +1627,42 @@ export class QuotesService {
         asaas = this.moduleRef.get(AsaasClient, { strict: false });
       } catch { /* sem asaas: manda só o boleto (link) */ }
 
-      for (const c of charges) {
+      for (const c of devidasAgora) {
+        const artigo = c.kind === 'SINAL' ? 'do sinal' : 'da entrada';
         const label = c.kind === 'SINAL' ? 'sinal' : 'entrada';
         const due = c.due_date ? new Date(c.due_date).toLocaleDateString('pt-BR') : null;
         const boletoUrl = c.boleto_url || c.invoice_url || null;
 
-        let m1 = `${firstName}, pra garantir seu tratamento, segue o *boleto da ${label}* de *${brl(c.amount)}*`
-          + (due ? ` (vence em *${due}*)` : '') + '.';
-        if (boletoUrl) m1 += `\n\n🔗 Boleto:\n${boletoUrl}`;
-        m1 += `\n\nSe preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇`;
-
-        const r1 = await ws.sendText(phone, m1, instance);
-        if (!this.wasSent(r1)) {
-          this.logger.warn(`[ENTRADA-COBRANCA] Evolution recusou a msg da ${label} (plano ${planId}): ${JSON.stringify(r1).slice(0, 150)}`);
-          continue;
-        }
-
-        let pix = c.pix_copy_paste;
+        // Resolve o PIX DO BOLETO (EMV) ANTES de montar a mensagem — do salvo (se válido),
+        // senão busca no Asaas. Só prometemos "PIX na próxima mensagem" se houver PIX real.
+        let pix: string | null = isPixCode(c.pix_copy_paste) ? c.pix_copy_paste : null;
         if (!pix && c.external_id && c.gateway === 'ASAAS' && asaas?.getPixQrCode) {
           try {
             const data = await asaas.getPixQrCode(c.external_id, tenantId);
-            pix = data?.payload || null;
-            if (pix) {
+            if (isPixCode(data?.payload)) {
+              pix = data.payload;
               await this.prisma.paymentGatewayCharge
                 .update({ where: { id: c.id }, data: { pix_copy_paste: pix, ...(data?.encodedImage ? { pix_qr_code: data.encodedImage } : {}) } })
                 .catch(() => undefined);
             }
           } catch (e: any) {
-            this.logger.warn(`[ENTRADA-COBRANCA] falha ao buscar PIX da ${label} (plano ${planId}): ${e?.message}`);
+            this.logger.warn(`[ENTRADA-COBRANCA] falha ao buscar PIX ${artigo} (plano ${planId}): ${e?.message}`);
           }
+        }
+
+        let m1 = `${firstName}, pra garantir seu tratamento, segue o *boleto ${artigo}* de *${brl(c.amount)}*`
+          + (due ? ` (vence em *${due}*)` : '') + '.';
+        if (boletoUrl) m1 += `\n\n🔗 Boleto:\n${boletoUrl}`;
+        if (pix) m1 += `\n\nSe preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇`;
+
+        const r1 = await ws.sendText(phone, m1, instance);
+        if (!this.wasSent(r1)) {
+          this.logger.warn(`[ENTRADA-COBRANCA] Evolution recusou a msg ${artigo} (plano ${planId}): ${JSON.stringify(r1).slice(0, 150)}`);
+          continue;
         }
         if (pix) await ws.sendText(phone, pix, instance);
 
-        // Marca a peça pra a entrega D+1 NÃO reenviar a entrada (só as parcelas).
+        // Marca a peça pra a entrega D+1 NÃO reenviar o que já foi no fechamento.
         if (c.external_id) {
           await this.prisma.auditLog
             .create({ data: { entity: 'BOLETO_DELIVERY_PIECE', entity_id: `${planId}:${c.external_id}`, action: 'sent', meta_json: { tenant_id: tenantId, source: 'fechamento_entrada' } } })
