@@ -172,11 +172,11 @@ export default function ContasAPagarPage() {
 
   // ─── Gate ───────────────────────────────────────────────────
   if (!ready) {
-    return <div className="flex-1 flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="h-full flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
   }
   if (!allowed) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
+      <div className="h-full flex flex-col items-center justify-center gap-4 text-center p-8">
         <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center"><Shield className="w-8 h-8 text-destructive/60" /></div>
         <div>
           <h3 className="text-base font-bold text-foreground">Sem autorização</h3>
@@ -219,7 +219,7 @@ export default function ContasAPagarPage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
         {/* Voltar pra tela anterior (Financeiro / Início) */}
         <button onClick={() => router.back()} className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground -mb-1">
