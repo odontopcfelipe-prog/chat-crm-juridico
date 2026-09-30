@@ -227,8 +227,18 @@ export class PayablesService {
 
   async updatePayable(id: string, dto: UpdatePayableDto, tenantId: string, actorId?: string) {
     const tid = this.requireTenant(tenantId);
-    await this.assertPayable(id, tid);
-    return this.financeiro.updateTransaction(id, dto as any, tid, actorId);
+    const rec = await this.assertPayable(id, tid);
+    const result = await this.financeiro.updateTransaction(id, dto as any, tid, actorId);
+    // Reclassificar fixo × variável vale pra a SÉRIE inteira (mãe + todas as ocorrências),
+    // senão a filha muda só neste mês e o cron regenera com o tipo antigo da mãe.
+    if (dto.is_variable_amount !== undefined) {
+      const rootId = (rec as any).parent_transaction_id || id;
+      await this.prisma.financialTransaction.updateMany({
+        where: { tenant_id: tid, source: SOURCE, OR: [{ id: rootId }, { parent_transaction_id: rootId }] },
+        data: { is_variable_amount: dto.is_variable_amount } as any,
+      });
+    }
+    return result;
   }
 
   async deletePayable(id: string, tenantId: string, actorId?: string) {

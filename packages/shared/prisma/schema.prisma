@@ -1493,6 +1493,10 @@ model FinancialTransaction {
   // caixa/relatórios da clínica). Não-null = outra empresa do dono (só rastreio,
   // fora do caixa/relatórios da clínica). Ver model PayableCompany.
   company_id           String?
+  // Contas a Pagar: valor VARIÁVEL (energia/água/internet — muda todo mês, ajusta
+  // antes de pagar) vs FIXO (aluguel/FGTS/folha — mesmo valor). true = variável.
+  // null/false = fixo (padrão; parcelas são sempre fixas). Só p/ filtro/UX.
+  is_variable_amount   Boolean?
 
   // Vínculos opcionais
   lead_id                   String?

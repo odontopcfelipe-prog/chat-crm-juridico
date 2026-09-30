@@ -300,13 +300,14 @@ export class FinanceiroService {
     );
   }
 
-  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string; company_id?: string | null }) {
+  async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string; company_id?: string | null; is_variable_amount?: boolean }) {
     // STUBBED: legal_case_id/honorario_payment_id removidos Fase 0.2
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: data.tenant_id,
         source: data.source ?? null,
         company_id: data.company_id ?? null,
+        is_variable_amount: data.is_variable_amount ?? null,
         type: data.type,
         category: data.category,
         description: data.description,
@@ -430,6 +431,8 @@ export class FinanceiroService {
     if (data.dentist_id !== undefined) updateData.dentist_id = data.dentist_id;
     if (data.reference_id !== undefined) updateData.reference_id = data.reference_id;
     if (data.notes !== undefined) updateData.notes = data.notes;
+    // Contas a Pagar: reclassificar valor fixo × variável (via UpdatePayableDto).
+    if ((data as any).is_variable_amount !== undefined) updateData.is_variable_amount = (data as any).is_variable_amount;
 
     const updated = await this.prisma.financialTransaction.update({
       where: { id },

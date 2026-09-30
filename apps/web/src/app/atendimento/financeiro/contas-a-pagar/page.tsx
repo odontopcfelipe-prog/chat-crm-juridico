@@ -69,6 +69,7 @@ interface Tx {
   installment_sequence: number | null;
   installment_total: number | null;
   parent_transaction_id: string | null;
+  is_variable_amount?: boolean | null;
   lead?: { name?: string } | null;
 }
 interface Category { id: string; name: string; type: string; }
@@ -118,6 +119,8 @@ export default function ContasAPagarPage() {
   const [receber, setReceber] = useState<ValCount | null>(null);
   const [atrasado, setAtrasado] = useState<ValCount | null>(null);
   const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
+  // Filtro da aba Contas a Pagar: valor fixo (aluguel/FGTS) × variável (energia/água).
+  const [payKind, setPayKind] = useState<'all' | 'fixo' | 'variavel'>('all');
   // Empresa só é selecionável por quem tem manage_payables; o financeiro nunca sai da clínica.
   const effCompany = canManagePayables ? selectedCompany : '';
   const isClinic = !effCompany;
@@ -275,8 +278,11 @@ export default function ContasAPagarPage() {
   const num = (t: Tx) => Number(t.amount);
   const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
   const isSaidasTab = effTab === 'fixas' || effTab === 'dia';
-  // fixas: filtra as fixas do que veio; dia: já vem só não-fixa do /payables/gastos.
-  const listForTab = effTab === 'fixas' ? txs.filter(isFixed) : txs;
+  const isVariable = (t: Tx) => t.is_variable_amount === true; // null/false = fixo
+  // fixas: filtra as fixas do que veio + o filtro fixo/variável; dia: já vem só não-fixa.
+  const listForTab = effTab === 'fixas'
+    ? txs.filter(isFixed).filter((t) => (payKind === 'all' ? true : payKind === 'variavel' ? isVariable(t) : !isVariable(t)))
+    : txs;
   const pend = listForTab.filter((t) => t.status === 'PENDENTE');
   const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
   const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
@@ -304,7 +310,7 @@ export default function ContasAPagarPage() {
 
   // Rótulo/ícone de cada aba (a barra é montada só com as abas permitidas).
   const TAB_META: Record<PanelTab, { label: string; icon: React.ReactNode }> = {
-    fixas: { label: 'Contas Fixas', icon: <Layers size={15} /> },
+    fixas: { label: 'Contas a Pagar', icon: <Layers size={15} /> },
     dia: { label: 'Gastos do dia', icon: <CalendarClock size={15} /> },
     entradas: { label: 'Entradas', icon: <TrendingUp size={15} /> },
     pacientes: { label: 'Pacientes', icon: <Users size={15} /> },
@@ -383,14 +389,28 @@ export default function ContasAPagarPage() {
 
         {/* Ações da aba */}
         {isSaidasTab && (
-          <div className="flex flex-wrap gap-2">
-            {effTab === 'fixas' ? (
-              <>
-                <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
-                <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
-              </>
-            ) : (
-              <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {effTab === 'fixas' ? (
+                <>
+                  <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
+                  <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
+                </>
+              ) : (
+                <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+              )}
+            </div>
+            {/* Filtro valor fixo × variável (só na aba Contas a Pagar) */}
+            {effTab === 'fixas' && (
+              <div className="inline-flex rounded-lg border border-border overflow-hidden text-[12px] font-bold">
+                {([['all', 'Todas'], ['fixo', 'Fixas'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    onClick={() => setPayKind(k)}
+                    className={`px-3 py-1.5 transition-colors ${payKind === k ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}
+                  >{label}</button>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -467,13 +487,14 @@ function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; on
   const paid = t.status === 'PAGO';
   const overdue = !paid && t.due_date && dayOf(t.due_date) < today;
 
+  const variavel = t.is_variable_amount === true;
   const badge = t.installment_total
     ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500">{t.installment_sequence}/{t.installment_total}</span>
-    : t.is_recurring
-      ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> fixa</span>
-      : t.parent_transaction_id
-        ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> mês</span>
-        : null;
+    : (t.is_recurring || t.parent_transaction_id)
+      ? (variavel
+          ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 inline-flex items-center gap-0.5"><Repeat size={9} /> variável</span>
+          : <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> fixa</span>)
+      : null;
 
   return (
     <div className={`rounded-xl border p-3 flex items-center gap-3 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
@@ -555,7 +576,10 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
   const [category, setCategory] = useState(tx.category);
   const [amount, setAmount] = useState(formatMoneyDigits(String(Math.round(Number(tx.amount) * 100))));
   const [dueDate, setDueDate] = useState(dayOf(tx.due_date));
+  const [variavel, setVariavel] = useState(tx.is_variable_amount === true);
   const [saving, setSaving] = useState(false);
+  // Só recorrentes têm classificação fixo/variável (parcelas são sempre valor exato).
+  const isRecorrente = tx.is_recurring || !!tx.parent_transaction_id;
 
   const submit = async () => {
     const amt = parseBRLNumber(amount);
@@ -565,6 +589,7 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
       await api.patch(`/payables/transactions/${tx.id}`, {
         description: description.trim(), category, amount: amt,
         due_date: dueDate ? `${dueDate}T12:00:00.000Z` : undefined,
+        ...(isRecorrente ? { is_variable_amount: variavel } : {}),
       });
       showSuccess('Conta atualizada');
       onSaved();
@@ -580,7 +605,15 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
         <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
         <Field label="Vencimento"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputCls} /></Field>
       </div>
-      {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Conta fixa: o vencimento muda só desta ocorrência. Os próximos meses o sistema gera sozinho (todo mês).</div>}
+      {isRecorrente && (
+        <Field label="Tipo de valor">
+          <div className="inline-flex w-full rounded-lg border border-border overflow-hidden text-sm font-bold">
+            <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Fixo (mesmo valor)</button>
+            <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Variável (muda)</button>
+          </div>
+        </Field>
+      )}
+      {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Recorrente: o vencimento/valor muda só desta ocorrência. Os próximos meses o sistema gera sozinho.</div>}
       <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Salvar</button>
     </ModalShell>
   );
@@ -641,12 +674,13 @@ function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category
   const [amount, setAmount] = useState('');
   const [day, setDay] = useState('10');
   const [method, setMethod] = useState('');
+  const [variavel, setVariavel] = useState(false); // padrão FIXO (aluguel/FGTS); marca p/ energia/água
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     const amt = parseBRLNumber(amount || '0');
     const d = parseInt(day || '0', 10);
-    if (!description.trim() || !category || !(amt > 0) || !(d >= 1 && d <= 31)) { showError('Preencha descrição, categoria, valor estimado e dia (1-31)'); return; }
+    if (!description.trim() || !category || !(amt > 0) || !(d >= 1 && d <= 31)) { showError('Preencha descrição, categoria, valor e dia (1-31)'); return; }
     setSaving(true);
     try {
       // 1ª ocorrência: vencimento no dia deste mês (o cron gera os meses seguintes).
@@ -659,6 +693,7 @@ function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category
         description: description.trim(), category, amount: amt,
         date: dueIso, due_date: dueIso, status: 'PENDENTE', payment_method: method || undefined,
         is_recurring: true, recurrence_pattern: 'MENSAL', recurrence_day: d,
+        is_variable_amount: variavel,
         company_id: companyId || undefined,
       });
       showSuccess('Conta recorrente cadastrada');
@@ -669,11 +704,18 @@ function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category
 
   return (
     <ModalShell title="Nova conta recorrente (mensal)" onClose={onClose}>
-      <p className="text-[12px] text-muted-foreground">Água, energia, internet… Cadastra o valor estimado; o sistema gera 1 conta por mês e você <strong>ajusta o valor real</strong> antes de pagar.</p>
-      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Energia elétrica" /></Field>
+      <p className="text-[12px] text-muted-foreground">Conta que se repete todo mês. O sistema gera 1 por mês automaticamente.</p>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Aluguel / Energia elétrica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      {/* Fixo × Variável */}
+      <Field label="Tipo de valor">
+        <div className="inline-flex w-full rounded-lg border border-border overflow-hidden text-sm font-bold">
+          <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Fixo (mesmo valor)</button>
+          <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Variável (muda)</button>
+        </div>
+      </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor estimado (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
+        <Field label={variavel ? 'Valor estimado (R$)' : 'Valor (R$)'}><MoneyInput value={amount} onChange={setAmount} /></Field>
         <Field label="Dia do vencimento"><input type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} /></Field>
       </div>
       <Field label="Forma (opcional)">
@@ -682,7 +724,12 @@ function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category
           {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </Field>
-      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Cadastrar conta fixa</button>
+      <p className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">
+        {variavel
+          ? '💡 Variável (energia/água/internet): cadastra o estimado e você ajusta o valor real antes de pagar cada mês.'
+          : '💡 Fixo (aluguel/FGTS/folha): mesmo valor todo mês — já vem preenchido pra pagar.'}
+      </p>
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Cadastrar conta</button>
     </ModalShell>
   );
 }

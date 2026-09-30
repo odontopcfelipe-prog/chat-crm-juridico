@@ -44,11 +44,14 @@ export class CreatePayableDto {
   // despesa gerencial (não passa pela gaveta).
   @IsOptional() @IsString() account_id?: string;
 
-  // Recorrência (conta fixa mensal variável — água/luz/internet)
+  // Recorrência (conta mensal — água/luz/internet variável OU aluguel/folha fixa)
   @IsOptional() @IsBoolean() is_recurring?: boolean;
   @IsOptional() @IsString() recurrence_pattern?: string;
   @IsOptional() @IsInt() @Min(1) @Max(31) recurrence_day?: number;
   @IsOptional() @IsString() recurrence_end_date?: string;
+
+  /** Valor VARIÁVEL (energia/água — ajusta todo mês) vs FIXO (aluguel/FGTS). */
+  @IsOptional() @IsBoolean() is_variable_amount?: boolean;
 
   /** Empresa (multi-empresa). Omitido/null = CLÍNICA (padrão). */
   @IsOptional() @IsString() company_id?: string;
@@ -73,6 +76,8 @@ export class UpdatePayableDto {
   @IsOptional() @IsString() payment_method?: string;
   @IsOptional() @IsString() @IsIn(['PENDENTE', 'PAGO', 'CANCELADO']) status?: string;
   @IsOptional() @IsString() notes?: string;
+  /** Classificar a conta como valor VARIÁVEL (true) ou FIXO (false). */
+  @IsOptional() @IsBoolean() is_variable_amount?: boolean;
 }
 
 /**

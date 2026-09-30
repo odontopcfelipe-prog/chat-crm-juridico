@@ -72,6 +72,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         `Provável duplicata ativa restante — rodar dedup-conversations.cjs --commit e reiniciar.`,
       );
     }
+
+    // Contas a Pagar: coluna is_variable_amount (fixo × variável). Garante que exista
+    // mesmo se o `prisma db push` do deploy não rodar (senão create/read do campo 500a).
+    try {
+      await this.$executeRawUnsafe(
+        `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "is_variable_amount" BOOLEAN;`,
+      );
+      this.logger.log('[DB-Index] FinancialTransaction.is_variable_amount garantido.');
+    } catch (e: any) {
+      this.logger.warn(`[DB-Index] is_variable_amount ADD COLUMN falhou (provável já existir): ${e.message}`);
+    }
   }
 
   /**
