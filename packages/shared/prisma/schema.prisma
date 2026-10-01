@@ -252,6 +252,7 @@ model User {
   quotes_archived               Quote[]                @relation("QuoteArchiver")
   // Onda 14.24 — contratos criados e eventos de contrato disparados
   contracts_created             Contract[]             @relation("ContractCreator")
+  contracts_as_dentist          Contract[]             @relation("ContractDentist")
   contract_events_triggered     ContractEvent[]        @relation("ContractEventTrigger")
   treatment_plan_items_executed TreatmentPlanItem[]    @relation("TreatmentPlanItemExecutor")
   quote_items_assigned          QuoteItem[]            @relation("QuoteItemDentist")
@@ -3334,6 +3335,14 @@ model Contract {
   created_by_user_id String
   quote              Quote  @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   created_by         User   @relation("ContractCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
+
+  /// Dentista responsável que ASSINA o contrato (o "cirurgião-dentista
+  /// responsável" que aparece no PDF). Opcional: quando null, o sistema
+  /// resolve automaticamente a partir do orçamento (criador / dentista do
+  /// item) e cai no RT da clínica como último recurso. O operador pode
+  /// trocar manualmente por este campo.
+  dentist_user_id String?
+  dentist         User?   @relation("ContractDentist", fields: [dentist_user_id], references: [id], onDelete: SetNull)
 
   events ContractEvent[]
 

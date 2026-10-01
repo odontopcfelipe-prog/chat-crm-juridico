@@ -83,6 +83,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     } catch (e: any) {
       this.logger.warn(`[DB-Index] is_variable_amount ADD COLUMN falhou (provável já existir): ${e.message}`);
     }
+
+    // Contrato: dentista responsável escolhido (override do auto-resolve). Garante
+    // a coluna mesmo sem `prisma db push` — senão create/read do contrato 500a. O
+    // FK/índice próprios ficam a cargo do db push (o join do Prisma usa só o valor
+    // da coluna, então a coluna sozinha já basta pra funcionar).
+    try {
+      await this.$executeRawUnsafe(
+        `ALTER TABLE "Contract" ADD COLUMN IF NOT EXISTS "dentist_user_id" TEXT;`,
+      );
+      this.logger.log('[DB-Index] Contract.dentist_user_id garantido.');
+    } catch (e: any) {
+      this.logger.warn(`[DB-Index] Contract.dentist_user_id ADD COLUMN falhou (provável já existir): ${e.message}`);
+    }
   }
 
   /**

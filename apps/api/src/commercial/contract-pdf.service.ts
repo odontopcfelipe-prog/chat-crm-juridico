@@ -201,6 +201,8 @@ export class ContractPdfService {
             created_by: { select: { name: true, cro_number: true, cro_uf: true } },
           },
         },
+        // Dentista responsável escolhido manualmente no contrato (override).
+        dentist: { select: { name: true, cro_number: true, cro_uf: true } },
       },
     });
 
@@ -221,6 +223,7 @@ export class ContractPdfService {
     quoteId: string,
     tenantId: string,
     selectedDocuments: string[],
+    dentistId?: string,
   ): Promise<Buffer> {
     const quote = await this.prisma.quote.findUnique({
       where: { id: quoteId },
@@ -240,7 +243,7 @@ export class ContractPdfService {
             dentist: { select: { name: true, cro_number: true, cro_uf: true } },
           },
         },
-        created_by: { select: { name: true } },
+        created_by: { select: { name: true, cro_number: true, cro_uf: true } },
       },
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
@@ -251,12 +254,21 @@ export class ContractPdfService {
     const docs = Array.isArray(selectedDocuments)
       ? Array.from(new Set(selectedDocuments.filter((d): d is string => typeof d === 'string').slice(0, 20)))
       : [];
+    // Dentista escolhido no seletor (opcional): reflete no preview ANTES de criar.
+    let chosenDentist: any = null;
+    if (dentistId) {
+      chosenDentist = await this.prisma.user.findFirst({
+        where: { id: dentistId, tenant_id: tenantId },
+        select: { name: true, cro_number: true, cro_uf: true },
+      });
+    }
     const contractLike = {
       id: 'preview',
       status: 'DRAFT',
       template_type: this.inferTemplateType(quote.items as any),
       selected_documents: docs,
       quote,
+      dentist: chosenDentist,
     };
     return this.buildPdf(contractLike, tenantId);
   }
@@ -599,6 +611,88 @@ export class ContractPdfService {
     const qualificacao = qualParts.join(', ');
 
     return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, uf, resp, cro, qualificacao, logoUrl: clean(tenant?.logo_url) };
+  }
+
+  /**
+   * Checa se há dados suficientes pra GERAR o contrato — paciente, clínica
+   * (CONTRATADA), dentista responsável e valor. Retorna um checklist por campo
+   * (ok/falta + grupo), além de `complete` (todos os REQUIRED ok). Usado pela
+   * tela (mostra o que falta) e pelo createForQuote (bloqueia se incompleto).
+   *
+   * `dentistId` opcional: avalia o dentista ESCOLHIDO no seletor (antes de
+   * persistir). Sem ele, cai na resolução automática (criador do orçamento →
+   * dentista do item → RT da clínica).
+   */
+  async assessCompleteness(
+    quoteId: string,
+    tenantId: string,
+    dentistId?: string,
+  ): Promise<{
+    complete: boolean;
+    items: Array<{ key: string; label: string; group: 'patient' | 'clinic' | 'dentist' | 'quote'; ok: boolean; required: boolean }>;
+    missing: string[];
+    dentist: { name: string; cro: string };
+  }> {
+    const quote = await this.prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        patient: {
+          select: {
+            name: true, cpf: true, rg: true, phone: true,
+            address: true, address_number: true, neighborhood: true,
+            city: true, state: true, zip_code: true, tenant_id: true,
+          },
+        },
+        items: { include: { dentist: { select: { id: true, name: true, cro_number: true, cro_uf: true } } } },
+        created_by: { select: { name: true, cro_number: true, cro_uf: true } },
+      },
+    });
+    if (!quote) throw new NotFoundException('Orcamento nao encontrado');
+    if (quote.patient.tenant_id !== tenantId) throw new ForbiddenException('Orcamento de outro tenant');
+
+    const contratado = await this.resolveContratado(tenantId);
+    // Dentista: escolhido no seletor (se veio), senão resolução automática.
+    let chosen: any = null;
+    if (dentistId) {
+      chosen = await this.prisma.user.findFirst({
+        where: { id: dentistId, tenant_id: tenantId },
+        select: { name: true, cro_number: true, cro_uf: true },
+      });
+    }
+    const dentist = this.resolveDentist({ dentist: chosen, quote }, contratado);
+
+    const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
+    const p = quote.patient;
+    const total = Number(quote.total_value) || 0;
+
+    const items: Array<{ key: string; label: string; group: 'patient' | 'clinic' | 'dentist' | 'quote'; ok: boolean; required: boolean }> = [
+      // Paciente (CONTRATANTE)
+      { key: 'patient_name', label: 'Nome do paciente', group: 'patient', ok: !!cs(p.name), required: true },
+      { key: 'patient_cpf', label: 'CPF do paciente', group: 'patient', ok: !!cs(p.cpf), required: true },
+      { key: 'patient_address', label: 'Endereço do paciente', group: 'patient', ok: !!cs(p.address), required: true },
+      { key: 'patient_city', label: 'Cidade do paciente', group: 'patient', ok: !!cs(p.city), required: true },
+      { key: 'patient_rg', label: 'RG do paciente', group: 'patient', ok: !!cs(p.rg), required: false },
+      { key: 'patient_cep', label: 'CEP do paciente', group: 'patient', ok: !!cs(p.zip_code), required: false },
+      { key: 'patient_phone', label: 'Telefone do paciente', group: 'patient', ok: !!cs(p.phone), required: false },
+      // Clínica (CONTRATADA)
+      { key: 'clinic_name', label: 'Nome da clínica', group: 'clinic', ok: !!cs(contratado.nome), required: true },
+      { key: 'clinic_cnpj', label: 'CNPJ da clínica', group: 'clinic', ok: !!cs(contratado.cnpj), required: true },
+      { key: 'clinic_address', label: 'Endereço da clínica', group: 'clinic', ok: !!cs(contratado.consultorio), required: true },
+      { key: 'clinic_city', label: 'Cidade da clínica', group: 'clinic', ok: !!cs(contratado.cidade), required: false },
+      // Dentista responsável (assina)
+      { key: 'dentist_name', label: 'Nome do dentista responsável', group: 'dentist', ok: !!cs(dentist.name), required: true },
+      { key: 'dentist_cro', label: 'CRO do dentista responsável', group: 'dentist', ok: !!cs(dentist.croFull), required: true },
+      // Orçamento
+      { key: 'quote_value', label: 'Valor do tratamento', group: 'quote', ok: total > 0, required: true },
+    ];
+
+    const missing = items.filter((i) => i.required && !i.ok).map((i) => i.label);
+    return {
+      complete: missing.length === 0,
+      items,
+      missing,
+      dentist: { name: dentist.name, cro: dentist.croFull },
+    };
   }
 
   /**

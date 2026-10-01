@@ -3072,11 +3072,31 @@ interface ContractMinimal {
   sent_at: string | null;
   signed_at: string | null;
   cancelled_at: string | null;
+  dentist_user_id?: string | null;
 }
 
 interface QuoteWithSigners {
   patient: { id: string; name: string; phone: string | null; cpf?: string | null; address?: string | null; city?: string | null };
   created_by: { id: string; name: string } | null;
+}
+
+interface DentistOption {
+  id: string;
+  name: string;
+}
+
+interface CompletenessItem {
+  key: string;
+  label: string;
+  group: 'patient' | 'clinic' | 'dentist' | 'quote';
+  ok: boolean;
+  required: boolean;
+}
+interface Completeness {
+  complete: boolean;
+  items: CompletenessItem[];
+  missing: string[];
+  dentist: { name: string; cro: string };
 }
 
 function ContratoCard({
@@ -3099,13 +3119,19 @@ function ContratoCard({
   );
   // Seleção de documentos vive num MODAL (card fica compacto pra ganhar espaço).
   const [docsModalOpen, setDocsModalOpen] = useState(false);
+  // Dentista responsável que assina. '' = automático (resolve do orçamento no backend).
+  const [dentists, setDentists] = useState<DentistOption[]>([]);
+  const [dentistId, setDentistId] = useState<string>('');
+  // Checklist de completude (o que falta pra gerar o contrato).
+  const [completeness, setCompleteness] = useState<Completeness | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [contractRes, quoteRes] = await Promise.all([
+      const [contractRes, quoteRes, dentistsRes] = await Promise.all([
         api.get<ContractMinimal | null>(`/quotes/${quoteId}/contract`).catch(() => ({ data: null as ContractMinimal | null })),
         api.get<QuoteWithSigners>(`/quotes/${quoteId}`).catch(() => ({ data: null as QuoteWithSigners | null })),
+        api.get<DentistOption[]>(`/users/lawyers`).catch(() => ({ data: [] as DentistOption[] })),
       ]);
       const data = contractRes.data;
       if (data) {
@@ -3113,10 +3139,12 @@ function ContratoCard({
         const persisted = Array.isArray(data.selected_documents) ? data.selected_documents : [];
         const coreIds = CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id);
         setSelectedDocs(new Set([...coreIds, ...persisted]));
+        setDentistId(data.dentist_user_id || '');
       } else {
         setContract(null);
       }
       setQuote(quoteRes.data);
+      setDentists(Array.isArray(dentistsRes.data) ? dentistsRes.data : []);
     } catch {
       setContract(null);
     } finally {
@@ -3125,6 +3153,38 @@ function ContratoCard({
   }, [quoteId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Recarrega o checklist de completude sempre que o dentista escolhido muda
+  // (o dentista afeta os campos "dentista responsável"/"CRO").
+  const loadCompleteness = useCallback(async () => {
+    try {
+      const { data } = await api.get<Completeness>(`/quotes/${quoteId}/contract-completeness`, {
+        params: dentistId ? { dentistId } : {},
+      });
+      setCompleteness(data);
+    } catch {
+      setCompleteness(null);
+    }
+  }, [quoteId, dentistId]);
+
+  useEffect(() => { if (!loading) void loadCompleteness(); }, [loadCompleteness, loading]);
+
+  // Troca o dentista responsável. Persiste na hora se o contrato já existe (DRAFT).
+  const changeDentist = async (value: string) => {
+    setDentistId(value);
+    if (contract && contract.status === 'DRAFT' && !contract.skipped) {
+      try {
+        const { data } = await api.patch<ContractMinimal>(
+          `/contracts/${contract.id}/dentist`,
+          { dentist_user_id: value || null },
+        );
+        setContract(data);
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { message?: string } } };
+        showError(e?.response?.data?.message || 'Erro ao trocar o dentista');
+      }
+    }
+  };
 
   const toggleDoc = async (id: string) => {
     const doc = CONTRACT_DOCUMENTS.find((d) => d.id === id);
@@ -3164,9 +3224,10 @@ function ContratoCard({
       );
       const { data } = await api.post<ContractMinimal>(
         `/quotes/${quoteId}/contract`,
-        { selected_documents: extras },
+        { selected_documents: extras, dentist_user_id: dentistId || null },
       );
       setContract(data);
+      setDentistId(data.dentist_user_id || '');
       showSuccess('Contrato criado — pronto pra enviar');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -3198,7 +3259,7 @@ function ContratoCard({
         (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
       );
       const res = await api.get(`/quotes/${quoteId}/contract-preview-pdf`, {
-        params: { docs: extras.join(',') },
+        params: { docs: extras.join(','), ...(dentistId ? { dentistId } : {}) },
         responseType: 'blob',
       });
       const blob = new Blob([res.data], { type: 'application/pdf' });
@@ -3299,14 +3360,13 @@ function ContratoCard({
   const patientName = quote?.patient?.name || 'Paciente';
   const patientPhone = fmtPhone(quote?.patient?.phone);
   const dentistName = quote?.created_by?.name || 'Dentista responsável';
-  // Aviso não-bloqueante: campos do paciente que sairiam em branco no contrato.
-  // (Só quando o quote já carregou, pra não piscar durante o load.)
-  const missingPatientFields = quote
-    ? ([
-        !quote.patient?.cpf ? 'CPF' : null,
-        !quote.patient?.address ? 'endereço' : null,
-      ].filter(Boolean) as string[])
-    : [];
+  // Dentista EFETIVO (escolhido ou resolvido automaticamente) + CRO, vindos do
+  // checklist de completude do backend.
+  const effectiveDentistName = completeness?.dentist?.name || dentistName;
+  const effectiveDentistCro = completeness?.dentist?.cro || '';
+  // Bloqueio: enquanto faltarem dados obrigatórios, não deixa criar o contrato.
+  // Enquanto o checklist não carregou (null), não bloqueia (o backend ainda é a trava).
+  const blockCreate = completeness ? !completeness.complete : false;
   const totalCoreDocs = CONTRACT_DOCUMENTS.filter((d) => d.core).length;
   const totalAvailableDocs = CONTRACT_DOCUMENTS.length;
   const selectedDocsCount = selectedDocs.size;
@@ -3499,6 +3559,43 @@ function ContratoCard({
                 {patientSignerStatus.label}
               </span>
             </div>
+
+            {/* Dentista responsável que consta no contrato (nome + CRO).
+                Padrão = dentista do orçamento; dá pra trocar enquanto em rascunho. */}
+            <div className="pt-1.5 border-t border-border/60">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 font-bold text-xs flex items-center justify-center shrink-0">
+                  {initials(effectiveDentistName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground truncate">{effectiveDentistName || '—'}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Dentista responsável{effectiveDentistCro ? ` · ${effectiveDentistCro}` : ''}
+                  </p>
+                </div>
+              </div>
+              <select
+                value={dentistId}
+                onChange={(e) => changeDentist(e.target.value)}
+                disabled={docsLocked || busy}
+                className="mt-2 w-full text-xs rounded-md border border-border bg-card px-2 py-1.5 text-foreground disabled:opacity-50"
+                title={docsLocked ? 'Contrato já enviado — não dá pra trocar o dentista' : 'Trocar o dentista responsável'}
+              >
+                <option value="">
+                  Automático (do orçamento){completeness?.dentist?.name && !dentistId ? ` — ${completeness.dentist.name}` : ''}
+                </option>
+                {dentists.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              {effectiveDentistName && !effectiveDentistCro && (
+                <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400 flex items-start gap-1">
+                  <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                  Esse dentista está sem CRO no cadastro — preencha o CRO dele pra constar no contrato.
+                </p>
+              )}
+            </div>
+
             <button
               type="button"
               className="text-xs text-violet-700 dark:text-violet-400 font-semibold hover:underline flex items-center gap-1 mt-1"
@@ -3512,13 +3609,28 @@ function ContratoCard({
         </div>
       </div>
 
-      {/* Aviso não-bloqueante: campos do paciente que sairiam em branco no PDF. */}
-      {missingPatientFields.length > 0 && (
-        <div className="px-5 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-400">
-          <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-          <span>
-            Faltam dados do paciente: <span className="font-semibold">{missingPatientFields.join(' e ')}</span> — o contrato vai imprimir com {missingPatientFields.length > 1 ? 'esses campos' : 'esse campo'} em branco. Complete no cadastro do paciente.
-          </span>
+      {/* Checklist de completude — bloqueia a criação até os dados essenciais
+          (paciente, clínica, dentista, valor) estarem preenchidos. */}
+      {completeness && !completeness.complete && (
+        <div className="px-5 py-2.5 bg-amber-500/10 border-t border-amber-500/20 flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-400">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="font-semibold">
+              {contract ? 'Faltam dados neste contrato:' : 'Faltam dados pra gerar o contrato:'}
+            </p>
+            <ul className="mt-0.5 list-disc list-inside space-y-0.5">
+              {completeness.missing.map((m) => <li key={m}>{m}</li>)}
+            </ul>
+            <p className="mt-1 opacity-80">
+              Complete no cadastro do paciente / da clínica (Configurações → Identidade) e, se for o caso, o CRO do dentista.
+            </p>
+          </div>
+        </div>
+      )}
+      {completeness && completeness.complete && !contract && (
+        <div className="px-5 py-2 bg-emerald-500/10 border-t border-emerald-500/20 flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-400">
+          <Check size={13} className="shrink-0" />
+          <span>Todos os dados obrigatórios estão completos — pode gerar o contrato.</span>
         </div>
       )}
 
@@ -3564,8 +3676,9 @@ function ContratoCard({
               <button
                 type="button"
                 onClick={createContract}
-                disabled={busy}
-                className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                disabled={busy || blockCreate}
+                title={blockCreate ? `Complete antes: ${completeness?.missing.join(', ')}` : 'Criar o contrato em rascunho'}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
                 Criar contrato

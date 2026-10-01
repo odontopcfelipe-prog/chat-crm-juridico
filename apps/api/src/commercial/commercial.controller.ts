@@ -1318,12 +1318,24 @@ export class CommercialController {
   @Post('quotes/:id/contract')
   createQuoteContract(
     @Param('id') id: string,
-    @Body() body: { selected_documents?: string[] },
+    @Body() body: { selected_documents?: string[]; dentist_user_id?: string | null },
     @Authenticated() user: AuthUser,
   ) {
     return this.contractsService.createForQuote(id, user.tenant_id, user.id, {
       selected_documents: body?.selected_documents,
+      dentist_user_id: body?.dentist_user_id ?? undefined,
     });
+  }
+
+  /** Checklist de completude do contrato (o que falta pra gerar). Aceita
+   *  ?dentistId= pra avaliar o dentista escolhido no seletor antes de criar. */
+  @Get('quotes/:id/contract-completeness')
+  getContractCompleteness(
+    @Param('id') id: string,
+    @Query('dentistId') dentistId: string | undefined,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.assessCompleteness(id, user.tenant_id, (dentistId || '').trim() || undefined);
   }
 
   /**
@@ -1335,11 +1347,12 @@ export class CommercialController {
   async previewQuoteContractPdf(
     @Param('id') id: string,
     @Query('docs') docs: string | undefined,
+    @Query('dentistId') dentistId: string | undefined,
     @Authenticated() user: AuthUser,
     @Res() res: Response,
   ) {
     const selected = (docs || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const buffer = await this.contractPdfService.generatePreviewForQuote(id, user.tenant_id, selected);
+    const buffer = await this.contractPdfService.generatePreviewForQuote(id, user.tenant_id, selected, (dentistId || '').trim() || undefined);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="contrato-previa.pdf"');
     res.send(buffer);
@@ -1360,6 +1373,17 @@ export class CommercialController {
     @Authenticated() user: AuthUser,
   ) {
     return this.contractsService.updateDocuments(id, user.tenant_id, user.id, body?.selected_documents || []);
+  }
+
+  /** Troca o dentista responsável de um contrato em RASCUNHO. dentist_user_id
+   *  null volta pra resolução automática (dentista do orçamento). */
+  @Patch('contracts/:id/dentist')
+  setContractDentist(
+    @Param('id') id: string,
+    @Body() body: { dentist_user_id?: string | null },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.setDentist(id, user.tenant_id, user.id, body?.dentist_user_id ?? null);
   }
 
   /** Marca como enviado (Fase 1: manual). */

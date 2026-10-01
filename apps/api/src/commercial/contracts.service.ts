@@ -120,9 +120,22 @@ export class ContractsService {
     quoteId: string,
     tenantId: string,
     userId: string,
-    opts?: { selected_documents?: string[] },
+    opts?: { selected_documents?: string[]; dentist_user_id?: string },
   ) {
     const quote = await this.assertQuoteAndGet(quoteId, tenantId);
+    // Onda 14.36 — Bloqueia criação se faltam dados essenciais (paciente,
+    // clínica, dentista responsável, valor). O operador vê o que falta na tela;
+    // aqui é a trava de segurança no backend.
+    const completeness = await this.pdfService.assessCompleteness(
+      quoteId,
+      tenantId,
+      opts?.dentist_user_id,
+    );
+    if (!completeness.complete) {
+      throw new BadRequestException(
+        `Faltam dados pra gerar o contrato: ${completeness.missing.join(', ')}. Complete o cadastro antes de criar.`,
+      );
+    }
     // Onda 14.34 — Permite criar contrato em DRAFT/SENT/ACCEPTED. Antes
     // restringia a ACCEPTED, mas operador pode querer ja deixar contrato
     // pronto pra assinatura DURANTE a fase de negociacao (antes mesmo do
@@ -146,6 +159,10 @@ export class ContractsService {
         ))
       : [];
 
+    // Dentista responsável escolhido no seletor (opcional). Valida que é um
+    // usuário do mesmo tenant; senão ignora e cai na resolução automática do PDF.
+    const dentistId = await this.resolveValidDentistId(opts?.dentist_user_id, tenantId);
+
     const contract = await this.prisma.contract.create({
       data: {
         quote_id: quoteId,
@@ -153,6 +170,7 @@ export class ContractsService {
         selected_documents: docs,
         status: 'DRAFT',
         created_by_user_id: userId,
+        dentist_user_id: dentistId,
         events: {
           create: {
             event_type: 'CREATED',
@@ -203,6 +221,50 @@ export class ContractsService {
 
     this.logger.log(`[Contract] ${contractId} docs atualizados: [${docs.join(',')}]`);
     return updated;
+  }
+
+  /** Valida que o id é de um usuário do tenant; senão retorna null (cai na
+   *  resolução automática do dentista no PDF). */
+  private async resolveValidDentistId(
+    dentistId: string | undefined | null,
+    tenantId: string,
+  ): Promise<string | null> {
+    const id = (dentistId || '').trim();
+    if (!id) return null;
+    const user = await this.prisma.user.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true },
+    });
+    return user ? user.id : null;
+  }
+
+  /** Troca o dentista responsável do contrato (só em rascunho). null volta pra
+   *  resolução automática (dentista do orçamento). */
+  async setDentist(
+    contractId: string,
+    tenantId: string,
+    userId: string,
+    dentistId: string | null,
+  ) {
+    const contract = await this.assertContractAndGet(contractId, tenantId);
+    if (contract.status !== 'DRAFT' || contract.skipped) {
+      throw new BadRequestException(
+        'Só dá pra trocar o dentista enquanto o contrato está em rascunho (não enviado).',
+      );
+    }
+    const resolved = await this.resolveValidDentistId(dentistId, tenantId);
+    const updated = await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { dentist_user_id: resolved },
+      include: { events: { orderBy: { occurred_at: 'asc' } } },
+    });
+    this.logger.log(`[Contract] ${contractId} dentista -> ${resolved || '(auto)'} by user ${userId}`);
+    return updated;
+  }
+
+  /** Passthrough do checklist de completude (pra tela mostrar o que falta). */
+  async assessCompleteness(quoteId: string, tenantId: string, dentistId?: string) {
+    return this.pdfService.assessCompleteness(quoteId, tenantId, dentistId);
   }
 
   /**
