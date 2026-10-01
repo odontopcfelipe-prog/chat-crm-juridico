@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import {
   Loader2, DollarSign, ChevronRight, ChevronLeft, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft, ArrowRight,
-  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet, Handshake, Download,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet, Handshake, Download, Copy,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -9846,6 +9846,32 @@ function AsaasTapDialog({
 }
 
 /** Onda 14.5 — Modal de resultado de "Aprovar e cobrar". */
+/** Logo oficial do PIX (BCB) — mesmo do dialog da venda rápida, acima do QR. */
+function PixLogo() {
+  return (
+    <div className="inline-flex items-center gap-3">
+      <svg viewBox="0 0 100 100" className="w-9 h-9" aria-label="Logo PIX">
+        <g fill="#32BCAD">
+          <path d="M50 10 L70 30 L50 50 L30 30 Z" />
+          <path d="M70 30 L90 50 L70 70 L50 50 Z" />
+          <path d="M50 50 L70 70 L50 90 L30 70 Z" />
+          <path d="M30 30 L50 50 L30 70 L10 50 Z" />
+        </g>
+        <g fill="white">
+          <circle cx="50" cy="10" r="2.5" />
+          <circle cx="90" cy="50" r="2.5" />
+          <circle cx="50" cy="90" r="2.5" />
+          <circle cx="10" cy="50" r="2.5" />
+        </g>
+      </svg>
+      <div className="flex flex-col leading-none">
+        <span className="text-3xl font-light text-gray-600 lowercase tracking-tight">pix</span>
+        <span className="text-[8px] text-gray-400 mt-0.5">powered by Banco Central</span>
+      </div>
+    </div>
+  );
+}
+
 function ApproveBillResultDialog({
   result,
   onClose,
@@ -9903,18 +9929,16 @@ function ApproveBillResultDialog({
         className="bg-card border border-border rounded-xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b border-border bg-emerald-500/10">
+        <div className="px-5 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white">
           <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-              <ShieldCheck size={24} className="text-emerald-700" />
+            <div className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <ShieldCheck size={22} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-emerald-800">
-                {result.is_existing
-                  ? 'Cobrança existente (não foi criada nova)'
-                  : 'Proposta aprovada e cobrança gerada!'}
+              <h3 className="text-lg font-extrabold">
+                {result.is_existing ? 'Cobrança existente (não foi criada nova)' : 'Venda aprovada!'}
               </h3>
-              <p className="text-xs text-emerald-700 mt-1">
+              <p className="text-xs text-white/85 mt-0.5">
                 {result.billing_type === 'PIX' && 'Pagamento via PIX'}
                 {result.billing_type === 'CREDIT_CARD' &&
                   `Cartão de crédito · ${result.installment_count}x`}
@@ -9951,56 +9975,59 @@ function ApproveBillResultDialog({
               <p className="text-lg font-semibold text-foreground">
                 Obrigado por ser nosso paciente 💚
               </p>
+              <p className="text-[11px] text-muted-foreground mt-4">
+                Pagamento confirmado pelo Asaas e lançado no financeiro do paciente.
+              </p>
             </div>
           )}
           {result.billing_type === 'PIX' && result.pix && !paid && (
-            <>
-              <div className="bg-muted/20 border border-border rounded-lg p-5 text-center">
-                <p className="text-sm uppercase tracking-wide text-foreground font-bold mb-3">
-                  Escaneie o QR Code pra pagar
-                </p>
-                <div className="inline-block bg-white rounded-xl p-3 shadow-sm">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`data:image/png;base64,${result.pix.qrCode}`}
-                    alt="QR Code PIX"
-                    className="w-64 h-64 sm:w-80 sm:h-80 mx-auto block"
-                  />
+            <div className="text-center">
+              <p className="text-sm font-bold text-foreground mb-1">
+                Mostre o QR Code abaixo pro paciente
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                Ele abre o app do banco, aponta a câmera e paga.
+              </p>
+              <div className="bg-white p-4 rounded-xl inline-block border-4 border-emerald-500">
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <PixLogo />
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-3">
-                  Válido até {new Date(result.pix.expirationDate).toLocaleString('pt-BR')}
-                </p>
-                {watchingPix && (
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400 mt-2 flex items-center justify-center gap-1.5 font-semibold">
-                    <Loader2 size={13} className="animate-spin" /> Aguardando o pagamento…
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${result.pix.qrCode}`}
+                  alt="QR Code PIX"
+                  className="w-64 h-64 sm:w-80 sm:h-80"
+                />
+              </div>
+              {copyPasteCode && (
+                <div className="mt-4">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
+                    Ou use o Pix Copia e Cola
                   </p>
-                )}
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-foreground block mb-1">
-                  Ou cole o código PIX no app do banco:
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={copyPasteCode}
-                    readOnly
-                    className="flex-1 text-xs px-3 py-2 rounded-md border border-border bg-muted/30 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(copyPasteCode);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                    className="text-xs px-3 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 font-semibold"
-                  >
-                    {copied ? '✓ Copiado' : 'Copiar'}
-                  </button>
+                  <div className="bg-muted/30 border border-border rounded-md p-3 flex items-center gap-2">
+                    <code className="text-[11px] text-foreground truncate flex-1 font-mono text-left">
+                      {copyPasteCode}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(copyPasteCode);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 shrink-0"
+                    >
+                      <Copy size={12} />
+                      {copied ? 'Copiado' : 'Copiar'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-4 inline-flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" />
+                Aguardando pagamento — esta tela confirma sozinha assim que o PIX cair.
+              </p>
+            </div>
           )}
 
           {result.billing_type === 'CREDIT_CARD' && result.invoice_url && (
