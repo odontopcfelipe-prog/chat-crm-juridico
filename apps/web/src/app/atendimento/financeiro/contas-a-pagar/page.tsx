@@ -505,7 +505,7 @@ function TxList({ items, today, onPay, onEdit, onDelete, emptyLabel }: {
   const order = (t: Tx) => (t.status === 'PAGO' ? 2 : t.due_date && dayOf(t.due_date) < today ? 0 : 1);
   const sorted = [...items].sort((a, b) => order(a) - order(b) || (dayOf(a.due_date) < dayOf(b.due_date) ? -1 : 1));
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       {sorted.map((t) => <TxRow key={t.id} t={t} today={today} onPay={onPay} onEdit={onEdit} onDelete={onDelete} />)}
     </div>
   );
@@ -525,7 +525,7 @@ function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; on
       : null;
 
   return (
-    <div className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
+    <div className={`rounded-lg border px-2.5 py-1.5 flex items-center gap-2 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className={`text-[13px] font-bold truncate ${paid ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{t.description}</span>
