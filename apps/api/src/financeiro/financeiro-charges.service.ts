@@ -345,12 +345,27 @@ export class FinanceiroChargesService {
       a.open++;
       if (c.due_date && new Date(c.due_date) < todayUtcForBreakdown) a.overdue++;
     }
+    // Mesma quebra, mas SÓ do que vence no MÊS selecionado (startDate/endDate do painel).
+    // O perfil do paciente (atraso/qtd em aberto) continua GLOBAL; muda só o que soma.
+    const mStart = startDate ? new Date(startDate) : null;
+    const mEnd = endDate ? new Date(endDate) : null;
+    const inMonth = (iso: Date | string | null) => {
+      if (!iso || !mStart || !mEnd) return false;
+      const d = new Date(iso);
+      return d >= mStart && d <= mEnd;
+    };
     let semAtrasoValue = 0, semAtrasoCount = 0, mais2Value = 0, mais2Count = 0;
+    let mesValue = 0, mesCount = 0, mesSemValue = 0, mesSemCount = 0, mesMais2Value = 0, mesMais2Count = 0;
     for (const c of openRows) {
       const a = perPatient.get(pkey(c))!;
       const amt = Number(c.amount) || 0;
       if (a.overdue === 0) { semAtrasoValue += amt; semAtrasoCount++; }
       if (a.open > 2) { mais2Value += amt; mais2Count++; }
+      if (inMonth(c.due_date)) {
+        mesValue += amt; mesCount++;
+        if (a.overdue === 0) { mesSemValue += amt; mesSemCount++; }
+        if (a.open > 2) { mesMais2Value += amt; mesMais2Count++; }
+      }
     }
 
     return {
@@ -364,6 +379,13 @@ export class FinanceiroChargesService {
         // previsão por perfil (tooltip do "i") — ver cálculo acima
         sem_atraso: { value: roundV(semAtrasoValue), count: semAtrasoCount },
         mais_2_parcelas: { value: roundV(mais2Value), count: mais2Count },
+        // mesmo recorte, só do que vence no mês selecionado
+        mes: {
+          value: roundV(mesValue),
+          count: mesCount,
+          sem_atraso: { value: roundV(mesSemValue), count: mesSemCount },
+          mais_2_parcelas: { value: roundV(mesMais2Value), count: mesMais2Count },
+        },
       },
       atrasado: {
         value: Math.round(Number(overdueAgg._sum.amount || 0) * 100) / 100,

@@ -77,7 +77,12 @@ interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
 interface Company { id: string; name: string; }
 interface LogRow { id: string; action: string; created_at: string; actor?: { name?: string } | null; meta_json?: any }
-interface ValCount { value: number; count: number; sem_atraso?: { value: number; count: number }; mais_2_parcelas?: { value: number; count: number } }
+interface ReceberBreak { value: number; count: number }
+interface ValCount {
+  value: number; count: number;
+  sem_atraso?: ReceberBreak; mais_2_parcelas?: ReceberBreak;
+  mes?: { value: number; count: number; sem_atraso?: ReceberBreak; mais_2_parcelas?: ReceberBreak };
+}
 
 const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
 // Formas aceitas pelo caixa (o gasto/pagamento que passa pela gaveta).
@@ -279,6 +284,10 @@ export default function ContasAPagarPage() {
 
   // ─── Derivados ──────────────────────────────────────────────
   const today = maceioTodayStr();
+  const monthLabel = (() => {
+    const [y, m] = month.split('-').map(Number);
+    try { return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''); } catch { return month; }
+  })();
   const num = (t: Tx) => Number(t.amount);
   const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
   const isSaidasTab = effTab === 'fixas' || effTab === 'dia';
@@ -377,17 +386,19 @@ export default function ContasAPagarPage() {
             {asaasBalance !== null && <SummaryChip label="Saldo Asaas" value={fmt(asaasBalance)} show={showValues} tone={asaasBalance < 0 ? 'rose' : 'emerald'} />}
             {receber && <SummaryChip label="A receber" value={fmt(receber.value)} sub={`${receber.count}`} show={showValues} tone="sky"
               info={(receber.sem_atraso || receber.mais_2_parcelas) ? (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="text-[11px] font-bold text-foreground">Previsão do a receber</div>
-                  <div className="flex items-center justify-between gap-3 text-[11px]">
-                    <span className="text-muted-foreground">Sem atraso <span className="opacity-70">(tende a pagar)</span></span>
-                    <span className="font-bold tabular-nums text-emerald-600">{fmt(receber.sem_atraso?.value || 0)} · {receber.sem_atraso?.count || 0}</span>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">Geral · {fmt(receber.value)}</div>
+                    <ReceberLines b={receber} />
                   </div>
-                  <div className="flex items-center justify-between gap-3 text-[11px]">
-                    <span className="text-muted-foreground">+2 parcelas em aberto <span className="opacity-70">(risco)</span></span>
-                    <span className="font-bold tabular-nums text-amber-600">{fmt(receber.mais_2_parcelas?.value || 0)} · {receber.mais_2_parcelas?.count || 0}</span>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground/70 pt-1 border-t border-border">Por paciente: sem nenhuma cobrança atrasada × com mais de 2 em aberto.</div>
+                  {receber.mes && (
+                    <div className="space-y-1 pt-1.5 border-t border-border">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">Do mês ({monthLabel}) · {fmt(receber.mes.value)}</div>
+                      <ReceberLines b={receber.mes} />
+                    </div>
+                  )}
+                  <div className="text-[10px] text-muted-foreground/70 pt-1.5 border-t border-border">Por paciente: sem nenhuma cobrança atrasada × com mais de 2 em aberto.</div>
                 </div>
               ) : undefined}
             />}
@@ -919,6 +930,22 @@ function SummaryChip({ label, value, sub, show, tone, info }: { label: string; v
         </div>
       )}
     </div>
+  );
+}
+
+// Duas linhas da previsão do a-receber (sem atraso × +2 parcelas) — reusado no geral e no mês.
+function ReceberLines({ b }: { b?: { sem_atraso?: ReceberBreak; mais_2_parcelas?: ReceberBreak } }) {
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3 text-[11px]">
+        <span className="text-muted-foreground">Sem atraso <span className="opacity-70">(tende a pagar)</span></span>
+        <span className="font-bold tabular-nums text-emerald-600">{fmt(b?.sem_atraso?.value || 0)} · {b?.sem_atraso?.count || 0}</span>
+      </div>
+      <div className="flex items-center justify-between gap-3 text-[11px]">
+        <span className="text-muted-foreground">+2 parcelas <span className="opacity-70">(risco)</span></span>
+        <span className="font-bold tabular-nums text-amber-600">{fmt(b?.mais_2_parcelas?.value || 0)} · {b?.mais_2_parcelas?.count || 0}</span>
+      </div>
+    </>
   );
 }
 
