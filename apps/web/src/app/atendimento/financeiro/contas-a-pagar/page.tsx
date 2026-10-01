@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
   CalendarClock, Repeat, Layers, AlertTriangle, ArrowLeft,
-  Eye, EyeOff, Users, FileText, TrendingUp, DollarSign, ChevronDown,
+  Eye, EyeOff, Users, FileText, TrendingUp, DollarSign, ChevronDown, Info,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -77,7 +77,7 @@ interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
 interface Company { id: string; name: string; }
 interface LogRow { id: string; action: string; created_at: string; actor?: { name?: string } | null; meta_json?: any }
-interface ValCount { value: number; count: number }
+interface ValCount { value: number; count: number; sem_atraso?: { value: number; count: number }; mais_2_parcelas?: { value: number; count: number } }
 
 const PAYMENT_METHODS = ['PIX', 'BOLETO', 'CARTAO', 'DINHEIRO', 'TRANSFERENCIA'];
 // Formas aceitas pelo caixa (o gasto/pagamento que passa pela gaveta).
@@ -375,7 +375,22 @@ export default function ContasAPagarPage() {
               {showValues ? <EyeOff size={13} /> : <Eye size={13} />} {showValues ? 'Esconder' : 'Ver valores'}
             </button>
             {asaasBalance !== null && <SummaryChip label="Saldo Asaas" value={fmt(asaasBalance)} show={showValues} tone={asaasBalance < 0 ? 'rose' : 'emerald'} />}
-            {receber && <SummaryChip label="A receber" value={fmt(receber.value)} sub={`${receber.count}`} show={showValues} tone="sky" />}
+            {receber && <SummaryChip label="A receber" value={fmt(receber.value)} sub={`${receber.count}`} show={showValues} tone="sky"
+              info={(receber.sem_atraso || receber.mais_2_parcelas) ? (
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-bold text-foreground">Previsão do a receber</div>
+                  <div className="flex items-center justify-between gap-3 text-[11px]">
+                    <span className="text-muted-foreground">Sem atraso <span className="opacity-70">(tende a pagar)</span></span>
+                    <span className="font-bold tabular-nums text-emerald-600">{fmt(receber.sem_atraso?.value || 0)} · {receber.sem_atraso?.count || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-[11px]">
+                    <span className="text-muted-foreground">+2 parcelas em aberto <span className="opacity-70">(risco)</span></span>
+                    <span className="font-bold tabular-nums text-amber-600">{fmt(receber.mais_2_parcelas?.value || 0)} · {receber.mais_2_parcelas?.count || 0}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/70 pt-1 border-t border-border">Por paciente: sem nenhuma cobrança atrasada × com mais de 2 em aberto.</div>
+                </div>
+              ) : undefined}
+            />}
             {atrasado && <SummaryChip label="Atrasado" value={fmt(atrasado.value)} sub={`${atrasado.count}`} show={showValues} tone="rose" />}
           </div>
         )}
@@ -889,12 +904,20 @@ function PayModal({ tx, accounts, isClinic, onClose, onSaved, onQuickPay }: { tx
 // ─── Resumo discreto de cobranças (Saldo Asaas / A Receber / Atrasado) ────────
 // Valor escondido por padrão; o olho no cabeçalho revela. Nunca aparece pra
 // outras empresas (só clínica) — é dado sensível do gateway.
-function SummaryChip({ label, value, sub, show, tone }: { label: string; value: string; sub?: string; show: boolean; tone: 'rose' | 'emerald' | 'sky' }) {
+function SummaryChip({ label, value, sub, show, tone, info }: { label: string; value: string; sub?: string; show: boolean; tone: 'rose' | 'emerald' | 'sky'; info?: React.ReactNode }) {
   const toneCls = tone === 'rose' ? 'text-rose-500' : tone === 'sky' ? 'text-sky-500' : 'text-emerald-500';
   return (
-    <div className="rounded-lg border border-border bg-card px-2.5 py-1 text-right leading-tight">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}{sub ? ` · ${sub}` : ''}</div>
+    <div className="relative group rounded-lg border border-border bg-card px-2.5 py-1 text-right leading-tight">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center justify-end gap-1 w-full">
+        {label}{sub ? ` · ${sub}` : ''}
+        {info && <Info size={11} className="text-muted-foreground/70 cursor-help shrink-0" />}
+      </div>
       <div className={`text-[13px] font-bold tabular-nums ${show ? toneCls : 'text-muted-foreground'}`}>{show ? value : '••••••'}</div>
+      {info && (
+        <div className="absolute right-0 top-full mt-1 z-30 hidden group-hover:block w-64 rounded-xl border border-border bg-card shadow-xl p-3 text-left cursor-default">
+          {info}
+        </div>
+      )}
     </div>
   );
 }

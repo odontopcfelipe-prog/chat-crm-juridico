@@ -322,6 +322,37 @@ export class FinanceiroChargesService {
       _count: { _all: true },
     });
 
+    // ── Quebra do "a receber" por perfil do paciente (previsão de recebimento) ──
+    // Dois recortes do mesmo "a receber" (cobranças EM ABERTO), pra uma previsão mais
+    // acertiva de quem paga:
+    //   sem_atraso       = a receber de pacientes SEM nenhuma cobrança atrasada (confiável)
+    //   mais_2_parcelas  = a receber de pacientes com MAIS de 2 cobranças em aberto (risco)
+    // São lentes (podem se sobrepor), não uma partição. Agrupa por paciente (patient_id →
+    // treatment_plan.patient_id → lead_id; órfão vira grupo próprio pela id da cobrança).
+    const openRows = await this.prisma.paymentGatewayCharge.findMany({
+      where: openWhere,
+      select: { id: true, amount: true, due_date: true, patient_id: true, customer_external_id: true, treatment_plan: { select: { patient_id: true } } },
+      take: 20000, // teto de segurança (hoje a carteira aberta é muito menor)
+    });
+    const todayUtcForBreakdown = startOfTodayMaceioUtc(now);
+    const pkey = (c: { patient_id: string | null; customer_external_id: string | null; treatment_plan: { patient_id: string | null } | null; id: string }) =>
+      c.patient_id || c.treatment_plan?.patient_id || c.customer_external_id || ('c:' + c.id);
+    const perPatient = new Map<string, { open: number; overdue: number }>();
+    for (const c of openRows) {
+      const k = pkey(c);
+      let a = perPatient.get(k);
+      if (!a) { a = { open: 0, overdue: 0 }; perPatient.set(k, a); }
+      a.open++;
+      if (c.due_date && new Date(c.due_date) < todayUtcForBreakdown) a.overdue++;
+    }
+    let semAtrasoValue = 0, semAtrasoCount = 0, mais2Value = 0, mais2Count = 0;
+    for (const c of openRows) {
+      const a = perPatient.get(pkey(c))!;
+      const amt = Number(c.amount) || 0;
+      if (a.overdue === 0) { semAtrasoValue += amt; semAtrasoCount++; }
+      if (a.open > 2) { mais2Value += amt; mais2Count++; }
+    }
+
     return {
       recebido_no_periodo: {
         value: Math.round(Number(receivedAgg._sum.amount || 0) * 100) / 100,
@@ -330,6 +361,9 @@ export class FinanceiroChargesService {
       a_receber_total: {
         value: Math.round(Number(openAgg._sum.amount || 0) * 100) / 100,
         count: openAgg._count._all,
+        // previsão por perfil (tooltip do "i") — ver cálculo acima
+        sem_atraso: { value: roundV(semAtrasoValue), count: semAtrasoCount },
+        mais_2_parcelas: { value: roundV(mais2Value), count: mais2Count },
       },
       atrasado: {
         value: Math.round(Number(overdueAgg._sum.amount || 0) * 100) / 100,
