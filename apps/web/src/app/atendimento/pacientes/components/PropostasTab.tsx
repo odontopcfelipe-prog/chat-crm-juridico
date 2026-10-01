@@ -5100,13 +5100,13 @@ function PropostaPainel({
             customEntradaDueDate,
             customInstallmentsStartDate,
           })}
-          className="text-xs px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-1.5 font-bold shadow-sm"
+          className="text-sm px-6 py-3 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-2 font-bold shadow-md"
           title={detail.is_chosen_proposal
-            ? 'Cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente'
-            : 'Salve a proposta primeiro (botão "Salvar proposta") pra liberar o envio ao financeiro'}
+            ? 'Aprova a venda: cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente'
+            : 'Salve a proposta primeiro (botão "Salvar proposta") pra liberar a aprovação da venda'}
         >
-          <Send size={12} />
-          Encaminhar ao financeiro
+          <Check size={16} strokeWidth={2.5} />
+          Aprovar venda
         </button>
       </div>
       )}
