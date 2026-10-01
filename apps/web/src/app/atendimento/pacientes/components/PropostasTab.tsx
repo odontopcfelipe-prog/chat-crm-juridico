@@ -4795,17 +4795,7 @@ function PropostaPainel({
                 removido por completo. Entrada/sinal/datas agora vivem DENTRO
                 dos modais "Cobranca do tratamento" de cada forma (Boleto, PIX,
                 Cartao), sem duplicacao na tela principal. */}
-            {/* Onda 17.32.26 — Empty state explicativo enquanto nenhuma forma
-                foi selecionada. Some quando operador escolhe uma opcao. */}
-            {!sel && (
-              <div className="mt-3 p-3 rounded-md border border-dashed border-border bg-muted/30 flex items-start gap-2">
-                <span className="text-base">👆</span>
-                <div className="text-[11px] text-muted-foreground leading-snug">
-                  <p className="font-semibold text-foreground mb-0.5">Comece escolhendo a forma</p>
-                  Clique numa das 3 opções acima pra configurar <strong>entrada, sinal, datas</strong> e <strong>emitir as cobranças</strong> no Asaas — tudo numa tela só.
-                </div>
-              </div>
-            )}
+            {/* Empty state "Comece escolhendo a forma" removido a pedido (ganhar espaço). */}
 
             {/* Abas de parcelamento (modais) abertas pelos cards de Cartao/Boleto */}
             {cartaoModalOpen && (
@@ -5032,34 +5022,9 @@ function PropostaPainel({
           Adicionar bônus
         </button>
 
-        {/* Onda 14.33 — Salvar proposta (aguardando decisão do paciente).
-            Destaca esta proposta + esmaece as outras na lista de cards.
-            Onda 14.38 — Persiste forma de pagamento ativa + entrada pra
-            que o PDF mostre a oferta exata apresentada ao paciente. */}
-        {/* Salvar proposta (aguardando decisão do paciente). Só aparece quando
-            ainda NÃO foi salva — depois de salva, o operador edita/re-salva pelo
-            próprio modal de cobrança (onde o botão vira "Proposta salva"). */}
-        {!detail.is_chosen_proposal && (
-          <button
-            type="button"
-            onClick={() => onChooseAsProposal?.({
-              payment_key: activePaymentKey || null,
-              down_payment: customDownPayment > 0 ? customDownPayment : 0,
-              // Onda 15 (etapa 16.8) — salva tambem o plano de cobranca
-              // completo (sinal, metodo, datas) pra operador nao perder.
-              signal_value: customSignalValue > 0 ? customSignalValue : null,
-              signal_method: customSignalValue > 0 ? customSignalMethod : null,
-              entrada_due_date: customEntradaDueDate || null,
-              installments_start_date: customInstallmentsStartDate || null,
-              avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
-            })}
-            className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
-            title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Forma de pagamento e entrada atuais ficam salvos."
-          >
-            <Clock size={12} />
-            Salvar proposta
-          </button>
-        )}
+        {/* "Salvar proposta" removido — escolher a forma de pagamento (no modal de
+            cobrança) já salva a proposta (onChooseAsProposal → is_chosen_proposal),
+            o que habilita o "APROVAR VENDA". Botão redundante tirado a pedido. */}
 
         <button
           type="button"
@@ -5100,7 +5065,7 @@ function PropostaPainel({
             customEntradaDueDate,
             customInstallmentsStartDate,
           })}
-          className="group text-sm px-6 py-2.5 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-2 font-semibold uppercase tracking-wide shadow-sm shadow-emerald-500/25 hover:shadow-md hover:shadow-emerald-500/40 transition-all"
+          className="group ml-auto text-sm px-6 py-2.5 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-2 font-semibold uppercase tracking-wide shadow-sm shadow-emerald-500/25 hover:shadow-md hover:shadow-emerald-500/40 transition-all"
           title={detail.is_chosen_proposal
             ? 'Aprova a venda: cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente'
             : 'Salve a proposta primeiro (botão "Salvar proposta") pra liberar a aprovação da venda'}
