@@ -43,6 +43,11 @@ interface OverlayEntry { numPages: number; isMenor: boolean; fields: OverlayFiel
  * Se o arquivo existir, e mesclado ao final do contrato principal. Se nao
  * existir, fallback no texto base via pdfkit (extraDocumentContent).
  */
+/** Contrato principal DESENHADO (Prestação de Serviços neutro). Quando existe no
+ *  diretório, vira a 1ª peça do PDF (preenchido + branding), e o contrato gerado
+ *  pelo pdfkit passa a ser anexado depois (como anexo com procedimentos/valores). */
+const MAIN_CONTRACT_FILE = 'contrato-prestacao-servicos.pdf';
+
 const EXTRA_DOCUMENT_PDF_MAP: Record<string, string> = {
   USO_IMAGEM: 'uso-de-imagem.pdf',
   CLAREAMENTO: 'clareamento.pdf',
@@ -281,28 +286,14 @@ export class ContractPdfService {
    *  validado (tenant conferido pelo chamador) e monta o PDF (contrato
    *  principal + docs anexos mesclados). */
   private async buildPdf(contract: any, tenantId: string): Promise<Buffer> {
-    // Identidade da CONTRATADA (clinica) vem dos campos ESTRUTURADOS do Tenant
-    // (cadastro em Configuracoes > Identidade): CNPJ, endereco completo e
-    // responsavel tecnico + CRO. Ver resolveContratado().
     const contratado = await this.resolveContratado(tenantId);
     const tenantInfo = {
-      name: contratado.nome,
-      cnpj: contratado.cnpj || null,
-      address: contratado.endereco || null,
-      phone: contratado.phone || null,
-      email: contratado.email || null,
-      cidadeUf: contratado.cidadeUf || null,
-      qualificacao: contratado.qualificacao || null,
-      responsavel: contratado.resp || null,
-      cro: contratado.cro || null,
+      name: contratado.nome, cnpj: contratado.cnpj || null, address: contratado.endereco || null,
+      phone: contratado.phone || null, email: contratado.email || null, cidadeUf: contratado.cidadeUf || null,
+      qualificacao: contratado.qualificacao || null, responsavel: contratado.resp || null, cro: contratado.cro || null,
     };
 
-    // Onda 14.32 — Identifica quais docs extras tem PDF anexo. Esses sao
-    // mesclados ao final via pdf-lib. Docs SEM PDF anexo continuam sendo
-    // renderizados como secoes textuais via pdfkit dentro do renderPdf.
-    const selectedDocs = Array.isArray(contract.selected_documents)
-      ? (contract.selected_documents as string[])
-      : [];
+    const selectedDocs = Array.isArray(contract.selected_documents) ? (contract.selected_documents as string[]) : [];
     const docsWithAttachment: string[] = [];
     const docsWithoutAttachment: string[] = [];
     for (const docId of selectedDocs) {
@@ -312,54 +303,171 @@ export class ContractPdfService {
       else docsWithoutAttachment.push(docId);
     }
 
-    // 1. Renderiza o contrato principal via pdfkit (com secoes textuais dos
-    //    docs que NAO tem PDF anexo).
-    const mainPdfBuffer = await this.renderPdf(contract, tenantInfo, docsWithoutAttachment);
+    const now = new Date();
+    const fillData = this.buildTermFillData(contract, contratado, now);   // dados dos TERMOS
+    const mainData = this.buildMainContractData(contract, contratado, now); // dados do CONTRATO PRINCIPAL desenhado
+    const tenantLogo = await this.resolveTenantLogo(contratado.logoUrl);
+    const branding = { name: contratado.nome, logo: tenantLogo };
+    const overlay = await this.loadOverlayMap();
 
-    // 2. Se nao ha PDFs anexos, retorna direto o buffer do principal.
-    if (docsWithAttachment.length === 0) {
-      return mainPdfBuffer;
+    // Contrato gerado pelo pdfkit (procedimentos + valores) — vira ANEXO.
+    const pdfkitBuf = await this.renderPdf(contract, tenantInfo, docsWithoutAttachment);
+
+    // Contrato principal DESENHADO como base (quando o arquivo existe).
+    const designedBytes = await this.readTemplateBytes(MAIN_CONTRACT_FILE);
+    if (designedBytes) {
+      try {
+        const merged = await PDFLibDocument.load(designedBytes);
+        const overlayFont = await merged.embedFont(StandardFonts.Helvetica).catch(() => null);
+        const overlayBold = await merged.embedFont(StandardFonts.HelveticaBold).catch(() => null);
+        let logoImage: any = null;
+        if (branding.logo) { try { logoImage = branding.logo.kind === 'png' ? await merged.embedPng(branding.logo.bytes) : await merged.embedJpg(branding.logo.bytes); } catch { logoImage = null; } }
+        // 1) preenche + branding no contrato desenhado (base)
+        const mainEntry = overlay?.[MAIN_CONTRACT_FILE];
+        if (mainEntry) this.applyOverlay(merged, 0, mainEntry, mainData, overlayFont, branding, overlayBold, logoImage);
+        // 2) anexa o contrato gerado (procedimentos/valores)
+        await this.appendBytes(merged, pdfkitBuf);
+        // 3) anexa os termos selecionados (preenchidos + branding)
+        for (const docId of docsWithAttachment) {
+          const filename = EXTRA_DOCUMENT_PDF_MAP[docId];
+          const bytes = filename ? await this.readTemplateBytes(filename) : null;
+          if (!bytes) continue;
+          const baseIndex = merged.getPageCount();
+          await this.appendBytes(merged, bytes);
+          const entry = overlay?.[filename];
+          if (entry) this.applyOverlay(merged, baseIndex, entry, fillData, overlayFont, branding, overlayBold, logoImage);
+          this.logger.log(`[Contract PDF] Anexado termo ${docId}`);
+        }
+        this.logger.log(`[Contract PDF] Montado: contrato desenhado + gerado + ${docsWithAttachment.length} termos`);
+        return Buffer.from(await merged.save());
+      } catch (e: any) {
+        this.logger.error(`[Contract PDF] Falha ao montar com o contrato desenhado (${e?.message}) — fallback pro gerado`);
+      }
     }
 
-    // 3. Dados pra PREENCHER os termos oficiais (escritos por cima das linhas).
-    //    responsavel_* ficam de fora de propósito (dado do responsável legal
-    //    não fica no sistema → linha em branco pra assinar à mão).
+    // Fallback (sem o PDF desenhado, ou erro): comportamento antigo.
+    if (docsWithAttachment.length === 0) return pdfkitBuf;
+    return this.mergeWithAttachments(pdfkitBuf, docsWithAttachment, fillData, branding);
+  }
+
+  /** Lê os bytes de um PDF do diretório de templates (ou null se não existir). */
+  private async readTemplateBytes(filename: string): Promise<Buffer | null> {
+    try { return await fs.readFile(path.join(this.templatesDir, filename)); } catch { return null; }
+  }
+
+  /** Copia todas as páginas de um PDF (bytes) pro doc mesclado, no fim. */
+  private async appendBytes(merged: PDFLibDocument, bytes: Buffer): Promise<void> {
+    const src = await PDFLibDocument.load(bytes);
+    const pages = await merged.copyPages(src, src.getPageIndices());
+    for (const pg of pages) merged.addPage(pg);
+  }
+
+  /** Aplica preenchimento (fields) + branding (headers) de uma entry do overlay-map
+   *  nas páginas do doc mesclado a partir de baseIndex. */
+  private applyOverlay(
+    merged: PDFLibDocument, baseIndex: number, entry: OverlayEntry, data: Record<string, string>,
+    overlayFont: PDFFont | null, branding: { name: string } | null, overlayBold: PDFFont | null, logoImage: any | null,
+  ) {
+    if (overlayFont) {
+      for (const f of entry.fields) {
+        const val = data[f.key];
+        if (!val) continue;
+        const pi = baseIndex + (f.page || 0);
+        if (pi < merged.getPageCount()) this.drawOverlayField(merged.getPage(pi), val, f, overlayFont);
+      }
+    }
+    if (branding && entry.headers?.length) {
+      for (const h of entry.headers) {
+        const pi = baseIndex + (h.page || 0);
+        if (pi < merged.getPageCount()) this.drawHeaderBranding(merged.getPage(pi), h, branding.name, overlayBold, logoImage);
+      }
+    }
+  }
+
+  /** Dados pra preencher os TERMOS oficiais (paciente + clínica + data).
+   *  responsavel_* ficam de fora (dado do responsável legal não fica no sistema). */
+  private buildTermFillData(contract: any, contratado: any, now: Date): Record<string, string> {
     const p = contract.quote.patient || {};
     const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
-    const patientResidencia = [
-      cs(p.address),
-      cs(p.address_number) ? `nº ${cs(p.address_number)}` : '',
-      cs(p.neighborhood),
-    ].filter(Boolean).join(', ');
-    const now = new Date();
-    const fillData: Record<string, string> = {
-      patient_name: cs(p.name),
-      patient_rg: cs(p.rg),
-      patient_cpf: cs(p.cpf),
-      patient_address: patientResidencia,
-      patient_city: cs(p.city),
-      patient_cep: cs(p.zip_code),
-      dentist_name: contratado.resp,
-      dentist_cro: contratado.cro,
-      clinic_address: contratado.consultorio,
-      clinic_city: contratado.cidade,
-      clinic_cep: contratado.cep,
-      date_city: contratado.cidade,
-      date_day: String(now.getDate()).padStart(2, '0'),
-      date_month: now.toLocaleDateString('pt-BR', { month: 'long' }),
-      date_year: String(now.getFullYear()),
+    const residencia = [cs(p.address), cs(p.address_number) ? `nº ${cs(p.address_number)}` : '', cs(p.neighborhood)].filter(Boolean).join(', ');
+    return {
+      patient_name: cs(p.name), patient_rg: cs(p.rg), patient_cpf: cs(p.cpf),
+      patient_address: residencia, patient_city: cs(p.city), patient_cep: cs(p.zip_code),
+      dentist_name: contratado.resp, dentist_cro: contratado.cro,
+      clinic_address: contratado.consultorio, clinic_city: contratado.cidade, clinic_cep: contratado.cep,
+      date_city: contratado.cidade, date_day: String(now.getDate()).padStart(2, '0'),
+      date_month: now.toLocaleDateString('pt-BR', { month: 'long' }), date_year: String(now.getFullYear()),
     };
+  }
 
-    // 4. Branding da clínica (multi-tenant): nome + logo do cadastro pra escrever
-    //    POR CIMA do nome/logo fixos do cabeçalho dos termos padronizados.
-    const tenantLogo = await this.resolveTenantLogo(contratado.logoUrl);
+  /** Dados pra preencher o CONTRATO PRINCIPAL desenhado (qualificação das partes,
+   *  valor + por extenso, foro, data). Campos sem dado no sistema (estado civil,
+   *  profissão, expedição do RG) ficam em branco pra preencher à mão. */
+  private buildMainContractData(contract: any, contratado: any, now: Date): Record<string, string> {
+    const p = contract.quote.patient || {};
+    const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
+    const cro = cs(contratado.cro);
+    const croUf = (cro.match(/[-/\s]([A-Za-z]{2})\b/) || cro.match(/\b([A-Za-z]{2})\b/) || [])[1] || '';
+    const croNum = (cro.match(/(\d{2,})/) || [])[1] || (croUf ? '' : cro);
+    const total = Number(contract.quote.total_value) || 0;
+    return {
+      contratada_name: contratado.nome, contratada_doc: contratado.cnpj, contratada_address: contratado.endereco,
+      dentist_name: contratado.resp, cro_uf: croUf.toUpperCase(), cro_num: croNum,
+      patient_name: cs(p.name),
+      // civil / profissao / rg_exp: sem dado no sistema → ficam em branco
+      patient_rg: cs(p.rg), patient_cpf: cs(p.cpf),
+      patient_address: cs(p.address), patient_addr_num: cs(p.address_number),
+      patient_neighborhood: cs(p.neighborhood), patient_city: cs(p.city), patient_state: cs(p.state),
+      valor: total ? total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+      valor_extenso: total ? this.valorPorExtenso(total) : '',
+      foro_comarca: contratado.cidade, foro_estado: this.ufExtenso(contratado),
+      date_city: contratado.cidade, date_day: String(now.getDate()).padStart(2, '0'),
+      date_month: now.toLocaleDateString('pt-BR', { month: 'long' }), date_year: String(now.getFullYear()),
+    };
+  }
 
-    // 5. Mescla via pdf-lib: principal + cada PDF anexo, PREENCHENDO os termos
-    //    oficiais por cima das linhas na ordem dos selected_documents.
-    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment, fillData, {
-      name: contratado.nome,
-      logo: tenantLogo,
-    });
+  /** Nome do estado da clínica pro foro (usa a sigla UF do cadastro). */
+  private ufExtenso(contratado: any): string {
+    const nomes: Record<string, string> = { AC:'Acre',AL:'Alagoas',AP:'Amapá',AM:'Amazonas',BA:'Bahia',CE:'Ceará',DF:'Distrito Federal',ES:'Espírito Santo',GO:'Goiás',MA:'Maranhão',MT:'Mato Grosso',MS:'Mato Grosso do Sul',MG:'Minas Gerais',PA:'Pará',PB:'Paraíba',PR:'Paraná',PE:'Pernambuco',PI:'Piauí',RJ:'Rio de Janeiro',RN:'Rio Grande do Norte',RS:'Rio Grande do Sul',RO:'Rondônia',RR:'Roraima',SC:'Santa Catarina',SP:'São Paulo',SE:'Sergipe',TO:'Tocantins' };
+    const uf = String(contratado.uf || contratado.state || '').toUpperCase();
+    return nomes[uf] || uf || '';
+  }
+
+  /** Valor em reais por extenso (ex.: 2000 → "dois mil reais"; 1550.5 →
+   *  "mil quinhentos e cinquenta reais e cinquenta centavos"). */
+  private valorPorExtenso(v: number): string {
+    const U = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+    const D = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+    const C = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+    const tri = (n: number): string => {
+      if (n === 0) return '';
+      if (n === 100) return 'cem';
+      let s = ''; const c = Math.floor(n / 100), rem = n % 100;
+      if (c) s += C[c];
+      if (rem) { if (s) s += ' e '; if (rem < 20) s += U[rem]; else { s += D[Math.floor(rem / 10)]; if (rem % 10) s += ' e ' + U[rem % 10]; } }
+      return s;
+    };
+    const intWords = (n: number): string => {
+      if (n === 0) return 'zero';
+      const mi = Math.floor(n / 1000000), mil = Math.floor((n % 1000000) / 1000), r = n % 1000;
+      const parts: string[] = [];
+      if (mi) parts.push(mi === 1 ? 'um milhão' : tri(mi) + ' milhões');
+      if (mil) parts.push(mil === 1 ? 'mil' : tri(mil) + ' mil');
+      if (r) parts.push(tri(r));
+      // conector "e" antes do último grupo quando ele é < 100 ou centena redonda
+      let out = parts[0] || '';
+      for (let i = 1; i < parts.length; i++) {
+        const last = i === parts.length - 1;
+        const isSmall = r !== 0 && last && (r < 100 || r % 100 === 0);
+        out += (isSmall ? ' e ' : ' ') + parts[i];
+      }
+      return out;
+    };
+    const reais = Math.floor(v);
+    const centavos = Math.round((v - reais) * 100);
+    let s = `${intWords(reais)} ${reais === 1 ? 'real' : 'reais'}`;
+    if (centavos > 0) s += ` e ${intWords(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`;
+    return s;
   }
 
   /**
@@ -381,6 +489,7 @@ export class ContractPdfService {
     cidade: string;
     cep: string;
     cidadeUf: string;
+    uf: string;
     resp: string;
     cro: string;
     qualificacao: string;
@@ -449,7 +558,7 @@ export class ContractPdfService {
     }
     const qualificacao = qualParts.join(', ');
 
-    return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, resp, cro, qualificacao, logoUrl: clean(tenant?.logo_url) };
+    return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, uf, resp, cro, qualificacao, logoUrl: clean(tenant?.logo_url) };
   }
 
   /**

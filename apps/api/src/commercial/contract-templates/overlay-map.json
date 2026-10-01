@@ -134,6 +134,229 @@
       }
     ]
   },
+  "contrato-prestacao-servicos.pdf": {
+    "numPages": 2,
+    "isMenor": false,
+    "main": true,
+    "fields": [
+      {
+        "key": "contratada_name",
+        "page": 0,
+        "x": 51.4,
+        "y": 697.9,
+        "w": 184.7,
+        "size": 7.6
+      },
+      {
+        "key": "contratada_doc",
+        "page": 0,
+        "x": 393.9,
+        "y": 697.9,
+        "w": 125.9,
+        "size": 7.6
+      },
+      {
+        "key": "contratada_address",
+        "page": 0,
+        "x": 122,
+        "y": 688.7,
+        "w": 268.7,
+        "size": 7.6
+      },
+      {
+        "key": "dentist_name",
+        "page": 0,
+        "x": 206.8,
+        "y": 679.5,
+        "w": 187.2,
+        "size": 7.6
+      },
+      {
+        "key": "cro_uf",
+        "page": 0,
+        "x": 417.7,
+        "y": 679.5,
+        "w": 17,
+        "size": 7.6
+      },
+      {
+        "key": "cro_num",
+        "page": 0,
+        "x": 446,
+        "y": 679.5,
+        "w": 42.6,
+        "size": 7.6
+      },
+      {
+        "key": "patient_name",
+        "page": 0,
+        "x": 51.4,
+        "y": 670.3,
+        "w": 185.8,
+        "size": 7.6
+      },
+      {
+        "key": "civil",
+        "page": 0,
+        "x": 325.3,
+        "y": 670.3,
+        "w": 59.1,
+        "size": 7.6
+      },
+      {
+        "key": "profissao",
+        "page": 0,
+        "x": 421.6,
+        "y": 670.3,
+        "w": 80.2,
+        "size": 7.6
+      },
+      {
+        "key": "patient_rg",
+        "page": 0,
+        "x": 117.8,
+        "y": 661.1,
+        "w": 75.6,
+        "size": 7.6
+      },
+      {
+        "key": "rg_exp",
+        "page": 0,
+        "x": 239.2,
+        "y": 661.1,
+        "w": 42,
+        "size": 7.6
+      },
+      {
+        "key": "patient_cpf",
+        "page": 0,
+        "x": 404.9,
+        "y": 661.1,
+        "w": 92.4,
+        "size": 7.6
+      },
+      {
+        "key": "patient_address",
+        "page": 0,
+        "x": 120,
+        "y": 651.9,
+        "w": 235.1,
+        "size": 7.6
+      },
+      {
+        "key": "patient_addr_num",
+        "page": 0,
+        "x": 377.5,
+        "y": 651.9,
+        "w": 25.2,
+        "size": 7.6
+      },
+      {
+        "key": "patient_neighborhood",
+        "page": 0,
+        "x": 437.4,
+        "y": 651.9,
+        "w": 75.6,
+        "size": 7.6
+      },
+      {
+        "key": "patient_city",
+        "page": 0,
+        "x": 51.4,
+        "y": 642.7,
+        "w": 92.4,
+        "size": 7.6
+      },
+      {
+        "key": "patient_state",
+        "page": 0,
+        "x": 173.6,
+        "y": 642.7,
+        "w": 25.2,
+        "size": 7.6
+      },
+      {
+        "key": "valor",
+        "page": 0,
+        "x": 464.8,
+        "y": 559.1,
+        "w": 79.2,
+        "size": 7.6
+      },
+      {
+        "key": "valor_extenso",
+        "page": 0,
+        "x": 53.9,
+        "y": 549.9,
+        "w": 243.5,
+        "size": 7.6
+      },
+      {
+        "key": "foro_comarca",
+        "page": 1,
+        "x": 208.8,
+        "y": 451.5,
+        "w": 125.9,
+        "size": 7.6
+      },
+      {
+        "key": "foro_estado",
+        "page": 1,
+        "x": 383.1,
+        "y": 451.5,
+        "w": 75.6,
+        "size": 7.6
+      },
+      {
+        "key": "date_city",
+        "page": 1,
+        "x": 146,
+        "y": 387.7,
+        "w": 127.7,
+        "size": 8.2
+      },
+      {
+        "key": "date_day",
+        "page": 1,
+        "x": 278.3,
+        "y": 387.7,
+        "w": 22.8,
+        "size": 8.2
+      },
+      {
+        "key": "date_month",
+        "page": 1,
+        "x": 314.7,
+        "y": 387.7,
+        "w": 82.1,
+        "size": 8.2
+      },
+      {
+        "key": "date_year",
+        "page": 1,
+        "x": 410.5,
+        "y": 387.7,
+        "w": 36.5,
+        "size": 8.2
+      }
+    ],
+    "headers": [
+      {
+        "page": 0,
+        "x": 184.8,
+        "y": 775.2,
+        "w": 225.7,
+        "size": 7.2
+      },
+      {
+        "page": 1,
+        "x": 184.8,
+        "y": 775.2,
+        "w": 225.7,
+        "size": 7.2
+      }
+    ]
+  },
   "facetas-de-resina.pdf": {
     "numPages": 1,
     "isMenor": false,

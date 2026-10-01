@@ -110,8 +110,39 @@ async function extractHeaders(doc) {
   return out;
 }
 
+// Contrato PRINCIPAL (Prestação de Serviços): mapeamento POSICIONAL (rótulos
+// diferem dos termos). Campos sem dado no sistema (civil/profissao/rg_exp) entram
+// no mapa, mas o runtime deixa em branco.
+const MAIN_FILE = 'contrato-prestacao-servicos.pdf';
+const MAIN_KEYS = [
+  ['contratada_name','contratada_doc','contratada_address','dentist_name','cro_uf','cro_num','patient_name','civil','profissao','patient_rg','rg_exp','patient_cpf','patient_address','patient_addr_num','patient_neighborhood','patient_city','patient_state','valor','valor_extenso'],
+  ['foro_comarca','foro_estado','date_city','date_day','date_month','date_year'],
+];
+async function extractMainContract(doc) {
+  const fields = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent({ disableNormalization: true });
+    const items = tc.items.filter((i) => i.str !== undefined && i.str !== '').map((i) => ({ s: i.str, x: i.transform[4], y: i.transform[5], w: i.width, size: i.transform[0] }));
+    const runs = [];
+    for (const it of items) for (const r of itemRuns(it)) runs.push(r);
+    runs.sort((a, b) => (Math.abs(a.y - b.y) > 2 ? b.y - a.y : a.x - b.x));
+    const keys = MAIN_KEYS[p - 1] || [];
+    runs.forEach((r, i) => { if (keys[i]) fields.push({ key: keys[i], page: p - 1, x: rd(r.x), y: rd(r.y), w: rd(r.w), size: rd(r.size || 9) }); });
+  }
+  return fields;
+}
+
 const map = {};
 for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.pdf'))) {
+  if (file === MAIN_FILE) {
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(path.join(dir, file))), useSystemFonts: true }).promise;
+    const fields = await extractMainContract(doc);
+    const headers = await extractHeaders(doc);
+    map[file] = { numPages: doc.numPages, isMenor: false, main: true, fields, headers };
+    console.log(`${file}  [PRINCIPAL] campos=${fields.length} headers=${headers.length}`);
+    continue;
+  }
   const e = await extract(file); map[file] = e;
   console.log(`${file}  menor=${e.isMenor} campos=${e.fields.length} headers=${e.headers.length}  [${e.fields.map((f) => f.key).join(', ')}]`);
 }
