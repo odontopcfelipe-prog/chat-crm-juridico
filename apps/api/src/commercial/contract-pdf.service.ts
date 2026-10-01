@@ -33,7 +33,10 @@ import { PrismaService } from '../prisma/prisma.service';
  * o mapa (script em scratch/pdf-overlay).
  */
 interface OverlayField { key: string; page: number; x: number; y: number; w: number; size: number }
-interface OverlayEntry { numPages: number; isMenor: boolean; fields: OverlayField[] }
+/** Cabeçalho do termo NEUTRO: caixa do placeholder "ESPAÇO RESERVADO PARA LOGO /
+ *  IDENTIFICAÇÃO DA CLÍNICA" — o runtime cobre e desenha nome+logo do tenant ali. */
+interface OverlayHeader { page: number; x: number; y: number; w: number; size: number }
+interface OverlayEntry { numPages: number; isMenor: boolean; fields: OverlayField[]; headers?: OverlayHeader[] }
 
 /**
  * Onda 14.32 — Mapeamento docId → nome do PDF anexo em contract-templates/.
@@ -62,6 +65,8 @@ export class ContractPdfService {
   private readonly templatesDir = path.join(__dirname, 'contract-templates');
   /** Cache do overlay-map.json: undefined = ainda não lido; null = falhou. */
   private overlayMapCache?: Record<string, OverlayEntry> | null;
+  /** Cache da logo da clínica por logo_url (bytes já baixados). */
+  private readonly logoCache = new Map<string, { bytes: Uint8Array; kind: 'png' | 'jpg' }>();
 
   constructor(private prisma: PrismaService) {}
 
@@ -92,6 +97,51 @@ export class ContractPdfService {
       // char fora do WinAnsi: remove os não-latinos e tenta de novo (não quebra o PDF)
       const safe = text.replace(/[^\x00-\xff]/g, '');
       if (safe) { try { page.drawText(safe, { x: f.x + 2, y: f.y + 2, size, font, color: rgb(0, 0, 0) }); } catch { /* desiste desse campo */ } }
+    }
+  }
+
+  /** Cobre o placeholder "ESPAÇO RESERVADO..." do cabeçalho neutro e desenha a
+   *  identificação da clínica: [logo] [nome], centralizados. O nome vem sempre
+   *  (tenant.name); a logo só se a clínica tiver uma cadastrada. Encolhe o nome
+   *  pra caber. Nunca quebra o PDF. */
+  private drawHeaderBranding(page: PDFPage, h: OverlayHeader, name: string, boldFont: PDFFont | null, logoImage: any | null) {
+    if (!boldFont) return;
+    // 1) cobre o placeholder (o cabeçalho é branco entre as divisórias)
+    page.drawRectangle({ x: 70, y: h.y - 4, width: 455, height: (h.size || 8) + 8, color: rgb(1, 1, 1) });
+
+    const cx = h.x + h.w / 2;   // centro do placeholder (= centro da página)
+    const baseY = h.y - 2;      // baseline do nome
+
+    // 2) dimensões da logo (altura fixa ~44, largura proporcional, teto 80)
+    let logoW = 0, logoH = 0;
+    if (logoImage) {
+      const iw = logoImage.width || 1, ih = logoImage.height || 1;
+      logoH = 44; logoW = (iw / ih) * logoH;
+      if (logoW > 80) { logoW = 80; logoH = (ih / iw) * logoW; }
+    }
+    const gap = logoImage ? 12 : 0;
+
+    // 3) tamanho do nome, encolhendo pra caber no grupo [logo]+gap+[nome] <= 470
+    const sanitize = (s: string) => s.replace(/[^\x00-\xff]/g, '');
+    const measure = (s: string, sz: number) => { try { return boldFont.widthOfTextAtSize(s, sz); } catch { return boldFont.widthOfTextAtSize(sanitize(s), sz); } };
+    let nameSize = 13;
+    let nameW = name ? measure(name, nameSize) : 0;
+    const MAXGROUP = 470;
+    if (name && logoW + gap + nameW > MAXGROUP) {
+      nameSize = Math.max(8, (nameSize * (MAXGROUP - logoW - gap)) / nameW);
+      nameW = measure(name, nameSize);
+    }
+
+    // 4) desenha logo (esquerda) + nome (direita), centralizados
+    let x = cx - (logoW + gap + nameW) / 2;
+    if (logoImage) {
+      const nameMidY = baseY + nameSize * 0.34;
+      try { page.drawImage(logoImage, { x, y: nameMidY - logoH / 2, width: logoW, height: logoH }); } catch { /* ignora logo com erro */ }
+      x += logoW + gap;
+    }
+    if (name) {
+      const draw = (t: string) => page.drawText(t, { x, y: baseY, size: nameSize, font: boldFont, color: rgb(0.06, 0.30, 0.26) });
+      try { draw(name); } catch { const safe = sanitize(name); if (safe) { try { draw(safe); } catch { /* desiste */ } } }
     }
   }
 
@@ -300,9 +350,16 @@ export class ContractPdfService {
       date_year: String(now.getFullYear()),
     };
 
-    // 4. Mescla via pdf-lib: principal + cada PDF anexo, PREENCHENDO os termos
+    // 4. Branding da clínica (multi-tenant): nome + logo do cadastro pra escrever
+    //    POR CIMA do nome/logo fixos do cabeçalho dos termos padronizados.
+    const tenantLogo = await this.resolveTenantLogo(contratado.logoUrl);
+
+    // 5. Mescla via pdf-lib: principal + cada PDF anexo, PREENCHENDO os termos
     //    oficiais por cima das linhas na ordem dos selected_documents.
-    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment, fillData);
+    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment, fillData, {
+      name: contratado.nome,
+      logo: tenantLogo,
+    });
   }
 
   /**
@@ -327,6 +384,7 @@ export class ContractPdfService {
     resp: string;
     cro: string;
     qualificacao: string;
+    logoUrl: string;
   }> {
     const tenant = await this.prisma.tenant
       .findUnique({
@@ -345,6 +403,7 @@ export class ContractPdfService {
           zip_code: true,
           responsible_name: true,
           responsible_cro: true,
+          logo_url: true,
         },
       })
       .catch(() => null);
@@ -390,7 +449,7 @@ export class ContractPdfService {
     }
     const qualificacao = qualParts.join(', ');
 
-    return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, resp, cro, qualificacao };
+    return { nome, cnpj, phone, email, endereco, consultorio, cidade, cep, cidadeUf, resp, cro, qualificacao, logoUrl: clean(tenant?.logo_url) };
   }
 
   /**
@@ -411,6 +470,48 @@ export class ContractPdfService {
   }
 
   /**
+   * Baixa a logo da clínica a partir de `tenant.logo_url` (URL http(s) ou data
+   * URI) e detecta PNG/JPG. Retorna null (e segue sem logo) se não houver URL,
+   * falhar o download ou não for imagem suportada — nunca quebra o PDF. Cacheia
+   * sucessos por URL.
+   */
+  private async resolveTenantLogo(logoUrl?: string | null): Promise<{ bytes: Uint8Array; kind: 'png' | 'jpg' } | null> {
+    const key = (logoUrl || '').trim();
+    if (!key) return null;
+    const cached = this.logoCache.get(key);
+    if (cached) return cached;
+    try {
+      let buf: Buffer;
+      if (key.startsWith('data:')) {
+        const m = key.match(/^data:[^;]+;base64,(.*)$/s);
+        if (!m) throw new Error('data URI inválida');
+        buf = Buffer.from(m[1], 'base64');
+      } else if (/^https?:\/\//i.test(key)) {
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 5000);
+        try {
+          const resp = await fetch(key, { signal: ac.signal });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          buf = Buffer.from(await resp.arrayBuffer());
+        } finally {
+          clearTimeout(timer);
+        }
+      } else {
+        throw new Error('logo_url não é http(s) nem data URI');
+      }
+      const kind: 'png' | 'jpg' | null =
+        buf[0] === 0x89 && buf[1] === 0x50 ? 'png' : buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg' : null;
+      if (!kind) throw new Error('imagem não é PNG/JPG');
+      const result = { bytes: new Uint8Array(buf), kind };
+      this.logoCache.set(key, result);
+      return result;
+    } catch (e: any) {
+      this.logger.warn(`[Contract PDF] logo da clínica não embutida (${e?.message}) — mantém a logo padrão do termo`);
+      return null;
+    }
+  }
+
+  /**
    * Onda 14.32 — Mescla o contrato principal (buffer pdfkit) com os PDFs
    * anexos correspondentes aos docIds passados. Usa pdf-lib pra copiar
    * paginas. Mantem ordem do array docIds.
@@ -419,13 +520,23 @@ export class ContractPdfService {
     mainPdfBuffer: Buffer,
     docIds: string[],
     fillData?: Record<string, string>,
+    branding?: { name: string; logo?: { bytes: Uint8Array; kind: 'png' | 'jpg' } | null },
   ): Promise<Buffer> {
     try {
       const merged = await PDFLibDocument.load(mainPdfBuffer);
       // Fonte + mapa de coordenadas pra PREENCHER os termos oficiais por cima.
-      const overlay = fillData ? await this.loadOverlayMap() : null;
+      const overlay = fillData || branding ? await this.loadOverlayMap() : null;
       let overlayFont: PDFFont | null = null;
-      if (overlay) { try { overlayFont = await merged.embedFont(StandardFonts.Helvetica); } catch { overlayFont = null; } }
+      if (overlay && fillData) { try { overlayFont = await merged.embedFont(StandardFonts.Helvetica); } catch { overlayFont = null; } }
+      // Branding (multi-tenant): fonte bold pro nome da clínica + logo embutida.
+      let overlayBold: PDFFont | null = null;
+      let logoImage: Awaited<ReturnType<PDFLibDocument['embedPng']>> | null = null;
+      if (branding) {
+        try { overlayBold = await merged.embedFont(StandardFonts.HelveticaBold); } catch { overlayBold = null; }
+        if (branding.logo) {
+          try { logoImage = branding.logo.kind === 'png' ? await merged.embedPng(branding.logo.bytes) : await merged.embedJpg(branding.logo.bytes); } catch { logoImage = null; }
+        }
+      }
       for (const docId of docIds) {
         const pdfPath = await this.resolveExtraDocPath(docId);
         if (!pdfPath) continue;
@@ -456,6 +567,17 @@ export class ContractPdfService {
             this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath}) + ${n} campos preenchidos`);
           } else {
             this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath})`);
+          }
+          // Branding da clínica (nome + logo) POR CIMA do cabeçalho padronizado.
+          // Só nos termos que têm esse cabeçalho (entry.headers); o modelo antigo
+          // sem cabeçalho Odonto Passos é ignorado.
+          if (branding && entry?.headers?.length) {
+            for (const h of entry.headers) {
+              const pageIdx = baseIndex + (h.page || 0);
+              if (pageIdx < merged.getPageCount()) {
+                this.drawHeaderBranding(merged.getPage(pageIdx), h, branding.name, overlayBold, logoImage);
+              }
+            }
           }
         } catch (e: unknown) {
           // Se falhar a mesclagem de um anexo especifico, loga e segue.

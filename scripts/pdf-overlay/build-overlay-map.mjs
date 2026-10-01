@@ -88,13 +88,32 @@ async function extract(file) {
       }
     }
   }
-  return { numPages: doc.numPages, isMenor, fields };
+  const headers = await extractHeaders(doc);
+  return { numPages: doc.numPages, isMenor, fields, headers };
+}
+
+// Cabeçalho dos termos NEUTROS: caixa do placeholder "ESPAÇO RESERVADO PARA LOGO
+// / IDENTIFICAÇÃO DA CLÍNICA" — o runtime cobre e desenha o nome+logo do tenant.
+async function extractHeaders(doc) {
+  const out = [];
+  const RE = /reservado|identifica[çc][aã]o da cl[ií]nica/i;
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const { height } = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent({ disableNormalization: true });
+    let ph = null;
+    for (const it of tc.items) {
+      if (it.transform[5] > height - 120 && RE.test(it.str)) ph = { x: rd(it.transform[4]), y: rd(it.transform[5]), w: rd(it.width), size: rd(it.transform[0]) };
+    }
+    if (ph) out.push({ page: p - 1, ...ph });
+  }
+  return out;
 }
 
 const map = {};
 for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.pdf'))) {
   const e = await extract(file); map[file] = e;
-  console.log(`${file}  menor=${e.isMenor} campos=${e.fields.length}  [${e.fields.map((f) => f.key).join(', ')}]`);
+  console.log(`${file}  menor=${e.isMenor} campos=${e.fields.length} headers=${e.headers.length}  [${e.fields.map((f) => f.key).join(', ')}]`);
 }
 fs.writeFileSync(OUT, JSON.stringify(map, null, 2));
 console.log(`\nOK: ${OUT}`);
