@@ -9900,7 +9900,7 @@ function ApproveBillResultDialog({
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-border bg-emerald-500/10">
@@ -9955,22 +9955,24 @@ function ApproveBillResultDialog({
           )}
           {result.billing_type === 'PIX' && result.pix && !paid && (
             <>
-              <div className="bg-muted/20 border border-border rounded-lg p-4 text-center">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold mb-2">
-                  Escaneie o QR Code
+              <div className="bg-muted/20 border border-border rounded-lg p-5 text-center">
+                <p className="text-sm uppercase tracking-wide text-foreground font-bold mb-3">
+                  Escaneie o QR Code pra pagar
                 </p>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`data:image/png;base64,${result.pix.qrCode}`}
-                  alt="QR Code PIX"
-                  className="w-48 h-48 mx-auto rounded-md"
-                />
-                <p className="text-[10px] text-muted-foreground mt-2">
+                <div className="inline-block bg-white rounded-xl p-3 shadow-sm">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`data:image/png;base64,${result.pix.qrCode}`}
+                    alt="QR Code PIX"
+                    className="w-64 h-64 sm:w-80 sm:h-80 mx-auto block"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
                   Válido até {new Date(result.pix.expirationDate).toLocaleString('pt-BR')}
                 </p>
                 {watchingPix && (
-                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-2 flex items-center justify-center gap-1.5">
-                    <Loader2 size={11} className="animate-spin" /> Aguardando o pagamento…
+                  <p className="text-sm text-emerald-700 dark:text-emerald-400 mt-2 flex items-center justify-center gap-1.5 font-semibold">
+                    <Loader2 size={13} className="animate-spin" /> Aguardando o pagamento…
                   </p>
                 )}
               </div>
