@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, X, Loader2, Shield, Home, Check, Trash2, Pencil,
   CalendarClock, Repeat, Layers, AlertTriangle, ArrowLeft,
-  Eye, EyeOff, Users, FileText, TrendingUp, DollarSign,
+  Eye, EyeOff, Users, FileText, TrendingUp, DollarSign, ChevronDown,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -119,9 +119,11 @@ export default function ContasAPagarPage() {
   const [receber, setReceber] = useState<ValCount | null>(null);
   const [atrasado, setAtrasado] = useState<ValCount | null>(null);
   const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
-  // Filtro da aba Contas a Pagar (partição sem sobreposição):
+  // Filtro/navegação da aba Contas a Pagar (partição sem sobreposição):
   //  parcelada = compra em N vezes · recorrente = mensal fixo · variavel = mensal que muda.
   const [payKind, setPayKind] = useState<'all' | 'parcelada' | 'recorrente' | 'variavel'>('all');
+  const [addMenu, setAddMenu] = useState(false); // menu "+ Adicionar" quando em "Todas"
+  const [recVariavel, setRecVariavel] = useState(false); // default do modal recorrente (fixo × variável)
   // Empresa só é selecionável por quem tem manage_payables; o financeiro nunca sai da clínica.
   const effCompany = canManagePayables ? selectedCompany : '';
   const isClinic = !effCompany;
@@ -393,31 +395,50 @@ export default function ContasAPagarPage() {
           ))}
         </div>
 
-        {/* Ações da aba */}
-        {isSaidasTab && (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              {effTab === 'fixas' ? (
-                <>
-                  <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Conta parcelada</button>
-                  <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg border border-border hover:bg-accent"><Repeat size={15} /> Conta recorrente</button>
-                </>
+        {/* Aba Gastos do dia — botão único */}
+        {effTab === 'dia' && (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+          </div>
+        )}
+
+        {/* Aba Contas a Pagar — TIPOS como navegação principal + adicionar contextual */}
+        {effTab === 'fixas' && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Navegação principal por tipo (pills grandes) */}
+            <div className="inline-flex rounded-xl border border-border bg-card overflow-hidden text-sm font-bold">
+              {([['all', 'Todas'], ['parcelada', 'Parceladas'], ['recorrente', 'Recorrentes'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => { setPayKind(k); setAddMenu(false); }}
+                  className={`px-4 py-2 transition-colors ${payKind === k ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}
+                >{label}</button>
+              ))}
+            </div>
+            {/* Adicionar: contextual no tipo selecionado; em "Todas" abre menu de escolha */}
+            <div className="relative">
+              {payKind === 'parcelada' ? (
+                <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Nova parcelada</button>
+              ) : payKind === 'recorrente' ? (
+                <button onClick={() => { setRecVariavel(false); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Repeat size={15} /> Nova recorrente</button>
+              ) : payKind === 'variavel' ? (
+                <button onClick={() => { setRecVariavel(true); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-amber-500 text-white hover:bg-amber-600"><Repeat size={15} /> Nova variável</button>
               ) : (
-                <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
+                <>
+                  <button onClick={() => setAddMenu((v) => !v)} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Adicionar <ChevronDown size={14} /></button>
+                  {addMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setAddMenu(false)} />
+                      <div className="absolute right-0 mt-1 z-20 w-60 rounded-xl border border-border bg-card shadow-lg p-1">
+                        <button onClick={() => { setAddMenu(false); setModal('parcelada'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Layers size={15} className="text-rose-500" /> Conta parcelada</button>
+                        <button onClick={() => { setAddMenu(false); setRecVariavel(false); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-sky-500" /> Recorrente (valor fixo)</button>
+                        <button onClick={() => { setAddMenu(false); setRecVariavel(true); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-amber-500" /> Recorrente (valor variável)</button>
+                      </div>
+                    </>
+                  )}
+                </>
               )}
             </div>
-            {/* Filtro por tipo (só na aba Contas a Pagar) — Todas na frente */}
-            {effTab === 'fixas' && (
-              <div className="inline-flex rounded-lg border border-border overflow-hidden text-[12px] font-bold">
-                {([['all', 'Todas'], ['parcelada', 'Parceladas'], ['recorrente', 'Recorrentes'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
-                  <button
-                    key={k}
-                    onClick={() => setPayKind(k)}
-                    className={`px-3 py-1.5 transition-colors ${payKind === k ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}
-                  >{label}</button>
-                ))}
-              </div>
-            )}
           </div>
         )}
         {effTab === 'entradas' && canManageFinancial && (
@@ -448,7 +469,7 @@ export default function ContasAPagarPage() {
       </div>
 
       {modal === 'parcelada' && <ParceladaModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={effCompany} defaultVariavel={recVariavel} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} companyId={effCompany} isClinic={isClinic} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'receita' && <NovaReceitaModal cats={receitaCats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {payTarget && <PayModal tx={payTarget} accounts={accounts} isClinic={isClinic} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
@@ -674,13 +695,13 @@ function ParceladaModal({ cats, companyId, onClose, onSaved }: { cats: Category[
   );
 }
 
-function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
+function RecorrenteModal({ cats, companyId, defaultVariavel = false, onClose, onSaved }: { cats: Category[]; companyId: string; defaultVariavel?: boolean; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
   const [day, setDay] = useState('10');
   const [method, setMethod] = useState('');
-  const [variavel, setVariavel] = useState(false); // padrão FIXO (aluguel/FGTS); marca p/ energia/água
+  const [variavel, setVariavel] = useState(defaultVariavel); // vem do contexto (chip Recorrentes=fixo, Variáveis=variável)
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
