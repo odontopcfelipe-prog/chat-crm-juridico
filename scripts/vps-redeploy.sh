@@ -6,19 +6,25 @@
 # NÃO baixa a imagem nova — o Swarm resolve `:latest` pelo digest em cache local
 # (o antigo). Os containers reiniciam, mas rodam o código velho.
 #
-# A correção: `docker pull` primeiro e fixar o DIGEST exato (@sha256:...) no
-# service update — assim o Swarm é obrigado a rodar exatamente a imagem baixada.
+# A correção: baixar a imagem e fixar o DIGEST exato (@sha256:...) no service
+# update — assim o Swarm é obrigado a rodar exatamente a imagem baixada.
 #
-# Uso na VPS (Swarm):
-#   curl -fsSL https://raw.githubusercontent.com/odontopcfelipe-prog/chat-crm-juridico/master/scripts/vps-redeploy.sh | bash
+# ⚠ NESTE SERVIDOR, `docker pull` por TAG trava (fica parado sem saída) e por
+# DIGEST funciona — visto em 01/out/2026, e reiniciar o Docker NÃO resolve.
+# Por isso o digest de cada tag vem da API do Docker Hub e o download/pin é
+# SEMPRE por digest. E as 3 imagens são baixadas ANTES de mexer em qualquer
+# service (uma falha de download não deixa API nova com web/worker velhos).
 #
-# Deploy de um commit específico (determinístico, recomendado p/ rollback):
-#   curl -fsSL .../vps-redeploy.sh | bash -s -- <git_sha>
+# Uso na VPS (deploy é MANUAL, pela IA do servidor, a pedido do dono):
+#   bash ~/scripts/vps-redeploy.sh <SHA_COMPLETO_40>
+# Sem argumento usa :latest (o digest dele, resolvido no Hub).
 # ============================================================================
 set -euo pipefail
 
 TAG="${1:-${TAG:-latest}}"
 REPO="${REPO:-odontopassos/chat-crm-juridico}"
+
+command -v python3 >/dev/null 2>&1 || { echo "❌ Precisa de python3 (pra ler a API do Docker Hub)."; exit 1; }
 
 echo "═══════════════════════════════════════════════════════════════"
 echo " Redeploy chatcrm — tag: $TAG"
@@ -58,20 +64,51 @@ print(m[0] if m else '')" 2>/dev/null || true)
   fi
 fi
 
+# Digest da tag no Docker Hub (sha256:...; vazio se não achar).
+hub_digest() {  # $1 = api|worker|web
+  curl -fsSL -m 20 "https://hub.docker.com/v2/repositories/${REPO}-$1/tags/${TAG}" 2>/dev/null \
+    | python3 -c '
+import json, re, sys
+try:
+    t = json.load(sys.stdin)
+except Exception:
+    sys.exit()
+d = t.get("digest") or ""
+if not d:
+    for i in t.get("images") or []:
+        if i.get("os") == "linux" and i.get("architecture") == "amd64":
+            d = i.get("digest") or ""
+            break
+print(d if re.fullmatch(r"sha256:[0-9a-f]{64}", d) else "")
+' 2>/dev/null || true
+}
+
+# 1ª passada: resolve e BAIXA as 3 imagens por digest. Nada é alterado se
+# qualquer uma falhar.
+declare -A PIN
 for SVC in $SERVICES; do
   SUFFIX="${SVC##*_}"            # chatcrm_api -> api
-  IMG="$REPO-$SUFFIX:$TAG"
-  echo ""
-  echo "▶ $SVC"
-  echo "  pull $IMG"
-  if ! docker pull "$IMG"; then
-    echo "  ❌ Falha no pull de $IMG (tag existe no Docker Hub? CI terminou?)."
+  HD=$(hub_digest "$SUFFIX")
+  if [ -z "$HD" ]; then
+    echo "❌ Não achei ${REPO}-${SUFFIX}:${TAG} no Docker Hub (CI terminou? SHA certo?). NADA foi alterado."
     exit 1
   fi
-  # Digest exato recém-baixado — à prova do cache local do Swarm.
-  DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMG")
-  echo "  -> $DIGEST"
-  docker service update --force --image "$DIGEST" "$SVC" --quiet
+  IMG="${REPO}-${SUFFIX}@${HD}"
+  echo ""
+  echo "▶ $SVC"
+  echo "  pull ${REPO}-${SUFFIX}:${TAG:0:12}  →  ${HD:0:19}…"
+  if ! timeout 900 docker pull -q "$IMG"; then
+    echo "  ❌ Falha/travamento no pull de $IMG. NADA foi alterado."
+    exit 1
+  fi
+  PIN[$SVC]="$IMG"
+done
+
+# 2ª passada: aplica (só chega aqui com as 3 imagens no host).
+echo ""
+for SVC in $SERVICES; do
+  echo "▶ $SVC → ${PIN[$SVC]}"
+  docker service update --force --image "${PIN[$SVC]}" "$SVC" --quiet
   echo "  ✅ atualizado"
 done
 
