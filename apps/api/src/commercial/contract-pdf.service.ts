@@ -195,9 +195,10 @@ export class ContractPdfService {
               orderBy: { order_index: 'asc' },
               include: {
                 procedure: { select: { name: true, code_tuss: true } },
+                dentist: { select: { name: true, cro_number: true, cro_uf: true } },
               },
             },
-            created_by: { select: { name: true } },
+            created_by: { select: { name: true, cro_number: true, cro_uf: true } },
           },
         },
       },
@@ -236,6 +237,7 @@ export class ContractPdfService {
           orderBy: { order_index: 'asc' },
           include: {
             procedure: { select: { name: true, code_tuss: true, specialty: { select: { name: true } } } },
+            dentist: { select: { name: true, cro_number: true, cro_uf: true } },
           },
         },
         created_by: { select: { name: true } },
@@ -304,8 +306,9 @@ export class ContractPdfService {
     }
 
     const now = new Date();
-    const fillData = this.buildTermFillData(contract, contratado, now);   // dados dos TERMOS
-    const mainData = this.buildMainContractData(contract, contratado, now); // dados do CONTRATO PRINCIPAL desenhado
+    const dentist = this.resolveDentist(contract, contratado);            // dentista responsável (do orçamento)
+    const fillData = this.buildTermFillData(contract, contratado, now, dentist);   // dados dos TERMOS
+    const mainData = this.buildMainContractData(contract, contratado, now, dentist); // dados do CONTRATO PRINCIPAL desenhado
     const tenantLogo = await this.resolveTenantLogo(contratado.logoUrl);
     const branding = { name: contratado.nome, logo: tenantLogo };
     const overlay = await this.loadOverlayMap();
@@ -386,33 +389,70 @@ export class ContractPdfService {
 
   /** Dados pra preencher os TERMOS oficiais (paciente + clínica + data).
    *  responsavel_* ficam de fora (dado do responsável legal não fica no sistema). */
-  private buildTermFillData(contract: any, contratado: any, now: Date): Record<string, string> {
+  private buildTermFillData(contract: any, contratado: any, now: Date, dentist: { name: string; croFull: string }): Record<string, string> {
     const p = contract.quote.patient || {};
     const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
     const residencia = [cs(p.address), cs(p.address_number) ? `nº ${cs(p.address_number)}` : '', cs(p.neighborhood)].filter(Boolean).join(', ');
     return {
       patient_name: cs(p.name), patient_rg: cs(p.rg), patient_cpf: cs(p.cpf),
       patient_address: residencia, patient_city: cs(p.city), patient_cep: cs(p.zip_code),
-      dentist_name: contratado.resp, dentist_cro: contratado.cro,
+      dentist_name: dentist.name, dentist_cro: dentist.croFull,
       clinic_address: contratado.consultorio, clinic_city: contratado.cidade, clinic_cep: contratado.cep,
       date_city: contratado.cidade, date_day: String(now.getDate()).padStart(2, '0'),
       date_month: now.toLocaleDateString('pt-BR', { month: 'long' }), date_year: String(now.getFullYear()),
     };
   }
 
+  /** Quebra um CRO em UF + número (aceita "12345-AL", "CRO-AL 12345", "AL/12345"). */
+  private splitCro(cro: string): { uf: string; num: string } {
+    const c = (cro || '').trim();
+    const uf = ((c.match(/[-/\s]([A-Za-z]{2})\b/) || c.match(/\b([A-Za-z]{2})\b/) || [])[1] || '').toUpperCase();
+    const num = (c.match(/(\d{2,})/) || [])[1] || (uf ? '' : c);
+    return { uf, num };
+  }
+
+  /** Dentista RESPONSÁVEL do contrato (aparece na qualificação + assina).
+   *  Prioridade: dentista escolhido no contrato → quem criou/avaliou o orçamento
+   *  (se tem CRO) → dentista mais frequente dos itens → responsável técnico da
+   *  clínica (fallback). Usa name + CRO (número/UF) do cadastro do usuário. */
+  private resolveDentist(contract: any, contratado: any): { name: string; croFull: string; croUf: string; croNum: string } {
+    const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
+    const fromUser = (u: any) => {
+      if (!u || !cs(u.cro_number)) return null;
+      const full = cs(u.cro_number);
+      const sp = this.splitCro(full);
+      return { name: cs(u.name), croFull: full, croUf: cs(u.cro_uf) || sp.uf, croNum: sp.num };
+    };
+    // 1) dentista escolhido no contrato (quando houver o relacionamento carregado)
+    let d = fromUser(contract.dentist);
+    // 2) quem criou/avaliou o orçamento
+    if (!d) d = fromUser(contract.quote?.created_by);
+    // 3) dentista mais frequente dos itens (com CRO)
+    if (!d) {
+      const counts = new Map<string, { n: number; u: any }>();
+      for (const it of contract.quote?.items || []) {
+        const dn = it.dentist;
+        if (dn && cs(dn.cro_number)) { const k = dn.id || dn.name; const e = counts.get(k) || { n: 0, u: dn }; e.n++; counts.set(k, e); }
+      }
+      let best: any = null, bestN = 0;
+      for (const e of counts.values()) if (e.n > bestN) { best = e.u; bestN = e.n; }
+      d = fromUser(best);
+    }
+    // 4) fallback: responsável técnico da clínica
+    if (!d) { const sp = this.splitCro(cs(contratado.cro)); d = { name: cs(contratado.resp), croFull: cs(contratado.cro), croUf: sp.uf, croNum: sp.num }; }
+    return d;
+  }
+
   /** Dados pra preencher o CONTRATO PRINCIPAL desenhado (qualificação das partes,
    *  valor + por extenso, foro, data). Campos sem dado no sistema (estado civil,
    *  profissão, expedição do RG) ficam em branco pra preencher à mão. */
-  private buildMainContractData(contract: any, contratado: any, now: Date): Record<string, string> {
+  private buildMainContractData(contract: any, contratado: any, now: Date, dentist: { name: string; croUf: string; croNum: string }): Record<string, string> {
     const p = contract.quote.patient || {};
     const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
-    const cro = cs(contratado.cro);
-    const croUf = (cro.match(/[-/\s]([A-Za-z]{2})\b/) || cro.match(/\b([A-Za-z]{2})\b/) || [])[1] || '';
-    const croNum = (cro.match(/(\d{2,})/) || [])[1] || (croUf ? '' : cro);
     const total = Number(contract.quote.total_value) || 0;
     return {
       contratada_name: contratado.nome, contratada_doc: contratado.cnpj, contratada_address: contratado.endereco,
-      dentist_name: contratado.resp, cro_uf: croUf.toUpperCase(), cro_num: croNum,
+      dentist_name: dentist.name, cro_uf: dentist.croUf, cro_num: dentist.croNum,
       patient_name: cs(p.name),
       // civil / profissao / rg_exp: sem dado no sistema → ficam em branco
       patient_rg: cs(p.rg), patient_cpf: cs(p.cpf),
