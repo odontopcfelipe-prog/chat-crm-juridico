@@ -1120,6 +1120,12 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     quotes: QuoteListItem[];
     acceptedQuoteId: string;
   } | null>(null);
+  // Arquivamento ADIADO: guardado ao aprovar e só aberto quando o operador FECHA o
+  // modal de resultado — senão o diálogo de arquivar cobre o QR do PIX na hora.
+  const [pendingArchive, setPendingArchive] = useState<{
+    quotes: QuoteListItem[];
+    acceptedQuoteId: string;
+  } | null>(null);
 
   // Onda 14.5 — Aprovar proposta + gerar cobranca direta
   const approveAndBill = useCallback(async (extras?: {
@@ -1433,22 +1439,19 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         : cartaoManual
         ? 'Venda no cartão registrada — a receber. Confirme o recebimento no Financeiro.'
         : 'Proposta aprovada e cobrança gerada!');
-      // Onda 17.32.37 — fecha painel: quote vira ACCEPTED e some do PropostasTab
-      setSelectedId(null);
-      // Onda 17.32.38 — pergunta arquivamento das outras versoes em aberto
+      // NÃO fecha o painel nem abre o arquivamento AGORA: o modal de resultado (QR do
+      // PIX) precisa ficar na tela até o operador fechar. Guarda o arquivamento pendente
+      // e fecha/abre tudo no onClose do modal de resultado.
       const otherOpenQuotes = quotes.filter((q) =>
         q.id !== selectedDetail.id &&
         (q.status === 'DRAFT' || q.status === 'SENT') &&
         !q.archived_at &&
         q.visible_in_proposals !== false,
       );
-      if (otherOpenQuotes.length > 0) {
-        setArchiveDialog({
-          quotes: otherOpenQuotes,
-          acceptedQuoteId: selectedDetail.id,
-        });
-      }
-      load(); // refresh lista
+      setPendingArchive(otherOpenQuotes.length > 0
+        ? { quotes: otherOpenQuotes, acceptedQuoteId: selectedDetail.id }
+        : null);
+      load(); // refresh lista (em background, atrás do modal)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string }; status?: number }; code?: string; name?: string; message?: string };
       const isAbort =
@@ -2020,6 +2023,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             setApproveBillOpen(false);
             setApproveBillResult(null);
             setSelectedId(null); // fecha o painel (quote ja foi aceito)
+            // Só AGORA abre o arquivamento das outras versões (não cobre o QR).
+            if (pendingArchive) {
+              setArchiveDialog(pendingArchive);
+              setPendingArchive(null);
+            }
           }}
         />
       )}
@@ -9960,7 +9968,7 @@ function ApproveBillResultDialog({
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white">
