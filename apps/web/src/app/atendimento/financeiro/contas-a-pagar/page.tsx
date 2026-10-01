@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Contas a Pagar — acesso só ADM/gerente (permissão manage_payables).
- * 2 abas: "Contas Fixas" (parceladas + recorrentes variáveis) e "Gastos do dia".
- * Tudo é DESPESA (FinancialTransaction) via endpoints /payables/* (gate próprio).
+ * Financeiro unificado. Abas: Contas a Pagar · Gastos do dia (manage_payables) +
+ * Entradas · Pacientes · Log (view_financial). Em "Contas a Pagar", os tipos
+ * Todas/Parceladas/Fixas/Variáveis são a navegação principal (partição sem
+ * sobreposição). Saídas = DESPESA (FinancialTransaction) via /payables/* (gate próprio).
  */
 
 import { useEffect, useState, useCallback } from 'react';
@@ -405,34 +406,34 @@ export default function ContasAPagarPage() {
         {/* Aba Contas a Pagar — TIPOS como navegação principal + adicionar contextual */}
         {effTab === 'fixas' && (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* Navegação principal por tipo (pills grandes) */}
-            <div className="inline-flex rounded-xl border border-border bg-card overflow-hidden text-sm font-bold">
-              {([['all', 'Todas'], ['parcelada', 'Parceladas'], ['recorrente', 'Recorrentes'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
+            {/* Navegação principal por tipo */}
+            <div className="inline-flex rounded-lg border border-border bg-card overflow-hidden text-[13px] font-bold">
+              {([['all', 'Todas'], ['parcelada', 'Parceladas'], ['recorrente', 'Fixas'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
                 <button
                   key={k}
                   onClick={() => { setPayKind(k); setAddMenu(false); }}
-                  className={`px-4 py-2 transition-colors ${payKind === k ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}
+                  className={`px-3 py-1.5 transition-colors ${payKind === k ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}
                 >{label}</button>
               ))}
             </div>
             {/* Adicionar: contextual no tipo selecionado; em "Todas" abre menu de escolha */}
             <div className="relative">
               {payKind === 'parcelada' ? (
-                <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Layers size={15} /> Nova parcelada</button>
+                <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={14} /> Nova parcelada</button>
               ) : payKind === 'recorrente' ? (
-                <button onClick={() => { setRecVariavel(false); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Repeat size={15} /> Nova recorrente</button>
+                <button onClick={() => { setRecVariavel(false); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Repeat size={14} /> Nova fixa</button>
               ) : payKind === 'variavel' ? (
-                <button onClick={() => { setRecVariavel(true); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-amber-500 text-white hover:bg-amber-600"><Repeat size={15} /> Nova variável</button>
+                <button onClick={() => { setRecVariavel(true); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-amber-500 text-white hover:bg-amber-600"><Repeat size={14} /> Nova variável</button>
               ) : (
                 <>
-                  <button onClick={() => setAddMenu((v) => !v)} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Adicionar <ChevronDown size={14} /></button>
+                  <button onClick={() => setAddMenu((v) => !v)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={14} /> Adicionar <ChevronDown size={13} /></button>
                   {addMenu && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setAddMenu(false)} />
                       <div className="absolute right-0 mt-1 z-20 w-60 rounded-xl border border-border bg-card shadow-lg p-1">
                         <button onClick={() => { setAddMenu(false); setModal('parcelada'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Layers size={15} className="text-rose-500" /> Conta parcelada</button>
-                        <button onClick={() => { setAddMenu(false); setRecVariavel(false); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-sky-500" /> Recorrente (valor fixo)</button>
-                        <button onClick={() => { setAddMenu(false); setRecVariavel(true); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-amber-500" /> Recorrente (valor variável)</button>
+                        <button onClick={() => { setAddMenu(false); setRecVariavel(false); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-sky-500" /> Conta fixa (mesmo valor)</button>
+                        <button onClick={() => { setAddMenu(false); setRecVariavel(true); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-amber-500" /> Conta variável (muda todo mês)</button>
                       </div>
                     </>
                   )}
@@ -504,7 +505,7 @@ function TxList({ items, today, onPay, onEdit, onDelete, emptyLabel }: {
   const order = (t: Tx) => (t.status === 'PAGO' ? 2 : t.due_date && dayOf(t.due_date) < today ? 0 : 1);
   const sorted = [...items].sort((a, b) => order(a) - order(b) || (dayOf(a.due_date) < dayOf(b.due_date) ? -1 : 1));
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {sorted.map((t) => <TxRow key={t.id} t={t} today={today} onPay={onPay} onEdit={onEdit} onDelete={onDelete} />)}
     </div>
   );
@@ -524,21 +525,21 @@ function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; on
       : null;
 
   return (
-    <div className={`rounded-xl border p-3 flex items-center gap-3 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
+    <div className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-sm font-bold truncate ${paid ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{t.description}</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`text-[13px] font-bold truncate ${paid ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{t.description}</span>
           {badge}
           {paid && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 inline-flex items-center gap-0.5"><Check size={9} /> pago{t.paid_at ? ` ${brDate(t.paid_at)}` : ''}</span>}
           {overdue && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 inline-flex items-center gap-0.5"><AlertTriangle size={9} /> vencida</span>}
         </div>
-        <div className="text-[12px] text-muted-foreground">{t.category} · venc. {brDate(t.due_date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
+        <div className="text-[11px] text-muted-foreground truncate">{t.category} · venc. {brDate(t.due_date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
       </div>
-      <div className={`text-sm font-bold tabular-nums ${paid ? 'text-emerald-600' : 'text-foreground'}`}>{fmt(Number(t.amount))}</div>
+      <div className={`text-[13px] font-bold tabular-nums ${paid ? 'text-emerald-600' : 'text-foreground'}`}>{fmt(Number(t.amount))}</div>
       <div className="flex items-center gap-1">
-        {!paid && <button title="Editar (valor e vencimento)" onClick={() => onEdit(t)} className="p-1.5 rounded border border-border hover:bg-accent"><Pencil size={13} /></button>}
-        {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={14} /></button>}
-        <button title="Excluir" onClick={() => onDelete(t)} className="p-1.5 rounded border border-border hover:bg-accent text-rose-500"><Trash2 size={13} /></button>
+        {!paid && <button title="Editar (valor e vencimento)" onClick={() => onEdit(t)} className="p-1 rounded border border-border hover:bg-accent"><Pencil size={12} /></button>}
+        {!paid && <button title="Pagar" onClick={() => onPay(t)} className="p-1 rounded bg-emerald-500 text-white hover:bg-emerald-600"><Check size={13} /></button>}
+        <button title="Excluir" onClick={() => onDelete(t)} className="p-1 rounded border border-border hover:bg-accent text-rose-500"><Trash2 size={12} /></button>
       </div>
     </div>
   );
@@ -640,7 +641,7 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
           </div>
         </Field>
       )}
-      {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Recorrente: o vencimento/valor muda só desta ocorrência. Os próximos meses o sistema gera sozinho.</div>}
+      {tx.is_recurring && <div className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">🔄 Conta mensal: o vencimento/valor muda só desta ocorrência. Os próximos meses o sistema gera sozinho.</div>}
       <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Salvar</button>
     </ModalShell>
   );
@@ -723,14 +724,14 @@ function RecorrenteModal({ cats, companyId, defaultVariavel = false, onClose, on
         is_variable_amount: variavel,
         company_id: companyId || undefined,
       });
-      showSuccess('Conta recorrente cadastrada');
+      showSuccess(variavel ? 'Conta variável cadastrada' : 'Conta fixa cadastrada');
       onSaved();
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao cadastrar'); }
     finally { setSaving(false); }
   };
 
   return (
-    <ModalShell title="Nova conta recorrente (mensal)" onClose={onClose}>
+    <ModalShell title={variavel ? 'Nova conta variável (mensal)' : 'Nova conta fixa (mensal)'} onClose={onClose}>
       <p className="text-[12px] text-muted-foreground">Conta que se repete todo mês. O sistema gera 1 por mês automaticamente.</p>
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Aluguel / Energia elétrica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
