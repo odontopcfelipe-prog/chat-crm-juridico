@@ -122,6 +122,24 @@ export class PaymentGatewayService {
     return { ok: true, transaction_id: txId, charge_id: charge.id };
   }
 
+  /**
+   * CONFIRMA (1 clique) o recebimento de uma venda no CARTÃO a receber (maquineta sem
+   * integração): marca a cobrança local recebida e lança o TOTAL no caixa como CARTAO
+   * (método antecipado). Idempotente — se já recebida, não duplica. Usado pelo botão
+   * "Confirmar recebimento" do Financeiro / do modal de resultado.
+   */
+  async confirmCartaoReceipt(chargeId: string, tenantId: string, userId?: string) {
+    const charge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { id: chargeId, tenant_id: tenantId },
+      select: { id: true, external_id: true, status: true, received_in_cash: true },
+    });
+    if (!charge) throw new NotFoundException('Cobrança não encontrada');
+    if (charge.received_in_cash || charge.status === 'RECEIVED' || charge.status === 'CONFIRMED') {
+      return { ok: true, already: true, charge_id: charge.id };
+    }
+    return this.registerClinicReceipt(charge.external_id, { paymentMethod: 'CARTAO', userId });
+  }
+
   /** Onda 17.41 — billing_type da cobrança → forma de pagamento do caixa. */
   private mapBillingToCaixaMethod(billingType: string | null): string {
     switch (billingType) {

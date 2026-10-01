@@ -2532,6 +2532,9 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
   const isPending = c.status === 'PENDING';
   const isOverdue = c.status === 'OVERDUE';
   const isCancelled = c.status === 'DELETED' || c.status === 'REFUNDED';
+  // Venda no CARTÃO a receber (maquineta sem integração): cobrança local CASH com
+  // external_id `cash-<plan>-CARTAO-...`. O Financeiro confirma num clique.
+  const isCartaoReceber = (c.external_id || '').includes('-CARTAO-');
 
   const statusLabel =
     isPaid ? 'Pago' :
@@ -2547,8 +2550,8 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     isPending ? 'bg-blue-500/10 text-blue-700 border-blue-500/20' :
     'bg-muted text-muted-foreground border-border';
 
-  const typeLabel = isPix ? 'PIX' : isBoleto ? 'Boleto' : isCartao ? 'Cartão' : c.billing_type;
-  const TypeIcon = isPix ? Send : isBoleto ? Building2 : CreditCard;
+  const typeLabel = (isCartao || isCartaoReceber) ? 'Cartão' : isPix ? 'PIX' : isBoleto ? 'Boleto' : c.billing_type;
+  const TypeIcon = (isCartao || isCartaoReceber) ? CreditCard : isPix ? Send : isBoleto ? Building2 : CreditCard;
 
   const copyBarcode = () => {
     if (c.boleto_barcode) {
@@ -2584,6 +2587,27 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
       showError(e?.response?.data?.message || 'Erro ao registrar o recebimento.');
     } finally {
       setReceiving(false);
+    }
+  };
+
+  // CARTÃO a receber (maquineta): confirma o recebimento num CLIQUE — lança o TOTAL
+  // no caixa como CARTÃO (método antecipado). Sem Asaas, sem prompt de método.
+  const [confirmingCartao, setConfirmingCartao] = useState(false);
+  const handleConfirmCartao = async () => {
+    if (confirmingCartao || isPaid) return;
+    if (!window.confirm(
+      `Confirmar recebimento no cartão (${fmtBRL(c.amount)})?\n\n` +
+      `Lança o valor TOTAL no caixa como CARTÃO (método antecipado).`,
+    )) return;
+    setConfirmingCartao(true);
+    try {
+      await api.post(`/payment-gateway/charges/${c.id}/confirm-cartao`);
+      showSuccess('Recebimento confirmado — lançado no caixa como cartão.');
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento.');
+    } finally {
+      setConfirmingCartao(false);
     }
   };
 
@@ -2634,6 +2658,19 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
         <p className="text-sm font-bold">{fmtBRL(c.amount)}</p>
       </div>
       <div className="flex items-center gap-1">
+        {/* Cartão a receber (maquineta): confirmar recebimento num clique → caixa. */}
+        {isCartaoReceber && isPending && (
+          <button
+            type="button"
+            onClick={handleConfirmCartao}
+            disabled={confirmingCartao}
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-60"
+            title="Confirmar recebimento no cartão — lança o total no caixa"
+          >
+            {confirmingCartao ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            Confirmar recebimento
+          </button>
+        )}
         {/* Ações específicas por tipo */}
         {isBoleto && c.boleto_url && (
           <a

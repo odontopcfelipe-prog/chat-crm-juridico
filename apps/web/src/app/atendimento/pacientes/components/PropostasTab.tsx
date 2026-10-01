@@ -1345,6 +1345,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       billingType = 'PIX';
       valueToCharge = calc.finalValue; // com desconto
     } else if (activeOpt.variant === 'cartao') {
+      // Cartão da maquineta (SEM integração): NÃO gera Asaas. Registra como venda no
+      // cartão A RECEBER; o Financeiro confirma depois num clique (cai no caixa como cartão).
       billingType = 'CREDIT_CARD';
       installmentCount = activeOpt.installments;
       valueToCharge = calc.finalValue; // com juros se houver
@@ -1367,8 +1369,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // Onda 14.10 — Asaas exige valor minimo de R$ 5,00 por cobranca.
     // Bloqueia ANTES de enviar (em vez de receber 400 generico). Não se aplica ao
     // recebimento manual (PIX em conta/maquininha), que não passa pelo Asaas.
+    const cartaoManual = activeOpt.variant === 'cartao';
     const ASAAS_MIN_VALUE = 5.0;
-    if (!manualPixMethod && valueToCharge < ASAAS_MIN_VALUE) {
+    if (!manualPixMethod && !cartaoManual && valueToCharge < ASAAS_MIN_VALUE) {
       showError(
         `Asaas exige valor mínimo de R$ 5,00 por cobrança. ` +
         `Valor atual: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. ` +
@@ -1386,6 +1389,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         `• Aceitar o orçamento (vira ACCEPTED)\n` +
         `• Ativar o plano de tratamento\n` +
         `• Lançar no caixa como ${manualLabel}`
+      : cartaoManual
+      ? `Aprovar venda no cartão?\n\n` +
+        `Forma: Cartão ${installmentCount}x (maquineta)\n` +
+        `Valor total: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+        `Isso vai:\n` +
+        `• Aceitar o orçamento + ativar o plano\n` +
+        `• Registrar a venda no cartão como A RECEBER (sem Asaas)\n` +
+        `• O Financeiro confirma o recebimento depois num clique (cai no caixa como cartão)`
       : `Aprovar proposta?\n\n` +
         `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
         `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
@@ -1411,6 +1422,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           value: valueToCharge,
           installment_count: installmentCount,
           ...(manualPixMethod ? { manual_payment_method: manualPixMethod } : {}),
+          ...(cartaoManual ? { manual_payment_method: 'CARTAO', received_method: 'CARTAO' } : {}),
         },
         { signal: abortCtrl.signal, timeout: 60_000 },
       );
@@ -1418,6 +1430,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       setApproveBillOpen(true);
       showSuccess(manualPixMethod
         ? `Encaminhado — ${manualLabel} lançado no caixa.`
+        : cartaoManual
+        ? 'Venda no cartão registrada — a receber. Confirme o recebimento no Financeiro.'
         : 'Proposta aprovada e cobrança gerada!');
       // Onda 17.32.37 — fecha painel: quote vira ACCEPTED e some do PropostasTab
       setSelectedId(null);
@@ -9892,6 +9906,26 @@ function ApproveBillResultDialog({
   const [copied, setCopied] = useState(false);
   const copyPasteCode = result.pix?.copyPaste || '';
 
+  // CARTÃO a receber (maquineta sem integração, sem invoice_url Asaas): confirmar
+  // recebimento num clique → lança o total no caixa como cartão.
+  const cartaoAReceber = result.billing_type === 'CREDIT_CARD' && !result.invoice_url;
+  const [confirmingCartao, setConfirmingCartao] = useState(false);
+  const [cartaoConfirmed, setCartaoConfirmed] = useState(false);
+  const confirmarCartao = async () => {
+    if (!result.charge?.id) return;
+    setConfirmingCartao(true);
+    try {
+      await api.post(`/payment-gateway/charges/${result.charge.id}/confirm-cartao`);
+      setCartaoConfirmed(true);
+      showSuccess('Recebimento confirmado — lançado no caixa como cartão.');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento');
+    } finally {
+      setConfirmingCartao(false);
+    }
+  };
+
   // Onda 18.x — PIX AO VIVO na tela (igual à venda rápida): quando o Asaas confirma,
   // o modal troca NA HORA pra "Pagamento efetuado com sucesso". Canal principal =
   // socket `financial_update`; rede de segurança = poll leve do status a cada 4s.
@@ -10027,6 +10061,41 @@ function ApproveBillResultDialog({
                 <Loader2 size={11} className="animate-spin" />
                 Aguardando pagamento — esta tela confirma sozinha assim que o PIX cair.
               </p>
+            </div>
+          )}
+
+          {cartaoAReceber && (
+            <div className="text-center py-6">
+              {cartaoConfirmed ? (
+                <>
+                  <div className="w-20 h-20 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-500/40">
+                    <Check size={44} strokeWidth={3} />
+                  </div>
+                  <p className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 mb-1">Recebimento confirmado!</p>
+                  <p className="text-sm text-muted-foreground">Lançado no caixa como <strong>cartão</strong>.</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
+                    <Wallet size={32} />
+                  </div>
+                  <p className="text-sm font-bold text-foreground mb-1">
+                    Venda registrada no cartão{result.installment_count ? ` (${result.installment_count}x)` : ''}
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
+                    Entrou como <strong>a receber</strong> (sem Asaas). Passe o cartão na maquineta e confirme o recebimento — cai no caixa como cartão. Dá pra confirmar depois no Financeiro do paciente também.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={confirmarCartao}
+                    disabled={confirmingCartao}
+                    className="inline-flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
+                  >
+                    {confirmingCartao ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={2.5} />}
+                    Confirmar recebimento
+                  </button>
+                </>
+              )}
             </div>
           )}
 

@@ -926,6 +926,10 @@ export class QuotesService {
             value: data.value,
             paymentMethod: data.manual_payment_method,
             userId,
+            // CARTÃO na maquineta: cria "a receber" (o Financeiro confirma depois num
+            // clique). PIX/PIX_MAQUININHA/DINHEIRO seguem recebendo na hora.
+            receiveNow: data.manual_payment_method !== 'CARTAO',
+            installments: data.installment_count,
           });
         } else {
           this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
@@ -966,8 +970,13 @@ export class QuotesService {
         this.logger.warn(`[APPROVE-AND-BILL] comissão de venda falhou: ${e?.message}`);
       }
 
-      if (data.received_in_clinic || data.manual_payment_method) {
-        // Venda PAGA na clínica na hora (espécie/cartão/PIX — venda rápida OU recibo
+      const isCartaoReceber = data.manual_payment_method === 'CARTAO';
+      if (isCartaoReceber) {
+        // CARTÃO na maquineta a RECEBER: não dispara nada ao paciente agora (não há
+        // boleto nem pagamento confirmado). O Financeiro confirma depois num clique.
+        this.logger.log(`[APPROVE-AND-BILL] cartão a receber (plano ${plan.id}) — sem disparo ao paciente.`);
+      } else if (data.received_in_clinic || data.manual_payment_method) {
+        // Venda PAGA na clínica na hora (espécie/PIX — venda rápida OU recibo
         // manual da aba Propostas): NÃO há boleto — manda um COMPROVANTE (compra +
         // valor pago + forma), não a negociação-com-boletos. A forma sai do
         // received_method (venda rápida) ou do manual_payment_method (Propostas).

@@ -563,7 +563,7 @@ export class TreatmentPlanBillingService {
   async createManualReceipt(
     planId: string,
     tenantId: string,
-    options: { value: number; paymentMethod: string; userId?: string },
+    options: { value: number; paymentMethod: string; userId?: string; receiveNow?: boolean; installments?: number },
   ) {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
@@ -600,8 +600,13 @@ export class TreatmentPlanBillingService {
     }
 
     // Cobrança local CASH (mesmo formato do down-payment-flow, compatível com receive-in-cash).
-    const externalId = `cash-${planId}-AVISTA-${Date.now()}`;
-    const description = `Plano de tratamento — ${plan.patient.name} (recebido na clínica) [plan:${planId}]`;
+    // receiveNow=false (CARTÃO na maquineta, sem integração): cria "a receber" e NÃO lança
+    // no caixa agora — o Financeiro confirma depois num clique (registerClinicReceipt → CARTAO).
+    const receiveNow = options.receiveNow !== false;
+    const nx = options.installments && options.installments > 1 ? ` ${options.installments}x` : '';
+    const externalId = `cash-${planId}-${receiveNow ? 'AVISTA' : 'CARTAO'}-${Date.now()}`;
+    const descLabel = receiveNow ? 'recebido na clínica' : `cartão${nx} · a receber`;
+    const description = `Plano de tratamento — ${plan.patient.name} (${descLabel}) [plan:${planId}]`;
     const charge = await this.prisma.paymentGatewayCharge.create({
       data: {
         tenant_id: tenantId,
@@ -616,6 +621,13 @@ export class TreatmentPlanBillingService {
         description,
       },
     });
+
+    if (!receiveNow) {
+      this.logger.log(
+        `[MANUAL-RECEIPT] Plan ${planId}: cartão${nx} R$ ${options.value} — A RECEBER (confirma no Financeiro).`,
+      );
+      return { plan_id: planId, charge, manual: true, pending: true };
+    }
 
     // Marca recebida + lança no caixa (RECEITA) com o método (PIX / PIX_MAQUININHA / DINHEIRO).
     const receipt = await this.paymentGateway.registerClinicReceipt(externalId, {

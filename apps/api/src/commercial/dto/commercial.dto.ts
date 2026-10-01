@@ -118,7 +118,10 @@ export class ApproveAndBillDto {
   // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
   // caixa com este método (PIX | PIX_MAQUININHA | DINHEIRO) SEM gerar cobrança
   // Asaas. Quando ausente, segue o fluxo normal (Asaas).
-  @IsOptional() @IsString() @IsIn(['PIX', 'PIX_MAQUININHA', 'DINHEIRO']) manual_payment_method?: string;
+  // + CARTAO: venda no cartão da maquineta (SEM conta/integração) — registra como
+  // cobrança LOCAL "a receber" (não recebe na hora) e o Financeiro confirma depois
+  // num clique, lançando o TOTAL no caixa como CARTAO (método antecipado).
+  @IsOptional() @IsString() @IsIn(['PIX', 'PIX_MAQUININHA', 'DINHEIRO', 'CARTAO']) manual_payment_method?: string;
   // Onda 18.x — venda rápida "recebido na clínica": numa clínica SEM conta Asaas,
   // cria cobrança LOCAL (cai só no caixa via receive-in-cash) em vez de falhar 503.
   @IsOptional() @IsBoolean() received_in_clinic?: boolean;

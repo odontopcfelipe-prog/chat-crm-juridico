@@ -437,6 +437,14 @@ export class PaymentGatewayController {
     return { ...(result || {}), caixa };
   }
 
+  /** Confirma (1 clique) uma venda no CARTÃO a receber (maquineta sem integração):
+   *  marca recebida + lança o TOTAL no caixa como CARTAO. `:id` = id interno da cobrança. */
+  @Post('charges/:id/confirm-cartao')
+  async confirmCartao(@Param('id') id: string, @Req() req: any) {
+    this.logger.log(`[POST /charges/${id}/confirm-cartao] Confirmando recebimento no cartão`);
+    return this.service.confirmCartaoReceipt(id, req.user?.tenant_id, req.user?.id);
+  }
+
   /** Cancelar/excluir cobrança — SOMENTE ADMIN. Apaga no Asaas E no sistema
    *  (soft-delete status=DELETED), de forma SILENCIOSA (sem avisar o paciente),
    *  MAS gravando o rastro de auditoria (quem/quando/motivo) — a cobrança segue
