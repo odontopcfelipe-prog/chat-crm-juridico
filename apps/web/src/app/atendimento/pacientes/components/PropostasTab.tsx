@@ -93,6 +93,8 @@ interface QuoteItemDetail {
   notes: string | null;
   /** Onda 11.1 — item aprovado em-place (status do item, nao do quote) */
   approved_at?: string | null;
+  /** Numeração do dente (FDI) — exibida ao lado do procedimento quando houver. */
+  tooth_fdi?: string | null;
   procedure: { name: string };
 }
 
@@ -4610,6 +4612,11 @@ function PropostaPainel({
                       <span className="text-muted-foreground font-normal"> · {it.notes}</span>
                     )}
                   </span>
+                  {it.tooth_fdi && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20 shrink-0">
+                      Dente {it.tooth_fdi}
+                    </span>
+                  )}
                   {isOutOfProposal && (
                     <span className="text-[10px] text-amber-700 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0">
                       em aberto
