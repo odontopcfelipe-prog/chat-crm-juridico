@@ -119,8 +119,9 @@ export default function ContasAPagarPage() {
   const [receber, setReceber] = useState<ValCount | null>(null);
   const [atrasado, setAtrasado] = useState<ValCount | null>(null);
   const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
-  // Filtro da aba Contas a Pagar: valor fixo (aluguel/FGTS) × variável (energia/água).
-  const [payKind, setPayKind] = useState<'all' | 'fixo' | 'variavel'>('all');
+  // Filtro da aba Contas a Pagar (partição sem sobreposição):
+  //  parcelada = compra em N vezes · recorrente = mensal fixo · variavel = mensal que muda.
+  const [payKind, setPayKind] = useState<'all' | 'parcelada' | 'recorrente' | 'variavel'>('all');
   // Empresa só é selecionável por quem tem manage_payables; o financeiro nunca sai da clínica.
   const effCompany = canManagePayables ? selectedCompany : '';
   const isClinic = !effCompany;
@@ -278,11 +279,16 @@ export default function ContasAPagarPage() {
   const num = (t: Tx) => Number(t.amount);
   const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
   const isSaidasTab = effTab === 'fixas' || effTab === 'dia';
-  const isVariable = (t: Tx) => t.is_variable_amount === true; // null/false = fixo
-  // fixas: filtra as fixas do que veio + o filtro fixo/variável; dia: já vem só não-fixa.
-  const listForTab = effTab === 'fixas'
-    ? txs.filter(isFixed).filter((t) => (payKind === 'all' ? true : payKind === 'variavel' ? isVariable(t) : !isVariable(t)))
-    : txs;
+  // Partição do filtro (buckets exclusivos): parcelada · recorrente(fixo) · variável.
+  const matchesKind = (t: Tx) => {
+    if (payKind === 'all') return true;
+    if (payKind === 'parcelada') return !!t.installment_total;
+    if (payKind === 'variavel') return t.is_variable_amount === true;
+    // recorrente = mensal de valor fixo (recorrente/ocorrência, NÃO parcela, NÃO variável)
+    return (t.is_recurring || !!t.parent_transaction_id) && !t.installment_total && t.is_variable_amount !== true;
+  };
+  // fixas: filtra as fixas do que veio + o filtro do chip; dia: já vem só não-fixa.
+  const listForTab = effTab === 'fixas' ? txs.filter(isFixed).filter(matchesKind) : txs;
   const pend = listForTab.filter((t) => t.status === 'PENDENTE');
   const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
   const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
@@ -400,10 +406,10 @@ export default function ContasAPagarPage() {
                 <button onClick={() => setModal('dia')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={15} /> Lançar gasto do dia</button>
               )}
             </div>
-            {/* Filtro valor fixo × variável (só na aba Contas a Pagar) */}
+            {/* Filtro por tipo (só na aba Contas a Pagar) — Todas na frente */}
             {effTab === 'fixas' && (
               <div className="inline-flex rounded-lg border border-border overflow-hidden text-[12px] font-bold">
-                {([['all', 'Todas'], ['fixo', 'Fixas'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
+                {([['all', 'Todas'], ['parcelada', 'Parceladas'], ['recorrente', 'Recorrentes'], ['variavel', 'Variáveis']] as const).map(([k, label]) => (
                   <button
                     key={k}
                     onClick={() => setPayKind(k)}
