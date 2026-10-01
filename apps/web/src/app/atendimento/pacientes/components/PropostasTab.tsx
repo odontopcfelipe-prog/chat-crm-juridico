@@ -3073,6 +3073,8 @@ function ContratoCard({
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(
     () => new Set(CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id)),
   );
+  // Seleção de documentos vive num MODAL (card fica compacto pra ganhar espaço).
+  const [docsModalOpen, setDocsModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3315,6 +3317,69 @@ function ContratoCard({
   // Documentos travados = contrato já existe e NÃO está mais em rascunho editável.
   // Sem contrato ou em DRAFT (não pulado) = pode marcar/desmarcar termos.
   const docsLocked = !!contract && (contract.status !== 'DRAFT' || contract.skipped);
+
+  // Checklist completo (CORE/GERAL/PROCEDIMENTO) — agora renderizado DENTRO do modal
+  // de seleção, não mais inline no card (pra ganhar espaço na tela).
+  const docChecklist = (
+    <div className="space-y-3">
+      {(['CORE', 'GERAL', 'PROCEDIMENTO'] as const).map((section) => {
+        const docs = CONTRACT_DOCUMENTS.filter((d) =>
+          section === 'CORE' ? d.core : d.category === section,
+        );
+        if (docs.length === 0) return null;
+        const sectionLabel = {
+          CORE: 'Sempre incluídos',
+          GERAL: 'Termos gerais',
+          PROCEDIMENTO: 'Termos por procedimento',
+        }[section];
+        return (
+          <div key={section}>
+            <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">
+              {sectionLabel}
+            </p>
+            <ul className="space-y-1.5">
+              {docs.map((doc) => {
+                const isChecked = selectedDocs.has(doc.id);
+                const isCore = !!doc.core;
+                const hasTemplate = DOCS_WITH_TEMPLATE.has(doc.id);
+                return (
+                  <li key={doc.id} className="flex items-center gap-2">
+                    <label className={`flex items-center gap-2.5 flex-1 ${isCore || docsLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isCore || busy || docsLocked}
+                        onChange={() => toggleDoc(doc.id)}
+                        className="w-4 h-4 rounded border-border accent-violet-600 shrink-0"
+                      />
+                      <span className="text-sm text-foreground flex-1 leading-tight">{doc.label}</span>
+                      {isCore && (
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30 shrink-0">
+                          Obrigatório
+                        </span>
+                      )}
+                    </label>
+                    {hasTemplate && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); void previewTemplate(doc.id, doc.label); }}
+                        className="p-1.5 rounded-md text-muted-foreground hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-400 transition-colors shrink-0"
+                        title={`Ler o ${doc.label}`}
+                        aria-label={`Ler ${doc.label}`}
+                      >
+                        <Eye size={13} />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="mb-4 rounded-xl border border-border bg-card overflow-hidden">
       {/* Header */}
@@ -3360,68 +3425,31 @@ function ContratoCard({
               {selectedDocsCount} DE {totalAvailableDocs}
             </span>
           </div>
-          {/* Onda 17.32.28 — Lista completa agrupada por categoria.
-              CORE (sempre incluso) · GERAL (opcionais) · PROCEDIMENTO (modelos). */}
-          <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
-            {(['CORE', 'GERAL', 'PROCEDIMENTO'] as const).map((section) => {
-              const docs = CONTRACT_DOCUMENTS.filter((d) =>
-                section === 'CORE' ? d.core : d.category === section,
-              );
-              if (docs.length === 0) return null;
-              const sectionLabel = {
-                CORE: 'Sempre incluídos',
-                GERAL: 'Termos gerais',
-                PROCEDIMENTO: 'Termos por procedimento',
-              }[section];
-              return (
-                <div key={section}>
-                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">
-                    {sectionLabel}
-                  </p>
-                  <ul className="space-y-1.5">
-                    {docs.map((doc) => {
-                      const isChecked = selectedDocs.has(doc.id);
-                      const isCore = !!doc.core;
-                      const hasTemplate = DOCS_WITH_TEMPLATE.has(doc.id);
-                      return (
-                        <li key={doc.id} className="flex items-center gap-2">
-                          <label className={`flex items-center gap-2.5 flex-1 ${isCore || docsLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              disabled={isCore || busy || docsLocked}
-                              onChange={() => toggleDoc(doc.id)}
-                              className="w-4 h-4 rounded border-border accent-violet-600 shrink-0"
-                            />
-                            <span className="text-sm text-foreground flex-1 leading-tight">{doc.label}</span>
-                            {isCore && (
-                              <span className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30 shrink-0">
-                                Obrigatório
-                              </span>
-                            )}
-                          </label>
-                          {/* Onda 17.32.30 — Botao de olho pra pre-visualizar o
-                              PDF oficial do termo. So aparece se ha PDF cadastrado
-                              no servidor pra esse docId. */}
-                          {hasTemplate && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); void previewTemplate(doc.id, doc.label); }}
-                              className="p-1.5 rounded-md text-muted-foreground hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-400 transition-colors shrink-0"
-                              title={`Ler o ${doc.label}`}
-                              aria-label={`Ler ${doc.label}`}
-                            >
-                              <Eye size={13} />
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
+          {/* COMPACTO — chips dos selecionados + botão que abre o modal de seleção
+              (a lista completa saiu daqui pra ganhar espaço na tela). */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {CONTRACT_DOCUMENTS.filter((d) => selectedDocs.has(d.id)).slice(0, 8).map((d) => (
+              <span key={d.id} className="text-[11px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 border border-violet-500/20">
+                {d.label}
+              </span>
+            ))}
+            {selectedDocsCount > 8 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                +{selectedDocsCount - 8}
+              </span>
+            )}
+            {selectedDocsCount === 0 && (
+              <span className="text-xs text-muted-foreground">Nenhum documento selecionado.</span>
+            )}
           </div>
+          <button
+            type="button"
+            onClick={() => setDocsModalOpen(true)}
+            className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors"
+          >
+            <FileText size={12} />
+            {docsLocked ? 'Ver documentos' : 'Selecionar documentos'}
+          </button>
         </div>
 
         {/* Coluna direita: Quem vai assinar */}
@@ -3584,6 +3612,50 @@ function ContratoCard({
           )}
         </div>
       </div>
+
+      {/* Modal de seleção dos documentos (a lista saiu do card pra ganhar espaço). */}
+      {docsModalOpen && (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto p-4"
+            onClick={() => setDocsModalOpen(false)}
+          >
+            <div
+              className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full my-8 overflow-hidden flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-foreground">Documentos do contrato</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {selectedDocsCount} de {totalAvailableDocs} selecionados{docsLocked ? ' · somente leitura' : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDocsModalOpen(false)}
+                  className="p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground shrink-0"
+                  aria-label="Fechar"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5">
+                {docChecklist}
+              </div>
+              <div className="px-5 py-3 border-t border-border bg-muted/20 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDocsModalOpen(false)}
+                  className="text-xs font-bold px-4 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white"
+                >
+                  Concluir
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
     </div>
   );
 }
