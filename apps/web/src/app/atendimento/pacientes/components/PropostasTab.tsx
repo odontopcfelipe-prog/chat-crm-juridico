@@ -3119,6 +3119,8 @@ function ContratoCard({
   );
   // Seleção de documentos vive num MODAL (card fica compacto pra ganhar espaço).
   const [docsModalOpen, setDocsModalOpen] = useState(false);
+  // PDF sendo gerado (trava os botões de prévia/baixar contra clique repetido).
+  const [pdfBusy, setPdfBusy] = useState(false);
   // Dentista responsável que assina. '' = automático (resolve do orçamento no backend).
   const [dentists, setDentists] = useState<DentistOption[]>([]);
   const [dentistId, setDentistId] = useState<string>('');
@@ -3237,59 +3239,75 @@ function ContratoCard({
     }
   };
 
-  // Busca um PDF autenticado via FETCH NATIVO (igual ao PDF do orçamento, que
-  // sempre funcionou). Usar axios com responseType:'blob' + window.open(...,
-  // 'noopener') entregava "arquivo inválido" no visor do Edge. Aqui montamos o
-  // blob a partir do arrayBuffer cru (sem reempacotar o Blob do axios).
-  const fetchPdfBlob = async (path: string): Promise<Blob> => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const resp = await fetch(`${api.defaults.baseURL || ''}${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!resp.ok) {
-      let msg = 'Erro ao gerar o PDF';
-      try { const j = await resp.json(); msg = j?.message || msg; } catch { /* corpo não-JSON */ }
-      throw new Error(msg);
+  // Busca um PDF autenticado como blob (axios: mantém o tratamento de 401 e o
+  // timeout do cliente). Obs.: o "arquivo inválido / 0 páginas" que o Edge
+  // mostrava vinha do PRÓPRIO PDF — o pdf-lib corrompia o contrato desenhado
+  // (ver buildPdf no contract-pdf.service) — não do axios nem de como a aba abre.
+  const fetchPdfBlob = async (path: string, params?: Record<string, string>): Promise<Blob> => {
+    try {
+      const res = await api.get(path, { params, responseType: 'blob' });
+      return res.data as Blob;
+    } catch (err: unknown) {
+      // Com responseType 'blob' o corpo do erro também vem como Blob — extrai a mensagem.
+      const data = (err as { response?: { data?: unknown } })?.response?.data;
+      let msg = '';
+      if (data instanceof Blob) {
+        try { msg = JSON.parse(await data.text())?.message || ''; } catch { /* corpo não-JSON */ }
+      }
+      throw new Error(msg || 'Erro ao gerar o PDF');
     }
-    const buf = await resp.arrayBuffer();
-    return new Blob([buf], { type: 'application/pdf' });
   };
 
-  // Abre o blob numa nova aba pra preview/print. SEM 'noopener' (abrir blob:
-  // com noopener falha em alguns navegadores → "não é possível abrir").
-  const openPdfBlob = (blob: Blob) => {
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+  // Abre a aba JÁ no clique (gesto do usuário) pro navegador não bloquear o
+  // pop-up; depois do download aponta a aba pro PDF. Se falhar, fecha a aba.
+  // Mesmo padrão do PDF do orçamento (FinanceiroTab). opener=null mantém a
+  // proteção que o 'noopener' dava (não dá pra usar noopener e ainda controlar a aba).
+  const openPdfInNewTab = async (path: string, errMsg: string, params?: Record<string, string>) => {
+    if (pdfBusy) return;
+    const win = window.open('', '_blank');
+    setPdfBusy(true);
+    try {
+      const url = URL.createObjectURL(await fetchPdfBlob(path, params));
+      if (win && !win.closed) {
+        win.opener = null;
+        win.location.href = url;
+      } else {
+        const w = window.open(url, '_blank');
+        if (w) w.opener = null;
+        else showError('O navegador bloqueou a nova aba — permita pop-ups para este site.');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: unknown) {
+      win?.close();
+      showError((err as Error)?.message || errMsg);
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
-  const previewPdf = async (id: string) => {
-    try { openPdfBlob(await fetchPdfBlob(`/contracts/${id}/preview-pdf`)); }
-    catch (err: unknown) { showError((err as Error)?.message || 'Erro ao gerar PDF'); }
-  };
+  const previewPdf = (id: string) => openPdfInNewTab(`/contracts/${id}/preview-pdf`, 'Erro ao gerar PDF');
 
   // Pré-visualiza a PRÉVIA do contrato ANTES de criar (transitório, não
   // persiste). Usa os documentos marcados no momento — deixa o operador
   // conferir/imprimir sem precisar clicar "Criar contrato" primeiro.
-  const previewDraft = async () => {
-    try {
-      const extras = Array.from(selectedDocs).filter(
-        (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
-      );
-      const qs = new URLSearchParams({ docs: extras.join(',') });
-      if (dentistId) qs.set('dentistId', dentistId);
-      openPdfBlob(await fetchPdfBlob(`/quotes/${quoteId}/contract-preview-pdf?${qs.toString()}`));
-    } catch (err: unknown) {
-      showError((err as Error)?.message || 'Erro ao gerar prévia');
-    }
+  const previewDraft = () => {
+    const extras = Array.from(selectedDocs).filter(
+      (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
+    );
+    return openPdfInNewTab(
+      `/quotes/${quoteId}/contract-preview-pdf`,
+      'Erro ao gerar prévia',
+      { docs: extras.join(','), ...(dentistId ? { dentistId } : {}) },
+    );
   };
 
   // Baixa o PDF do contrato como arquivo (nome pelo paciente), pra imprimir/
   // guardar. Complementa o "Pré-visualizar" (que abre inline pra Ctrl+P).
   const downloadPdf = async (id: string) => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
     try {
-      const blob = await fetchPdfBlob(`/contracts/${id}/preview-pdf`);
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(await fetchPdfBlob(`/contracts/${id}/preview-pdf`));
       const safeName = (quote?.patient?.name || 'paciente')
         .normalize('NFD').replace(/[̀-ͯ]/g, '')
         .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'paciente';
@@ -3299,19 +3317,19 @@ function ContratoCard({
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err: unknown) {
       showError((err as Error)?.message || 'Erro ao baixar PDF');
+    } finally {
+      setPdfBusy(false);
     }
   };
 
   // Onda 17.32.30 — Pre-visualiza o PDF de um termo (clareamento, facetas...)
   // direto do diretorio contract-templates do servidor. Permite o operador
   // ler o conteudo antes de marcar o checkbox.
-  const previewTemplate = async (docId: string, label: string) => {
-    try { openPdfBlob(await fetchPdfBlob(`/contract-templates/${docId}/pdf`)); }
-    catch (err: unknown) { showError((err as Error)?.message || `Não foi possível abrir "${label}"`); }
-  };
+  const previewTemplate = (docId: string, label: string) =>
+    openPdfInNewTab(`/contract-templates/${docId}/pdf`, `Não foi possível abrir "${label}"`);
 
   const action = async (path: string) => {
     if (!contract) return;
@@ -3447,7 +3465,8 @@ function ContratoCard({
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); void previewTemplate(doc.id, doc.label); }}
-                        className="p-1.5 rounded-md text-muted-foreground hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-400 transition-colors shrink-0"
+                        disabled={pdfBusy}
+                        className="p-1.5 rounded-md text-muted-foreground hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-400 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-wait"
                         title={`Ler o ${doc.label}`}
                         aria-label={`Ler ${doc.label}`}
                       >
@@ -3657,18 +3676,20 @@ function ContratoCard({
               <button
                 type="button"
                 onClick={() => previewPdf(contract.id)}
-                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+                disabled={pdfBusy}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
               >
-                <Eye size={12} />
+                {pdfBusy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
                 Pré-visualizar PDF
               </button>
               <button
                 type="button"
                 onClick={() => downloadPdf(contract.id)}
-                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+                disabled={pdfBusy}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
                 title="Baixar o PDF do contrato pra imprimir/guardar"
               >
-                <Download size={12} />
+                {pdfBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                 Baixar PDF
               </button>
             </>
@@ -3678,10 +3699,11 @@ function ContratoCard({
               <button
                 type="button"
                 onClick={previewDraft}
-                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+                disabled={pdfBusy}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
                 title="Ver a prévia do contrato com os documentos marcados (sem criar ainda)"
               >
-                <Eye size={12} />
+                {pdfBusy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
                 Pré-visualizar PDF
               </button>
               <button

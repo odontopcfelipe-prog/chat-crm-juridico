@@ -1357,11 +1357,11 @@ export class CommercialController {
     this.sendPdf(res, buffer, 'contrato-previa.pdf');
   }
 
-  /** Envia um Buffer de PDF do mesmo jeito que o PDF do orçamento (que funciona
-   *  atrás do Cloudflare Tunnel): Content-Length explícito + res.end, sem
-   *  res.send (que em produção corrompia o binário). Valida o magic byte %PDF —
-   *  se vier algo que não é PDF, devolve 500 (toast no front) em vez de servir
-   *  bytes quebrados que o visor abre como "arquivo corrompido". */
+  /** Envia um Buffer de PDF (Content-Length explícito + res.end, igual ao PDF
+   *  do orçamento) e valida o magic byte %PDF — se vier algo que não é PDF,
+   *  devolve 500 (toast no front) em vez de servir bytes que o visor abriria
+   *  como "arquivo corrompido". Obs.: o "0 páginas" que o Edge mostrava NÃO era
+   *  transporte — era o próprio PDF corrompido pelo pdf-lib (ver buildPdf). */
   private sendPdf(res: Response, buffer: Buffer, filename: string) {
     if (!buffer || buffer.length < 5 || buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
       throw new InternalServerErrorException('Falha ao gerar o PDF (conteúdo inválido).');

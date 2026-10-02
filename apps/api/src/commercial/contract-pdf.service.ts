@@ -48,6 +48,15 @@ interface OverlayEntry { numPages: number; isMenor: boolean; fields: OverlayFiel
  *  pelo pdfkit passa a ser anexado depois (como anexo com procedimentos/valores). */
 const MAIN_CONTRACT_FILE = 'contrato-prestacao-servicos.pdf';
 
+/** Saída sempre com xref em tabela clássica (sem object streams) — a forma mais
+ *  compatível com PDFium (Edge/Chrome) e pdf.js. Junto com montar num documento
+ *  NOVO via copyPages (ver buildPdf), evita o bug do pdf-lib 1.17.1 que gerava
+ *  "bad ObjStm stream" / /Pages sem /Count ao regravar o contrato desenhado
+ *  (objeto com geração≠0) → Edge abria "0 páginas / não é possível abrir".
+ *  O próprio pdf-lib recarrega o arquivo quebrado sem erro — por isso validar
+ *  mudanças com um renderizador ESTRITO (pdf.js), nunca só com o pdf-lib. */
+const PDF_SAVE_OPTS = { useObjectStreams: false } as const;
+
 const EXTRA_DOCUMENT_PDF_MAP: Record<string, string> = {
   USO_IMAGEM: 'uso-de-imagem.pdf',
   CLAREAMENTO: 'clareamento.pdf',
@@ -332,7 +341,12 @@ export class ContractPdfService {
     const designedBytes = await this.readTemplateBytes(MAIN_CONTRACT_FILE);
     if (designedBytes) {
       try {
-        const merged = await PDFLibDocument.load(designedBytes);
+        // Documento NOVO + copyPages do desenhado (NUNCA load(desenhado) como base):
+        // o arquivo tem objeto com geração≠0 ("6 1 obj") e o pdf-lib 1.17.1 regrava
+        // isso corrompido (Edge abre "0 páginas"). copyPages re-numera tudo com
+        // geração 0 — mesmo caminho que os termos sempre usaram e saíam íntegros.
+        const merged = await PDFLibDocument.create();
+        await this.appendBytes(merged, designedBytes);
         const overlayFont = await merged.embedFont(StandardFonts.Helvetica).catch(() => null);
         const overlayBold = await merged.embedFont(StandardFonts.HelveticaBold).catch(() => null);
         let logoImage: any = null;
@@ -354,7 +368,7 @@ export class ContractPdfService {
           this.logger.log(`[Contract PDF] Anexado termo ${docId}`);
         }
         this.logger.log(`[Contract PDF] Montado: contrato desenhado + gerado + ${docsWithAttachment.length} termos`);
-        return Buffer.from(await merged.save());
+        return Buffer.from(await merged.save(PDF_SAVE_OPTS));
       } catch (e: any) {
         this.logger.error(`[Contract PDF] Falha ao montar com o contrato desenhado (${e?.message}) — fallback pro gerado`);
       }
@@ -835,7 +849,7 @@ export class ContractPdfService {
           );
         }
       }
-      const finalBytes = await merged.save();
+      const finalBytes = await merged.save(PDF_SAVE_OPTS);
       return Buffer.from(finalBytes);
     } catch (e: unknown) {
       // Se algo catastrofico falhar na mesclagem (ex: pdf-lib quebrou),
@@ -1034,6 +1048,33 @@ export class ContractPdfService {
       // Local de assinatura = cidade/UF do cadastro da clinica (nao mais um
       // pedaco solto do endereco).
       const localAssinatura = tenant?.cidadeUf || (tenant?.address?.split(',').pop() || 'Local').trim();
+      // Colunas de assinatura: [traço] / nome (negrito) / linha de baixo (CPF ou
+      // RT+CRO). A linha de baixo vem DEPOIS da altura real do nome — nome longo
+      // (ex.: razão social "... LTDA") quebra em 2 linhas e, em posição fixa,
+      // imprimia por cima do CPF/CRO.
+      const SIG_W = 230;
+      const pName = patient.name || 'CONTRATANTE (paciente)';
+      const pSub = patient.cpf ? `CPF: ${patient.cpf}` : 'CONTRATANTE (paciente)';
+      const cName = tenant?.name || 'CONTRATADA (clínica)';
+      const cSub = tenant?.responsavel
+        ? `${tenant.responsavel}${tenant.cro ? ` — CRO ${tenant.cro}` : ''}`
+        : 'CONTRATADA (clínica)';
+      doc.fontSize(9).font('Helvetica-Bold');
+      const pNameH = doc.heightOfString(pName, { width: SIG_W });
+      const cNameH = doc.heightOfString(cName, { width: SIG_W });
+      doc.font('Helvetica');
+      const colH = 15 + Math.max(
+        pNameH + 2 + doc.heightOfString(pSub, { width: SIG_W }),
+        cNameH + 2 + doc.heightOfString(cSub, { width: SIG_W }),
+      );
+      doc.fontSize(10).font('Helvetica');
+
+      // Data + bloco de assinaturas ficam JUNTOS: se não couberem no fim da
+      // página, vão inteiros pra próxima. As linhas de assinatura são escritas
+      // em (x,y) fixos — cada uma que passasse da margem inferior fazia o pdfkit
+      // abrir uma página nova (assinaturas espalhadas, uma linha por folha).
+      const dateBlockH = doc.currentLineHeight(true) * 3; // linha da data + moveDown(2)
+      if (doc.y + dateBlockH + colH + 6 > doc.page.maxY()) doc.addPage();
       doc.text(`${localAssinatura}, ${today}`, { align: 'right' });
 
       doc.moveDown(2);
@@ -1042,29 +1083,34 @@ export class ContractPdfService {
 
       // CONTRATANTE (paciente) — nome + CPF sob a linha
       doc.font('Helvetica').fillColor('black').text('_______________________________________', 60, yPos);
-      doc.font('Helvetica-Bold').text(patient.name || 'CONTRATANTE (paciente)', 60, yPos + 15, { width: 230 });
-      doc.font('Helvetica').fillColor('#555')
-        .text(patient.cpf ? `CPF: ${patient.cpf}` : 'CONTRATANTE (paciente)', 60, yPos + 28, { width: 230 });
+      doc.font('Helvetica-Bold').text(pName, 60, yPos + 15, { width: SIG_W });
+      doc.font('Helvetica').fillColor('#555').text(pSub, 60, yPos + 15 + pNameH + 2, { width: SIG_W });
 
       // CONTRATADA (clínica) — nome + responsável técnico/CRO sob a linha
       doc.font('Helvetica').fillColor('black').text('_______________________________________', 320, yPos);
-      doc.font('Helvetica-Bold').text(tenant?.name || 'CONTRATADA (clínica)', 320, yPos + 15, { width: 230 });
-      doc.font('Helvetica').fillColor('#555').text(
-        tenant?.responsavel
-          ? `${tenant.responsavel}${tenant.cro ? ` — CRO ${tenant.cro}` : ''}`
-          : 'CONTRATADA (clínica)',
-        320, yPos + 28, { width: 230 },
-      );
+      doc.font('Helvetica-Bold').text(cName, 320, yPos + 15, { width: SIG_W });
+      doc.font('Helvetica').fillColor('#555').text(cSub, 320, yPos + 15 + cNameH + 2, { width: SIG_W });
       doc.fillColor('black').fontSize(10);
 
       // ── Footer ───────────────────────────────────────────────
-      const footerY = doc.page.height - 50;
+      // Escrito DENTRO da margem inferior: zera a margem só durante o rodapé e
+      // desliga a quebra — senão o pdfkit acha que não cabe e cria uma página
+      // nova só com o rodapé (saía uma folha quase em branco no fim do anexo).
+      // "PRÉ-VISUALIZAÇÃO" só na prévia transitória (antes de criar o contrato).
+      // O contrato CRIADO é o documento que se imprime/envia ao ClickSign pra
+      // assinar — não pode dizer "não assinado" no papel assinado.
+      const footerTag = contract.id === 'preview' ? ' · PRÉ-VISUALIZAÇÃO (não assinado)'
+        : contract.status === 'CANCELLED' ? ' · CANCELADO'
+        : contract.status === 'EXPIRED' ? ' · EXPIRADO'
+        : '';
+      const bottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc.fontSize(8).fillColor('#999')
         .text(
-          `Contrato ${contract.id.substring(0, 8)} · Gerado em ${new Date().toLocaleString('pt-BR')} · ` +
-          (contract.status === 'DRAFT' ? 'PRÉ-VISUALIZAÇÃO (não assinado)' : `Status: ${contract.status}`),
-          50, footerY, { align: 'center', width: doc.page.width - 100 },
+          `Contrato ${contract.id.substring(0, 8)} · Gerado em ${new Date().toLocaleString('pt-BR')}${footerTag}`,
+          50, doc.page.height - 35, { align: 'center', width: doc.page.width - 100, lineBreak: false },
         );
+      doc.page.margins.bottom = bottomMargin;
 
       doc.end();
     });
