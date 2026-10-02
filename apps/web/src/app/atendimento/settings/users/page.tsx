@@ -57,7 +57,7 @@ const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: s
 // escolha de cadastro; o perfil (role) é derivado daqui pra manter a
 // autorização do backend (RolesGuard) funcionando, sem o usuário ter que
 // escolher os dois (era contraditório). Única combinação de papéis: Dentista
-// + Administrador (os dois cards marcados) → setor admin + roles
+// + Administrador (checkbox abaixo dos cards) → setor admin + roles
 // ['ADMIN','DENTIST'] — o backend já trata "admin que também é dentista".
 const SECTOR_ROLE: Record<Sector, RoleKey> = {
   recepcao:   'OPERADOR',
@@ -306,38 +306,6 @@ export default function UsersSettingsPage() {
   // técnico (role) é 100% derivado do SETOR escolhido (ver SECTOR_ROLE + o
   // onClick dos cards). Não há mais toggle manual de roles — era redundante e
   // contraditório com o card de setor.
-
-  // Dentista + Administrador: salvo como setor admin (todas as permissões, home
-  // e barra lateral de admin) + roles ['ADMIN','DENTIST'] (agenda, IA, CRO,
-  // horários, especialidades, comissão). O backend checa ADMIN antes de
-  // restringir por dentista, então nada fica limitado.
-  const isDentistAdmin = form.sector === 'admin' && form.roles.includes('DENTIST');
-
-  // Clique num card de setor. Os setores são exclusivos, EXCETO a dupla
-  // Dentista/Administrador: clicar no outro card da dupla SOMA os dois; com os
-  // dois acesos, clicar num deles TIRA aquele e fica o outro.
-  const pickSector = (sid: Sector) => {
-    const f = form;
-    const inPair = (x: string) => x === 'dentista' || x === 'admin';
-    let next: UserForm;
-    if (isDentistAdmin && inPair(sid)) {
-      next = sid === 'dentista'
-        ? { ...f, roles: f.roles.filter(r => r !== 'DENTIST') } // fica só Administrador
-        : { ...f, sector: 'dentista', roles: ['DENTIST'], extra_grants: [], extra_revokes: [] }; // fica só Dentista
-    } else if (inPair(sid) && inPair(f.sector) && f.sector !== sid) {
-      next = { ...f, sector: 'admin', roles: ['ADMIN', 'DENTIST'], extra_grants: [], extra_revokes: [] }; // soma os dois
-    } else {
-      // Setor exclusivo (ou re-clique no mesmo card): papel do setor, permissões padrão
-      next = { ...f, sector: sid, roles: f.sector === sid && f.roles.length > 0 ? f.roles : [SECTOR_ROLE[sid]], extra_grants: [], extra_revokes: [] };
-    }
-    setForm(next);
-    // Passou a ser dentista: abre os horários e, na edição, traz o horário real
-    // (senão o editor mostraria o padrão Seg-Sex).
-    if (next.roles.includes('DENTIST') && !f.roles.includes('DENTIST')) {
-      setScheduleExpanded(true);
-      if (editingId && !scheduleLoaded) loadSchedule(editingId);
-    }
-  };
 
   const addSpecialty = (value: string) => {
     const trimmed = value.trim();
@@ -1029,34 +997,35 @@ export default function UsersSettingsPage() {
                     marcadas. A barra lateral completa é exclusiva do{' '}
                     <strong>Adm Geral</strong> (ADMIN). Você pode ajustar permissões
                     individualmente abaixo. Dentista que também é administrador(a)?
-                    Marque os <strong>dois cards</strong> — é a única dupla que fica junta.
+                    Escolha um dos dois e marque a opção que aparece abaixo dos cards.
                   </p>
                 </div>
 
-                {/* Cards dos setores. Dentista + Administrador é a ÚNICA dupla
-                    que fica marcada junta (salva como setor admin + roles
-                    ['ADMIN','DENTIST'] — ver pickSector). */}
+                {/* Cards dos 5 setores */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {SECTORS.map((s) => {
-                    const selected = form.sector === s.id || (s.id === 'dentista' && isDentistAdmin);
+                    const selected = form.sector === s.id;
                     return (
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => pickSector(s.id)}
-                        className={`relative text-left p-3 rounded-xl border-2 transition-all ${
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          sector: s.id,
+                          // Re-clicar o card já escolhido não derruba o papel
+                          // combinado (Administrador + Dentista); trocar de card
+                          // reinicia o papel pro do setor novo.
+                          roles: f.sector === s.id && f.roles.length > 0 ? f.roles : [SECTOR_ROLE[s.id]],
+                          extra_grants: [], extra_revokes: [],
+                        }))}
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${
                           selected
-                            ? 'bg-violet-500/10 border-violet-500/60 ring-2 ring-violet-500/20'
+                            ? 'bg-violet-500/10 border-violet-500/50 ring-2 ring-violet-500/20'
                             : 'bg-card border-border hover:border-violet-500/30'
                         }`}
                       >
-                        {selected && (
-                          <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">
-                            ✓
-                          </span>
-                        )}
                         <div className="text-lg mb-1">{s.icon}</div>
-                        <div className={`text-xs font-bold ${selected ? 'text-violet-600' : 'text-foreground'}`}>
+                        <div className={`text-xs font-bold ${selected ? 'text-violet-300' : 'text-foreground'}`}>
                           {s.name}
                         </div>
                         <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
@@ -1067,24 +1036,56 @@ export default function UsersSettingsPage() {
                   })}
                 </div>
 
-                {isDentistAdmin ? (
-                  <div className="flex items-start gap-2.5 p-3 rounded-xl border-2 border-violet-500/30 bg-violet-500/5">
-                    <span className="text-base leading-none mt-0.5">👑🦷</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-foreground">Dentista + Administrador(a)</p>
-                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                        Acesso total (barra lateral completa e todas as permissões) e continua
-                        atendendo: agenda, IA, CRO, horários, especialidades e comissão.
-                        Clique em um dos dois cards pra tirar.
-                      </p>
-                    </div>
-                  </div>
-                ) : (form.sector === 'dentista' || form.sector === 'admin') && (
-                  <p className="text-[11px] text-muted-foreground ml-1">
-                    💡 Dentista e Administrador podem ficar marcados juntos — clique no{' '}
-                    {form.sector === 'dentista' ? 'card Administrador' : 'card Dentista'} pra somar.
-                  </p>
-                )}
+                {/* Dentista + Administrador — a única combinação de papéis.
+                    Fica salvo como setor ADMIN (todas as permissões, home de
+                    admin, barra lateral completa) + roles ['ADMIN','DENTIST']:
+                    o papel de dentista mantém agenda, IA, CRO, horários,
+                    especialidades e comissão. O backend checa ADMIN antes de
+                    restringir por dentista, então nada fica limitado. */}
+                {(form.sector === 'dentista' || form.sector === 'admin') && (() => {
+                  const isAdminSector = form.sector === 'admin';
+                  const checked = isAdminSector && form.roles.includes('DENTIST');
+                  return (
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl border-2 border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const want = e.target.checked;
+                          setForm(f => {
+                            if (f.sector === 'dentista') {
+                              // Dentista → vira Administrador sem deixar de ser dentista
+                              return want
+                                ? { ...f, sector: 'admin', roles: ['ADMIN', 'DENTIST'], extra_grants: [], extra_revokes: [] }
+                                : f;
+                            }
+                            // Administrador: liga/desliga o papel de dentista
+                            const roles: RoleKey[] = want
+                              ? Array.from(new Set<RoleKey>([...f.roles, 'DENTIST']))
+                              : f.roles.filter(r => r !== 'DENTIST');
+                            return { ...f, roles };
+                          });
+                          if (want) {
+                            setScheduleExpanded(true);
+                            // Na edição, traz o horário real (senão mostraria o padrão)
+                            if (editingId && !scheduleLoaded) loadSchedule(editingId);
+                          }
+                        }}
+                        className="mt-0.5 shrink-0 w-4 h-4 accent-violet-600 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-foreground">
+                          {isAdminSector ? '🦷 Também atende como Dentista' : '👑 Também é Administrador(a)'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                          {isAdminSector
+                            ? 'Aparece na agenda e pra IA agendar, com CRO, horários, especialidades e comissão — mantendo o acesso total de administrador.'
+                            : 'Ganha acesso total (barra lateral completa e todas as permissões) sem deixar de atender como dentista. O setor passa a ser Administrador.'}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })()}
 
                 {/* Permissões — agrupadas por grupo */}
                 {form.sector && (() => {
