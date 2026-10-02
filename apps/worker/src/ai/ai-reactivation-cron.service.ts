@@ -35,8 +35,12 @@ export class AiReactivationCronService {
           status: { notIn: ['FECHADO'] },
           // Onda 18.x — NÃO religar o que o operador DESLIGOU MANUALMENTE. Antes o
           // cron reativava tudo, então "IA Inativa" voltava sozinha em 24h e a
-          // Sophia disparava de novo. `not: 'MANUAL'` inclui os NULL/auto (Prisma
-          // trata null como "não é MANUAL"), então só o manual fica protegido.
+          // Sophia disparava de novo. ATENÇÃO: `not: 'MANUAL'` vira `<> 'MANUAL'`
+          // no SQL e DESCARTA os NULL (provado no Prisma 6.19). É INTENCIONAL: desde
+          // 18/abr/2026 todo caminho que PREENCHE ai_mode_disabled_at (valor não-null)
+          // também grava MANUAL, então NULL + disabled_at só existe em legado desligado
+          // por operador antes do MANUAL existir — que também deve ficar protegido.
+          // NÃO trocar por OR com null (ver after-hours.service.ts) sem alinhar com o dono.
           ai_mode_source: { not: 'MANUAL' },
           // Apenas conversas com lead ativo (não PERDIDO/FINALIZADO)
           lead: { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } },
