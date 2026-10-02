@@ -13,6 +13,7 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  InternalServerErrorException,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -1353,9 +1354,22 @@ export class CommercialController {
   ) {
     const selected = (docs || '').split(',').map((s) => s.trim()).filter(Boolean);
     const buffer = await this.contractPdfService.generatePreviewForQuote(id, user.tenant_id, selected, (dentistId || '').trim() || undefined);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="contrato-previa.pdf"');
-    res.send(buffer);
+    this.sendPdf(res, buffer, 'contrato-previa.pdf');
+  }
+
+  /** Envia um Buffer de PDF do mesmo jeito que o PDF do orçamento (que funciona
+   *  atrás do Cloudflare Tunnel): Content-Length explícito + res.end, sem
+   *  res.send (que em produção corrompia o binário). Valida o magic byte %PDF —
+   *  se vier algo que não é PDF, devolve 500 (toast no front) em vez de servir
+   *  bytes quebrados que o visor abre como "arquivo corrompido". */
+  private sendPdf(res: Response, buffer: Buffer, filename: string) {
+    if (!buffer || buffer.length < 5 || buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
+      throw new InternalServerErrorException('Falha ao gerar o PDF (conteúdo inválido).');
+    }
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="${filename}"`);
+    res.set('Content-Length', String(buffer.length));
+    res.end(buffer);
   }
 
   /** Detalhe do contrato + events. */
@@ -1454,9 +1468,7 @@ export class CommercialController {
     @Res() res: Response,
   ) {
     const buffer = await this.contractPdfService.generatePdf(id, user.tenant_id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="contrato-${id.substring(0, 8)}.pdf"`);
-    res.send(buffer);
+    this.sendPdf(res, buffer, `contrato-${id.substring(0, 8)}.pdf`);
   }
 
   /**
@@ -1474,8 +1486,6 @@ export class CommercialController {
     @Res() res: Response,
   ) {
     const buffer = await this.contractPdfService.readTemplatePdf(docId);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="termo-${docId.toLowerCase()}.pdf"`);
-    res.send(buffer);
+    this.sendPdf(res, buffer, `termo-${docId.toLowerCase()}.pdf`);
   }
 }
