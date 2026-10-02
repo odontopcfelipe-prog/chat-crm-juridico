@@ -424,9 +424,11 @@ export class ContractPdfService {
   }
 
   /** Dentista RESPONSÁVEL do contrato (aparece na qualificação + assina).
-   *  Prioridade: dentista escolhido no contrato → quem criou/avaliou o orçamento
-   *  (se tem CRO) → dentista mais frequente dos itens → responsável técnico da
-   *  clínica (fallback). Usa name + CRO (número/UF) do cadastro do usuário. */
+   *  Prioridade: dentista escolhido no contrato → dentista que VAI EXECUTAR os
+   *  procedimentos (item do orçamento, com CRO) → quem criou/avaliou o orçamento
+   *  SE for dentista (com CRO) → responsável técnico da clínica. NUNCA usa o
+   *  usuário logado só por ter criado o orçamento (recepção não é dentista): se
+   *  nada resolve, volta VAZIO pra obrigar a seleção manual na tela. */
   private resolveDentist(contract: any, contratado: any): { name: string; croFull: string; croUf: string; croNum: string } {
     const cs = (s: any) => (s && String(s).trim() ? String(s).trim() : '');
     const fromUser = (u: any) => {
@@ -435,11 +437,10 @@ export class ContractPdfService {
       const sp = this.splitCro(full);
       return { name: cs(u.name), croFull: full, croUf: cs(u.cro_uf) || sp.uf, croNum: sp.num };
     };
-    // 1) dentista escolhido no contrato (quando houver o relacionamento carregado)
+    // 1) dentista escolhido manualmente no contrato
     let d = fromUser(contract.dentist);
-    // 2) quem criou/avaliou o orçamento
-    if (!d) d = fromUser(contract.quote?.created_by);
-    // 3) dentista mais frequente dos itens (com CRO)
+    // 2) dentista que VAI EXECUTAR (mais frequente dos itens, com CRO) — é o
+    //    "dentista do orçamento" de fato, independente de quem digitou.
     if (!d) {
       const counts = new Map<string, { n: number; u: any }>();
       for (const it of contract.quote?.items || []) {
@@ -450,7 +451,9 @@ export class ContractPdfService {
       for (const e of counts.values()) if (e.n > bestN) { best = e.u; bestN = e.n; }
       d = fromUser(best);
     }
-    // 4) fallback: responsável técnico da clínica
+    // 3) quem criou/avaliou o orçamento, SÓ se for dentista (tem CRO)
+    if (!d) d = fromUser(contract.quote?.created_by);
+    // 4) fallback: responsável técnico da clínica (pode vir vazio → seleção manual)
     if (!d) { const sp = this.splitCro(cs(contratado.cro)); d = { name: cs(contratado.resp), croFull: cs(contratado.cro), croUf: sp.uf, croNum: sp.num }; }
     return d;
   }

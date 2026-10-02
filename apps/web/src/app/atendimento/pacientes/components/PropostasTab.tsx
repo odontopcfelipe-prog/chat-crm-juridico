@@ -3359,11 +3359,12 @@ function ContratoCard({
   };
   const patientName = quote?.patient?.name || 'Paciente';
   const patientPhone = fmtPhone(quote?.patient?.phone);
-  const dentistName = quote?.created_by?.name || 'Dentista responsável';
-  // Dentista EFETIVO (escolhido ou resolvido automaticamente) + CRO, vindos do
-  // checklist de completude do backend.
-  const effectiveDentistName = completeness?.dentist?.name || dentistName;
+  // Dentista EFETIVO vem SÓ do checklist do backend (dentista do orçamento ou o
+  // escolhido manualmente). NUNCA cai no usuário logado (recepção) — se vier
+  // vazio, a tela pede pra selecionar.
+  const effectiveDentistName = completeness?.dentist?.name || '';
   const effectiveDentistCro = completeness?.dentist?.cro || '';
+  const dentistMissing = !effectiveDentistName;
   // Bloqueio: enquanto faltarem dados obrigatórios, não deixa criar o contrato.
   // Enquanto o checklist não carregou (null), não bloqueia (o backend ainda é a trava).
   const blockCreate = completeness ? !completeness.complete : false;
@@ -3561,14 +3562,17 @@ function ContratoCard({
             </div>
 
             {/* Dentista responsável que consta no contrato (nome + CRO).
-                Padrão = dentista do orçamento; dá pra trocar enquanto em rascunho. */}
+                Padrão = dentista que executa os procedimentos; dá pra trocar
+                enquanto em rascunho. Nunca é o usuário logado (recepção). */}
             <div className="pt-1.5 border-t border-border/60">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 font-bold text-xs flex items-center justify-center shrink-0">
-                  {initials(effectiveDentistName)}
+                <div className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center shrink-0 ${dentistMissing ? 'bg-muted text-muted-foreground' : 'bg-sky-500/15 text-sky-700 dark:text-sky-400'}`}>
+                  {dentistMissing ? '?' : initials(effectiveDentistName)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate">{effectiveDentistName || '—'}</p>
+                  <p className={`text-sm font-semibold truncate ${dentistMissing ? 'text-amber-700 dark:text-amber-400' : 'text-foreground'}`}>
+                    {dentistMissing ? 'Selecione o dentista responsável' : effectiveDentistName}
+                  </p>
                   <p className="text-[11px] text-muted-foreground truncate">
                     Dentista responsável{effectiveDentistCro ? ` · ${effectiveDentistCro}` : ''}
                   </p>
@@ -3578,17 +3582,25 @@ function ContratoCard({
                 value={dentistId}
                 onChange={(e) => changeDentist(e.target.value)}
                 disabled={docsLocked || busy}
-                className="mt-2 w-full text-xs rounded-md border border-border bg-card px-2 py-1.5 text-foreground disabled:opacity-50"
-                title={docsLocked ? 'Contrato já enviado — não dá pra trocar o dentista' : 'Trocar o dentista responsável'}
+                className={`mt-2 w-full text-xs rounded-md border bg-card px-2 py-1.5 text-foreground disabled:opacity-50 ${dentistMissing && !dentistId ? 'border-amber-500/50' : 'border-border'}`}
+                title={docsLocked ? 'Contrato já enviado — não dá pra trocar o dentista' : 'Escolher o dentista responsável'}
               >
                 <option value="">
-                  Automático (do orçamento){completeness?.dentist?.name && !dentistId ? ` — ${completeness.dentist.name}` : ''}
+                  {completeness?.dentist?.name
+                    ? `Automático — ${completeness.dentist.name}`
+                    : 'Selecione um dentista…'}
                 </option>
                 {dentists.map((d) => (
                   <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
-              {effectiveDentistName && !effectiveDentistCro && (
+              {dentists.length === 0 && (
+                <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400 flex items-start gap-1">
+                  <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                  Nenhum dentista cadastrado — cadastre o profissional (papel Dentista) com o CRO dele.
+                </p>
+              )}
+              {dentists.length > 0 && !dentistMissing && !effectiveDentistCro && (
                 <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400 flex items-start gap-1">
                   <AlertTriangle size={11} className="shrink-0 mt-0.5" />
                   Esse dentista está sem CRO no cadastro — preencha o CRO dele pra constar no contrato.
