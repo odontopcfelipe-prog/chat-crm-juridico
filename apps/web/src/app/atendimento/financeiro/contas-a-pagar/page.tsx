@@ -119,7 +119,7 @@ export default function ContasAPagarPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>(() => readLS('payables_company')); // '' = clínica
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => readLS('payables_month') || maceioTodayStr().slice(0, 7)); // YYYY-MM
-  const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'dia' | 'receita'>(null);
+  const [modal, setModal] = useState<null | 'parcelada' | 'recorrente' | 'variavel' | 'dia' | 'receita'>(null);
   const [payTarget, setPayTarget] = useState<Tx | null>(null);
   const [editTarget, setEditTarget] = useState<Tx | null>(null);
   // Resumo discreto de cobranças (Saldo Asaas / A Receber / Atrasado) + olho.
@@ -128,10 +128,9 @@ export default function ContasAPagarPage() {
   const [atrasado, setAtrasado] = useState<ValCount | null>(null);
   const [showValues, setShowValues] = useState<boolean>(() => readLS('payables_showvalues') === '1');
   // Filtro/navegação da aba Contas a Pagar (partição sem sobreposição):
-  //  parcelada = compra em N vezes · recorrente = mensal fixo · variavel = mensal que muda.
+  //  parcelada = compra em N vezes · recorrente ("Fixas") = se repete todo mês, qualquer valor · variavel = avulsa que NÃO se repete.
   const [payKind, setPayKind] = useState<'all' | 'parcelada' | 'recorrente' | 'variavel'>('all');
   const [addMenu, setAddMenu] = useState(false); // menu "+ Adicionar" quando em "Todas"
-  const [recVariavel, setRecVariavel] = useState(false); // default do modal recorrente (fixo × variável)
   // Empresa só é selecionável por quem tem manage_payables; o financeiro nunca sai da clínica.
   const effCompany = canManagePayables ? selectedCompany : '';
   const isClinic = !effCompany;
@@ -297,21 +296,29 @@ export default function ContasAPagarPage() {
   })();
   const num = (t: Tx) => Number(t.amount);
   const isFixed = (t: Tx) => t.is_recurring || !!t.installment_total || !!t.parent_transaction_id;
+  // Despesa VARIÁVEL = eventual, NÃO se repete (avulsa com vencimento): marcada com
+  // is_variable_amount=true e sem recorrência/parcela. Vive em Contas a Pagar (não em
+  // Gastos do dia). Mensal com valor que muda (energia/água) é FIXA com selo "valor muda".
+  const isVariavel = (t: Tx) => t.is_variable_amount === true && !isFixed(t);
+  const isContaAPagar = (t: Tx) => isFixed(t) || isVariavel(t);
   const isSaidasTab = effTab === 'fixas' || effTab === 'dia';
-  // Partição do filtro (buckets exclusivos): parcelada · recorrente(fixo) · variável.
+  // Partição do filtro (buckets exclusivos): parcelada · fixa (todo mês) · variável (avulsa).
   const matchesKind = (t: Tx) => {
     if (payKind === 'all') return true;
     if (payKind === 'parcelada') return !!t.installment_total;
-    if (payKind === 'variavel') return t.is_variable_amount === true;
-    // recorrente = mensal de valor fixo (recorrente/ocorrência, NÃO parcela, NÃO variável)
-    return (t.is_recurring || !!t.parent_transaction_id) && !t.installment_total && t.is_variable_amount !== true;
+    if (payKind === 'variavel') return isVariavel(t);
+    // 'recorrente' (chip "Fixas") = tudo que se repete todo mês, com qualquer valor
+    return (t.is_recurring || !!t.parent_transaction_id) && !t.installment_total;
   };
-  // fixas: filtra as fixas do que veio + o filtro do chip; dia: já vem só não-fixa.
   // Sangria/troco do caixa: dinheiro mudando de lugar — aparece à parte, fora dos
   // totais de saída (no fechamento do caixa continua contando normalmente).
   const isSangria = (t: Tx) => t.source === 'CAIXA_SANGRIA';
   const sangrias = effTab === 'dia' ? txs.filter(isSangria) : [];
-  const listForTab = effTab === 'fixas' ? txs.filter(isFixed).filter(matchesKind) : txs.filter((t) => !isSangria(t));
+  // Contas a Pagar: fixas + parceladas + variáveis (avulsas). Gastos do dia: o resto
+  // das saídas avulsas, sem sangria e sem as variáveis (que já estão em Contas a Pagar).
+  const listForTab = effTab === 'fixas'
+    ? txs.filter(isContaAPagar).filter(matchesKind)
+    : txs.filter((t) => !isSangria(t) && !isVariavel(t));
   const pend = listForTab.filter((t) => t.status === 'PENDENTE');
   const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
   const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
@@ -458,9 +465,9 @@ export default function ContasAPagarPage() {
               {payKind === 'parcelada' ? (
                 <button onClick={() => setModal('parcelada')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Layers size={14} /> Nova parcelada</button>
               ) : payKind === 'recorrente' ? (
-                <button onClick={() => { setRecVariavel(false); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Repeat size={14} /> Nova fixa</button>
+                <button onClick={() => setModal('recorrente')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Repeat size={14} /> Nova fixa</button>
               ) : payKind === 'variavel' ? (
-                <button onClick={() => { setRecVariavel(true); setModal('recorrente'); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-amber-500 text-white hover:bg-amber-600"><Repeat size={14} /> Nova variável</button>
+                <button onClick={() => setModal('variavel')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-amber-500 text-white hover:bg-amber-600"><Plus size={14} /> Nova variável</button>
               ) : (
                 <>
                   <button onClick={() => setAddMenu((v) => !v)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Plus size={14} /> Adicionar <ChevronDown size={13} /></button>
@@ -469,8 +476,8 @@ export default function ContasAPagarPage() {
                       <div className="fixed inset-0 z-10" onClick={() => setAddMenu(false)} />
                       <div className="absolute right-0 mt-1 z-20 w-60 rounded-xl border border-border bg-card shadow-lg p-1">
                         <button onClick={() => { setAddMenu(false); setModal('parcelada'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Layers size={15} className="text-rose-500" /> Conta parcelada</button>
-                        <button onClick={() => { setAddMenu(false); setRecVariavel(false); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-sky-500" /> Conta fixa (mesmo valor)</button>
-                        <button onClick={() => { setAddMenu(false); setRecVariavel(true); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-amber-500" /> Conta variável (muda todo mês)</button>
+                        <button onClick={() => { setAddMenu(false); setModal('recorrente'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Repeat size={15} className="text-sky-500" /> Conta fixa (se repete todo mês)</button>
+                        <button onClick={() => { setAddMenu(false); setModal('variavel'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg hover:bg-accent text-left"><Plus size={15} className="text-amber-500" /> Despesa variável (não se repete)</button>
                       </div>
                     </>
                   )}
@@ -502,7 +509,7 @@ export default function ContasAPagarPage() {
               onPay={(t) => setPayTarget(t)}
               onEdit={(t) => setEditTarget(t)}
               onDelete={del}
-              emptyLabel={effTab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
+              emptyLabel={effTab === 'fixas' ? 'Nenhuma conta neste mês.' : 'Nenhum gasto lançado neste mês.'}
             />
             {sangrias.length > 0 && <SangriaList items={sangrias} />}
           </>
@@ -510,7 +517,8 @@ export default function ContasAPagarPage() {
       </div>
 
       {modal === 'parcelada' && <ParceladaModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
-      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={effCompany} defaultVariavel={recVariavel} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'recorrente' && <RecorrenteModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal === 'variavel' && <VariavelModal cats={cats} companyId={effCompany} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'dia' && <GastoDoDiaModal cats={cats} accounts={accounts} companyId={effCompany} isClinic={isClinic} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {modal === 'receita' && <NovaReceitaModal cats={receitaCats} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       {payTarget && <PayModal tx={payTarget} accounts={accounts} isClinic={isClinic} onClose={() => setPayTarget(null)} onSaved={() => { setPayTarget(null); load(); }} onQuickPay={async () => { await pay(payTarget); setPayTarget(null); }} />}
@@ -555,14 +563,14 @@ function TxRow({ t, today, onPay, onEdit, onDelete }: { t: Tx; today: string; on
   const paid = t.status === 'PAGO';
   const overdue = !paid && t.due_date && dayOf(t.due_date) < today;
 
-  const variavel = t.is_variable_amount === true;
+  const valorMuda = t.is_variable_amount === true;
   const badge = t.installment_total
     ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500">{t.installment_sequence}/{t.installment_total}</span>
     : (t.is_recurring || t.parent_transaction_id)
-      ? (variavel
-          ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 inline-flex items-center gap-0.5"><Repeat size={9} /> variável</span>
-          : <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> fixa</span>)
-      : null;
+      ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 inline-flex items-center gap-0.5"><Repeat size={9} /> fixa{valorMuda ? ' · valor muda' : ''}</span>
+      : valorMuda
+        ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">variável · não se repete</span>
+        : null;
 
   return (
     <div className={`rounded-lg border px-2.5 py-1.5 flex items-center gap-2 ${paid ? 'border-emerald-500/40 bg-emerald-500/5' : overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-card'}`}>
@@ -676,8 +684,8 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
       {isRecorrente && (
         <Field label="Tipo de valor">
           <div className="inline-flex w-full rounded-lg border border-border overflow-hidden text-sm font-bold">
-            <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Fixo (mesmo valor)</button>
-            <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Variável (muda)</button>
+            <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Mesmo valor</button>
+            <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Valor muda todo mês</button>
           </div>
         </Field>
       )}
@@ -736,13 +744,63 @@ function ParceladaModal({ cats, companyId, onClose, onSaved }: { cats: Category[
   );
 }
 
-function RecorrenteModal({ cats, companyId, defaultVariavel = false, onClose, onSaved }: { cats: Category[]; companyId: string; defaultVariavel?: boolean; onClose: () => void; onSaved: () => void }) {
+// Despesa VARIÁVEL: surgiu, vai ser paga numa data e NÃO se repete. Nasce PENDENTE
+// com vencimento; pra pagar usa o ✓ da lista (que oferece lançar no caixa).
+function VariavelModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [amount, setAmount] = useState('');
+  const [dueDate, setDueDate] = useState(maceioTodayStr());
+  const [method, setMethod] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const amt = parseBRLNumber(amount || '0');
+    if (!description.trim() || !category || !(amt > 0) || !dueDate) { showError('Preencha descrição, categoria, valor e vencimento'); return; }
+    setSaving(true);
+    try {
+      // date = due_date (competência = vencimento), ancorado ao meio-dia UTC.
+      const dueIso = `${dueDate}T12:00:00.000Z`;
+      await api.post('/payables/transactions', {
+        description: description.trim(), category, amount: amt,
+        date: dueIso, due_date: dueIso, status: 'PENDENTE', payment_method: method || undefined,
+        is_recurring: false, is_variable_amount: true,
+        company_id: companyId || undefined,
+      });
+      showSuccess('Despesa variável cadastrada');
+      onSaved();
+    } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao cadastrar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Nova despesa variável" onClose={onClose}>
+      <p className="text-[12px] text-muted-foreground">Despesa que surgiu e vai ser paga numa data. <strong>Não se repete.</strong></p>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Conserto do compressor" /></Field>
+      <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Valor (R$)"><MoneyInput value={amount} onChange={setAmount} /></Field>
+        <Field label="Vencimento"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputCls} /></Field>
+      </div>
+      <Field label="Forma (opcional)">
+        <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+          <option value="">--</option>
+          {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      <p className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">💡 Fica em Contas a Pagar até ser paga. Na data, use o ✓ da lista pra pagar (dá pra lançar no caixa).</p>
+      <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-amber-500 text-white font-bold hover:bg-amber-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Cadastrar despesa</button>
+    </ModalShell>
+  );
+}
+
+function RecorrenteModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
   const [day, setDay] = useState('10');
   const [method, setMethod] = useState('');
-  const [variavel, setVariavel] = useState(defaultVariavel); // vem do contexto (chip Recorrentes=fixo, Variáveis=variável)
+  const [variavel, setVariavel] = useState(false); // valor muda todo mês? (energia/água) — continua FIXA
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -764,22 +822,22 @@ function RecorrenteModal({ cats, companyId, defaultVariavel = false, onClose, on
         is_variable_amount: variavel,
         company_id: companyId || undefined,
       });
-      showSuccess(variavel ? 'Conta variável cadastrada' : 'Conta fixa cadastrada');
+      showSuccess('Conta fixa cadastrada');
       onSaved();
     } catch (e: any) { showError(e?.response?.data?.message || 'Falha ao cadastrar'); }
     finally { setSaving(false); }
   };
 
   return (
-    <ModalShell title={variavel ? 'Nova conta variável (mensal)' : 'Nova conta fixa (mensal)'} onClose={onClose}>
+    <ModalShell title="Nova conta fixa (se repete todo mês)" onClose={onClose}>
       <p className="text-[12px] text-muted-foreground">Conta que se repete todo mês. O sistema gera 1 por mês automaticamente.</p>
       <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Aluguel / Energia elétrica" /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       {/* Fixo × Variável */}
       <Field label="Tipo de valor">
         <div className="inline-flex w-full rounded-lg border border-border overflow-hidden text-sm font-bold">
-          <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Fixo (mesmo valor)</button>
-          <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Variável (muda)</button>
+          <button type="button" onClick={() => setVariavel(false)} className={`flex-1 px-3 py-2 transition-colors ${!variavel ? 'bg-rose-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Mesmo valor</button>
+          <button type="button" onClick={() => setVariavel(true)} className={`flex-1 px-3 py-2 transition-colors ${variavel ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:bg-accent'}`}>Valor muda todo mês</button>
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3">
@@ -794,8 +852,8 @@ function RecorrenteModal({ cats, companyId, defaultVariavel = false, onClose, on
       </Field>
       <p className="text-[12px] text-muted-foreground bg-accent/50 rounded-lg p-2">
         {variavel
-          ? '💡 Variável (energia/água/internet): cadastra o estimado e você ajusta o valor real antes de pagar cada mês.'
-          : '💡 Fixo (aluguel/FGTS/folha): mesmo valor todo mês — já vem preenchido pra pagar.'}
+          ? '💡 Valor muda (energia/água/internet): cadastra o estimado e você ajusta o valor real antes de pagar cada mês.'
+          : '💡 Mesmo valor (aluguel/FGTS/folha): já vem preenchido pra pagar todo mês.'}
       </p>
       <button disabled={saving} onClick={submit} className="w-full py-2.5 rounded-lg bg-rose-500 text-white font-bold hover:bg-rose-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Cadastrar conta</button>
     </ModalShell>
