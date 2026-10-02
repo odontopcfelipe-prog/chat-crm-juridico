@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested, IsBoolean, IsNotEmpty, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // ─── Quote ─────────────────────────────────────────────────────
@@ -59,6 +59,11 @@ export class UpdateQuoteDto {
 
 export class RejectQuoteDto {
   @IsOptional() @IsString() rejection_reason?: string;
+}
+
+/** Envio do contrato no WhatsApp: a mensagem (legenda) que vai junto do PDF. */
+export class SendContractWhatsappDto {
+  @IsString() @IsNotEmpty() @MaxLength(1000) caption!: string;
 }
 
 // Onda 10 — contraproposta registrada como linha estruturada em Quote.notes.

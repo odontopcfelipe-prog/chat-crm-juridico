@@ -22,6 +22,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 // Onda 17.52 — Etapa 1 do enforcement: escrita de orçamento/proposta/venda
 // exige a permissão `manage_proposals` (antes qualquer logado escrevia/aprovava).
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
@@ -49,6 +50,7 @@ import {
   UpdateQuoteItemDto,
   OverrideItemPriceDto,
   RejectQuoteDto,
+  SendContractWhatsappDto,
   SaveCounterProposalDto,
   CreditCheckSimulateDto,
   ApplyFinancingDto,
@@ -60,7 +62,8 @@ import {
 } from './dto/commercial.dto';
 import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
-import { ContractPdfService } from './contract-pdf.service';
+import { ContractPdfService, isPdfBuffer } from './contract-pdf.service';
+import { ContractWhatsappService } from './contract-whatsapp.service';
 
 /**
  * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
@@ -93,6 +96,7 @@ export class CommercialController {
     private readonly creditCheckService: CreditCheckService,
     private readonly contractsService: ContractsService,
     private readonly contractPdfService: ContractPdfService,
+    private readonly contractWhatsapp: ContractWhatsappService,
     // Onda 17.32.71 — usado pra "Venda Rapida com Especie": apos
     // criar a charge PIX, marca como recebida em dinheiro no Asaas.
     private readonly asaasClient: AsaasClient,
@@ -1363,7 +1367,7 @@ export class CommercialController {
    *  como "arquivo corrompido". Obs.: o "0 páginas" que o Edge mostrava NÃO era
    *  transporte — era o próprio PDF corrompido pelo pdf-lib (ver buildPdf). */
   private sendPdf(res: Response, buffer: Buffer, filename: string) {
-    if (!buffer || buffer.length < 5 || buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
+    if (!isPdfBuffer(buffer)) {
       throw new InternalServerErrorException('Falha ao gerar o PDF (conteúdo inválido).');
     }
     res.set('Content-Type', 'application/pdf');
@@ -1461,6 +1465,27 @@ export class CommercialController {
    * conferir conteudo antes de enviar pro paciente. Fase 2 vai reusar
    * mesmo PDF pra subir no ClickSign.
    */
+  /** O que o modal "Enviar no WhatsApp" mostra: pra quem, por qual chip,
+   *  legenda padrão e se há algo que impede o envio (só leitura). */
+  @RequiresPermission('manage_proposals')
+  @Get('contracts/:id/whatsapp-preview')
+  previewContractWhatsapp(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractWhatsapp.preview(id, user.tenant_id);
+  }
+
+  /** Gera o PDF do contrato e envia na conversa de PACIENTE (Clínica/Comercial,
+   *  nunca Financeiro), com a legenda escrita pelo operador. */
+  @RequiresPermission('manage_proposals')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Post('contracts/:id/send-whatsapp')
+  sendContractWhatsapp(
+    @Param('id') id: string,
+    @Body() dto: SendContractWhatsappDto,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractWhatsapp.send(id, user.tenant_id, user.id, dto.caption);
+  }
+
   @Get('contracts/:id/preview-pdf')
   async previewContractPdf(
     @Param('id') id: string,

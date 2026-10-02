@@ -961,6 +961,17 @@ function PacienteFichaInner() {
         <PropostasTab
           patientId={patient.id}
           readOnly={proposalsReadOnly}
+          onOpenPatientChat={async () => {
+            // Paciente sem contato do WhatsApp ganha lead_id NO envio do contrato —
+            // recarrega só os dados (sem o spinner do load) pra o chat poder abrir.
+            if (!patient.lead_id) {
+              try {
+                const { data } = await api.get<Patient>(`/patients/${patient.id}`);
+                setPatient(data);
+              } catch { /* best-effort */ }
+            }
+            toggleChat(true);
+          }}
           onOpenQuoteDetail={() => {
             // Onda 17.32.23 — Sem aba Orçamentos. Tudo (ajuste, aprovação,
             // cobrança) acontece dentro da própria aba Propostas. Mantemos

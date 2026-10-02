@@ -455,6 +455,13 @@ export default function Dashboard() {
     // Reset badge de scroll ao trocar de conversa
     setNewMsgsWhileScrolled(0);
     isScrolledUpRef.current = false;
+    // Anexos pendentes pertencem à conversa onde foram anexados: limpa na troca.
+    // Antes ficavam na bandeja e saíam na PRÓXIMA conversa aberta (ex.: o
+    // contrato de um paciente, com CPF/endereço, enviado pra outro).
+    setPendingFiles(prev => {
+      prev.forEach(pf => { if (pf.preview) URL.revokeObjectURL(pf.preview); });
+      return prev.length ? [] : prev;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -1578,6 +1585,40 @@ export default function Dashboard() {
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleSend = async () => {
+    // Anexo(s) na bandeja: o botão de enviar / Enter envia o arquivo — antes
+    // exigia texto (o botão ficava desabilitado e o Enter não fazia nada, só o
+    // botão "Enviar N arquivo" da bandeja funcionava). O texto digitado vai como
+    // LEGENDA do arquivo, numa mensagem só. Slash command aberto tem prioridade.
+    if (pendingFiles.length > 0 && !(slashQuery !== null && filteredSlashCommands.length > 0)) {
+      if (!selectedId || selectedId.startsWith('demo-') || uploadingFile || text.length > 5000) return;
+      const convId = selectedId;
+      const caption = text.trim();
+      const { captionSent } = await sendPendingFiles(caption || undefined);
+      if (captionSent) {
+        if (selectedIdRef.current === convId) {
+          // Limpa só se a caixa ainda tem exatamente a legenda enviada (o
+          // operador pode ter digitado mais durante o upload).
+          const cur = inputRef.current?.value ?? '';
+          if (cur.trim() === caption) {
+            setText('');
+            setReplyingTo(null);
+            if (inputRef.current) { inputRef.current.value = ''; inputRef.current.style.height = 'auto'; }
+          }
+        } else {
+          // Trocou de conversa no meio do upload: NÃO mexe na conversa nova; só
+          // apaga o rascunho da antiga se for a legenda já enviada (senão ela
+          // voltaria na caixa e sairia 2×).
+          setDrafts(prev => {
+            if ((prev[convId] ?? '').trim() !== caption) return prev;
+            const next = { ...prev };
+            delete next[convId];
+            try { localStorage.setItem('inbox_drafts', JSON.stringify(next)); } catch { /* quota excedida */ }
+            return next;
+          });
+        }
+      }
+      return;
+    }
     if (!text.trim() || !selectedId || selectedId.startsWith('demo-') || sending || text.length > 5000) return;
 
     // ── Slash command selecionado pelo menu ─────────────────────────────────
@@ -2180,35 +2221,41 @@ export default function Dashboard() {
   const ALLOWED_MEDIA = /^(image|video|audio)\//;
   const ALLOWED_DOC_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument', 'application/vnd.ms-excel', 'text/plain', 'application/zip', 'application/x-zip-compressed'];
 
-  const uploadFile = async (file: File) => {
-    if (!selectedId || selectedId.startsWith('demo-')) return;
+  // Envia UM arquivo pra conversa `convId` (legenda opcional). Não mexe em
+  // uploadingFile — quem chama (o lote) controla, senão o "enviando" desligava
+  // no meio do lote e liberava clique duplo.
+  const uploadFile = async (file: File, convId: string, caption?: string): Promise<boolean> => {
+    if (!convId || convId.startsWith('demo-')) return false;
     if (file.size > MAX_FILE_SIZE) {
       showError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Limite: 50MB`);
-      return;
+      return false;
     }
     if (!ALLOWED_MEDIA.test(file.type) && !ALLOWED_DOC_TYPES.some(t => file.type.startsWith(t))) {
       showError('Tipo de arquivo não permitido');
-      return;
+      return false;
     }
-    setUploadingFile(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('conversationId', selectedId);
+      formData.append('conversationId', convId);
+      if (caption) formData.append('caption', caption);
       const res = await api.post('/messages/send-file', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      if (res.data?.id) {
+      // Só põe a bolha na tela se o operador ainda está NESSA conversa (o
+      // socket entrega pra quem estiver nela, se trocou no meio do envio).
+      if (res.data?.id && res.data.conversation_id === selectedIdRef.current) {
         setMessages(prev => {
           if (prev.find(m => m.id === res.data.id)) return prev;
           return [...prev, res.data];
         });
       }
-    } catch (e) {
+      return true;
+    } catch (e: any) {
       console.error('Falha ao enviar arquivo', e);
-      showError('Falha ao enviar arquivo');
-    } finally {
-      setUploadingFile(false);
+      const msg = e?.response?.data?.message;
+      showError(`Falha ao enviar "${file.name}"${msg ? `: ${Array.isArray(msg) ? msg.join(', ') : msg}` : ''}`);
+      return false;
     }
   };
 
@@ -2233,18 +2280,32 @@ export default function Dashboard() {
     });
   };
 
-  const sendPendingFiles = async () => {
-    if (!pendingFiles.length || !selectedId || selectedId.startsWith('demo-')) return;
+  // Envia os anexos da bandeja pra conversa ATUAL. A legenda (texto digitado)
+  // vai UMA vez, no 1º arquivo que sair (se o 1º falhar, vai no próximo; o
+  // reenvio do que falhou não a repete). Sai da bandeja só o que foi enviado —
+  // o que falhou fica lá pra tentar de novo.
+  const sendPendingFiles = async (caption?: string): Promise<{ allOk: boolean; captionSent: boolean }> => {
+    const convId = selectedId;
+    if (!pendingFiles.length || !convId || convId.startsWith('demo-') || uploadingFile) return { allOk: false, captionSent: false };
+    const batch = pendingFiles;
+    let allOk = true;
+    let captionLeft = caption;
     setUploadingFile(true);
     try {
-      for (const { file, preview } of pendingFiles) {
-        await uploadFile(file);
-        if (preview) URL.revokeObjectURL(preview);
+      for (const item of batch) {
+        const ok = await uploadFile(item.file, convId, captionLeft);
+        if (ok) {
+          captionLeft = undefined;
+          if (item.preview) URL.revokeObjectURL(item.preview);
+          setPendingFiles(prev => prev.filter(p => p !== item));
+        } else {
+          allOk = false;
+        }
       }
-      setPendingFiles([]);
     } finally {
       setUploadingFile(false);
     }
+    return { allOk, captionSent: !!caption && captionLeft === undefined };
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3368,8 +3429,9 @@ export default function Dashboard() {
                         </div>
                       ))}
                       <button
-                        onClick={sendPendingFiles}
+                        onClick={handleSend}
                         disabled={uploadingFile}
+                        title={text.trim() ? 'O texto digitado vai como legenda do arquivo' : undefined}
                         className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 disabled:opacity-50"
                       >
                         {uploadingFile ? (
@@ -3520,8 +3582,9 @@ export default function Dashboard() {
                   {/* Botão Enviar */}
                   <button
                     onClick={handleSend}
-                    disabled={!isRealConvo || !text.trim() || sending || text.length > 5000}
-                    aria-label="Enviar mensagem"
+                    disabled={!isRealConvo || sending || uploadingFile || text.length > 5000 || (!text.trim() && pendingFiles.length === 0)}
+                    aria-label={pendingFiles.length > 0 ? 'Enviar arquivo' : 'Enviar mensagem'}
+                    title={pendingFiles.length > 0 ? (text.trim() ? 'Enviar o arquivo com o texto como legenda' : 'Enviar o arquivo') : undefined}
                     className="bg-gradient-to-r from-primary to-ring p-2 md:p-2.5 rounded-xl shadow-lg disabled:opacity-50 hover:-translate-y-1 transition-transform shrink-0 mb-0.5"
                   >
                     <Send size={18} className="text-primary-foreground md:w-5 md:h-5" />

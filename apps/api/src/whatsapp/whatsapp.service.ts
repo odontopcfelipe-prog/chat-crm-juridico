@@ -21,7 +21,7 @@ function toggleBr9thDigit(num: string): string | null {
   return null;
 }
 
-function evolutionSendFailed(res: any): boolean {
+export function evolutionSendFailed(res: any): boolean {
   if (!res) return true;
   if (res.statusCode >= 400 || res.error) return true;
   // Evolution responde exists:false quando o número não está no WhatsApp.

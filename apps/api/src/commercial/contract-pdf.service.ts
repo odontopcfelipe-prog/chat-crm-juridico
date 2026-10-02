@@ -57,6 +57,11 @@ const MAIN_CONTRACT_FILE = 'contrato-prestacao-servicos.pdf';
  *  mudanças com um renderizador ESTRITO (pdf.js), nunca só com o pdf-lib. */
 const PDF_SAVE_OPTS = { useObjectStreams: false } as const;
 
+/** true se o buffer começa com o magic byte de PDF ("%PDF-"). */
+export function isPdfBuffer(buf: Buffer | null | undefined): boolean {
+  return !!buf && buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-';
+}
+
 const EXTRA_DOCUMENT_PDF_MAP: Record<string, string> = {
   USO_IMAGEM: 'uso-de-imagem.pdf',
   CLAREAMENTO: 'clareamento.pdf',

@@ -54,6 +54,9 @@ interface Props {
    * editar/criar). O backend já bloqueia as escritas; aqui é UX.
    */
   readOnly?: boolean;
+  /** Abre o chat do paciente na própria ficha (painel lateral "Conversar") —
+   *  usado depois de enviar o contrato no WhatsApp ("Ver na conversa"). */
+  onOpenPatientChat?: () => void | Promise<void>;
 }
 
 interface QuoteListItem {
@@ -752,7 +755,7 @@ function ClinicaBadge({ className = '' }: { className?: string }) {
   );
 }
 
-export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation, readOnly = false }: Props) {
+export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation, readOnly = false, onOpenPatientChat }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Onda 8.1 — picker pra atribuir orcamento a slot vazio (Completo/Essencial/Urgente).
@@ -1869,6 +1872,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       {selectedId && (
         <PropostaPainel
           readOnly={readOnly}
+          onOpenPatientChat={onOpenPatientChat}
           loading={loadingDetail}
           detail={selectedDetail}
           priority={
@@ -3099,16 +3103,30 @@ interface Completeness {
   dentist: { name: string; cro: string };
 }
 
+interface ContractWhatsappPreview {
+  defaultCaption: string;
+  patientName: string;
+  phoneLast4: string;
+  chip: { purpose: 'CLINICA' | 'COMERCIAL'; label: string } | null;
+  problem: string | null;
+  problemMessage: string | null;
+  blocking: boolean;
+}
+
 function ContratoCard({
   quoteId,
   proposalLabel,
   paymentFormLabel,
   total,
+  readOnly = false,
+  onOpenPatientChat,
 }: {
   quoteId: string;
   proposalLabel?: string;
   paymentFormLabel?: string;
   total?: number;
+  readOnly?: boolean;
+  onOpenPatientChat?: () => void | Promise<void>;
 }) {
   const [contract, setContract] = useState<ContractMinimal | null>(null);
   const [quote, setQuote] = useState<QuoteWithSigners | null>(null);
@@ -3121,6 +3139,13 @@ function ContratoCard({
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   // PDF sendo gerado (trava os botões de prévia/baixar contra clique repetido).
   const [pdfBusy, setPdfBusy] = useState(false);
+  // "Enviar no WhatsApp": modal com destinatário, chip e legenda editável.
+  const [waOpen, setWaOpen] = useState(false);
+  const [waLoading, setWaLoading] = useState(false);
+  const [waPreview, setWaPreview] = useState<ContractWhatsappPreview | null>(null);
+  const [waCaption, setWaCaption] = useState('');
+  const [waSending, setWaSending] = useState(false);
+  const [waSent, setWaSent] = useState<{ conversationId: string; chipLabel: string } | null>(null);
   // Dentista responsável que assina. '' = automático (resolve do orçamento no backend).
   const [dentists, setDentists] = useState<DentistOption[]>([]);
   const [dentistId, setDentistId] = useState<string>('');
@@ -3330,6 +3355,62 @@ function ContratoCard({
   // ler o conteudo antes de marcar o checkbox.
   const previewTemplate = (docId: string, label: string) =>
     openPdfInNewTab(`/contract-templates/${docId}/pdf`, `Não foi possível abrir "${label}"`);
+
+  const errMsg = (err: unknown, fallback: string) => {
+    const m = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+    return (Array.isArray(m) ? m.join(', ') : m) || fallback;
+  };
+
+  // "Enviar no WhatsApp": abre o modal já com destinatário, chip e legenda
+  // padrão (só leitura no servidor — nada é criado até clicar em Enviar).
+  const openWhatsappModal = async () => {
+    if (!contract) return;
+    setWaOpen(true);
+    setWaSent(null);
+    setWaPreview(null);
+    setWaLoading(true);
+    try {
+      const { data } = await api.get<ContractWhatsappPreview>(`/contracts/${contract.id}/whatsapp-preview`);
+      setWaPreview(data);
+      setWaCaption(data.defaultCaption);
+    } catch (err: unknown) {
+      showError(errMsg(err, 'Erro ao preparar o envio'));
+      setWaOpen(false);
+    } finally {
+      setWaLoading(false);
+    }
+  };
+
+  const sendWhatsapp = async () => {
+    if (!contract || waSending) return;
+    const caption = waCaption.trim();
+    if (!caption) { showError('Escreva a mensagem que vai junto do contrato.'); return; }
+    setWaSending(true);
+    try {
+      const { data } = await api.post<{ conversationId: string; messageId: string | null; chip: { label: string } }>(
+        `/contracts/${contract.id}/send-whatsapp`,
+        { caption },
+      );
+      setWaSent({ conversationId: data.conversationId, chipLabel: data.chip?.label || 'WhatsApp' });
+      showSuccess(`Contrato enviado no WhatsApp (${data.chip?.label || 'WhatsApp'})`);
+    } catch (err: unknown) {
+      // Mantém o modal e o texto editado pra tentar de novo.
+      showError(errMsg(err, 'Erro ao enviar no WhatsApp'));
+    } finally {
+      setWaSending(false);
+    }
+  };
+
+  // "Ver na conversa": na ficha abre o chat lateral (mesma conversa); fora
+  // dela, leva pro inbox já com a conversa aberta.
+  const goToConversation = () => {
+    setWaOpen(false);
+    if (onOpenPatientChat) { void onOpenPatientChat(); return; }
+    if (waSent) {
+      try { sessionStorage.setItem('crm_open_conv', waSent.conversationId); } catch { /* storage indisponível */ }
+      window.location.assign('/atendimento');
+    }
+  };
 
   const action = async (path: string) => {
     if (!contract) return;
@@ -3692,6 +3773,18 @@ function ContratoCard({
                 {pdfBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                 Baixar PDF
               </button>
+              {!readOnly && contract.status !== 'CANCELLED' && contract.status !== 'EXPIRED' && (
+                <button
+                  type="button"
+                  onClick={openWhatsappModal}
+                  disabled={busy || pdfBusy || waSending}
+                  className="text-xs font-semibold px-3 py-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="Enviar o PDF do contrato na conversa do paciente (WhatsApp Clínica/Comercial)"
+                >
+                  <MessageSquare size={12} />
+                  Enviar no WhatsApp
+                </button>
+              )}
             </>
           )}
           {!contract && (
@@ -3821,6 +3914,130 @@ function ContratoCard({
                 >
                   Concluir
                 </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {/* Modal "Enviar no WhatsApp": pra quem, por qual número e a mensagem. */}
+      {waOpen && (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto p-4"
+            onClick={() => { if (!waSending) setWaOpen(false); }}
+          >
+            <div
+              className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full my-8 overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-foreground">Enviar contrato no WhatsApp</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">O PDF vai anexado, com a mensagem abaixo como legenda.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWaOpen(false)}
+                  disabled={waSending}
+                  className="p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground shrink-0 disabled:opacity-50"
+                  aria-label="Fechar"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-3">
+                {waLoading || !waPreview ? (
+                  <div className="flex items-center text-xs text-muted-foreground py-6 justify-center">
+                    <Loader2 size={14} className="animate-spin mr-2" />
+                    Preparando o envio...
+                  </div>
+                ) : waSent ? (
+                  <div className="py-4 text-center space-y-2">
+                    <div className="mx-auto w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                      <Check size={20} />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">Contrato enviado</p>
+                    <p className="text-xs text-muted-foreground">
+                      Saiu pelo WhatsApp {waSent.chipLabel} para {waPreview.patientName}. Já aparece no histórico da conversa.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-xs space-y-1">
+                      <p>
+                        <span className="text-muted-foreground">Para: </span>
+                        <span className="font-semibold text-foreground">{waPreview.patientName}</span>
+                        {waPreview.phoneLast4 && <span className="text-muted-foreground"> · final {waPreview.phoneLast4}</span>}
+                      </p>
+                      {waPreview.chip && (
+                        <p className="text-muted-foreground">
+                          Sai pelo WhatsApp <span className="font-semibold text-foreground">{waPreview.chip.label}</span> da clínica (nunca pelo número do Financeiro).
+                        </p>
+                      )}
+                    </div>
+                    {waPreview.problemMessage && (
+                      <div className={`text-[11px] rounded-md px-3 py-2 flex items-start gap-1.5 border ${waPreview.blocking ? 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'}`}>
+                        <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                        <span>{waPreview.problemMessage}</span>
+                      </div>
+                    )}
+                    <div>
+                      <textarea
+                        value={waCaption}
+                        onChange={(e) => setWaCaption(e.target.value.slice(0, 1000))}
+                        rows={6}
+                        disabled={waSending || waPreview.blocking}
+                        className="w-full text-sm rounded-md border border-border bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-60 resize-y"
+                        placeholder="Mensagem que vai junto do contrato"
+                      />
+                      <p className="text-[10px] text-muted-foreground text-right">{waCaption.length}/1000</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="px-5 py-3 border-t border-border bg-muted/20 flex justify-end gap-2">
+                {waSent ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setWaOpen(false)}
+                      className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground"
+                    >
+                      Fechar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToConversation}
+                      className="text-xs font-bold px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5"
+                    >
+                      <MessageSquare size={12} />
+                      Ver na conversa
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setWaOpen(false)}
+                      disabled={waSending}
+                      className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendWhatsapp}
+                      disabled={waSending || waLoading || !waPreview || waPreview.blocking || !waCaption.trim()}
+                      className="text-xs font-bold px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {waSending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                      {waSending ? 'Enviando...' : 'Enviar'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -4002,6 +4219,7 @@ function AfiliadoDaVenda({
 
 function PropostaPainel({
   readOnly = false,
+  onOpenPatientChat,
   avistaDiscountPct = 10,
   loading,
   detail,
@@ -4025,6 +4243,7 @@ function PropostaPainel({
   onReload,
 }: {
   readOnly?: boolean;
+  onOpenPatientChat?: () => void | Promise<void>;
   /** Onda 18 — % de desconto à vista configurado pela clínica (default 10). */
   avistaDiscountPct?: number;
   loading: boolean;
@@ -5241,6 +5460,8 @@ function PropostaPainel({
           return `Boleto ${opt.installments}x`;
         })()}
         total={total}
+        readOnly={readOnly}
+        onOpenPatientChat={onOpenPatientChat}
       />
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes

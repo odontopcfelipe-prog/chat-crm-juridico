@@ -1242,7 +1242,24 @@ export class QuotesService {
       );
     }
 
-    if (patient.lead_id) return; // ja tem lead, OK
+    await this.ensurePatientLead(patientId, tenantId, 'cobranca');
+  }
+
+  /**
+   * Garante que o paciente tem Lead (contato do WhatsApp): vincula o lead do
+   * tenant que casa pelo telefone (todas as variantes) ou cria um lead mínimo.
+   * Usado pela cobrança e pelo envio do contrato no WhatsApp. `context` só muda
+   * o texto dos erros. Devolve o lead_id.
+   */
+  async ensurePatientLead(patientId: string, tenantId: string, context: 'cobranca' | 'whatsapp' = 'cobranca'): Promise<string> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, name: true, phone: true, lead_id: true, tenant_id: true },
+    });
+    if (!patient) throw new BadRequestException('Paciente nao encontrado');
+    if (patient.tenant_id && patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
+    if (patient.lead_id) return patient.lead_id; // ja tem lead, OK
+    const acao = context === 'cobranca' ? 'gerar a cobrança' : 'enviar no WhatsApp';
 
     // Tenta vincular lead existente pelo telefone — DENTRO do tenant
     // (Onda 17.36: phone deixou de ser unico global; vincular lead de outra
@@ -1265,22 +1282,26 @@ export class QuotesService {
         });
         if (claimedByOther) {
           throw new BadRequestException(
-            'Este telefone já pertence a outro contato/paciente. Dois pacientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste paciente antes de gerar a cobrança.',
+            context === 'cobranca'
+              ? 'Este telefone já pertence a outro contato/paciente. Dois pacientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste paciente antes de gerar a cobrança.'
+              : `Este telefone já pertence a outro contato/paciente — ajuste o telefone deste paciente antes de ${acao}.`,
           );
         }
         await this.prisma.patient.update({
           where: { id: patientId },
           data: { lead_id: existingLead.id },
         });
-        this.logger.log(`[APPROVE-AND-BILL] Vinculou lead existente ${existingLead.id} ao paciente ${patientId}`);
-        return;
+        this.logger.log(`[${context === 'cobranca' ? 'APPROVE-AND-BILL' : 'CONTRACT-WHATSAPP'}] Vinculou lead existente ${existingLead.id} ao paciente ${patientId}`);
+        return existingLead.id;
       }
     }
 
     // Cria lead minimo (fantasma) so pra ter um lead_id pro Asaas customer
     if (!patient.phone) {
       throw new BadRequestException(
-        'Paciente sem telefone. Edite o paciente e adicione o telefone antes de gerar cobranca.',
+        context === 'cobranca'
+          ? 'Paciente sem telefone. Edite o paciente e adicione o telefone antes de gerar cobranca.'
+          : `Paciente sem telefone. Edite o paciente e adicione o telefone antes de ${acao}.`,
       );
     }
     const newLead = await this.prisma.lead.create({
@@ -1297,7 +1318,8 @@ export class QuotesService {
       where: { id: patientId },
       data: { lead_id: newLead.id },
     });
-    this.logger.log(`[APPROVE-AND-BILL] Criou lead fantasma ${newLead.id} pra paciente ${patientId}`);
+    this.logger.log(`[${context === 'cobranca' ? 'APPROVE-AND-BILL' : 'CONTRACT-WHATSAPP'}] Criou lead fantasma ${newLead.id} pra paciente ${patientId}`);
+    return newLead.id;
   }
 
   /**

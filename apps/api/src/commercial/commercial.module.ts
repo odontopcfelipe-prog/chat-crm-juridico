@@ -23,6 +23,9 @@ import { PortalModule } from '../portal/portal.module';
 import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { LeadsModule } from '../leads/leads.module';
 import { FileStorageService } from '../media/filesystem.service';
+import { MessagesModule } from '../messages/messages.module';
+import { ConversationsModule } from '../conversations/conversations.module';
+import { ContractWhatsappService } from './contract-whatsapp.service';
 
 @Module({
   imports: [
@@ -40,6 +43,9 @@ import { FileStorageService } from '../media/filesystem.service';
     // Sequência do fechamento: negociação + boleto da entrada saem 3 min DEPOIS da
     // apresentação, via job com delay nesta fila (processada pelo FechamentoProcessor).
     BullModule.registerQueue({ name: 'fechamento-jobs' }),
+    // "Enviar no WhatsApp" do contrato: envio estrito pela conversa de paciente.
+    MessagesModule,
+    ConversationsModule,
   ],
   controllers: [CommercialController],
   providers: [
@@ -57,6 +63,7 @@ import { FileStorageService } from '../media/filesystem.service';
     CreditCheckService,
     ContractsService,
     ContractPdfService,
+    ContractWhatsappService,
     FileStorageService,
   ],
   exports: [

@@ -340,13 +340,49 @@ export class ConversationsService {
    */
   async findOrCreatePatientConversation(lead_id: string, tenantId?: string | null): Promise<any[]> {
     if (!lead_id || !tenantId) return [];
+    const convoId = await this.findOrCreatePatientConversationId(lead_id, tenantId);
+    if (!convoId) return [];
+    const all = await this.findAllByLead(lead_id, tenantId);
+    return all.filter((c: any) => c.id === convoId);
+  }
+
+  /**
+   * Núcleo do findOrCreatePatientConversation: devolve só o ID da conversa de
+   * PACIENTE (nunca do Financeiro) ou null. Usado também pelo envio do contrato
+   * no WhatsApp — os dois caem na MESMA conversa.
+   *
+   * Além do filtro por inbox FINANCEIRO, exclui conversa SEM inbox cujo
+   * instance_name é um chip FINANCEIRO (o filtro por relação não pega inbox
+   * NULL). Corrida com o webhook criando a mesma conversa (P2002 no índice
+   * único parcial) → reusa a que ficou.
+   */
+  async findOrCreatePatientConversationId(lead_id: string, tenantId: string): Promise<string | null> {
+    if (!lead_id || !tenantId) return null;
     const lead = await this.prisma.lead.findUnique({
       where: { id: lead_id },
       select: { phone: true, tenant_id: true },
     });
     if (!lead || lead.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
     const cleanPhone = (lead.phone || '').replace(/\D/g, '');
-    if (!cleanPhone) return [];
+    if (!cleanPhone) return null;
+
+    // Nomes dos chips FINANCEIRO do tenant: conversa sem inbox mas presa num
+    // desses chips também é do mundo Financeiro.
+    const finNames = (await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, purpose: 'FINANCEIRO' },
+      select: { name: true },
+    })).map((i) => i.name);
+    const existingWhere: any = {
+      lead_id,
+      channel: 'whatsapp',
+      status: { not: 'ENCERRADO' },
+      NOT: { inbox: { purpose: 'FINANCEIRO' } },
+      ...(finNames.length ? { AND: [{ OR: [
+        { inbox_id: { not: null } },
+        { instance_name: null },
+        { instance_name: { notIn: finNames } },
+      ] }] } : {}),
+    };
 
     // Inbox resolvido FORA da transação (não depende do lock).
     const pickInbox = async (purpose: 'CLINICA' | 'COMERCIAL') =>
@@ -364,18 +400,16 @@ export class ConversationsService {
         select: { id: true, purpose: true },
       }));
 
-    const convoId = await this.prisma.$transaction(async (tx) => {
+    const findExisting = (client: any) => client.conversation.findFirst({
+      where: existingWhere,
+      orderBy: { last_message_at: 'desc' },
+      select: { id: true },
+    }) as Promise<{ id: string } | null>;
+
+    try {
+    return await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lead_id}), 0)`;
-      const existing = await tx.conversation.findFirst({
-        where: {
-          lead_id,
-          channel: 'whatsapp',
-          status: { not: 'ENCERRADO' },
-          NOT: { inbox: { purpose: 'FINANCEIRO' } },
-        },
-        orderBy: { last_message_at: 'desc' },
-        select: { id: true },
-      });
+      const existing = await findExisting(tx);
       if (existing) return existing.id;
       if (!inbox) return null;
       const chipPurpose = inbox.purpose === 'COMERCIAL' ? 'COMERCIAL' : 'CLINICA';
@@ -409,9 +443,15 @@ export class ConversationsService {
       this.logger.log(`[FICHA-CHAT] Conversa de paciente criada pro lead ${lead_id}: ${created.id} (inbox ${inbox.purpose ?? 'sem função'})`);
       return created.id;
     });
-    if (!convoId) return [];
-    const all = await this.findAllByLead(lead_id, tenantId);
-    return all.filter((c: any) => c.id === convoId);
+    } catch (e: any) {
+      // Webhook criou a mesma conversa no meio (índice único parcial lead+inbox)
+      // → reusa a que ficou, em vez de estourar erro de banco.
+      if (e?.code === 'P2002') {
+        const again = await findExisting(this.prisma);
+        if (again) return again.id;
+      }
+      throw e;
+    }
   }
 
   async setAssignedLawyer(id: string, dentistId: string | null): Promise<Conversation> {
