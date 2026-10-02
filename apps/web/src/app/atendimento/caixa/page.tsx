@@ -284,23 +284,44 @@ function AddMovementModal({ direction, accounts, onClose, onSaved }: { direction
   const [method, setMethod] = useState('DINHEIRO');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [description, setDescription] = useState('');
+  // Só na saída: DESPESA (gasto de verdade) × SANGRIA (sangria/troco — dinheiro só
+  // mudando de lugar; conta no fechamento, mas o Financeiro não soma como gasto).
+  const [kind, setKind] = useState<'DESPESA' | 'SANGRIA' | null>(null);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     const val = parseMoney(amount);
     if (!val || val <= 0) return showError('Informe um valor válido.');
     if (!accountId) return showError('Escolha a conta.');
+    if (isSaida && !kind) return showError('Escolha o tipo: despesa ou sangria/troco.');
     setSaving(true);
     try {
-      await api.post('/caixa/movements', { direction, amount: val, method, account_id: accountId, description: description.trim() || undefined });
-      showSuccess(isSaida ? 'Saída registrada.' : 'Entrada registrada.');
+      await api.post('/caixa/movements', {
+        direction, amount: val, method, account_id: accountId,
+        description: description.trim() || undefined,
+        ...(isSaida && kind ? { kind } : {}),
+      });
+      showSuccess(isSaida ? (kind === 'SANGRIA' ? 'Sangria/troco registrado.' : 'Saída registrada.') : 'Entrada registrada.');
       onSaved();
     } catch (e: any) { showError(e?.response?.data?.message || 'Não foi possível lançar.'); }
     finally { setSaving(false); }
   };
 
   return (
-    <Modal onClose={onClose} title={isSaida ? 'Nova saída (sangria / troco)' : 'Nova entrada'}>
+    <Modal onClose={onClose} title={isSaida ? 'Nova saída' : 'Nova entrada'}>
+      {isSaida && (
+        <>
+          <label className="block text-sm font-semibold text-slate-600 mb-1.5">Tipo de saída</label>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <button onClick={() => setKind('DESPESA')} className={`px-3 py-2.5 rounded-lg border text-sm font-semibold text-left ${kind === 'DESPESA' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-slate-200 text-slate-600'}`}>
+              Despesa<span className="block text-xs font-normal opacity-80">Gasto de verdade (ex.: material)</span>
+            </button>
+            <button onClick={() => setKind('SANGRIA')} className={`px-3 py-2.5 rounded-lg border text-sm font-semibold text-left ${kind === 'SANGRIA' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'}`}>
+              Sangria / troco<span className="block text-xs font-normal opacity-80">Dinheiro só mudando de lugar</span>
+            </button>
+          </div>
+        </>
+      )}
       <label className="block text-sm font-semibold text-slate-600 mb-1">Valor</label>
       <input autoFocus inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-lg font-bold tabular-nums mb-4" />
 
@@ -319,7 +340,7 @@ function AddMovementModal({ direction, accounts, onClose, onSaved }: { direction
       </select>
 
       <label className="block text-sm font-semibold text-slate-600 mb-1">Descrição <span className="font-normal text-slate-400">(opcional)</span></label>
-      <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={isSaida ? 'Ex: sangria pro banco' : 'Ex: sinal João'} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 mb-5" />
+      <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={isSaida ? (kind === 'SANGRIA' ? 'Ex: sangria pro banco' : 'Ex: material de limpeza') : 'Ex: sinal João'} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 mb-5" />
 
       <button disabled={saving} onClick={save} className={`w-full py-2.5 rounded-lg text-white font-semibold ${isSaida ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'} disabled:opacity-60 flex items-center justify-center gap-2`}>
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} {isSaida ? 'Registrar saída' : 'Registrar entrada'}

@@ -72,6 +72,7 @@ interface Tx {
   parent_transaction_id: string | null;
   is_variable_amount?: boolean | null;
   lead?: { name?: string } | null;
+  source?: string | null; // 'PAYABLES' | 'CAIXA_SANGRIA' (sangria/troco do caixa) | null
 }
 interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
@@ -108,7 +109,8 @@ export default function ContasAPagarPage() {
     return (['fixas', 'dia', 'entradas', 'pacientes', 'log'] as string[]).includes(t) ? (t as PanelTab) : 'fixas';
   });
   const [txs, setTxs] = useState<Tx[]>([]); // saídas (fixas ou gastos, conforme a aba)
-  const [entradas, setEntradas] = useState<Tx[]>([]); // RECEITA (aba Entradas)
+  const [entradas, setEntradas] = useState<Tx[]>([]); // RECEITA PAGA (aba Entradas)
+  const [entradasTotal, setEntradasTotal] = useState(0); // total no banco (pra avisar se cortou)
   const [logRows, setLogRows] = useState<LogRow[]>([]); // aba Log
   const [cats, setCats] = useState<Category[]>([]); // categorias de DESPESA (payables)
   const [receitaCats, setReceitaCats] = useState<Category[]>([]); // categorias de RECEITA (Nova Receita)
@@ -170,8 +172,13 @@ export default function ContasAPagarPage() {
         setTxs(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
       } else if (effTab === 'entradas') {
         if (!canViewFinancial) { setEntradas([]); return; }
-        const { data } = await api.get(`/financeiro/transactions?type=RECEITA&startDate=${start}&endDate=${end}&limit=200`);
-        setEntradas(((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) })));
+        // Só o que foi PAGO = dinheiro que entrou (caixa + boletos/PIX recebidos).
+        // Sem status, vinha também receita pendente — e, no mês atual, as pendentes
+        // de meses anteriores (carry-over do findAllTransactions) — inflando o total.
+        const { data } = await api.get(`/financeiro/transactions?type=RECEITA&status=PAGO&startDate=${start}&endDate=${end}&limit=2000`);
+        const rows = ((data?.data ?? data ?? []) as Tx[]).map((t) => ({ ...t, amount: Number(t.amount) }));
+        setEntradas(rows);
+        setEntradasTotal(typeof data?.total === 'number' ? data.total : rows.length);
       } else if (effTab === 'log') {
         if (!canViewFinancial) { setLogRows([]); return; }
         const { data } = await api.get('/financeiro/audit-log?limit=60');
@@ -300,7 +307,11 @@ export default function ContasAPagarPage() {
     return (t.is_recurring || !!t.parent_transaction_id) && !t.installment_total && t.is_variable_amount !== true;
   };
   // fixas: filtra as fixas do que veio + o filtro do chip; dia: já vem só não-fixa.
-  const listForTab = effTab === 'fixas' ? txs.filter(isFixed).filter(matchesKind) : txs;
+  // Sangria/troco do caixa: dinheiro mudando de lugar — aparece à parte, fora dos
+  // totais de saída (no fechamento do caixa continua contando normalmente).
+  const isSangria = (t: Tx) => t.source === 'CAIXA_SANGRIA';
+  const sangrias = effTab === 'dia' ? txs.filter(isSangria) : [];
+  const listForTab = effTab === 'fixas' ? txs.filter(isFixed).filter(matchesKind) : txs.filter((t) => !isSangria(t));
   const pend = listForTab.filter((t) => t.status === 'PENDENTE');
   const vencidas = pend.filter((t) => t.due_date && dayOf(t.due_date) < today);
   const aVencer = pend.filter((t) => !t.due_date || dayOf(t.due_date) >= today);
@@ -482,16 +493,19 @@ export default function ContasAPagarPage() {
         ) : effTab === 'log' ? (
           <LogTab rows={logRows} />
         ) : effTab === 'entradas' ? (
-          <EntradasTab items={entradas} />
+          <EntradasTab items={entradas} totalInDb={entradasTotal} />
         ) : (
-          <TxList
-            items={listForTab}
-            today={today}
-            onPay={(t) => setPayTarget(t)}
-            onEdit={(t) => setEditTarget(t)}
-            onDelete={del}
-            emptyLabel={effTab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
-          />
+          <>
+            <TxList
+              items={listForTab}
+              today={today}
+              onPay={(t) => setPayTarget(t)}
+              onEdit={(t) => setEditTarget(t)}
+              onDelete={del}
+              emptyLabel={effTab === 'fixas' ? 'Nenhuma conta fixa neste mês.' : 'Nenhum gasto lançado neste mês.'}
+            />
+            {sangrias.length > 0 && <SangriaList items={sangrias} />}
+          </>
         )}
       </div>
 
@@ -949,19 +963,49 @@ function ReceberLines({ b }: { b?: { sem_atraso?: ReceberBreak; mais_2_parcelas?
   );
 }
 
-// ─── Aba Entradas (RECEITA do mês, só leitura) ────────────────────────────────
-// Espelho das entradas do Financeiro — o lançamento continua na tela de recepção;
-// aqui é a visão consolidada pro adm/gerente (mesma fonte, nada é duplicado).
-function EntradasTab({ items }: { items: Tx[] }) {
-  if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Nenhuma entrada neste mês.</div>;
+// ─── Sangria/troco do caixa (aba Gastos do dia) — NÃO é gasto ─────────────────
+// Vem do caixa ("Nova saída" → Sangria/troco). Fica visível pro adm (tudo que o
+// caixa registra sobe pro Financeiro), mas separado e fora dos totais de saída.
+function SangriaList({ items }: { items: Tx[] }) {
   const total = items.reduce((s, t) => s + Number(t.amount), 0);
   const sorted = [...items].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
   return (
+    <div className="mt-4 rounded-xl border border-dashed border-amber-500/50 bg-amber-500/5 p-3 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+          Sangria / troco do caixa · {items.length} <span className="normal-case font-semibold opacity-80">(não é gasto — fora dos totais)</span>
+        </span>
+        <span className="text-[13px] font-bold tabular-nums text-amber-700 dark:text-amber-400">{fmt(total)}</span>
+      </div>
+      {sorted.map((t) => (
+        <div key={t.id} className="flex items-center justify-between gap-3 text-[12px]">
+          <span className="text-muted-foreground truncate">{brDate(t.date)} · {t.description}{t.payment_method ? ` · ${t.payment_method}` : ''}</span>
+          <span className="tabular-nums text-foreground">{fmt(Number(t.amount))}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Aba Entradas (RECEITA do mês, só leitura) ────────────────────────────────
+// Espelho das entradas do Financeiro — o lançamento continua na tela de recepção;
+// aqui é a visão consolidada pro adm/gerente (mesma fonte, nada é duplicado).
+function EntradasTab({ items, totalInDb }: { items: Tx[]; totalInDb: number }) {
+  if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Nenhuma entrada paga neste mês.</div>;
+  const total = items.reduce((s, t) => s + Number(t.amount), 0);
+  const sorted = [...items].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
+  const cut = totalInDb > items.length;
+  return (
     <div className="space-y-2">
       <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-emerald-600">Total de entradas · {items.length}</span>
+        <span className="text-[12px] font-bold uppercase tracking-wide text-emerald-600">Total recebido · {items.length}</span>
         <span className="text-lg font-bold tabular-nums text-emerald-600">{fmt(total)}</span>
       </div>
+      {cut && (
+        <div className="text-[12px] rounded-lg border border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-400 px-3 py-2">
+          ⚠ Mostrando {items.length} de {totalInDb} entradas do mês — o total acima está incompleto.
+        </div>
+      )}
       {sorted.map((t) => (
         <div key={t.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">

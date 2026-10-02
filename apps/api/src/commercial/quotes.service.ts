@@ -4472,10 +4472,11 @@ export class QuotesService {
         select: { amount: true, payment_method: true, description: true, lead: { select: { name: true } } },
         orderBy: { amount: 'desc' }, take: 100,
       }),
-      // Saídas do dia (DESPESA PAGO) — com a descrição/categoria e a forma.
+      // Saídas do dia (DESPESA PAGO) — com a descrição/categoria e a forma. O source
+      // vem junto pra separar sangria/troco do caixa (não é gasto) logo abaixo.
       this.prisma.financialTransaction.findMany({
         where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', company_id: null, date: win },
-        select: { amount: true, payment_method: true, description: true, category: true },
+        select: { amount: true, payment_method: true, description: true, category: true, source: true },
         orderBy: { amount: 'desc' }, take: 100,
       }),
       // Vendas de boleto do dia (a cobrança É a venda; created_at no dia) — com o paciente.
@@ -4528,17 +4529,22 @@ export class QuotesService {
     };
 
     const entradas = somaAmount(entradasTx);
-    const saidas = somaAmount(saidasTx);
+    // Sangria/troco = dinheiro mudando de lugar (gaveta → banco): sai das Saídas e
+    // do Saldo do dia e aparece numa linha própria (no fechamento do caixa conta normal).
+    const sangriasTx = saidasTx.filter((t) => t.source === 'CAIXA_SANGRIA');
+    const gastosTx = saidasTx.filter((t) => t.source !== 'CAIXA_SANGRIA');
+    const saidas = somaAmount(gastosTx);
+    const sangriaTotal = somaAmount(sangriasTx);
     const listaEntradas = entradasTx.slice(0, 15).map((t) => {
       const quem = t.lead?.name ? firstName(t.lead.name) : (t.description?.trim().slice(0, 40) || 'Entrada');
       const m = metodoLabel(t.payment_method);
       return `  • ${quem} — R$ ${brl(Number(t.amount))}${m ? ` · ${m}` : ''}`;
     }).join('\n') + (entradasTx.length > 15 ? `\n  …e mais ${entradasTx.length - 15}` : '');
-    const listaSaidas = saidasTx.slice(0, 15).map((t) => {
+    const listaSaidas = gastosTx.slice(0, 15).map((t) => {
       const desc = (t.description?.trim() || t.category || 'Saída').slice(0, 40);
       const m = metodoLabel(t.payment_method);
       return `  • ${desc} — R$ ${brl(Number(t.amount))}${m ? ` · ${m}` : ''}`;
-    }).join('\n') + (saidasTx.length > 15 ? `\n  …e mais ${saidasTx.length - 15}` : '');
+    }).join('\n') + (gastosTx.length > 15 ? `\n  …e mais ${gastosTx.length - 15}` : '');
 
     const totalBoletos = somaAmount(boletos);
     const compTotal = somaAmount(compensados);
@@ -4559,8 +4565,9 @@ export class QuotesService {
     return (
       `📊 *Resumo do dia — ${dataLabel}*\n_${clinica}_\n\n` +
       `💰 *Entradas:* R$ ${brl(entradas)}` + (entradasTx.length ? `\n${listaEntradas}` : '') + `\n\n` +
-      `💸 *Saídas:* R$ ${brl(saidas)}` + (saidasTx.length ? `\n${listaSaidas}` : '') + `\n\n` +
+      `💸 *Saídas:* R$ ${brl(saidas)}` + (gastosTx.length ? `\n${listaSaidas}` : '') + `\n\n` +
       `📈 *Saldo do dia:* R$ ${brl(entradas - saidas)}\n\n` +
+      (sangriasTx.length ? `🔄 *Sangria/troco do caixa:* R$ ${brl(sangriaTotal)} _(não é gasto)_\n\n` : '') +
       `📄 *Vendas em boleto:* ${boletos.length} — R$ ${brl(totalBoletos)}` + (boletos.length ? `\n${listaBoleto(boletos)}` : '') + `\n\n` +
       `✅ *Boletos compensados:* ${compensados.length} — R$ ${brl(compTotal)}` + (compensados.length ? `\n${listaBoleto(compensados)}` : '') + `\n\n` +
       `⚠️ *Boletos em atraso:* ${atrasoCount} — R$ ${brl(atrasoTotal)}` + (atrasoRows.length ? `\n${listaAtraso}` : '') + `\n\n` +

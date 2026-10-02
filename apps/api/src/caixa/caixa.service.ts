@@ -219,13 +219,18 @@ export class CaixaService {
       throw new BadRequestException('O caixa do dia ja foi fechado. Peca ao admin pra devolver antes de lancar.');
     }
     const type = dto.direction === 'SAIDA' ? 'DESPESA' : 'RECEITA';
-    const category = dto.category || (type === 'DESPESA' ? 'Outros' : 'Procedimento');
+    // Sangria/troco: dinheiro mudando de lugar (gaveta → banco), não é gasto.
+    // Marcado por source='CAIXA_SANGRIA': continua no fechamento do caixa (que não
+    // filtra source) e o Financeiro mostra à parte, FORA dos totais de saída.
+    const isSangria = dto.direction === 'SAIDA' && dto.kind === 'SANGRIA';
+    const category = dto.category || (isSangria ? 'Sangria/Troco' : type === 'DESPESA' ? 'Outros' : 'Procedimento');
+    const source = opts?.source ?? (isSangria ? 'CAIXA_SANGRIA' : null);
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: tenantId,
         type,
         category,
-        description: dto.description || (type === 'DESPESA' ? 'Saida de caixa' : 'Entrada de caixa'),
+        description: dto.description || (isSangria ? 'Sangria/troco' : type === 'DESPESA' ? 'Saida de caixa' : 'Entrada de caixa'),
         amount: r2(dto.amount),
         date: new Date(),
         paid_at: new Date(),
@@ -234,12 +239,12 @@ export class CaixaService {
         account_id: dto.account_id,
         cash_closing_id: closing.id,
         lead_id: leadId,
-        source: opts?.source ?? null,
-        visible_to_dentist: opts?.source ? false : undefined,
+        source,
+        visible_to_dentist: source ? false : undefined,
       } as any,
     });
     await this.logAction(userId, dto.direction === 'SAIDA' ? 'CAIXA_SAIDA' : 'CAIXA_ENTRADA', tx.id, {
-      valor: r2(dto.amount), forma: dto.method, conta: acc.name, origem: opts?.source,
+      valor: r2(dto.amount), forma: dto.method, conta: acc.name, origem: source,
     });
     return tx;
   }

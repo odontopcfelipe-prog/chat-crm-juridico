@@ -9,6 +9,18 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
+/**
+ * Exclui origens (source) SEM perder as linhas com source NULL.
+ * ⚠ `{ source: { not: 'X' } }` vira `source <> 'X'` no SQL e DESCARTA source NULL —
+ * que é a maioria (entrada do caixa, boleto/PIX recebido, receita manual). Foi isso
+ * que deixou a aba Entradas vazia com dinheiro no caixa (01/out/2026). Use sempre
+ * este helper dentro de `where.AND` (não em `where.OR`, que colide com outros filtros).
+ */
+const sourceNotIn = (...vals: string[]) => ({ OR: [{ source: null }, { source: { notIn: vals } }] });
+// O que NÃO entra nos totais genéricos do financeiro: contas a pagar (módulo próprio,
+// só manage_payables) e sangria/troco do caixa (dinheiro mudando de lugar, não é gasto).
+const FORA_DOS_TOTAIS = ['PAYABLES', 'CAIXA_SANGRIA'];
+
 // Categorias padrao da clinica odontologica (seed quando o tenant ainda nao tem
 // categorias proprias). DIARIA fica por causa do lancador de diaria (Fase 5).
 const DEFAULT_CATEGORIES = [
@@ -111,7 +123,7 @@ export class FinanceiroService {
     // source: filtro positivo (payables usa source='PAYABLES') OU exclusão (a tela
     // legada passa excludeSource='PAYABLES' pra NÃO mostrar contas a pagar sensíveis).
     if (query.source) where.source = query.source;
-    else if (query.excludeSource) where.source = { not: query.excludeSource };
+    else if (query.excludeSource) where.AND = [...(where.AND || []), sourceNotIn(query.excludeSource)];
     // Empresa (Contas a Pagar): quando o caller escopa, null = clínica, id = outra.
     if (query.companyId !== undefined) where.company_id = query.companyId;
     // "Gastos do dia": só saídas AVULSAS — exclui recorrentes/parcelas (que são as
@@ -658,8 +670,9 @@ export class FinanceiroService {
     where.company_id = null;
     // Contas a pagar (aluguel/folha/fornecedor) vivem no módulo Contas a Pagar (só
     // manage_payables). Este summary genérico é view_financial → NÃO soma PAYABLES
-    // (mesma regra do GET /transactions). {not:X} inclui source=null (receita/legado).
-    where.source = { not: 'PAYABLES' };
+    // (mesma regra do GET /transactions). Sangria/troco do caixa também fica fora
+    // (não é gasto). Null-safe: mantém source=null (caixa/boleto/receita/legado).
+    where.AND = [...(where.AND || []), sourceNotIn(...FORA_DOS_TOTAIS)];
 
     if (startDate || endDate) {
       where.date = {};
@@ -744,7 +757,8 @@ export class FinanceiroService {
     if (tenantId) where.tenant_id = tenantId;
     if (dentistId) where.dentist_id = dentistId;
     where.company_id = null; // só a clínica (outras empresas fora do fluxo de caixa dela)
-    where.source = { not: 'PAYABLES' }; // contas a pagar não entram no fluxo de caixa genérico (view_financial)
+    // Contas a pagar e sangria/troco não entram no fluxo genérico (null-safe).
+    where.AND = [...(where.AND || []), sourceNotIn(...FORA_DOS_TOTAIS)];
 
     if (startDate || endDate) {
       where.date = {};

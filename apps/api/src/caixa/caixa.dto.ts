@@ -62,6 +62,12 @@ export class AddMovementDto {
 
   @IsOptional() @IsString()
   lead_id?: string;
+
+  // Só pra SAIDA: DESPESA = gasto de verdade (vai pro Financeiro como gasto);
+  // SANGRIA = sangria/troco (dinheiro mudando de lugar: conta no fechamento do
+  // caixa, mas NÃO é gasto no Financeiro).
+  @IsOptional() @IsString() @IsIn(['DESPESA', 'SANGRIA'])
+  kind?: string;
 }
 
 // ─── Fechamento / validação ───────────────────────────────
