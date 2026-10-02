@@ -3237,17 +3237,35 @@ function ContratoCard({
     }
   };
 
-  const previewPdf = async (id: string) => {
-    try {
-      const res = await api.get(`/contracts/${id}/preview-pdf`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao gerar PDF');
+  // Busca um PDF autenticado via FETCH NATIVO (igual ao PDF do orçamento, que
+  // sempre funcionou). Usar axios com responseType:'blob' + window.open(...,
+  // 'noopener') entregava "arquivo inválido" no visor do Edge. Aqui montamos o
+  // blob a partir do arrayBuffer cru (sem reempacotar o Blob do axios).
+  const fetchPdfBlob = async (path: string): Promise<Blob> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const resp = await fetch(`${api.defaults.baseURL || ''}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resp.ok) {
+      let msg = 'Erro ao gerar o PDF';
+      try { const j = await resp.json(); msg = j?.message || msg; } catch { /* corpo não-JSON */ }
+      throw new Error(msg);
     }
+    const buf = await resp.arrayBuffer();
+    return new Blob([buf], { type: 'application/pdf' });
+  };
+
+  // Abre o blob numa nova aba pra preview/print. SEM 'noopener' (abrir blob:
+  // com noopener falha em alguns navegadores → "não é possível abrir").
+  const openPdfBlob = (blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+  };
+
+  const previewPdf = async (id: string) => {
+    try { openPdfBlob(await fetchPdfBlob(`/contracts/${id}/preview-pdf`)); }
+    catch (err: unknown) { showError((err as Error)?.message || 'Erro ao gerar PDF'); }
   };
 
   // Pré-visualiza a PRÉVIA do contrato ANTES de criar (transitório, não
@@ -3258,17 +3276,11 @@ function ContratoCard({
       const extras = Array.from(selectedDocs).filter(
         (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
       );
-      const res = await api.get(`/quotes/${quoteId}/contract-preview-pdf`, {
-        params: { docs: extras.join(','), ...(dentistId ? { dentistId } : {}) },
-        responseType: 'blob',
-      });
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+      const qs = new URLSearchParams({ docs: extras.join(',') });
+      if (dentistId) qs.set('dentistId', dentistId);
+      openPdfBlob(await fetchPdfBlob(`/quotes/${quoteId}/contract-preview-pdf?${qs.toString()}`));
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao gerar prévia');
+      showError((err as Error)?.message || 'Erro ao gerar prévia');
     }
   };
 
@@ -3276,8 +3288,7 @@ function ContratoCard({
   // guardar. Complementa o "Pré-visualizar" (que abre inline pra Ctrl+P).
   const downloadPdf = async (id: string) => {
     try {
-      const res = await api.get(`/contracts/${id}/preview-pdf`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const blob = await fetchPdfBlob(`/contracts/${id}/preview-pdf`);
       const url = URL.createObjectURL(blob);
       const safeName = (quote?.patient?.name || 'paciente')
         .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -3290,28 +3301,16 @@ function ContratoCard({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao baixar PDF');
+      showError((err as Error)?.message || 'Erro ao baixar PDF');
     }
   };
 
   // Onda 17.32.30 — Pre-visualiza o PDF de um termo (clareamento, facetas...)
   // direto do diretorio contract-templates do servidor. Permite o operador
   // ler o conteudo antes de marcar o checkbox.
-  // Onda 17.32.31 — rota correta e /contract-templates (sem /commercial/),
-  // alinhado com /contracts/:id/preview-pdf (commercial.controller usa
-  // @Controller() sem prefixo).
   const previewTemplate = async (docId: string, label: string) => {
-    try {
-      const res = await api.get(`/contract-templates/${docId}/pdf`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } }; message?: string };
-      showError(e?.response?.data?.message || `Não foi possível abrir "${label}"`);
-    }
+    try { openPdfBlob(await fetchPdfBlob(`/contract-templates/${docId}/pdf`)); }
+    catch (err: unknown) { showError((err as Error)?.message || `Não foi possível abrir "${label}"`); }
   };
 
   const action = async (path: string) => {
