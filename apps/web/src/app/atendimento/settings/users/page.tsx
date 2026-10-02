@@ -56,8 +56,9 @@ const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: s
 // Onda 17.51 — Setor -> perfil de acesso técnico (1:1). O SETOR é a única
 // escolha de cadastro; o perfil (role) é derivado daqui pra manter a
 // autorização do backend (RolesGuard) funcionando, sem o usuário ter que
-// escolher os dois (era contraditório). Multi-papel continua possível no
-// bloco "Avançado".
+// escolher os dois (era contraditório). Única combinação de papéis: Dentista
+// + Administrador (checkbox abaixo dos cards) → setor admin + roles
+// ['ADMIN','DENTIST'] — o backend já trata "admin que também é dentista".
 const SECTOR_ROLE: Record<Sector, RoleKey> = {
   recepcao:   'OPERADOR',
   dentista:   'DENTIST',
@@ -281,20 +282,24 @@ export default function UsersSettingsPage() {
     // v10: carrega horarios atuais do dentista (se houver)
     setSchedule(defaultWeekSchedule());
     setScheduleLoaded(false); // só vira true se a GET responder (ok com/sem dados)
-    if (uniqueRoles.includes('DENTIST')) {
-      try {
-        const res = await api.get(`/calendar/schedule/${user.id}`);
-        if (res.data && res.data.length > 0) {
-          setSchedule(apiScheduleToDays(res.data));
-        }
-        // GET respondeu (com ou sem dados) — estado confiável, pode persistir.
-        setScheduleLoaded(true);
-      } catch {
-        // GET falhou (rede/5xx) — NÃO marca loaded; o save preserva a agenda real
-        // em vez de sobrescrever pelo padrão Seg-Sex.
-      }
-    }
+    if (uniqueRoles.includes('DENTIST')) await loadSchedule(user.id);
     setShowModal(true);
+  };
+
+  // Carrega o horário REAL do dentista. Também usado ao ligar "também atende
+  // como dentista" na edição — senão o editor mostraria o padrão Seg-Sex.
+  const loadSchedule = async (userId: string) => {
+    try {
+      const res = await api.get(`/calendar/schedule/${userId}`);
+      if (res.data && res.data.length > 0) {
+        setSchedule(apiScheduleToDays(res.data));
+      }
+      // GET respondeu (com ou sem dados) — estado confiável, pode persistir.
+      setScheduleLoaded(true);
+    } catch {
+      // GET falhou (rede/5xx) — NÃO marca loaded; o save preserva a agenda real
+      // em vez de sobrescrever pelo padrão Seg-Sex.
+    }
   };
 
   // Onda 17.51 — Seletor de "Perfil de acesso" REMOVIDO do formulário: o papel
@@ -319,7 +324,7 @@ export default function UsersSettingsPage() {
     setError('');
 
     if (form.roles.length === 0) {
-      setError('Selecione o setor do usuário (ou um perfil no Avançado).');
+      setError('Selecione o setor do usuário.');
       setLoading(false);
       return;
     }
@@ -991,7 +996,8 @@ export default function UsersSettingsPage() {
                     <strong>home (balões)</strong> aparece e quais permissões já vêm
                     marcadas. A barra lateral completa é exclusiva do{' '}
                     <strong>Adm Geral</strong> (ADMIN). Você pode ajustar permissões
-                    individualmente abaixo.
+                    individualmente abaixo. Dentista que também é administrador(a)?
+                    Escolha um dos dois e marque a opção que aparece abaixo dos cards.
                   </p>
                 </div>
 
@@ -1003,7 +1009,15 @@ export default function UsersSettingsPage() {
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setForm(f => ({ ...f, sector: s.id, roles: [SECTOR_ROLE[s.id]], extra_grants: [], extra_revokes: [] }))}
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          sector: s.id,
+                          // Re-clicar o card já escolhido não derruba o papel
+                          // combinado (Administrador + Dentista); trocar de card
+                          // reinicia o papel pro do setor novo.
+                          roles: f.sector === s.id && f.roles.length > 0 ? f.roles : [SECTOR_ROLE[s.id]],
+                          extra_grants: [], extra_revokes: [],
+                        }))}
                         className={`text-left p-3 rounded-xl border-2 transition-all ${
                           selected
                             ? 'bg-violet-500/10 border-violet-500/50 ring-2 ring-violet-500/20'
@@ -1021,6 +1035,57 @@ export default function UsersSettingsPage() {
                     );
                   })}
                 </div>
+
+                {/* Dentista + Administrador — a única combinação de papéis.
+                    Fica salvo como setor ADMIN (todas as permissões, home de
+                    admin, barra lateral completa) + roles ['ADMIN','DENTIST']:
+                    o papel de dentista mantém agenda, IA, CRO, horários,
+                    especialidades e comissão. O backend checa ADMIN antes de
+                    restringir por dentista, então nada fica limitado. */}
+                {(form.sector === 'dentista' || form.sector === 'admin') && (() => {
+                  const isAdminSector = form.sector === 'admin';
+                  const checked = isAdminSector && form.roles.includes('DENTIST');
+                  return (
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl border-2 border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const want = e.target.checked;
+                          setForm(f => {
+                            if (f.sector === 'dentista') {
+                              // Dentista → vira Administrador sem deixar de ser dentista
+                              return want
+                                ? { ...f, sector: 'admin', roles: ['ADMIN', 'DENTIST'], extra_grants: [], extra_revokes: [] }
+                                : f;
+                            }
+                            // Administrador: liga/desliga o papel de dentista
+                            const roles: RoleKey[] = want
+                              ? Array.from(new Set<RoleKey>([...f.roles, 'DENTIST']))
+                              : f.roles.filter(r => r !== 'DENTIST');
+                            return { ...f, roles };
+                          });
+                          if (want) {
+                            setScheduleExpanded(true);
+                            // Na edição, traz o horário real (senão mostraria o padrão)
+                            if (editingId && !scheduleLoaded) loadSchedule(editingId);
+                          }
+                        }}
+                        className="mt-0.5 shrink-0 w-4 h-4 accent-violet-600 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-foreground">
+                          {isAdminSector ? '🦷 Também atende como Dentista' : '👑 Também é Administrador(a)'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                          {isAdminSector
+                            ? 'Aparece na agenda e pra IA agendar, com CRO, horários, especialidades e comissão — mantendo o acesso total de administrador.'
+                            : 'Ganha acesso total (barra lateral completa e todas as permissões) sem deixar de atender como dentista. O setor passa a ser Administrador.'}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })()}
 
                 {/* Permissões — agrupadas por grupo */}
                 {form.sector && (() => {
