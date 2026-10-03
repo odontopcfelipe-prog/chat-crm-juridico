@@ -1028,7 +1028,7 @@ export function Sidebar() {
               <img
                 src={tenant.logo_url}
                 alt={tenant.name || 'Logo'}
-                className="w-full h-full object-contain p-0.5 bg-white"
+                className="w-full h-full object-contain bg-white"
               />
             ) : (
               <svg

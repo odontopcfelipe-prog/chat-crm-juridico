@@ -14,56 +14,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Building2, Mail, Phone, IdCard, Globe,
   Save, Loader2, CheckCircle2, ExternalLink, RefreshCw, AlertCircle,
-  MapPin, ImagePlus, Trash2,
+  MapPin, ImagePlus, Trash2, Crop,
 } from 'lucide-react';
+import LogoCropModal from '@/components/LogoCropModal';
 import api from '@/lib/api';
 import { maskCEPInput } from '@/lib/utils';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { resetTenantCache } from '@/lib/useTenant';
-
-/** Teto da logo embutida (texto data:...); o servidor aceita até 400 KB de
- *  imagem — ~540 mil caracteres em base64. Deixa folga. */
-const LOGO_MAX_DATAURL_CHARS = 500_000;
-
-/**
- * Lê a imagem escolhida e devolve um data URL PNG (mantém transparência) já
- * reduzido pra no máx. 512px no lado maior. Se o PNG ficar pesado (foto),
- * refaz em JPG com fundo branco. Só PNG/JPG: é o que o PDF do contrato embute.
- */
-async function fileToLogoDataUrl(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('Envie uma imagem (PNG ou JPG).');
-  if (file.size > 15 * 1024 * 1024) throw new Error('Imagem muito grande (máx. 15 MB).');
-  const src = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Não consegui ler essa imagem — tente PNG ou JPG.'));
-      el.src = src;
-    });
-    const MAX = 512;
-    const scale = Math.min(1, MAX / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
-    const w = Math.max(1, Math.round((img.naturalWidth || MAX) * scale));
-    const h = Math.max(1, Math.round((img.naturalHeight || MAX) * scale));
-    const draw = (bg?: string) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Seu navegador não conseguiu processar a imagem.');
-      if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
-      ctx.drawImage(img, 0, 0, w, h);
-      return canvas;
-    };
-    let out = draw().toDataURL('image/png');
-    if (out.length > LOGO_MAX_DATAURL_CHARS) out = draw('#ffffff').toDataURL('image/jpeg', 0.85);
-    if (out.length > LOGO_MAX_DATAURL_CHARS) throw new Error('Imagem muito pesada mesmo reduzida — use uma logo mais simples.');
-    return out;
-  } finally {
-    URL.revokeObjectURL(src);
-  }
-}
 
 interface TenantData {
   id: string;
@@ -108,8 +66,9 @@ export default function IdentidadeClinicaPage() {
   // PATCH se mudou — não reenvia a imagem a cada "Salvar".
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
-  const [logoBusy, setLogoBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  // Imagem aberta no ajuste/recorte (blob: do arquivo escolhido ou a logo atual).
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
 
   // Onda 17.32.105 — carga dos dados extraida pra funcao reutilizavel
   // pelo botao "Tentar novamente" quando o GET /tenants/me falha.
@@ -190,19 +149,25 @@ export default function IdentidadeClinicaPage() {
     }
   };
 
-  const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Escolheu um arquivo → abre o ajuste (arrastar/zoom/recorte redondo).
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // permite escolher o mesmo arquivo de novo
     if (!file) return;
-    setLogoBusy(true);
-    try {
-      setLogoUrl(await fileToLogoDataUrl(file));
-      setLogoDirty(true);
-    } catch (err: any) {
-      showError(err?.message || 'Não foi possível usar essa imagem');
-    } finally {
-      setLogoBusy(false);
-    }
+    if (!file.type.startsWith('image/')) { showError('Envie uma imagem (PNG ou JPG).'); return; }
+    if (file.size > 15 * 1024 * 1024) { showError('Imagem muito grande (máx. 15 MB).'); return; }
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const closeCrop = () => {
+    if (cropSrc?.startsWith('blob:')) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+  };
+
+  const applyCrop = (dataUrl: string) => {
+    setLogoUrl(dataUrl);
+    setLogoDirty(true);
+    closeCrop();
   };
 
   const removeLogo = () => {
@@ -302,7 +267,7 @@ export default function IdentidadeClinicaPage() {
           <div className="flex items-center gap-4 mb-5">
             <div className="w-20 h-20 rounded-2xl border border-border bg-white flex items-center justify-center overflow-hidden shrink-0">
               {logoUrl ? (
-                <img src={logoUrl} alt="Logo da clínica" className="w-full h-full object-contain p-1.5" />
+                <img src={logoUrl} alt="Logo da clínica" className="w-full h-full object-contain" />
               ) : (
                 <Building2 size={28} className="text-muted-foreground/50" />
               )}
@@ -316,17 +281,29 @@ export default function IdentidadeClinicaPage() {
                 <button
                   type="button"
                   onClick={() => logoInputRef.current?.click()}
-                  disabled={logoBusy || saving}
+                  disabled={saving}
                   className="text-xs font-bold px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  {logoBusy ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                  <ImagePlus size={12} />
                   {logoUrl ? 'Trocar logo' : 'Enviar logo'}
                 </button>
                 {logoUrl && (
                   <button
                     type="button"
+                    onClick={() => setCropSrc(logoUrl)}
+                    disabled={saving}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border hover:bg-violet-500/10 hover:text-violet-700 text-muted-foreground inline-flex items-center gap-1.5 disabled:opacity-50"
+                    title="Reenquadrar a logo (zoom, posição, recorte redondo)"
+                  >
+                    <Crop size={12} />
+                    Ajustar
+                  </button>
+                )}
+                {logoUrl && (
+                  <button
+                    type="button"
                     onClick={removeLogo}
-                    disabled={logoBusy || saving}
+                    disabled={saving}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border hover:bg-red-500/10 hover:text-red-600 text-muted-foreground inline-flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <Trash2 size={12} />
@@ -348,6 +325,7 @@ export default function IdentidadeClinicaPage() {
               />
             </div>
           </div>
+          {cropSrc && <LogoCropModal src={cropSrc} onCancel={closeCrop} onConfirm={applyCrop} />}
 
           <Field
             Icon={Building2}
