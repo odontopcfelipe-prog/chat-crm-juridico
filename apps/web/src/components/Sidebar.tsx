@@ -1023,10 +1023,12 @@ export function Sidebar() {
             style={tenant?.logo_url ? undefined : { background: 'var(--gradient-accent)' }}
           >
             {tenant?.logo_url ? (
+              // object-contain + fundo branco: logo da clínica raramente é
+              // quadrada — "cover" cortava as bordas.
               <img
                 src={tenant.logo_url}
                 alt={tenant.name || 'Logo'}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain p-0.5 bg-white"
               />
             ) : (
               <svg

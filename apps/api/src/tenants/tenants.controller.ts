@@ -16,6 +16,7 @@ import {
 import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { TenantsService } from './tenants.service';
+import { normalizeTenantLogo } from './tenant-logo.util';
 
 /**
  * Onda 17.32.85 — Signup publico (rota nao autenticada).
@@ -183,7 +184,10 @@ export class TenantsMeController {
     // Whitelist explicita — ignora qualquer outro campo no body
     const allowed: any = {};
     if (body.name !== undefined)          allowed.name = body.name;
-    if (body.logo_url !== undefined)      allowed.logo_url = body.logo_url;
+    // Logo: imagem PNG/JPG embutida (enviada pela tela de Identidade) ou link
+    // http(s); validada (tipo real + tamanho) — aparece na barra lateral e
+    // no cabeçalho dos contratos/termos.
+    if (body.logo_url !== undefined)      allowed.logo_url = normalizeTenantLogo(body.logo_url);
     if (body.theme_color !== undefined)   allowed.theme_color = body.theme_color;
     if (body.phone !== undefined)         allowed.phone = body.phone;
     if (body.email !== undefined)         allowed.email = body.email;
