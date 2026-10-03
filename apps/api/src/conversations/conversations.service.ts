@@ -355,8 +355,13 @@ export class ConversationsService {
    * instance_name é um chip FINANCEIRO (o filtro por relação não pega inbox
    * NULL). Corrida com o webhook criando a mesma conversa (P2002 no índice
    * único parcial) → reusa a que ficou.
+   *
+   * `reuseClosed`: conversa de paciente ENCERRADA também conta como existente
+   * (o cadastro do paciente só garante que existe uma — não abre conversa vazia
+   * nova no inbox pra quem já tem histórico). Pra ENVIAR, não use: o envio quer
+   * a conversa aberta.
    */
-  async findOrCreatePatientConversationId(lead_id: string, tenantId: string): Promise<string | null> {
+  async findOrCreatePatientConversationId(lead_id: string, tenantId: string, opts?: { reuseClosed?: boolean }): Promise<string | null> {
     if (!lead_id || !tenantId) return null;
     const lead = await this.prisma.lead.findUnique({
       where: { id: lead_id },
@@ -375,7 +380,7 @@ export class ConversationsService {
     const existingWhere: any = {
       lead_id,
       channel: 'whatsapp',
-      status: { not: 'ENCERRADO' },
+      ...(opts?.reuseClosed ? {} : { status: { not: 'ENCERRADO' } }),
       NOT: { inbox: { purpose: 'FINANCEIRO' } },
       ...(finNames.length ? { AND: [{ OR: [
         { inbox_id: { not: null } },
@@ -395,7 +400,9 @@ export class ConversationsService {
       (await pickInbox('CLINICA')) ??
       (await pickInbox('COMERCIAL')) ??
       (await this.prisma.inbox.findFirst({
-        where: { tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+        // `NOT purpose` sozinho descarta purpose NULL (SQL: NULL <> x é NULL) —
+        // inbox sem função também é "não-financeiro".
+        where: { tenant_id: tenantId, OR: [{ purpose: null }, { purpose: { not: 'FINANCEIRO' } }] },
         orderBy: { created_at: 'asc' },
         select: { id: true, purpose: true },
       }));

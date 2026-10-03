@@ -10,10 +10,12 @@ import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { ContractsService } from './contracts.service';
 import { QuotePdfService } from './quote-pdf.service';
+import { MessagesService } from '../messages/messages.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, type Permission, type Sector } from '@crm/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
@@ -83,6 +85,10 @@ export class QuotesService {
     // apresentação (sequência: apresentação → 3min → negociação → entrada; parcelas D+1).
     // @Optional: em testes/boot sem Redis o fluxo cai no envio imediato (fallback).
     @Optional() @InjectQueue('fechamento-jobs') private fechamentoQueue?: Queue,
+    // Envio do orçamento pro paciente: conversa de PACIENTE + chip Clínica/Comercial
+    // (nunca o Financeiro nem o default global). @Optional: testes sem o módulo.
+    @Optional() private messages?: MessagesService,
+    @Optional() private conversations?: ConversationsService,
   ) {}
 
   async create(
@@ -2370,6 +2376,7 @@ export class QuotesService {
     this.contractService.sendForSignature(planId, tenantId)
       .then((r: any) => {
         this.logger.log(`[ACCEPT→CLICKSIGN] Plano ${planId} enviado pra assinatura — ${String(r?.signingUrl || '').slice(0, 60)}...`);
+        if (r?.whatsappError) this.logger.warn(`[ACCEPT→CLICKSIGN] Plano ${planId}: link do TCLE não saiu no WhatsApp — ${r.whatsappError}`);
       })
       .catch((err: any) => {
         this.logger.warn(`[ACCEPT→CLICKSIGN] Falha ao disparar assinatura do plano ${planId}: ${err?.message}. Operador pode reenviar manualmente.`);
@@ -4601,14 +4608,50 @@ export class QuotesService {
   // ─── Onda 1 — Envio via WhatsApp ───────────────────────────────
 
   /**
+   * Lead (contato do WhatsApp) que recebe uma mensagem do PACIENTE: o vinculado;
+   * senão o do MESMO número na clínica que já é de OUTRO paciente (família
+   * divide o número — é o mesmo WhatsApp, usa sem vincular, que o
+   * Patient.lead_id é único); senão ensurePatientLead (vincula/cria).
+   * Usado pelo envio do orçamento e do link do ClickSign do contrato.
+   */
+  async resolvePatientWhatsappLead(patientId: string, tenantId: string): Promise<string> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, phone: true, lead_id: true, tenant_id: true },
+    });
+    if (!patient) throw new BadRequestException('Paciente nao encontrado');
+    if (patient.tenant_id && patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
+    if (patient.lead_id) return patient.lead_id;
+    if (patient.phone) {
+      const byPhone = await this.prisma.lead.findFirst({
+        where: { tenant_id: tenantId, phone: { in: brazilPhoneMatchVariants(patient.phone) } },
+        select: { id: true },
+      });
+      if (byPhone) {
+        const claimedByOther = await this.prisma.patient.findFirst({
+          where: { lead_id: byPhone.id, id: { not: patient.id } },
+          select: { id: true },
+        });
+        if (claimedByOther) return byPhone.id;
+      }
+    }
+    return this.ensurePatientLead(patient.id, tenantId, 'whatsapp');
+  }
+
+  /**
    * Envia orcamento por WhatsApp pro paciente: gera magic link via portal,
-   * monta mensagem custom com resumo (total, items, validade), envia via
-   * Evolution. Atualiza status SENT + sent_at se ainda era DRAFT.
+   * monta mensagem custom com resumo (total, items, validade) e manda o PDF
+   * na conversa de PACIENTE (fica no histórico do chat). Atualiza status
+   * SENT + sent_at se ainda era DRAFT.
+   *
+   * Orçamento é mensagem de paciente: sai SÓ pelo chip Clínica/Comercial
+   * (MessagesService.sendPatientFile/sendPatientText), nunca pelo chip do
+   * Financeiro nem pelo default global. Sem chip clínico → NÃO envia (erro claro).
    *
    * Aceita re-envio em SENT (sem mudar status, so registra no log).
    */
   async sendByWhatsapp(quoteId: string, tenantId: string, userId?: string) {
-    if (!this.whatsapp) {
+    if (!this.messages || !this.conversations) {
       throw new BadRequestException('Servico de WhatsApp nao disponivel');
     }
     if (!this.portalAuth) {
@@ -4620,29 +4663,28 @@ export class QuotesService {
         `Orcamento esta ${quote.status} — nao pode reenviar. Crie um novo orcamento se precisar.`,
       );
     }
-    if (!quote.patient.phone) {
+    if (!toBrazilWhatsappNumber(quote.patient.phone || '')) {
       throw new BadRequestException(
         'Paciente sem telefone cadastrado — adicione antes de enviar via WhatsApp.',
       );
     }
 
-    // Onda 14.40/14.41 — Resolve instancia(s) WhatsApp do tenant. Tenants
-    // podem ter multiplas instances cadastradas (algumas obsoletas que
-    // ainda nao foram limpas do banco). Buscamos todas e tentamos enviar
-    // por uma ordem: mais recente primeiro, fallback automatico se 404.
-    const instances = await this.prisma.instance.findMany({
-      where: { tenant_id: tenantId, type: 'whatsapp' },
-      orderBy: { created_at: 'desc' },
-      select: { name: true },
-    });
-    if (instances.length === 0) {
+    // Sem chip Clínica/Comercial: recusa ANTES de criar lead/conversa/link. (Antes
+    // fazia loop em TODAS as instâncias do tenant — inclusive a do Financeiro, a
+    // mais recente primeiro — e o envio nem aparecia na conversa.)
+    if (!(await this.messages.resolvePatientChips(tenantId, true)).length) {
       throw new BadRequestException(
-        'Nenhuma instância WhatsApp configurada pra esta clínica. Configure em Configurações › WhatsApp.',
+        'Nenhum WhatsApp Clínica/Comercial cadastrado — o orçamento não sai pelo número do Financeiro. Configure em Configurações › WhatsApp.',
       );
     }
-    this.logger.log(
-      `[QUOTES] ${instances.length} instancia(s) WhatsApp disponivel(eis) pra tenant ${tenantId}: ${instances.map((i) => i.name).join(', ')}`,
-    );
+    const leadId = await this.resolvePatientWhatsappLead(quote.patient_id, tenantId);
+    const conversationId = await this.conversations.findOrCreatePatientConversationId(leadId, tenantId);
+    if (!conversationId) {
+      throw new BadRequestException('Sem caixa de entrada Clínica/Comercial pra esse paciente — configure o WhatsApp da clínica.');
+    }
+    // Conversa do Financeiro / telefone do cadastro ≠ contato do WhatsApp:
+    // recusa ANTES de gerar link e PDF.
+    await this.messages.assertPatientSendable({ conversationId, tenantId, expectedPhone: quote.patient.phone });
 
     // Gera magic link sem disparar mensagem automatica do portal
     // (vamos enviar uma mensagem custom com dados do orcamento)
@@ -4660,10 +4702,12 @@ export class QuotesService {
       : null;
     // Onda 3 — conta anexos pra mencionar na mensagem (gera curiosidade no paciente)
     const attachmentCount = (quote as any)._count?.attachments || 0;
+    // Nome da clínica do PRÓPRIO tenant (era "Instituto Odonto Passos" fixo).
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim();
 
     const msg =
       `Oi ${firstName}! 👋\n\n` +
-      `Seu orçamento do Instituto Odonto Passos está pronto:\n\n` +
+      `Seu orçamento${clinica ? ` na clínica *${clinica}*` : ''} está pronto:\n\n` +
       `📋 ${itemCount} procedimento(s)\n` +
       `💰 Total: ${formatBRL(quote.total_value)}\n` +
       (Number(quote.discount_value) > 0
@@ -4674,95 +4718,48 @@ export class QuotesService {
       `\nAcesse pra ver detalhes e aceitar:\n${magic.link}\n\n` +
       `Qualquer dúvida, é só responder por aqui. 😊`;
 
-    let dispatchOk = false;
-    let dispatchReason = '';
-    let whatsappMessageId: string | null = null;
-
     // Onda 14.38 — Gera PDF do orcamento pra anexar. Inclui seçao "Proposta
     // de pagamento" quando is_chosen_proposal=true. Se geracao do PDF falhar,
     // cai no fluxo legado (so texto + link).
-    let pdfBase64: string | null = null;
+    let pdfBuffer: Buffer | null = null;
     try {
       if (this.pdfService) {
-        const pdfBuffer = await this.pdfService.generatePdf(quoteId, tenantId);
-        pdfBase64 = pdfBuffer.toString('base64');
+        pdfBuffer = await this.pdfService.generatePdf(quoteId, tenantId);
         this.logger.log(`[QUOTES] PDF gerado pra anexar (${pdfBuffer.length} bytes)`);
       }
     } catch (e: any) {
       this.logger.warn(`[QUOTES] Falha ao gerar PDF, segue sem anexo: ${e?.message}`);
     }
 
-    // Onda 14.41 — Loop com fallback automatico. Tenta cada instance ate
-    // alguma responder com sucesso. Se uma da 404 (instance obsoleta no
-    // banco mas removida do Evolution), pula pra proxima. 404 e seguro pra
-    // retry porque a mensagem nem chegou a sair.
-    //
-    // IMPORTANTE: outros erros (timeout, 5xx, etc) NAO disparam retry —
-    // poderiam duplicar mensagem se a primeira saiu mas resposta deu errado.
-    const sendErrors: string[] = [];
-    let usedInstance: string | null = null;
-    for (const inst of instances) {
-      try {
-        // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
-        // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
-        // Se nao tem PDF, fallback no sendText legado.
-        // Onda 14.42 — Evolution rejeita data URI (`data:application/pdf;base64,...`)
-        // com "Owned media must be a url or base64". Mandar base64 PURO.
-        const result: any = pdfBase64
-          ? await this.whatsapp.sendMedia(
-              quote.patient.phone,
-              'document',
-              pdfBase64,
-              msg,
-              inst.name,
-              `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
-            )
-          : await this.whatsapp.sendText(quote.patient.phone, msg, inst.name);
-
-        const httpStatus = result?.statusCode ?? 0;
-        const isOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
-
-        if (isOk) {
-          dispatchOk = true;
-          usedInstance = inst.name;
-          // Onda 4.3 — captura messageId pra cruzar com webhook messages.update
-          whatsappMessageId = result?.key?.id || result?.messageId || null;
-          this.logger.log(`[QUOTES] Envio bem-sucedido via instancia "${inst.name}"`);
-          break;
-        }
-
-        // 404 = instance nao existe no Evolution. Retry com a proxima.
-        if (httpStatus === 404) {
-          sendErrors.push(`"${inst.name}": 404 (instance obsoleta no banco?)`);
-          this.logger.warn(
-            `[QUOTES] Instance "${inst.name}" retornou 404 — provavelmente obsoleta. Tentando proxima.`,
-          );
-          continue;
-        }
-
-        // Outros erros — NAO retry (mensagem pode ter saido). Captura e para.
-        dispatchReason = result?.error || `HTTP ${httpStatus || '?'}`;
-        sendErrors.push(`"${inst.name}": ${dispatchReason}`);
-        break;
-      } catch (e: any) {
-        sendErrors.push(`"${inst.name}": ${e?.message || 'erro desconhecido'}`);
-        // Excecao na chamada — NAO retry (rede pode ter falhado mas Evolution
-        // pode ter recebido). Sai do loop.
-        dispatchReason = e?.message || 'erro desconhecido';
-        break;
-      }
-    }
-
-    if (!dispatchOk && !dispatchReason) {
-      // Todas as instancias deram 404 — montar mensagem com todos os erros
-      dispatchReason = `Nenhuma instância respondeu. Erros: ${sendErrors.join(' | ')}`;
-    }
-
-    if (!dispatchOk) {
-      throw new BadRequestException(
-        `Falha ao enviar WhatsApp: ${dispatchReason}. Link gerado: ${magic.link}`,
+    // Envio estrito pela conversa de paciente: troca de chip SÓ com chip fora
+    // (404/428/desconectado); timeout/5xx não repete (poderia duplicar).
+    let sent: { message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' };
+    try {
+      sent = pdfBuffer
+        ? await this.messages.sendPatientFile({
+            conversationId,
+            tenantId,
+            caption: msg,
+            expectedPhone: quote.patient.phone,
+            file: {
+              buffer: pdfBuffer,
+              mimetype: 'application/pdf',
+              originalname: `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
+              size: pdfBuffer.length,
+            },
+          })
+        : await this.messages.sendPatientText({ conversationId, tenantId, text: msg, expectedPhone: quote.patient.phone });
+    } catch (e: any) {
+      // Motivo claro + o link gerado (o operador pode mandar à mão).
+      const err = new BadRequestException(
+        `Falha ao enviar WhatsApp: ${e?.message || 'erro desconhecido'}. Link gerado: ${magic.link}`,
       );
+      (err as any).mayHaveBeenDelivered = !!e?.mayHaveBeenDelivered;
+      throw err;
     }
+    // Onda 4.3 — messageId real pra cruzar com webhook messages.update
+    const extId: string | null = sent.message?.external_message_id || null;
+    const whatsappMessageId = extId && !extId.startsWith('out_') ? extId : null;
 
     // Sucesso: marca como SENT (se ainda era DRAFT) + salva message_id
     const wasDraft = quote.status === 'DRAFT';
@@ -4783,13 +4780,14 @@ export class QuotesService {
     }
 
     this.logger.log(
-      `[QUOTES] Orcamento ${quoteId} enviado via WhatsApp pra ${quote.patient.phone}`,
+      `[QUOTES] Orcamento ${quoteId} enviado via WhatsApp pra ${quote.patient.phone} (conversa ${conversationId}, chip ${sent.instance}/${sent.purpose})`,
     );
     return {
       ok: true,
       link: magic.link,
       sent_to: quote.patient.phone,
       status: 'SENT',
+      conversationId,
     };
   }
 }

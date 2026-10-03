@@ -13,6 +13,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../messages/messages.service';
 import { ContractPdfService, isPdfBuffer } from './contract-pdf.service';
 import { QuotesService } from './quotes.service';
+import { ContractsService } from './contracts.service';
 
 type SendProblem = 'NO_PHONE' | 'PHONE_MISMATCH' | 'NO_CLINICAL_CHIP' | 'CONTRACT_INACTIVE' | 'LEAD_WILL_LINK';
 
@@ -36,6 +37,7 @@ export class ContractWhatsappService {
     private conversations: ConversationsService,
     private messages: MessagesService,
     private quotes: QuotesService,
+    private contracts: ContractsService,
   ) {}
 
   private async loadContract(contractId: string, tenantId: string) {
@@ -194,6 +196,47 @@ export class ContractWhatsappService {
         await this.prisma.contractEvent.delete({ where: { id: claim.id } }).catch(() => {});
       }
       throw e;
+    }
+  }
+
+  /**
+   * "Enviar via ClickSign": sobe o contrato no ClickSign (ContractsService — status
+   * SENT) e manda o link de assinatura na conversa de PACIENTE pelo chip
+   * Clínica/Comercial (sendPatientText). Tudo que barra o envio (sem telefone, sem
+   * chip clínico, conversa do Financeiro, telefone divergente) é checado ANTES do
+   * ClickSign — não deixa contrato SENT sem link. Se o WhatsApp falhar DEPOIS
+   * (chip caiu, timeout), o contrato já está no ClickSign: devolve o motivo em
+   * `whatsapp` (o link continua no card pra mandar à mão).
+   */
+  async sendClickSign(contractId: string, tenantId: string, userId: string) {
+    const contract = await this.loadContract(contractId, tenantId);
+    const patient = contract.quote.patient;
+    if (!toBrazilWhatsappNumber(patient.phone || '')) {
+      throw new BadRequestException('Paciente sem telefone cadastrado — ClickSign exige WhatsApp pra assinatura');
+    }
+    if (!(await this.messages.resolvePatientChips(tenantId, true)).length) {
+      throw new BadRequestException(this.problemMessage('NO_CLINICAL_CHIP'));
+    }
+    const leadId = await this.quotes.resolvePatientWhatsappLead(patient.id, tenantId);
+    const conversationId = await this.conversations.findOrCreatePatientConversationId(leadId, tenantId);
+    if (!conversationId) throw new BadRequestException('Sem caixa de entrada Clínica/Comercial pra esse paciente — configure o WhatsApp da clínica.');
+    await this.messages.assertPatientSendable({ conversationId, tenantId, expectedPhone: patient.phone });
+
+    const updated = await this.contracts.sendToClickSign(contractId, tenantId, userId);
+
+    const first = (patient.name || '').trim().split(/\s+/)[0] || 'paciente';
+    const text =
+      `📝 *Contrato de tratamento*\n\nOlá ${first}!\n\n` +
+      `Seu contrato está pronto para assinatura digital.\n\n` +
+      `🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).\n\n` +
+      `✍️ *Clique aqui para assinar:*\n${updated.signing_url}`;
+    try {
+      const sent = await this.messages.sendPatientText({ conversationId, tenantId, text, expectedPhone: patient.phone });
+      this.logger.log(`[CONTRACT-CLICKSIGN] link do contrato ${contractId} enviado na conversa ${conversationId} (${sent.purpose})`);
+      return { ...updated, whatsapp: { sent: true, conversationId, chip: CHIP_LABEL[sent.purpose] } };
+    } catch (e: any) {
+      this.logger.warn(`[CONTRACT-CLICKSIGN] contrato ${contractId} no ClickSign, mas o link não saiu no WhatsApp: ${e?.message}`);
+      return { ...updated, whatsapp: { sent: false, conversationId, error: e?.message || 'Falha ao enviar pelo WhatsApp' } };
     }
   }
 

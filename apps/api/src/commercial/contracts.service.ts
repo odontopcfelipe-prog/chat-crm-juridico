@@ -337,7 +337,10 @@ export class ContractsService {
    *   2. Sobe pro ClickSign + cria signer (paciente) com phone + selfie
    *   3. Persiste clicksign_document_id, signing_url, sent_at, status=SENT
    *   4. Cria ContractEvent SENT
-   *   5. Tenta enviar link via WhatsApp pro paciente
+   *
+   * O link pro paciente NÃO sai daqui: ContractWhatsappService.sendClickSign
+   * checa a conversa de paciente/chip Clínica-Comercial ANTES e manda o link
+   * depois (antes saía sem instância → chip padrão global, podia ser o Financeiro).
    *
    * Quando paciente assina, webhook ClickSign chega em
    * ClicksignService.handleNewContractWebhook → marca SIGNED automaticamente.
@@ -380,7 +383,7 @@ export class ContractsService {
     const pdfBuffer = await this.pdfService.generatePdf(contractId, tenantId);
     const filename = `contrato-${contractId.substring(0, 8)}.pdf`;
 
-    // Sobe no ClickSign + cria signer + envia WhatsApp
+    // Sobe no ClickSign + cria signer (o link vai pelo ContractWhatsappService)
     const csResult = await this.clicksign.sendDocumentForSignature({
       buffer: pdfBuffer,
       filename,
@@ -389,11 +392,6 @@ export class ContractsService {
       signerPhone: quote.patient.phone,
       signerMessage:
         'Por favor, leia e assine o contrato de prestacao de servicos odontologicos.',
-      whatsappMessage:
-        `📝 *Contrato de tratamento*\n\nOlá ${(quote.patient.name || 'paciente').split(' ')[0]}!\n\n` +
-        `Seu contrato está pronto para assinatura digital.\n\n` +
-        `🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).\n\n` +
-        `✍️ *Clique aqui para assinar:*\n{{signingUrl}}`.replace('{{signingUrl}}', ''), // signingUrl preenchido pelo metodo abaixo
     });
 
     // Persiste os keys ClickSign + marca como SENT (atomico)

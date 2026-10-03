@@ -8,6 +8,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { LeadsModule } from '../leads/leads.module';
 import { PatientTagsModule } from '../patient-tags/patient-tags.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { ConversationsModule } from '../conversations/conversations.module';
 
 @Module({
   imports: [
@@ -19,6 +20,8 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     PatientTagsModule,
     // Onda 18.x — backfill de fotos do WhatsApp (fetchProfilePicture)
     forwardRef(() => WhatsappModule),
+    // Conversa de paciente do cadastro: find-or-create que nunca usa o Financeiro.
+    ConversationsModule,
   ],
   controllers: [PatientsController],
   providers: [PatientsService, FileStorageService, AffiliateService, PatientAvatarBackfillCron],

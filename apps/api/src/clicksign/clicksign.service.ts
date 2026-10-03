@@ -195,6 +195,10 @@ export class ClicksignService {
 
   // ── Método generico — qualquer documento (TCLE, contratos clinicos etc.) ──
   // Reutilizavel: TreatmentPlanContractService usa para enviar TCLE odontologico.
+  // NÃO manda WhatsApp: o link é mensagem de PACIENTE e quem chama envia pela
+  // conversa de paciente (MessagesService.sendPatientText — chip Clínica/Comercial).
+  // Antes mandava aqui com o instance_name da conversa ou, sem ele, o chip padrão
+  // global — podia sair pelo número do Financeiro.
 
   async createGenericSignature(params: {
     leadId: string;
@@ -206,9 +210,6 @@ export class ClicksignService {
     signerPhone: string;
     /** Mensagem que ClickSign mostra na pagina de assinatura. */
     signerMessage?: string;
-    /** Texto do WhatsApp enviado ao signatario. Se omitido, padrao generico. */
-    whatsappMessage?: string;
-    whatsappInstance?: string;
   }): Promise<{ signingUrl: string; contractSignatureId: string }> {
     const { baseUrl, token } = await this.getCfg();
     if (!token) {
@@ -243,21 +244,6 @@ export class ClicksignService {
     });
     this.logger.log(`[Clicksign] ContractSignature generica criada: ${signature.id}`);
 
-    if (params.signerPhone) {
-      const msg =
-        params.whatsappMessage ||
-        `📝 *Documento para assinatura*\n\nOlá ${params.signerName.split(' ')[0]}!\n\n` +
-        `Seu documento está pronto para assinatura digital.\n\n` +
-        `🔒 A assinatura é segura e válida juridicamente (Lei 14.063/2020).\n\n` +
-        `✍️ *Clique aqui para assinar:*\n${signingUrl}`;
-      try {
-        await this.whatsapp.sendText(params.signerPhone, msg, params.whatsappInstance);
-        this.logger.log(`[Clicksign] Link enviado via WhatsApp para ${params.signerPhone}`);
-      } catch (e: any) {
-        this.logger.warn(`[Clicksign] Falha ao enviar WhatsApp: ${e.message}`);
-      }
-    }
-
     return { signingUrl, contractSignatureId: signature.id };
   }
 
@@ -287,9 +273,11 @@ export class ClicksignService {
   }
 
   /**
-   * Onda 14.24 Fase 2 — Sobe documento + cria signer + envia (WhatsApp/email)
-   * SEM criar ContractSignature legado. Usado pelo Contract novo (Quote)
-   * — o caller eh responsavel por persistir os keys retornados.
+   * Onda 14.24 Fase 2 — Sobe documento + cria signer SEM criar
+   * ContractSignature legado. Usado pelo Contract novo (Quote) — o caller eh
+   * responsavel por persistir os keys retornados E por mandar o link ao
+   * paciente pela conversa de PACIENTE (ContractWhatsappService.sendClickSign);
+   * aqui não sai WhatsApp (antes saía sem instância → chip padrão global).
    *
    * Diferente de createGenericSignature: nao toca em Lead/Conversation/
    * ContractSignature. Retorna so os IDs do ClickSign + signing URL pra
@@ -303,10 +291,6 @@ export class ClicksignService {
     signerPhone: string;
     /** Mensagem na pagina de assinatura ClickSign. */
     signerMessage?: string;
-    /** Texto do WhatsApp com o link. Se omitido, nao envia WhatsApp (caller
-     *  pode mandar via seu proprio canal). */
-    whatsappMessage?: string;
-    whatsappInstance?: string;
   }): Promise<{ documentKey: string; signerKey: string; requestSignatureKey: string; signingUrl: string }> {
     const { baseUrl, token } = await this.getCfg();
     if (!token) {
@@ -326,20 +310,6 @@ export class ClicksignService {
       : await this.addSignerToDocument(documentKey, signerKey);
 
     const signingUrl = `${baseUrl}/sign/${requestSignatureKey}`;
-
-    // WhatsApp opcional (caller pode preferir mandar pela sua via)
-    if (params.whatsappMessage && params.signerPhone) {
-      try {
-        await this.whatsapp.sendText(
-          params.signerPhone,
-          params.whatsappMessage,
-          params.whatsappInstance,
-        );
-        this.logger.log(`[Clicksign] Link enviado via WhatsApp pra ${params.signerPhone}`);
-      } catch (e: any) {
-        this.logger.warn(`[Clicksign] Falha ao enviar WhatsApp: ${e.message}`);
-      }
-    }
 
     return { documentKey, signerKey, requestSignatureKey, signingUrl };
   }

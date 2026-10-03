@@ -1418,7 +1418,8 @@ export class CommercialController {
    */
   @Post('contracts/:id/send-clicksign')
   sendContractViaClickSign(@Param('id') id: string, @Authenticated() user: AuthUser) {
-    return this.contractsService.sendToClickSign(id, user.tenant_id, user.id);
+    // Link de assinatura sai pela conversa de PACIENTE (chip Clínica/Comercial).
+    return this.contractWhatsapp.sendClickSign(id, user.tenant_id, user.id);
   }
 
   /** Marca que o paciente abriu o documento (Fase 1: manual). */

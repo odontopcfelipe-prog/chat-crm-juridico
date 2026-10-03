@@ -4,6 +4,7 @@ import { FileStorageService } from '../media/filesystem.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { Prisma, toBrazilWhatsappNumber } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 import { createHash } from 'crypto';
@@ -76,6 +77,7 @@ export class PatientsService {
     @Inject(forwardRef(() => ReferralsService)) private referralsService: ReferralsService,
     private patientTagsService: PatientTagsService,
     @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
+    private conversations: ConversationsService,
   ) {}
 
   /**
@@ -317,41 +319,16 @@ export class PatientsService {
       data: { lead_id: lead.id },
     });
 
-    // 4. Garante Conversation pra esse lead
-    const existingConv = await this.prisma.conversation.findFirst({
-      where: { lead_id: lead.id },
-      select: { id: true },
-    });
-    if (!existingConv) {
-      // Pega primeira instancia whatsapp do tenant (best-effort)
-      const instance = await this.prisma.instance.findFirst({
-        where: { tenant_id: tenantId, type: 'whatsapp' },
-        select: { name: true, id: true },
-      });
-      // Pega primeira inbox do tenant (best-effort)
-      const inbox = await this.prisma.inbox.findFirst({
-        where: { tenant_id: tenantId },
-        select: { id: true },
-      });
-      try {
-        await this.prisma.conversation.create({
-          data: {
-            lead_id: lead.id,
-            channel: 'whatsapp',
-            status: 'ABERTO',
-            external_id: `${normalizedPhone}@s.whatsapp.net`,
-            instance_name: instance?.name || null,
-            inbox_id: inbox?.id || null,
-            tenant_id: tenantId,
-            ai_mode: false, // paciente cadastrado manualmente nao quer IA por padrao
-            last_message_at: new Date(),
-          },
-        });
-        this.logger.log(`[PATIENT CREATE] Conversation criada pra lead ${lead.id} (paciente ${patientId})`);
-      } catch (e: any) {
-        // Conversation pode falhar se schema exigir mais campos — log e segue
-        this.logger.warn(`[PATIENT CREATE] Falha ao criar conversation: ${e?.message}`);
-      }
+    // 4. Garante conversa de PACIENTE pra esse lead — o MESMO find-or-create do
+    //    chat da ficha: inbox Clínica/Comercial e chip da mesma função, NUNCA o
+    //    Financeiro (antes pegava a 1ª instância/inbox do tenant, que podia ser o
+    //    chip de cobrança). Conversa de paciente já existente (mesmo encerrada)
+    //    basta; a do Financeiro não conta.
+    try {
+      const convId = await this.conversations.findOrCreatePatientConversationId(lead.id, tenantId, { reuseClosed: true });
+      if (!convId) this.logger.warn(`[PATIENT CREATE] Sem inbox Clínica/Comercial no tenant ${tenantId} — paciente ${patientId} fica sem conversa até o 1º WhatsApp`);
+    } catch (e: any) {
+      this.logger.warn(`[PATIENT CREATE] Falha ao garantir conversa do lead ${lead.id}: ${e?.message}`);
     }
   }
 

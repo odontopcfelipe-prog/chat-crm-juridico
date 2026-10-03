@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenEx
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClicksignService } from '../clicksign/clicksign.service';
+import { MessagesService } from '../messages/messages.service';
+import { ConversationsService } from '../conversations/conversations.service';
 
 @Injectable()
 export class TreatmentPlanContractService {
@@ -10,17 +12,21 @@ export class TreatmentPlanContractService {
   constructor(
     private prisma: PrismaService,
     private clicksign: ClicksignService,
+    private messages: MessagesService,
+    private conversations: ConversationsService,
   ) {}
 
   /**
    * Gera o TCLE (Termo de Consentimento Livre e Esclarecido) do plano de
-   * tratamento, sobe pra ClickSign, envia link via WhatsApp e vincula o
-   * ContractSignature criado ao TreatmentPlan.
+   * tratamento, sobe pra ClickSign, vincula o ContractSignature criado ao
+   * TreatmentPlan e manda o link na conversa de PACIENTE pelo chip
+   * Clínica/Comercial (nunca o Financeiro nem o chip padrão global). Sem chip
+   * clínico → NÃO sobe nada (erro claro).
    *
    * Quando o paciente assinar, o webhook do ClickSign ativa o plano
    * automaticamente (status PENDING_SIGNATURE -> ACTIVE).
    */
-  async sendForSignature(planId: string, tenantId: string): Promise<{ signingUrl: string }> {
+  async sendForSignature(planId: string, tenantId: string): Promise<{ signingUrl: string; whatsappSent: boolean; whatsappError?: string }> {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
       include: {
@@ -50,12 +56,6 @@ export class TreatmentPlanContractService {
       );
     }
 
-    // Garante uma conversation pra ContractSignature.conversation_id (FK obrigatoria).
-    const conversation = await this.ensureConversation(plan.patient.lead_id, plan.patient.tenant_id);
-
-    // Gera o PDF do TCLE
-    const buffer = await this.generateTclePdf(plan);
-
     // Identificacao do signatario
     const signerName = plan.patient.name;
     const signerPhone = plan.patient.phone || '';
@@ -65,29 +65,26 @@ export class TreatmentPlanContractService {
       throw new BadRequestException('Paciente sem telefone — cadastre antes de enviar TCLE');
     }
 
+    // Conversa de PACIENTE (ContractSignature.conversation_id, FK obrigatoria) —
+    // nunca a do Financeiro; tudo que barra o envio do link é checado AQUI,
+    // antes de subir o documento no ClickSign.
+    const conversationId = await this.resolvePatientConversation(plan.patient.lead_id, tenantId, signerPhone);
+
+    // Gera o PDF do TCLE
+    const buffer = await this.generateTclePdf(plan);
+
     const safeName = signerName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
     const filename = `TCLE_${safeName}_${Date.now()}.pdf`;
 
-    const whatsappMessage =
-      `🦷 *Plano de Tratamento — Instituto Odonto Passos*\n\n` +
-      `Olá ${signerName.split(' ')[0]}!\n\n` +
-      `Seu plano de tratamento odontológico está pronto. Para iniciarmos, ` +
-      `precisamos da sua assinatura digital no Termo de Consentimento (TCLE).\n\n` +
-      `🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).\n` +
-      `📱 Você confirmará sua identidade via WhatsApp.\n\n` +
-      `✍️ *Clique aqui para assinar:*\n[link]`;
-
     const { signingUrl, contractSignatureId } = await this.clicksign.createGenericSignature({
       leadId: plan.patient.lead_id,
-      conversationId: conversation.id,
+      conversationId,
       buffer,
       filename,
       signerName,
       signerEmail,
       signerPhone,
       signerMessage: 'Por favor, leia o plano de tratamento e assine o Termo de Consentimento Livre e Esclarecido.',
-      whatsappMessage: whatsappMessage.replace('[link]', '{will-be-replaced}'), // ClickSign envia link separado
-      whatsappInstance: conversation.instance_name || undefined,
     });
 
     // Vincula ContractSignature -> TreatmentPlan (campo no plan)
@@ -96,8 +93,30 @@ export class TreatmentPlanContractService {
       data: { contract_signature_id: contractSignatureId },
     });
 
+    // Link no WhatsApp pela conversa de PACIENTE (chip Clínica/Comercial). Nome da
+    // clínica do PRÓPRIO tenant (era "Instituto Odonto Passos" fixo) e o link de
+    // verdade (antes saía "{will-be-replaced}" no lugar do link).
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim();
+    const whatsappMessage =
+      `🦷 *Plano de Tratamento${clinica ? ` — ${clinica}` : ''}*\n\n` +
+      `Olá ${signerName.split(' ')[0]}!\n\n` +
+      `Seu plano de tratamento odontológico está pronto. Para iniciarmos, ` +
+      `precisamos da sua assinatura digital no Termo de Consentimento (TCLE).\n\n` +
+      `🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).\n` +
+      `📱 Você confirmará sua identidade via WhatsApp.\n\n` +
+      `✍️ *Clique aqui para assinar:*\n${signingUrl}`;
+    let whatsappError: string | undefined;
+    try {
+      await this.messages.sendPatientText({ conversationId, tenantId, text: whatsappMessage, expectedPhone: signerPhone });
+    } catch (e: any) {
+      // Documento já está no ClickSign e vinculado ao plano: não desfaz — devolve o
+      // motivo (a mensagem fica com 'erro' na conversa e o link segue no retorno).
+      whatsappError = e?.message || 'Falha ao enviar pelo WhatsApp';
+      this.logger.warn(`[TCLE] Plano ${plan.id}: link não saiu no WhatsApp — ${whatsappError}`);
+    }
+
     this.logger.log(`[TCLE] Plano ${plan.id} enviado para assinatura — signature ${contractSignatureId}`);
-    return { signingUrl };
+    return { signingUrl, whatsappSent: !whatsappError, ...(whatsappError ? { whatsappError } : {}) };
   }
 
   // ─── Geracao do PDF do TCLE ──────────────────────────────────
@@ -219,26 +238,23 @@ export class TreatmentPlanContractService {
     });
   }
 
-  /** Garante que existe uma Conversation para o lead — cria phantom se nao houver. */
-  private async ensureConversation(leadId: string, tenantId: string | null) {
-    const existing = await this.prisma.conversation.findFirst({
-      where: { lead_id: leadId },
-      orderBy: { last_message_at: 'desc' },
-      select: { id: true, instance_name: true },
-    });
-    if (existing) return existing;
-
-    const created = await this.prisma.conversation.create({
-      data: {
-        lead_id: leadId,
-        tenant_id: tenantId,
-        channel: 'internal',
-        status: 'ABERTO',
-        ai_mode: false,
-      },
-      select: { id: true, instance_name: true },
-    });
-    this.logger.log(`[TCLE] Conversation phantom criada (${created.id}) para lead ${leadId}`);
-    return created;
+  /**
+   * Conversa de PACIENTE do lead pro TCLE — o MESMO find-or-create do chat da
+   * ficha (nunca a do Financeiro). Antes pegava a conversa mais recente de
+   * QUALQUER tipo (podia ser a do Financeiro, e o instance_name dela ia pro envio
+   * do link) ou criava uma "phantom" interna sem chip (→ chip padrão global).
+   * Checa ANTES do ClickSign: chip Clínica/Comercial, conversa elegível,
+   * telefone do cadastro = contato do WhatsApp.
+   */
+  private async resolvePatientConversation(leadId: string, tenantId: string, phone: string): Promise<string> {
+    if (!(await this.messages.resolvePatientChips(tenantId, true)).length) {
+      throw new BadRequestException('Nenhum WhatsApp Clínica/Comercial cadastrado — o TCLE não sai pelo número do Financeiro. Configure em Configurações › WhatsApp.');
+    }
+    const conversationId = await this.conversations.findOrCreatePatientConversationId(leadId, tenantId);
+    if (!conversationId) {
+      throw new BadRequestException('Sem conversa de WhatsApp Clínica/Comercial pra esse paciente (contato sem telefone ou clínica sem caixa de entrada) — configure o WhatsApp da clínica.');
+    }
+    await this.messages.assertPatientSendable({ conversationId, tenantId, expectedPhone: phone });
+    return conversationId;
   }
 }

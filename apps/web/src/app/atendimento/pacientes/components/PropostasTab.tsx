@@ -3416,9 +3416,15 @@ function ContratoCard({
     if (!contract) return;
     setBusy(true);
     try {
-      const { data } = await api.post<ContractMinimal>(`/contracts/${contract.id}/${path}`, {});
+      const { data } = await api.post<ContractMinimal & { whatsapp?: { sent: boolean; error?: string } }>(`/contracts/${contract.id}/${path}`, {});
       setContract(data);
-      showSuccess('Contrato atualizado');
+      // ClickSign: o contrato subiu, mas o link pode não ter saído no WhatsApp
+      // (chip Clínica/Comercial caiu, timeout) — avisa pra copiar o link no card.
+      if (data.whatsapp && !data.whatsapp.sent) {
+        showError(`Contrato enviado ao ClickSign, mas o link não saiu no WhatsApp: ${data.whatsapp.error || 'falha no envio'} — copie o link no card e mande pela conversa.`);
+      } else {
+        showSuccess('Contrato atualizado');
+      }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao atualizar contrato');

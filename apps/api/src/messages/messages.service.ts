@@ -1,9 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import { toBrazilWhatsappNumber, brazilPhoneMatchVariants } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { MediaS3Service } from '../media/s3.service';
 import { FileStorageService } from '../media/filesystem.service';
@@ -671,24 +671,27 @@ export class MessagesService {
       .map((r) => ({ name: r.name, purpose: r.purpose as 'CLINICA' | 'COMERCIAL' }));
   }
 
+  /** Mesmo número de WhatsApp? Compara TODAS as variantes BR (com/sem 9, com/sem 55). */
+  private samePatientPhone(a?: string | null, b?: string | null): boolean {
+    if (!a || !b) return false;
+    const vb = new Set(brazilPhoneMatchVariants(b));
+    return brazilPhoneMatchVariants(a).some((v) => vb.has(v));
+  }
+
   /**
-   * Envio ESTRITO de um documento pro PACIENTE (ex.: contrato). Diferente do
-   * sendFile do chat:
-   *  - nunca usa resolveDispatchInstance (que pode cair no chip FINANCEIRO ou no
-   *    default global): só os chips de resolvePatientChips, com troca pro outro
-   *    chip clínico SÓ quando o chip está fora (404/428/desconectado) — timeout,
-   *    5xx ou "número sem WhatsApp" não repetem (a mensagem pode ter saído);
-   *  - recusa conversa do Financeiro ANTES de gravar qualquer coisa;
-   *  - LANÇA erro com motivo claro quando não sai (o sendFile só marca 'erro');
-   *  - não reatribui a conversa (enviar contrato não tira o paciente da recepção).
+   * Guarda dos envios ESTRITOS pro paciente (sendPatientFile/sendPatientText),
+   * SEM gravar nem enviar nada. Pública pra quem tem efeito externo ANTES do
+   * envio (ex.: o ClickSign cria o documento) checar primeiro e não deixar nada
+   * pela metade:
+   *  - conversa WhatsApp da PRÓPRIA clínica;
+   *  - recusa conversa do Financeiro (inbox FINANCEIRO, ou sem inbox presa num
+   *    chip FINANCEIRO) — mundo isolado da cobrança;
+   *  - contato com telefone válido e, com `expectedPhone` (telefone do cadastro),
+   *    o MESMO número — senão iria pra outro número (nunca reescreve o salvo);
+   *  - pelo menos um chip Clínica/Comercial (resolvePatientChips): sem ele NÃO envia.
    */
-  async sendPatientFile(opts: {
-    conversationId: string;
-    tenantId: string;
-    caption: string;
-    file: Pick<Express.Multer.File, 'buffer' | 'mimetype' | 'originalname' | 'size'>;
-  }): Promise<{ message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' }> {
-    const { conversationId, tenantId, caption, file } = opts;
+  async assertPatientSendable(opts: { conversationId: string; tenantId: string; expectedPhone?: string | null }) {
+    const { conversationId, tenantId } = opts;
     if (!tenantId) throw new ForbiddenException('Acesso negado a este recurso');
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -705,13 +708,41 @@ export class MessagesService {
       select: { name: true },
     })).map((i) => i.name);
     if (convo.inbox?.purpose === 'FINANCEIRO' || (!convo.inbox_id && convo.instance_name && finNames.includes(convo.instance_name))) {
-      throw new BadRequestException('Conversa do Financeiro — documento de paciente não sai pelo número de cobrança.');
+      throw new BadRequestException('Conversa do Financeiro — mensagem de paciente não sai pelo número de cobrança.');
     }
     if (!toBrazilWhatsappNumber(convo.lead.phone || '')) throw new BadRequestException('Contato sem telefone válido');
+    if (opts.expectedPhone !== undefined && !this.samePatientPhone(convo.lead.phone, opts.expectedPhone)) {
+      const last4 = (p?: string | null) => (p || '').replace(/\D/g, '').slice(-4);
+      throw new ConflictException(
+        `O telefone do cadastro (final ${last4(opts.expectedPhone)}) é diferente do contato do WhatsApp (final ${last4(convo.lead.phone)}) — corrija o cadastro do paciente antes de enviar.`,
+      );
+    }
     const chips = await this.resolvePatientChips(tenantId, !!convo.lead.is_client);
     if (!chips.length) {
-      throw new BadRequestException('Nenhum WhatsApp Clínica/Comercial cadastrado — o documento não sai pelo Financeiro. Configure em Configurações › WhatsApp.');
+      throw new BadRequestException('Nenhum WhatsApp Clínica/Comercial cadastrado — a mensagem não sai pelo Financeiro. Configure em Configurações › WhatsApp.');
     }
+    return { convo: { ...convo, lead: convo.lead }, chips };
+  }
+
+  /**
+   * Envio ESTRITO de um documento pro PACIENTE (ex.: contrato, orçamento).
+   * Diferente do sendFile do chat:
+   *  - nunca usa resolveDispatchInstance (que pode cair no chip FINANCEIRO ou no
+   *    default global): só os chips de resolvePatientChips (dispatchToPatient);
+   *  - recusa conversa do Financeiro ANTES de gravar qualquer coisa (assertPatientSendable);
+   *  - LANÇA erro com motivo claro quando não sai (o sendFile só marca 'erro');
+   *  - não reatribui a conversa (enviar contrato não tira o paciente da recepção).
+   */
+  async sendPatientFile(opts: {
+    conversationId: string;
+    tenantId: string;
+    caption: string;
+    file: Pick<Express.Multer.File, 'buffer' | 'mimetype' | 'originalname' | 'size'>;
+    /** Telefone do cadastro: diverge do contato da conversa → recusa (409). */
+    expectedPhone?: string | null;
+  }): Promise<{ message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' }> {
+    const { caption, file } = opts;
+    const { convo, chips } = await this.assertPatientSendable(opts);
 
     const { msg } = await this.persistOutgoingFile(convo.id, file, caption);
 
@@ -722,14 +753,69 @@ export class MessagesService {
       ? `${base}/media/${msg.id}?${this.mediaSign.signedQuery(msg.id)}`
       : file.buffer.toString('base64');
 
-    const chipDown = (r: any) =>
-      r?.statusCode === 404 || r?.statusCode === 428 ||
+    return this.dispatchToPatient(convo, chips, msg.id, file.originalname, (chip) =>
+      this.whatsapp.sendMedia(convo.lead.phone, 'document', media, caption, chip, file.originalname, file.mimetype),
+    );
+  }
+
+  /**
+   * Envio ESTRITO de TEXTO pro PACIENTE (ex.: link de assinatura do ClickSign).
+   * Mesmas regras do sendPatientFile: só chip Clínica/Comercial, nunca Financeiro
+   * nem o default global, erro claro quando não sai — e a mensagem fica gravada
+   * no chat (antes do envio, com id "out_" pro eco do webhook casar).
+   */
+  async sendPatientText(opts: {
+    conversationId: string;
+    tenantId: string;
+    text: string;
+    /** Telefone do cadastro: diverge do contato da conversa → recusa (409). */
+    expectedPhone?: string | null;
+  }): Promise<{ message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' }> {
+    const text = (opts.text || '').trim();
+    if (!text) throw new BadRequestException('Mensagem vazia');
+    const { convo, chips } = await this.assertPatientSendable(opts);
+
+    const msg = await this.prisma.message.create({
+      data: {
+        conversation_id: convo.id,
+        direction: 'out',
+        type: 'text',
+        text,
+        external_message_id: `out_text_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        status: 'enviado',
+      },
+    });
+
+    return this.dispatchToPatient(convo, chips, msg.id, 'texto', (chip) =>
+      this.whatsapp.sendText(convo.lead.phone, text, chip),
+    );
+  }
+
+  /** Chip fora do ar (404/428/desconectado): a mensagem NÃO saiu — dá pra tentar o outro. */
+  private patientChipDown(r: any): boolean {
+    return r?.statusCode === 404 || r?.statusCode === 428 ||
       /connection closed|not connected|does not exist/i.test(String(r?.error ?? ''));
+  }
+
+  /**
+   * Dispara a mensagem JÁ GRAVADA (msgId) pelos chips de paciente, em ordem,
+   * trocando pro próximo SÓ quando o chip está fora (404/428/desconectado) —
+   * timeout, 5xx ou "número sem WhatsApp" não repetem (a mensagem pode ter
+   * saído). Sucesso: grava o id real + chip e emite. Falha: marca 'erro' e LANÇA
+   * com motivo claro (+ mayHaveBeenDelivered pra quem chama travar reenvio).
+   */
+  private async dispatchToPatient(
+    convo: { id: string; lead_id: string },
+    chips: Array<{ name: string; purpose: 'CLINICA' | 'COMERCIAL' }>,
+    msgId: string,
+    label: string,
+    send: (chipName: string) => Promise<any>,
+  ): Promise<{ message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' }> {
     let lastRes: any = null;
     for (const chip of chips) {
       let res: any;
       try {
-        res = await this.whatsapp.sendMedia(convo.lead.phone, 'document', media, caption, chip.name, file.originalname, file.mimetype);
+        res = await send(chip.name);
       } catch (e: any) {
         res = { statusCode: 599, error: e?.message || 'erro de rede' };
       }
@@ -737,47 +823,47 @@ export class MessagesService {
       if (!evolutionSendFailed(res) && res?.key?.id) {
         try {
           await this.prisma.message.update({
-            where: { id: msg.id },
+            where: { id: msgId },
             data: { external_message_id: res.key.id, instance_name: chip.name },
           });
         } catch (e: any) {
-          // P2002: o eco do webhook já gravou esse key.id — o documento SAIU.
+          // P2002: o eco do webhook já gravou esse key.id — a mensagem SAIU.
           // Não pode virar erro (o operador reenviaria e o paciente receberia 2×).
-          if (e?.code !== 'P2002') this.logger.error(`[PATIENT-FILE] update pós-envio falhou: ${e?.message}`);
-          else this.logger.warn(`[PATIENT-FILE] eco já gravou ${res.key.id} — envio OK`);
-          await this.prisma.message.update({ where: { id: msg.id }, data: { instance_name: chip.name } }).catch(() => {});
+          if (e?.code !== 'P2002') this.logger.error(`[PATIENT-SEND] update pós-envio falhou: ${e?.message}`);
+          else this.logger.warn(`[PATIENT-SEND] eco já gravou ${res.key.id} — envio OK`);
+          await this.prisma.message.update({ where: { id: msgId }, data: { instance_name: chip.name } }).catch(() => {});
         }
         await this.prisma.conversation.update({ where: { id: convo.id }, data: { last_message_at: new Date() } });
         this.enqueueMemoryUpdate(convo.id, convo.lead_id).catch((e) =>
-          this.logger.error(`Erro ao enfileirar memory-op (patient file): ${e.message}`),
+          this.logger.error(`Erro ao enfileirar memory-op (patient send): ${e.message}`),
         );
-        const sent = await this.prisma.message.findUnique({ where: { id: msg.id }, include: { media: true } });
+        const sent = await this.prisma.message.findUnique({ where: { id: msgId }, include: { media: true } });
         this.chatGateway.emitNewMessage(convo.id, sent);
         this.chatGateway.emitConversationsUpdate(null);
-        this.logger.log(`[PATIENT-FILE] ${file.originalname} enviado na conversa ${convo.id} pelo chip ${chip.name} (${chip.purpose})`);
+        this.logger.log(`[PATIENT-SEND] ${label} enviado na conversa ${convo.id} pelo chip ${chip.name} (${chip.purpose})`);
         return { message: sent, instance: chip.name, purpose: chip.purpose };
       }
-      if (!chipDown(res)) break; // timeout/5xx/número sem WhatsApp: NÃO tenta outro chip
-      this.logger.warn(`[PATIENT-FILE] chip ${chip.name} (${chip.purpose}) fora: ${JSON.stringify(res).slice(0, 200)} — tentando o próximo`);
+      if (!this.patientChipDown(res)) break; // timeout/5xx/número sem WhatsApp: NÃO tenta outro chip
+      this.logger.warn(`[PATIENT-SEND] chip ${chip.name} (${chip.purpose}) fora: ${JSON.stringify(res).slice(0, 200)} — tentando o próximo`);
     }
 
-    await this.prisma.message.update({ where: { id: msg.id }, data: { status: 'erro' } });
-    const failed = await this.prisma.message.findUnique({ where: { id: msg.id }, include: { media: true } });
+    await this.prisma.message.update({ where: { id: msgId }, data: { status: 'erro' } });
+    const failed = await this.prisma.message.findUnique({ where: { id: msgId }, include: { media: true } });
     this.chatGateway.emitNewMessage(convo.id, failed);
-    this.logger.error(`[PATIENT-FILE] falha ao enviar ${file.originalname} na conversa ${convo.id}: ${JSON.stringify(lastRes).slice(0, 300)}`);
+    this.logger.error(`[PATIENT-SEND] falha ao enviar ${label} na conversa ${convo.id}: ${JSON.stringify(lastRes).slice(0, 300)}`);
     let reason = 'Não foi possível enviar pelo WhatsApp.';
     // exists:false pode vir num corpo 2xx OU no texto cru de um erro HTTP (400).
     const existsFalse = /"exists"\s*:\s*false/;
     let notOnWhatsapp = false;
     try { notOnWhatsapp = existsFalse.test(String(lastRes?.error ?? '')) || existsFalse.test(JSON.stringify(lastRes)); } catch { /* ignore */ }
     if (notOnWhatsapp) reason = 'Este número não está no WhatsApp.';
-    else if (chipDown(lastRes)) reason = 'WhatsApp Clínica/Comercial desconectado — reconecte em Configurações › WhatsApp.';
+    else if (this.patientChipDown(lastRes)) reason = 'WhatsApp Clínica/Comercial desconectado — reconecte em Configurações › WhatsApp.';
     else if (lastRes?.statusCode === 408) reason = 'O WhatsApp não respondeu a tempo — confira na conversa antes de reenviar.';
     // Timeout / 5xx / falha de rede: a mensagem PODE ter saído — quem chama não
     // deve liberar reenvio imediato. 4xx de chip fora / número inexistente: não saiu.
     const code = Number(lastRes?.statusCode) || 0;
     const err = new BadRequestException(reason);
-    (err as any).mayHaveBeenDelivered = !notOnWhatsapp && !chipDown(lastRes) && (code === 408 || code >= 500);
+    (err as any).mayHaveBeenDelivered = !notOnWhatsapp && !this.patientChipDown(lastRes) && (code === 408 || code >= 500);
     throw err;
   }
 
