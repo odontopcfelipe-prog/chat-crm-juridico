@@ -1019,16 +1019,18 @@ export function Sidebar() {
           {/* Onda 17.32.78 — White-label: usa logo do tenant se houver,
               senao mantem o icone de dente padrao da plataforma. */}
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ring-1 ring-primary-foreground/20 overflow-hidden bg-card"
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ring-1 ring-primary-foreground/20 overflow-hidden"
             style={tenant?.logo_url ? undefined : { background: 'var(--gradient-accent)' }}
           >
             {tenant?.logo_url ? (
-              // object-contain + fundo branco: logo da clínica raramente é
-              // quadrada — "cover" cortava as bordas.
+              // object-contain (logo raramente é quadrada — "cover" cortava) e SEM
+              // fundo forçado: área transparente da logo (ex.: cantos do recorte
+              // redondo) mostra o roxo da própria barra. Quem quer fundo escolhe a
+              // cor no editor da logo (Identidade › Ajustar › Fundo).
               <img
                 src={tenant.logo_url}
                 alt={tenant.name || 'Logo'}
-                className="w-full h-full object-contain bg-white"
+                className="w-full h-full object-contain"
               />
             ) : (
               <svg

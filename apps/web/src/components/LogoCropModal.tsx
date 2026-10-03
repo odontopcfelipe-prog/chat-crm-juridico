@@ -12,8 +12,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ZoomIn, ZoomOut, RotateCcw, Check, Pipette, Crop, Eraser } from 'lucide-react';
-import { estimateBorderColor, removeBackground, rgbToHex, type RGB } from '@/lib/logoBackground';
+import { X, ZoomIn, ZoomOut, RotateCcw, Check, Pipette, Crop, Eraser, Wand2 } from 'lucide-react';
+import {
+  estimateBorderColor, removeBackground, detectLogoBounds, padBounds, rgbToHex,
+  type RGB, type LogoBounds,
+} from '@/lib/logoBackground';
 
 const VIEW = 288;            // lado do quadro de recorte na tela (px)
 const OUT = 512;             // lado da logo final (px)
@@ -43,16 +46,21 @@ const CHECKER = {
   backgroundColor: '#fff',
 } as const;
 
+/** Margem em volta da logo no encaixe automático (protege contorno fino e claro). */
+const FIT_MARGIN = 0.035;
+
 interface Props {
   /** URL da imagem a ajustar (blob: do arquivo escolhido ou data: da logo atual). */
   src: string;
+  /** Nome da clínica — só pra prévia da barra lateral. */
+  clinicName?: string;
   onCancel: () => void;
   onConfirm: (dataUrl: string) => void;
 }
 
 interface WorkImage { w: number; h: number; base: Uint8ClampedArray }
 
-export default function LogoCropModal({ src, onCancel, onConfirm }: Props) {
+export default function LogoCropModal({ src, clinicName, onCancel, onConfirm }: Props) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'frame' | 'bg'>('frame');
@@ -73,6 +81,11 @@ export default function LogoCropModal({ src, onCancel, onConfirm }: Props) {
   const [removedPct, setRemovedPct] = useState(0);
   const [bgColor, setBgColor] = useState<string | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Encaixe automático (onde está a logo dentro da foto) + prévia da barra lateral.
+  const [autoBounds, setAutoBounds] = useState<LogoBounds | null>(null);
+  const [autoFitted, setAutoFitted] = useState(false);
+  const autoFitFor = useRef<string | null>(null);
+  const [sidebarPreview, setSidebarPreview] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -193,35 +206,76 @@ export default function LogoCropModal({ src, onCancel, onConfirm }: Props) {
     applyZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
   };
 
-  const resetFrame = () => { setZoom(ZMIN); setOffset({ x: 0, y: 0 }); };
+  const resetFrame = () => { setZoom(ZMIN); setOffset({ x: 0, y: 0 }); setAutoFitted(false); };
   const resetBg = () => { setBgRemove(false); setRefColor(null); setTolerance(30); setEverywhere(false); setPicking(false); setBgColor(null); };
+
+  /** Enquadra a caixa da logo (em pixels da imagem de trabalho) preenchendo o
+   *  quadro; logo redonda liga o recorte redondo. */
+  const applyFit = (b: LogoBounds) => {
+    if (!work) return;
+    const d1W = srcW * base;           // tamanho na tela com zoom 1 ("caber inteiro")
+    const d1H = srcH * base;
+    const fx0 = b.x0 / work.w, fx1 = (b.x1 + 1) / work.w;
+    const fy0 = b.y0 / work.h, fy1 = (b.y1 + 1) / work.h;
+    const z = Math.max(ZMIN, Math.min(ZMAX, VIEW / Math.max((fx1 - fx0) * d1W, (fy1 - fy0) * d1H)));
+    const dW = d1W * z;
+    const dH = d1H * z;
+    setZoom(z);
+    setOffset(clamp({ x: -(((fx0 + fx1) / 2) - 0.5) * dW, y: -(((fy0 + fy1) / 2) - 0.5) * dH }, dW, dH));
+    if (b.round) setRound(true);
+    setAutoFitted(true);
+  };
+
+  // Ao abrir: acha a logo dentro da foto e já enquadra (1× por imagem).
+  useEffect(() => {
+    if (!work || !img || autoFitFor.current === src) return;
+    autoFitFor.current = src;
+    const found = detectLogoBounds(work.base, work.w, work.h, { ref: estimateBorderColor(work.base, work.w, work.h), tolerance: 30 });
+    const padded = found ? padBounds(found, work.w, work.h, FIT_MARGIN) : null;
+    setAutoBounds(padded);
+    if (padded) applyFit(padded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [work, img, src]);
+
+  /** Monta a logo final num canvas size×size (mesma conta da tela, escalada). */
+  const compose = (size: number, jpeg: boolean) => {
+    if (!img) throw new Error('sem imagem');
+    const source: CanvasImageSource = usingProcessed ? processed! : img;
+    const k = size / VIEW;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Seu navegador não conseguiu processar a imagem.');
+    // JPG não tem transparência: branco ANTES do recorte redondo (cantos brancos, não pretos).
+    if (jpeg) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size); }
+    if (round) {
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+    }
+    if (bgColor) { ctx.fillStyle = bgColor; ctx.fillRect(0, 0, size, size); }
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, imgLeft * k, imgTop * k, dispW * k, dispH * k);
+    return canvas;
+  };
+
+  // Prévia ao vivo de como a logo fica na barra lateral.
+  useEffect(() => {
+    if (!img) return;
+    const t = setTimeout(() => {
+      try { setSidebarPreview(compose(96, false).toDataURL('image/png')); } catch { setSidebarPreview(null); }
+    }, 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [img, processed, usingProcessed, zoom, offset.x, offset.y, round, bgColor]);
 
   const confirm = () => {
     if (!img) return;
-    const source: CanvasImageSource = usingProcessed ? processed! : img;
-    const k = OUT / VIEW;
-    const draw = (jpeg: boolean) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = OUT;
-      canvas.height = OUT;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Seu navegador não conseguiu processar a imagem.');
-      // JPG não tem transparência: branco ANTES do recorte redondo (cantos brancos, não pretos).
-      if (jpeg) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, OUT, OUT); }
-      if (round) {
-        ctx.beginPath();
-        ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-      }
-      if (bgColor) { ctx.fillStyle = bgColor; ctx.fillRect(0, 0, OUT, OUT); }
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(source, imgLeft * k, imgTop * k, dispW * k, dispH * k);
-      return canvas;
-    };
     try {
-      let out = draw(false).toDataURL('image/png');
-      if (out.length > MAX_CHARS) out = draw(true).toDataURL('image/jpeg', 0.88);
+      let out = compose(OUT, false).toDataURL('image/png');
+      if (out.length > MAX_CHARS) out = compose(OUT, true).toDataURL('image/jpeg', 0.88);
       if (out.length > MAX_CHARS) {
         setError('Imagem muito pesada mesmo reduzida — use uma logo mais simples.');
         return;
@@ -297,6 +351,34 @@ export default function LogoCropModal({ src, onCancel, onConfirm }: Props) {
           {picking && !error && (
             <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Clique no FUNDO da imagem pra escolher a cor a remover.</p>
           )}
+          {!picking && !error && autoFitted && (
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+              <Wand2 size={12} />
+              Enquadramos a logo sozinho{round ? ' (recorte redondo)' : ''} — ajuste se quiser.
+            </p>
+          )}
+          {!error && sidebarPreview && (
+            // Prévia ao vivo: mesma caixa (40px, cantos arredondados) sobre o roxo da barra lateral.
+            <div className="w-full flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground shrink-0">Na barra lateral</span>
+              <div data-testid="logo-sidebar-preview" className="flex-1 min-w-0 h-14 px-3 rounded-lg bg-primary flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-lg ring-1 ring-primary-foreground/20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={sidebarPreview} alt="" className="w-full h-full object-contain" />
+                </div>
+                {clinicName && (
+                  <div className="flex flex-col leading-none min-w-0">
+                    <span className="text-[13px] font-extrabold text-primary-foreground truncate">{clinicName.split(' ')[0].toUpperCase()}</span>
+                    {clinicName.split(' ').length > 1 && (
+                      <span className="text-[8px] font-bold tracking-[0.18em] text-primary-foreground/70 mt-0.5 truncate">
+                        {clinicName.split(' ').slice(1).join(' ').toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {!error && (
@@ -331,9 +413,23 @@ export default function LogoCropModal({ src, onCancel, onConfirm }: Props) {
                     Recomeçar
                   </button>
                 </div>
+                {autoBounds && (
+                  <button
+                    type="button"
+                    onClick={() => applyFit(autoBounds)}
+                    className="w-full text-xs font-semibold py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center justify-center gap-1.5"
+                  >
+                    <Wand2 size={13} />
+                    Encaixar automaticamente
+                  </button>
+                )}
               </div>
             ) : (
               <div className="p-5 pt-4 space-y-4">
+                <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
+                  <b className="text-foreground">Dica:</b> logo redonda fica mais bonita só com o recorte redondo (aba Enquadrar).
+                  Remover fundo apaga tudo da cor do fundo — pode levar junto contornos e letras claras da logo.
+                </p>
                 {bgError ? (
                   <p className="text-[11px] text-amber-700 dark:text-amber-400">{bgError}</p>
                 ) : (

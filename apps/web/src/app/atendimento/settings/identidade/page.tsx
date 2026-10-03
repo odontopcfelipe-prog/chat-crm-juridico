@@ -325,7 +325,7 @@ export default function IdentidadeClinicaPage() {
               />
             </div>
           </div>
-          {cropSrc && <LogoCropModal src={cropSrc} onCancel={closeCrop} onConfirm={applyCrop} />}
+          {cropSrc && <LogoCropModal src={cropSrc} clinicName={name} onCancel={closeCrop} onConfirm={applyCrop} />}
 
           <Field
             Icon={Building2}
