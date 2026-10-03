@@ -21,7 +21,8 @@ import { ConversationsModule } from '../conversations/conversations.module';
     // Onda 18.x — backfill de fotos do WhatsApp (fetchProfilePicture)
     forwardRef(() => WhatsappModule),
     // Conversa de paciente do cadastro: find-or-create que nunca usa o Financeiro.
-    ConversationsModule,
+    // forwardRef: ConversationsModule → WhatsappModule → (leads) → PatientsModule.
+    forwardRef(() => ConversationsModule),
   ],
   controllers: [PatientsController],
   providers: [PatientsService, FileStorageService, AffiliateService, PatientAvatarBackfillCron],

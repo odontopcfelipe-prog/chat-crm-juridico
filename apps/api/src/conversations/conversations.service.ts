@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -13,7 +13,10 @@ export class ConversationsService {
   constructor(
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
-    private whatsappService: WhatsappService,
+    // forwardRef: ciclo de imports conversations.service → whatsapp.service →
+    // leads.service → patients.service → conversations.service. Sem isso o
+    // WhatsappService chegava `undefined` e a API caía na subida (crash loop).
+    @Inject(forwardRef(() => WhatsappService)) private whatsappService: WhatsappService,
     private notificationsService: NotificationsService,
   ) {}
 

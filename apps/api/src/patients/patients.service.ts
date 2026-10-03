@@ -77,7 +77,10 @@ export class PatientsService {
     @Inject(forwardRef(() => ReferralsService)) private referralsService: ReferralsService,
     private patientTagsService: PatientTagsService,
     @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
-    private conversations: ConversationsService,
+    // forwardRef: ciclo de imports whatsapp.service → leads.service →
+    // patients.service → conversations.service → whatsapp.service. Sem isso a
+    // classe chega `undefined` conforme a ordem de carga e a API nem sobe.
+    @Inject(forwardRef(() => ConversationsService)) private conversations: ConversationsService,
   ) {}
 
   /**
