@@ -22,6 +22,7 @@ interface OrthoCard {
   weekday: number | null;
   next_appointment_at: string | null;
   last_visit_at: string | null;
+  last_ortho_at?: string | null; // última consulta de ortô já passada (backend)
   archived: boolean;
   inativo: boolean;
   plan_ids: string[];
@@ -54,6 +55,21 @@ const WD_LABEL: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua
 const WD_FULL: Record<number, string> = { 0: 'Domingo', 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado' };
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
+
+// "Última" = última consulta de ortô (fallback: última visita registrada).
+const lastSeen = (c: OrthoCard) => c.last_ortho_at ?? c.last_visit_at;
+// Ordem dentro da coluna: SEM agendamento sobe (é o que pede ação) — quem nunca veio
+// primeiro, depois quem está há mais tempo sem vir; em seguida os agendados (consulta
+// mais próxima primeiro), concluídos e os que saíram.
+const STATUS_ORDER: Record<OrthoStatus, number> = { nao_agendado: 0, agendado: 1, concluido: 2, saiu: 3 };
+const ms = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : 0);
+const byPriority = (a: OrthoCard, b: OrthoCard) => {
+  const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+  if (s !== 0) return s;
+  if (a.status === 'nao_agendado') return ms(lastSeen(a)) - ms(lastSeen(b));
+  if (a.status === 'agendado') return ms(a.next_appointment_at) - ms(b.next_appointment_at);
+  return (a.patient.name || '').localeCompare(b.patient.name || '');
+};
 const fmtDateTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -118,9 +134,9 @@ export default function OrtodontiaPage() {
         id: `d${wd}`,
         name: WD_FULL[wd],
         weekday: wd as number | null,
-        cards: board.patients.filter((c) => c.weekday === wd),
+        cards: board.patients.filter((c) => c.weekday === wd).sort(byPriority),
       }));
-      const semDia = board.patients.filter((c) => c.weekday == null);
+      const semDia = board.patients.filter((c) => c.weekday == null).sort(byPriority);
       if (semDia.length) cols.push({ id: 'sem-dia', name: 'Sem dia definido', weekday: null, cards: semDia });
       return cols;
     }
@@ -134,6 +150,7 @@ export default function OrtodontiaPage() {
       if (!byDentist.has(key)) byDentist.set(key, { id: key, name, weekday: null, cards: [] });
       byDentist.get(key)!.cards.push(c);
     }
+    for (const col of byDentist.values()) col.cards.sort(byPriority);
     return Array.from(byDentist.values()).sort((a, b) => {
       if (a.id === '__none__') return 1;
       if (b.id === '__none__') return -1;
@@ -255,7 +272,17 @@ export default function OrtodontiaPage() {
                     <span className="text-[10px] text-muted-foreground block ml-6 truncate">{dentistDays.map((d) => WD_LABEL[d]).join(' · ')}</span>
                   )}
                 </div>
-                <span className="text-xs text-muted-foreground shrink-0">{col.cards.length}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(() => {
+                    const semAgenda = col.cards.filter((c) => c.status === 'nao_agendado').length;
+                    return semAgenda > 0 && view !== 'nao_agendado' ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600" title="Pacientes sem agendamento nesta coluna">
+                        {semAgenda} sem agenda
+                      </span>
+                    ) : null;
+                  })()}
+                  <span className="text-xs text-muted-foreground">{col.cards.length}</span>
+                </div>
               </div>
               {/* Faixa do ortodontista do dia (modo "Todos os dias"). Admin define/tira
                   o dentista do dia DIRETO aqui — não precisa ir no cadastro. */}
@@ -399,7 +426,7 @@ function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onC
         </div>
       ) : (
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
-          <CalendarDays size={12} /> Última: {fmtDate(card.last_visit_at)}
+          <CalendarDays size={12} /> Última: {fmtDate(lastSeen(card))}
           {card.inativo && <span className="text-red-500 font-semibold">· inativo 12m+</span>}
           {card.archived && <span className="text-red-500 font-semibold">· arquivado</span>}
         </div>
