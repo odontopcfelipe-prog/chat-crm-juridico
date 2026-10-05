@@ -13,6 +13,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
+import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'concluido' | 'saiu';
 
@@ -79,7 +80,8 @@ export default function OrtodontiaPage() {
   const [board, setBoard] = useState<OrthoBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewKey>('todos');
-  const [completing, setCompleting] = useState<string | null>(null);
+  // ✓ Finalizar tratamento — resolve os procedimentos em aberto (ou dá alta sem plano)
+  const [finalizeCard, setFinalizeCard] = useState<OrthoCard | null>(null);
   const [dentists, setDentists] = useState<{ id: string; name: string; ortho_days?: number[] }[]>([]);
   const [migrating, setMigrating] = useState<string | null>(null);
   const role = useRole(); // só admin define o dia do ortodontista direto no quadro
@@ -158,21 +160,6 @@ export default function OrtodontiaPage() {
       return a.name.localeCompare(b.name);
     });
   }, [board, view]);
-
-  const conclude = async (card: OrthoCard) => {
-    if (!card.plan_ids.length) { showError('Sem plano de ortodontia pra concluir'); return; }
-    if (!confirm(`Concluir a ortodontia de ${card.patient.name}? Marca o tratamento como finalizado (alta).`)) return;
-    setCompleting(card.patient.id);
-    try {
-      await Promise.all(card.plan_ids.map((id) => api.post(`/treatment-plans/${id}/complete`)));
-      showSuccess('Ortodontia concluída (alta registrada)');
-      load();
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao concluir');
-    } finally {
-      setCompleting(null);
-    }
-  };
 
   // Migra o paciente pra outro dentista de ortô (override manual, prioridade máxima).
   const migrate = async (patientId: string, dentistId: string | null) => {
@@ -368,9 +355,8 @@ export default function OrtodontiaPage() {
                       card={c}
                       showDentist={view === 'dias'}
                       dentists={dentists}
-                      completing={completing === c.patient.id}
                       migrating={migrating === c.patient.id}
-                      onConclude={() => conclude(c)}
+                      onFinalize={() => setFinalizeCard(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
                       onSchedule={() => router.push(`/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA`)}
                       onMigrate={(did) => migrate(c.patient.id, did)}
@@ -382,6 +368,19 @@ export default function OrtodontiaPage() {
             );
           })}
         </div>
+      )}
+
+      {finalizeCard && (
+        <FinalizarTratamentoModal
+          open
+          kind="orto"
+          onClose={() => setFinalizeCard(null)}
+          onDone={load}
+          patientId={finalizeCard.patient.id}
+          patientName={finalizeCard.patient.name || 'Paciente'}
+          planIds={finalizeCard.plan_ids}
+          nextAppointmentAt={finalizeCard.next_appointment_at}
+        />
       )}
     </div>
   );
@@ -396,9 +395,9 @@ function Kpi({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onConclude, onOpen, onSchedule, onMigrate }: {
-  card: OrthoCard; showDentist?: boolean; completing: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
-  onConclude: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
+function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onOpen, onSchedule, onMigrate }: {
+  card: OrthoCard; showDentist?: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
+  onFinalize: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
 }) {
   const meta = STATUS_META[card.status];
   return (
@@ -420,6 +419,15 @@ function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onC
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-primary/10 text-primary" title="Dia de atendimento">{WD_LABEL[card.weekday]}</span>
         )}
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${meta.badge}`}>{meta.label}</span>
+        {card.status !== 'concluido' && (
+          <button
+            onClick={onFinalize}
+            className="shrink-0 p-1 rounded text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
+            title="Finalizar tratamento (alta de ortodontia)"
+          >
+            <CheckCircle2 size={14} />
+          </button>
+        )}
       </div>
 
       {showDentist && card.dentist && (
@@ -444,12 +452,6 @@ function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onC
         {card.status !== 'agendado' && card.status !== 'concluido' && (
           <button onClick={onSchedule} className="flex-1 text-[11px] font-semibold px-2 py-1.5 rounded-md bg-amber-500 text-white hover:opacity-90 inline-flex items-center justify-center gap-1">
             <CalendarPlus size={12} /> Agendar
-          </button>
-        )}
-        {card.status !== 'concluido' && card.plan_ids.length > 0 && (
-          <button onClick={onConclude} disabled={completing}
-            className="flex-1 text-[11px] font-semibold px-2 py-1.5 rounded-md border border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-50 inline-flex items-center justify-center gap-1">
-            {completing ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Concluir
           </button>
         )}
       </div>

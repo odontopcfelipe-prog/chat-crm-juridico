@@ -219,6 +219,15 @@ export class CommercialController {
     return this.quotesService.getOrthoBoard(user.tenant_id);
   }
 
+  // Alta de ortodontia pra paciente SEM plano de ortô (veio só pela agenda) — botão ✓
+  // da Ortodontia. Quem tem plano finaliza por POST /treatment-plans/finalize.
+  @RequiresPermission('manage_proposals')
+  @Post('quotes/ortho-board/alta')
+  orthoAlta(@Body() body: { patient_id?: string }, @Authenticated() user: AuthUser) {
+    if (!body?.patient_id) throw new BadRequestException('Informe o paciente');
+    return this.quotesService.markOrthoAlta(user.tenant_id, body.patient_id, user.id);
+  }
+
   // Disparos "Equipe → Pacientes sem agendamento" (geral e ?kind=orto): prévia + teste.
   // A prévia também abre pra quem usa o Progresso/Ortodontia (botão "Avisar ADMs") —
   // mostra os mesmos pacientes que esses quadros já mostram.
@@ -1300,6 +1309,23 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.plansService.complete(id, tenantId);
+  }
+
+  // Botão ✓ "Finalizar tratamento" (Progresso / Ortodontia): resolve os procedimentos
+  // em aberto (feito por <responsável> ou não realizado) e conclui os planos do paciente.
+  // (Não colide com os POST por id — todos têm sufixo: /activate, /complete…)
+  @RequiresPermission('manage_proposals')
+  @Post('treatment-plans/finalize')
+  finalizePlans(
+    @Body() body: {
+      plan_ids?: string[];
+      executions?: Array<{ item_id?: string; executed_by_user_id?: string | null; not_done?: boolean }>;
+    },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.plansService.finalizePlans(tenantId, req.user?.id ?? null, body?.plan_ids || [], body?.executions || []);
   }
 
   // ─── TreatmentPlanItems ───────────────────────────────────────

@@ -30,6 +30,7 @@ import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
+import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -324,6 +325,7 @@ export default function ProgressoPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Modal de procedimentos (feito / falta fazer) por card — aberto pela engrenagem.
   const [procModal, setProcModal] = useState<{ planIds: string[]; patientName: string } | null>(null);
+  const [finalizeTarget, setFinalizeTarget] = useState<{ patientId: string; patientName: string; planIds: string[]; nextAppointmentAt: string | null } | null>(null);
   // Dentistas do tenant, pro seletor "quem está atendendo".
   const [dentists, setDentists] = useState<Dentist[]>([]);
   // Filtro do quadro por dentista ('' = todos, '__none__' = sem dentista).
@@ -586,6 +588,7 @@ export default function ProgressoPage() {
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
                       onToggleStandby={() => toggleStandby(c)}
+                      onFinalize={() => setFinalizeTarget({ patientId: c.patient.id, patientName: c.patient.name || 'Paciente', planIds: c.plan_ids || [], nextAppointmentAt: c.next_appointment_at })}
                     />
                   ))
                 )}
@@ -594,6 +597,18 @@ export default function ProgressoPage() {
           );
         })}
       </div>
+
+      {finalizeTarget && (
+        <FinalizarTratamentoModal
+          open
+          onClose={() => setFinalizeTarget(null)}
+          onDone={load}
+          patientId={finalizeTarget.patientId}
+          patientName={finalizeTarget.patientName}
+          planIds={finalizeTarget.planIds}
+          nextAppointmentAt={finalizeTarget.nextAppointmentAt}
+        />
+      )}
 
       {procModal && (
         <ProceduresModal
@@ -632,13 +647,14 @@ function KpiCard({
 // ─── Card ───────────────────────────────────────────────────────────────────
 
 function JourneyCardItem({
-  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist, onToggleStandby,
+  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist, onToggleStandby, onFinalize,
 }: {
   card: JourneyCard;
   onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
   dentists: Dentist[];
   onSetDentist: (d: Dentist | null) => void;
   onToggleStandby: () => void;
+  onFinalize: () => void;
 }) {
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
@@ -702,6 +718,15 @@ function JourneyCardItem({
             title={c.standby ? 'Retomar tratamento' : 'Colocar em stand by'}
           >
             {c.standby ? <Play size={13} /> : <Pause size={13} />}
+          </button>
+        )}
+        {c.stage !== 'CONCLUIDO' && (c.plan_ids?.length ?? 0) > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onFinalize(); }}
+            className="shrink-0 p-1 rounded text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+            title="Finalizar tratamento"
+          >
+            <CircleCheck size={13} />
           </button>
         )}
       </div>

@@ -3883,9 +3883,11 @@ export class QuotesService {
 
       // Concluído só quando TODO o trabalho do paciente terminou (todos os
       // contratos): todos os itens DONE/CANCELLED (com ≥1 DONE) OU todo plano COMPLETED.
+      // (orçamento aceito SEM plano não segura o card — só os que têm plano contam)
+      const withPlan = pQuotes.filter((q) => q.treatment_plan);
       const concluido =
         (hasItems && allItemsSettled && itemsDone > 0) ||
-        pQuotes.every((q) => q.treatment_plan?.status === 'COMPLETED');
+        (withPlan.length > 0 && withPlan.every((q) => q.treatment_plan?.status === 'COMPLETED'));
       // "stand by" = algum plano PAUSED (pausado por decisão do adm/dentista)
       const standby = pQuotes.some((q) => q.treatment_plan?.status === 'PAUSED');
 
@@ -4013,7 +4015,7 @@ export class QuotesService {
     // 1. Consultas de ortô — fonte operacional (ortô volta ~todo mês)
     const orthoEvents = await this.prisma.calendarEvent.findMany({
       where: { tenant_id: tenantId, type: 'ORTODONTIA', patient_id: { not: null } },
-      select: { patient_id: true, assigned_user_id: true, start_at: true, status: true },
+      select: { patient_id: true, assigned_user_id: true, start_at: true, status: true, created_at: true },
       orderBy: { start_at: 'desc' },
     });
 
@@ -4056,9 +4058,14 @@ export class QuotesService {
     const dentistCount = new Map<string, Map<string, number>>();
     const nextApptByPatient = new Map<string, Date>();
     const lastOrthoByPatient = new Map<string, Date>(); // última consulta de ortô já passada
+    const lastOrthoCreatedByPatient = new Map<string, Date>(); // última consulta de ortô MARCADA (created_at)
     const weekdayCount = new Map<string, Map<number, number>>(); // ortô é fixo no dia da semana
     for (const e of orthoEvents) {
       if (!e.patient_id) continue;
+      if (e.status !== 'CANCELADO') {
+        const cur = lastOrthoCreatedByPatient.get(e.patient_id);
+        if (!cur || e.created_at > cur) lastOrthoCreatedByPatient.set(e.patient_id, e.created_at);
+      }
       // orthoEvents vem desc → a 1ª passada (não cancelada/falta) é a mais recente
       if (
         e.start_at < nowMaceio && e.status !== 'CANCELADO' && e.status !== 'NO_SHOW' &&
@@ -4082,6 +4089,15 @@ export class QuotesService {
         if (!cur || e.start_at < cur) nextApptByPatient.set(e.patient_id, e.start_at);
       }
     }
+
+    // Alta de ortodontia SEM plano (markOrthoAlta) — a mais recente por paciente.
+    const altas = await this.prisma.auditLog.findMany({
+      where: { entity: 'ORTHO_ALTA', tenant_id: tenantId, entity_id: { in: ids } },
+      select: { entity_id: true, created_at: true },
+      orderBy: { created_at: 'desc' },
+    });
+    const altaByPatient = new Map<string, Date>();
+    for (const a of altas) if (!altaByPatient.has(a.entity_id)) altaByPatient.set(a.entity_id, a.created_at);
 
     const dentistIds = new Set<string>();
     for (const m of dentistCount.values()) for (const did of m.keys()) dentistIds.add(did);
@@ -4145,8 +4161,16 @@ export class QuotesService {
       );
       const inativo = !archived && refMs < inactiveCutoff.getTime();
 
+      // Alta registrada vale até o paciente VOLTAR A MARCAR ortodontia (consulta criada
+      // depois da alta) — aí o tratamento foi retomado. Consulta que já estava marcada
+      // antes da alta não anula (a janela da alta avisa pra desmarcar). Os dois são
+      // timestamps reais (created_at), sem conversão de fuso.
+      const alta = altaByPatient.get(p.id);
+      const ultimaMarcada = lastOrthoCreatedByPatient.get(p.id);
+      const altaVale = !!alta && !(ultimaMarcada && ultimaMarcada > alta);
+
       let status: 'concluido' | 'agendado' | 'saiu' | 'nao_agendado';
-      if (plan?.completed) status = 'concluido';
+      if (plan?.completed || altaVale) status = 'concluido';
       else if (nextAppt) status = 'agendado';
       else if (archived || inativo) status = 'saiu';
       else status = 'nao_agendado';
@@ -4180,6 +4204,19 @@ export class QuotesService {
 
     this.logger.log(`[ORTHO_BOARD] OK pacientes=${cards.length} agendado=${summary.agendado} saiu=${summary.saiu}`);
     return { summary, patients: cards };
+  }
+
+  /** Alta de ortodontia (botão ✓ da Ortodontia) pra paciente SEM plano de ortô — só
+   *  consultas na agenda, então não há TreatmentPlan pra concluir. Marca em AuditLog
+   *  (entity ORTHO_ALTA); o getOrthoBoard trata como "concluído" até o paciente voltar
+   *  a MARCAR ortodontia (consulta criada depois da alta = tratamento retomado). */
+  async markOrthoAlta(tenantId: string, patientId: string, userId?: string | null) {
+    const p = await this.prisma.patient.findFirst({ where: { id: patientId, tenant_id: tenantId }, select: { id: true } });
+    if (!p) throw new NotFoundException('Paciente não encontrado');
+    await this.prisma.auditLog.create({
+      data: { entity: 'ORTHO_ALTA', entity_id: patientId, action: 'alta', tenant_id: tenantId, actor_user_id: userId || null },
+    });
+    return { ok: true };
   }
 
   // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────

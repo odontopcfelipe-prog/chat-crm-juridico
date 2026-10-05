@@ -360,6 +360,88 @@ export class TreatmentPlansService implements OnModuleInit {
   }
 
   /**
+   * Finaliza o tratamento do PACIENTE (botão ✓ no Progresso / Ortodontia). Resolve TODO
+   * procedimento em aberto dos planos — cada um FEITO por um responsável (via executeItem:
+   * gera a comissão DELE, manutenção, retorno) ou NÃO REALIZADO (CANCELLED + nota, sem
+   * comissão) — e conclui os planos (complete(): retorno pós-tratamento). Exige decisão
+   * pra todo item em aberto; planos já COMPLETED/CANCELLED ficam como estão.
+   */
+  async finalizePlans(
+    tenantId: string,
+    actorUserId: string | null,
+    planIds: string[],
+    executions: Array<{ item_id?: string; executed_by_user_id?: string | null; not_done?: boolean }>,
+  ): Promise<{ done: number; not_done: number; completed: number }> {
+    const ids = Array.from(new Set((Array.isArray(planIds) ? planIds : []).filter((x) => typeof x === 'string' && x)));
+    if (ids.length === 0) throw new BadRequestException('Nenhum plano de tratamento informado');
+    const plans = await Promise.all(ids.map((id) => this.findOne(id, tenantId))); // checa tenant
+    const abertos = plans.filter((p) => p.status !== 'COMPLETED' && p.status !== 'CANCELLED');
+    const pending = abertos.flatMap((p) => p.items.filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED'));
+
+    const byItem = new Map(
+      (Array.isArray(executions) ? executions : []).filter((e) => e && e.item_id).map((e) => [e.item_id as string, e]),
+    );
+    const semDecisao = pending.filter((i) => {
+      const e = byItem.get(i.id);
+      return !e || (!e.not_done && !e.executed_by_user_id);
+    });
+    if (semDecisao.length > 0) {
+      throw new BadRequestException(
+        `Indique quem fez (ou "não realizado") em ${semDecisao.length} procedimento(s) em aberto`,
+      );
+    }
+    // responsáveis precisam ser usuários DESTA clínica
+    const execIds = Array.from(new Set(
+      pending.map((i) => byItem.get(i.id)!).filter((e) => !e.not_done).map((e) => e.executed_by_user_id as string),
+    ));
+    if (execIds.length > 0) {
+      const found = await this.prisma.user.count({ where: { id: { in: execIds }, tenant_id: tenantId } });
+      if (found !== execIds.length) throw new BadRequestException('Responsável inválido — não é desta clínica');
+    }
+
+    const actor = actorUserId
+      ? await this.prisma.user.findUnique({ where: { id: actorUserId }, select: { name: true } }).catch(() => null)
+      : null;
+    const hoje = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10).split('-').reverse().join('/');
+    let done = 0;
+    let notDone = 0;
+    for (const item of pending) {
+      const e = byItem.get(item.id)!;
+      if (e.not_done) {
+        const nota = `Não realizado — tratamento finalizado em ${hoje}${actor?.name ? ` por ${actor.name}` : ''}`;
+        await this.prisma.treatmentPlanItem.update({
+          where: { id: item.id },
+          data: { status: 'CANCELLED', notes: item.notes ? `${item.notes}\n${nota}` : nota },
+        });
+        notDone++;
+      } else {
+        await this.executeItem(item.id, tenantId, e.executed_by_user_id as string, {});
+        done++;
+      }
+    }
+
+    let completed = 0;
+    for (const p of abertos) {
+      await this.complete(p.id, tenantId);
+      completed++;
+    }
+    await this.prisma.auditLog
+      .create({
+        data: {
+          actor_user_id: actorUserId || null,
+          action: 'finalize',
+          entity: 'TREATMENT_FINALIZE',
+          entity_id: plans[0].patient.id,
+          tenant_id: tenantId,
+          meta_json: { plan_ids: ids, done, not_done: notDone, completed },
+        },
+      })
+      .catch(() => {});
+    this.logger.log(`[FINALIZE] paciente ${plans[0].patient.id}: ${done} feitos, ${notDone} não realizados, ${completed} plano(s) concluído(s)`);
+    return { done, not_done: notDone, completed };
+  }
+
+  /**
    * Backfill 1x: cria o "Retorno pós-tratamento" de 6 meses pros planos JÁ concluídos
    * (status COMPLETED OU todos os itens DONE/CANCELLED com ≥1 DONE) que ainda não têm.
    * Idempotente (createFromPlanCompletion não duplica). due_date = data de conclusão +
