@@ -94,8 +94,9 @@ interface OperacionalData {
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
   confirmacao_orto_imediata?: { enabled: boolean };
-  // Onda — Equipe: pacientes +30d sem agendar / em stand by (resumo aos adms)
+  // Equipe: pacientes sem agendamento (resumo aos adms) — geral e só ortodontia
   pacientes_sem_agendamento?: { enabled: boolean };
+  pacientes_sem_agendamento_orto?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }
@@ -562,11 +563,12 @@ export default function CentralDisparosPage() {
           </div>
         )}
         {openItem.editor === 'sem_agendamento' && <SemAgendamentoEditor />}
+        {openItem.editor === 'sem_agendamento_orto' && <SemAgendamentoEditor kind="orto" />}
         {openItem.editor === 'resumo_diario' && <ResumoDiarioEditor />}
         {openItem.editor === 'venda_feita' && <VendaFeitaEditor />}
         {/* Resumo interno / config (sem_agendamento, resumo_diario, venda_feita) têm
             sua própria UI — pula o TesteEnvio genérico (texto de template ao paciente). */}
-        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && <TesteEnvio disparo={openItem.id} text={liveText} />}
+        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }

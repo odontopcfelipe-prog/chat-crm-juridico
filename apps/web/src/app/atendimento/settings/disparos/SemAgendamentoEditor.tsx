@@ -1,38 +1,59 @@
 'use client';
 
-// Editor do disparo "Equipe → Pacientes sem agendamento". Não é uma mensagem
-// editável (é um RESUMO dinâmico montado dos dados reais), então aqui mostramos
-// a PRÉVIA do que seria enviado agora + um botão pra ENVIAR TESTE a um número.
+// Editor dos disparos "Equipe → Pacientes sem agendamento" (geral) e "Ortodontia sem
+// agendamento" (kind="orto"). Não é uma mensagem editável (é um RESUMO dinâmico
+// montado dos dados reais), então aqui mostramos a PRÉVIA do que seria enviado
+// agora + um botão pra ENVIAR TESTE a um número.
 import { useEffect, useState } from 'react';
 import { Loader2, Send, Users } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
-interface Preview { text: string; semAgendar: number; standby: number }
+interface Preview { text: string }
 
-export function SemAgendamentoEditor() {
+const COPY = {
+  geral: {
+    titulo: 'Pacientes sem agendamento',
+    descricao:
+      'Resumo interno enviado 1×/dia (8h) aos administradores com telefone cadastrado, pela instância da clínica. ' +
+      'Lista todo paciente com tratamento fechado e sem consulta marcada: quem fechou e ainda não agendou (de qualquer data), ' +
+      'quem está em tratamento sem próxima consulta e quem está em stand by. Com o resumo de Ortodontia ligado, ' +
+      'quem é só de ortodontia sai daqui e vai pra lá. Abaixo, exatamente o que seria enviado agora:',
+  },
+  orto: {
+    titulo: 'Ortodontia sem agendamento',
+    descricao:
+      'Resumo interno enviado 1×/dia (8h) aos administradores com telefone cadastrado, pela instância da clínica — ' +
+      'separado do resumo geral. Lista os pacientes de ortodontia ativos sem próxima consulta de ortô, agrupados pelo ' +
+      'dentista responsável (quem nunca veio primeiro, depois quem está há mais tempo sem vir). ' +
+      'Abaixo, exatamente o que seria enviado agora:',
+  },
+} as const;
+
+export function SemAgendamentoEditor({ kind = 'geral' }: { kind?: 'geral' | 'orto' }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(true);
   const [phone, setPhone] = useState('');
   const [sending, setSending] = useState(false);
+  const copy = COPY[kind];
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .get<Preview>('/pacientes-sem-agendamento/preview')
+      .get<Preview>('/pacientes-sem-agendamento/preview', { params: kind === 'orto' ? { kind } : undefined })
       .then((r) => { if (!cancelled) setPreview(r.data); })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a prévia'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [kind]);
 
   const sendTest = async () => {
     const p = phone.trim();
     if (!p) { showError('Informe um número pra testar'); return; }
     setSending(true);
     try {
-      await api.post('/pacientes-sem-agendamento/test', { phone: p });
+      await api.post('/pacientes-sem-agendamento/test', { phone: p, kind });
       showSuccess('Teste enviado! Confira o WhatsApp.');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Não foi possível enviar o teste');
@@ -45,12 +66,9 @@ export function SemAgendamentoEditor() {
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-          <Users size={18} className="text-violet-500" /> Pacientes sem agendamento
+          <Users size={18} className="text-violet-500" /> {copy.titulo}
         </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Resumo interno enviado 1×/dia (8h) aos administradores com telefone cadastrado, pela instância da clínica.
-          Junta quem fechou e está +30 dias sem agendar e quem está em stand by. Abaixo, exatamente o que seria enviado agora:
-        </p>
+        <p className="text-sm text-muted-foreground mt-1">{copy.descricao}</p>
       </div>
 
       <div className="rounded-xl border border-border bg-muted/30 p-4">

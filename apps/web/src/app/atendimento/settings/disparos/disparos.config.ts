@@ -50,7 +50,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'resumo_diario' | 'venda_feita' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'sem_agendamento_orto' | 'resumo_diario' | 'venda_feita' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -84,8 +84,10 @@ export type OperacionalKey =
   | 'pix_delivery'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
-  // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
+  // Equipe: resumo diário aos adms de quem fechou/está em tratamento sem consulta marcada
   | 'pacientes_sem_agendamento'
+  // Equipe: o mesmo resumo, só pacientes de ORTODONTIA, por dentista
+  | 'pacientes_sem_agendamento_orto'
   // Resumo diário do dia (entradas/saídas/vendas/negociações) a um número configurado
   | 'daily_summary'
   // Notificação de venda feita (a cada venda) a um número configurado
@@ -306,8 +308,11 @@ export const DISPAROS: DisparoItem[] = [
 
   // ── Equipe (avisos internos) ──
   { id: 'pacientes_sem_agendamento', nome: 'Pacientes sem agendamento', categoria: 'equipe',
-    gatilho: '+30 dias sem agendar ou em stand by · resumo diário aos adms', canal: 'WhatsApp', tags: ['Interno'],
+    gatilho: 'Fecharam e não agendaram · em tratamento sem consulta · stand by · resumo diário 8h aos adms', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'sem_agendamento', operacionalKey: 'pacientes_sem_agendamento' },
+  { id: 'pacientes_sem_agendamento_orto', nome: 'Ortodontia sem agendamento', categoria: 'equipe',
+    gatilho: 'Pacientes de ortô sem próxima consulta · por dentista · resumo diário 8h aos adms', canal: 'WhatsApp', tags: ['Interno'],
+    editor: 'sem_agendamento_orto', operacionalKey: 'pacientes_sem_agendamento_orto' },
   // Fase 3 — o motor JÁ RODAVA invisível: avisa o RESPONSÁVEL (WhatsApp do usuário)
   // de tarefa vencendo em 30min (individual, a cada 10min) e das vencidas (resumo
   // 8h/14h). Default LIGADO; o toggle permite desligar. Sem editor (texto interno).

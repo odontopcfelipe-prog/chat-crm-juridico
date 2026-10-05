@@ -105,7 +105,7 @@ export class FollowupService {
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
-      bolAtrasadoSetting, blockSchedSetting, negocAvistaSetting,
+      bolAtrasadoSetting, blockSchedSetting, negocAvistaSetting, semAgendOrtoSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -164,6 +164,8 @@ export class FollowupService {
       // Onda 18.x — "Negociação aprovada · à vista": toggle PRÓPRIO. Sem valor salvo,
       // HERDA o da negociação aprovada (não silencia quem já usava o card único).
       this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_AVISTA_ENABLED_${tenantId}` } }),
+      // Equipe: pacientes de ORTODONTIA sem agendamento (resumo separado aos adms). Default OFF.
+      this.prisma.globalSetting.findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_ORTO_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -339,8 +341,10 @@ export class FollowupService {
       confirmacao_orto: { enabled: confOrtoSetting?.value === 'true' },
       lembrete_orto_1h: { enabled: ortoRemSetting?.value === 'true' },
       confirmacao_orto_imediata: { enabled: ortoImmSetting?.value === 'true' },
-      // Onda — Equipe: pacientes +30d sem agendar / em stand by. Default OFF (opt-in).
+      // Equipe: pacientes sem agendamento (fecharam/parados/stand by). Default OFF (opt-in).
       pacientes_sem_agendamento: { enabled: semAgendSetting?.value === 'true' },
+      // Equipe: o mesmo resumo só de ORTODONTIA, por dentista. Default OFF (opt-in).
+      pacientes_sem_agendamento_orto: { enabled: semAgendOrtoSetting?.value === 'true' },
       // Parte 1 — apresentação do Financeiro (D+1 da venda). Default OFF (opt-in).
       boleto_intro: { enabled: boletoIntroSetting?.value === 'true' },
       // Entrega dos boletos (D+2). Toggle próprio; quando nunca setado, HERDA a
@@ -560,6 +564,7 @@ export class FollowupService {
       resumo_dentista: ['resumo_dentista'],
       lembrete_orto_1h: ['orto_reminder'],
       pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm'],
+      pacientes_sem_agendamento_orto: ['pacientes_sem_agendamento_orto_adm'],
       recall_preventivo: ['recall_preventivo'],
       task_alerts: ['task_alert'],
       followup_lead: ['followup_lead'],
@@ -776,10 +781,16 @@ export class FollowupService {
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
       }
-      // Onda — Equipe: pacientes +30d sem agendar / em stand by. A key que o cron
-      // (cronPacientesSemAgendamento em quotes.service) lê é exatamente esta.
+      // Equipe: pacientes sem agendamento (geral e ortodontia). As keys que o cron
+      // (cronPacientesSemAgendamento em quotes.service) lê são exatamente estas.
       case 'pacientes_sem_agendamento': {
         const key = `PACIENTES_SEM_AGENDAMENTO_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      case 'pacientes_sem_agendamento_orto': {
+        const key = `PACIENTES_SEM_AGENDAMENTO_ORTO_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

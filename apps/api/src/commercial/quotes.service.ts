@@ -3716,8 +3716,14 @@ export class QuotesService {
             primary_dentist: { select: { id: true, name: true } },
           },
         },
-        // dentista responsável = primeiro item com dentist preenchido
-        items: { select: { dentist: { select: { id: true, name: true } } } },
+        // dentista responsável = primeiro item com dentist preenchido; categoria do
+        // procedimento marca o card "só ortodontia" (resumo de ortô é separado)
+        items: {
+          select: {
+            dentist: { select: { id: true, name: true } },
+            procedure: { select: { category: true } },
+          },
+        },
         created_by: { select: { id: true, name: true } }, // quem fez o orçamento
         // etapa do tratamento sai do plano 1:1 + status dos itens
         treatment_plan: {
@@ -3917,6 +3923,12 @@ export class QuotesService {
       // (paciente com QUALQUER proposta real = pipeline normal, não marca — e segue
       // recebendo o nudge de "sem agendamento").
       const isVendaRapidaCard = pQuotes.every(isVendaRapida);
+      // "Só ortodontia" = TODO item de TODOS os contratos é categoria ORTODONTIA (mesma
+      // regra do getOrthoBoard). Misto (ortô + outro tratamento) NÃO é só-ortô.
+      const allItems = pQuotes.flatMap((q) => q.items);
+      const isOrthoOnlyCard =
+        allItems.length > 0 &&
+        allItems.every((it) => (it.procedure?.category || '').toUpperCase() === 'ORTODONTIA');
 
       byStage[stage].push({
         patient: primary.patient,
@@ -3926,6 +3938,7 @@ export class QuotesService {
         dentist,
         standby,
         is_venda_rapida: isVendaRapidaCard,
+        is_ortho_only: isOrthoOnlyCard,
         primary_dentist: primary.patient?.primary_dentist ?? null, // atendendo
         created_by: primary.created_by ?? null, // quem orçou
         closed_by: closerByQuote.get(primary.id) ?? null, // quem fechou
@@ -4013,6 +4026,7 @@ export class QuotesService {
       },
       select: {
         patient_id: true,
+        accepted_at: true, // comprar ortô conta como atividade (não "saiu")
         treatment_plan: { select: { id: true, status: true } },
         // dentista responsável quando ainda não há consulta (ex.: venda rápida de ortô,
         // paciente recorrente): a venda rápida grava dentist_id nos itens do orçamento.
@@ -4041,9 +4055,17 @@ export class QuotesService {
     // 4. Dentista responsável (mais frequente nas consultas de ortô) + próxima consulta
     const dentistCount = new Map<string, Map<string, number>>();
     const nextApptByPatient = new Map<string, Date>();
+    const lastOrthoByPatient = new Map<string, Date>(); // última consulta de ortô já passada
     const weekdayCount = new Map<string, Map<number, number>>(); // ortô é fixo no dia da semana
     for (const e of orthoEvents) {
       if (!e.patient_id) continue;
+      // orthoEvents vem desc → a 1ª passada (não cancelada/falta) é a mais recente
+      if (
+        e.start_at < nowMaceio && e.status !== 'CANCELADO' && e.status !== 'NO_SHOW' &&
+        !lastOrthoByPatient.has(e.patient_id)
+      ) {
+        lastOrthoByPatient.set(e.patient_id, e.start_at);
+      }
       if (e.assigned_user_id) {
         const m = dentistCount.get(e.patient_id) ?? new Map<string, number>();
         m.set(e.assigned_user_id, (m.get(e.assigned_user_id) || 0) + 1);
@@ -4080,9 +4102,15 @@ export class QuotesService {
     }
 
     // Dentista do orçamento (cobre venda rápida de ortô e vendas sem consulta ainda).
+    // + fechamento de ortô mais recente (atividade p/ o cálculo de "saiu").
     const quoteDentistByPatient = new Map<string, { id: string; name: string }>();
+    const lastOrthoAcceptedByPatient = new Map<string, Date>();
     for (const q of orthoQuotes) {
       if (!q.patient_id) continue;
+      if (q.accepted_at) {
+        const cur = lastOrthoAcceptedByPatient.get(q.patient_id);
+        if (!cur || q.accepted_at > cur) lastOrthoAcceptedByPatient.set(q.patient_id, q.accepted_at);
+      }
       const d = q.items[0]?.dentist;
       if (d && !quoteDentistByPatient.has(q.patient_id)) quoteDentistByPatient.set(q.patient_id, { id: d.id, name: d.name });
     }
@@ -4106,8 +4134,16 @@ export class QuotesService {
       const nextAppt = nextApptByPatient.get(p.id) || null;
       const plan = planByPatient.get(p.id);
       const archived = p.status === 'ARCHIVED';
-      const ref = p.last_visit_at ?? p.created_at;
-      const inativo = !archived && ref < inactiveCutoff;
+      // Atividade mais recente entre: visita registrada (ou cadastro), última consulta
+      // de ortô e último fechamento de ortô. Antes só olhava last_visit_at ?? created_at
+      // → paciente antigo que acabou de comprar ortô (sem visita marcada) caía em "saiu".
+      const lastOrtho = lastOrthoByPatient.get(p.id) ?? null;
+      const refMs = Math.max(
+        (p.last_visit_at ?? p.created_at).getTime(),
+        lastOrtho?.getTime() ?? 0,
+        lastOrthoAcceptedByPatient.get(p.id)?.getTime() ?? 0,
+      );
+      const inativo = !archived && refMs < inactiveCutoff.getTime();
 
       let status: 'concluido' | 'agendado' | 'saiu' | 'nao_agendado';
       if (plan?.completed) status = 'concluido';
@@ -4127,6 +4163,7 @@ export class QuotesService {
         weekday,
         next_appointment_at: nextAppt,
         last_visit_at: p.last_visit_at,
+        last_ortho_at: lastOrtho, // naive-UTC Maceió (start_at da agenda)
         archived,
         inativo,
         plan_ids: plan?.ids ?? [],
@@ -4235,64 +4272,150 @@ export class QuotesService {
   }
 
   /**
-   * Disparo "Equipe → Pacientes sem agendamento": 1x/dia (8h Maceió) manda um
-   * RESUMO pros ADMs da clínica com os pacientes +30 dias sem agendar OU em
-   * stand by. Opt-in por clínica: só roda se GlobalSetting
-   * PACIENTES_SEM_AGENDAMENTO_<tenant> == 'true' (ligado na Central de Disparos).
-   * Envia pela instância CLINICA; dedup por dia via DispatchLog. Reusa
-   * getJourneyBoard (A_AGENDAR com days_stalled>=30 + STANDBY).
+   * Disparos internos "Equipe → Pacientes sem agendamento" (geral) e "…· ortodontia":
+   * 1x/dia (8h Maceió) cada um manda um RESUMO pros ADMs da clínica (User ADMIN com
+   * telefone) pela instância CLINICA; dedup por adm/dia/tipo via DispatchLog.
+   * Opt-in por clínica, cada um com o seu toggle na Central de Disparos:
+   *   - geral → PACIENTES_SEM_AGENDAMENTO_<tenant>      (reusa getJourneyBoard)
+   *   - ortô  → PACIENTES_SEM_AGENDAMENTO_ORTO_<tenant> (reusa getOrthoBoard)
+   * Com o de ortô LIGADO, o geral tira quem é SÓ ortodontia (não sai duplicado);
+   * com ele desligado, o geral segue listando todo mundo (ninguém some dos dois).
    */
-  /** Monta o resumo "pacientes +30d sem agendar / em stand by" de um tenant.
-   *  Reusado pelo cron diário E pelo preview/teste manual da Central de Disparos. */
+
+  /** Resumo GERAL de um tenant — reusado pelo cron e pelo preview/teste da Central.
+   *  Lista TODO paciente com tratamento fechado e sem próxima consulta: fechou e não
+   *  agendou (de qualquer data — antes só +30 dias, então quem fechou nas últimas
+   *  semanas nunca aparecia), em tratamento sem próxima consulta, e stand by. */
   async buildSemAgendamentoDigest(
     tenantId: string,
-  ): Promise<{ text: string; semAgendar: number; standby: number }> {
-    const DIAS = 30;
-    const board = await this.getJourneyBoard(tenantId);
-    // Pula venda rápida (balcão feito na hora): agora ela aparece no board (marcada),
-    // mas NÃO deve entrar no nudge de "você não agendou" — não tem pipeline de agenda.
-    const semAgendar = (board.by_stage.A_AGENDAR || []).filter(
-      (c: any) => (c.days_stalled ?? 0) >= DIAS && !c.is_venda_rapida,
-    );
+  ): Promise<{ text: string; semAgendar: number; parados: number; standby: number }> {
+    const MAX_POR_SECAO = 50;
+    const [board, ortoToggle, tenant] = await Promise.all([
+      this.getJourneyBoard(tenantId),
+      this.prisma.globalSetting
+        .findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_ORTO_${tenantId}` } })
+        .catch(() => null),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null),
+    ]);
+    const ortoSeparado = ortoToggle?.value === 'true';
+    // Venda rápida (balcão feito na hora) fica fora — não tem pipeline de agenda.
+    // Só-ortô sai daqui quando o resumo de ortô está ligado (lá aparece por dentista).
+    const entra = (c: any) => !c.is_venda_rapida && !(ortoSeparado && c.is_ortho_only);
+
+    const acceptedMs = (c: any) => (c.accepted_at ? new Date(c.accepted_at).getTime() : 0);
+    const semAgendar = (board.by_stage.A_AGENDAR || [])
+      .filter(entra)
+      .sort((a: any, b: any) => acceptedMs(a) - acceptedMs(b)); // fechou há mais tempo primeiro
+    // Em tratamento sem próxima consulta = os "parados" do Progresso.
+    const parados = (board.by_stage.EM_TRATAMENTO || [])
+      .filter((c: any) => entra(c) && !c.has_future_appt && !c.standby)
+      .sort((a: any, b: any) => (b.days_stalled ?? 0) - (a.days_stalled ?? 0));
     const standby = (board.by_stage.STANDBY || []).filter((c: any) => !c.is_venda_rapida);
-    const tenant = await this.prisma.tenant
-      .findUnique({ where: { id: tenantId }, select: { name: true } })
-      .catch(() => null);
-    const header = `📋 *Pacientes precisando de atenção*${tenant?.name ? ` — ${tenant.name}` : ''}`;
-    if (semAgendar.length === 0 && standby.length === 0) {
+
+    const header = `📋 *Pacientes sem agendamento*${tenant?.name ? ` — ${tenant.name}` : ''}`;
+    const rodapeOrto = ortoSeparado ? '\n😁 Ortodontia vem num resumo separado.' : '';
+    if (semAgendar.length + parados.length + standby.length === 0) {
       return {
-        text: `${header}\n\nNenhum paciente há +${DIAS} dias sem agendar ou em stand by. 🎉`,
+        text: `${header}\n\nTodo paciente com tratamento fechado tem consulta marcada. 🎉${rodapeOrto ? `\n${rodapeOrto}` : ''}`,
         semAgendar: 0,
+        parados: 0,
         standby: 0,
       };
     }
-    // Cada linha: NOME completo + situação + TELEFONE (pra o adm identificar
-    // exatamente quem é e já ligar direto pelo WhatsApp).
-    const line = (c: any, situacao: string) => {
-      const tel = c.patient?.phone ? ` · ${c.patient.phone}` : '';
-      return `• ${c.patient?.name || 'Paciente'} — ${situacao}${tel}`;
+
+    // accepted_at é timestamp real (UTC) → dia de Maceió = (ms - 3h) / 1 dia
+    const diaMaceio = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000);
+    const hoje = diaMaceio(Date.now());
+    const fechou = (c: any) => {
+      if (!c.accepted_at) return 'fechou (sem data)';
+      const n = hoje - diaMaceio(acceptedMs(c));
+      return n <= 0 ? 'fechou hoje' : n === 1 ? 'fechou ontem' : `fechou há ${n} dias`;
     };
-    const lines: string[] = [];
-    for (const c of semAgendar.slice(0, 15)) lines.push(line(c, `${c.days_stalled}d sem agendar`));
-    for (const c of standby.slice(0, 10)) lines.push(line(c, 'em stand by'));
-    const extra = semAgendar.length + standby.length - lines.length;
+    // NOME completo + situação + TELEFONE (o adm identifica e já chama no WhatsApp)
+    const linha = (c: any, situacao: string) =>
+      `• ${c.patient?.name || 'Paciente'} — ${situacao}${c.patient?.phone ? ` · ${c.patient.phone}` : ''}`;
+    const secao = (titulo: string, cards: any[], situacao: (c: any) => string) => {
+      if (cards.length === 0) return '';
+      const linhas = cards.slice(0, MAX_POR_SECAO).map((c) => linha(c, situacao(c)));
+      const extra = cards.length - linhas.length;
+      return `\n\n${titulo}: *${cards.length}*\n${linhas.join('\n')}${extra > 0 ? `\n…e mais ${extra}` : ''}`;
+    };
+
     const text =
-      `${header}\n\n` +
-      `📅 +${DIAS} dias sem agendar: *${semAgendar.length}*\n` +
-      `⏸️ Em stand by: *${standby.length}*\n\n` +
-      lines.join('\n') +
-      (extra > 0 ? `\n…e mais ${extra}` : '') +
-      `\n\nAbra o Progresso pra agendar.`;
-    return { text, semAgendar: semAgendar.length, standby: standby.length };
+      header +
+      secao('🆕 Fecharam e ainda não agendaram', semAgendar, fechou) +
+      secao('🦷 Em tratamento sem próxima consulta', parados, (c) => {
+        const feitos = c.items_total > 0 ? ` · ${c.items_done}/${c.items_total} feitos` : '';
+        return `parado há ${c.days_stalled ?? 0} dias${feitos}`;
+      }) +
+      secao('⏸️ Em stand by', standby, () => 'em stand by') +
+      `\n\nAbra o *Progresso* (Jornada do paciente) pra agendar.${rodapeOrto}`;
+    return { text, semAgendar: semAgendar.length, parados: parados.length, standby: standby.length };
   }
 
-  /** Envia o resumo pra um telefone (teste manual do disparo "Equipe"). */
-  async sendSemAgendamentoTest(
-    tenantId: string,
-    phone: string,
-  ): Promise<{ ok: boolean; text: string }> {
-    if (!this.whatsapp) throw new BadRequestException('WhatsApp não disponível');
-    const { text } = await this.buildSemAgendamentoDigest(tenantId);
+  /** Resumo de ORTODONTIA de um tenant — pacientes de ortô ativos SEM próxima consulta
+   *  de ortô (status 'nao_agendado' do quadro da Ortodontia), agrupados pelo dentista
+   *  responsável. Fora: agendados, concluídos e quem saiu (12m sem atividade). */
+  async buildOrtoSemAgendamentoDigest(tenantId: string): Promise<{ text: string; total: number }> {
+    const MAX_LINHAS = 80;
+    const [board, tenant] = await Promise.all([
+      this.getOrthoBoard(tenantId),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null),
+    ]);
+    const header = `😁 *Ortodontia — pacientes sem agendamento*${tenant?.name ? ` — ${tenant.name}` : ''}`;
+    const lista = (board.patients || []).filter((c: any) => c.status === 'nao_agendado');
+    if (lista.length === 0) {
+      return { text: `${header}\n\nTodo paciente de ortodontia ativo tem consulta marcada. 🎉`, total: 0 };
+    }
+
+    // last_ortho_at é naive-UTC (start_at da agenda) → compara com agora-3h
+    const nowMaceioMs = Date.now() - 3 * 3_600_000;
+    const diasDesde = (c: any): number | null =>
+      c.last_ortho_at
+        ? Math.max(0, Math.floor((nowMaceioMs - new Date(c.last_ortho_at).getTime()) / 86_400_000))
+        : null;
+    const DIA_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+    const porDentista = new Map<string, any[]>();
+    for (const c of lista) {
+      const k = c.dentist?.name || 'Sem dentista';
+      const arr = porDentista.get(k);
+      if (arr) arr.push(c);
+      else porDentista.set(k, [c]);
+    }
+    // dentista com mais pendências primeiro; "Sem dentista" por último
+    const grupos = Array.from(porDentista.entries()).sort((a, b) =>
+      a[0] === 'Sem dentista' ? 1 : b[0] === 'Sem dentista' ? -1 : b[1].length - a[1].length,
+    );
+
+    const blocos: string[] = [];
+    let usadas = 0;
+    for (const [dentista, cards] of grupos) {
+      if (usadas >= MAX_LINHAS) break;
+      // quem nunca veio primeiro, depois o que está há mais tempo sem vir
+      cards.sort((a, b) => (diasDesde(b) ?? Number.MAX_SAFE_INTEGER) - (diasDesde(a) ?? Number.MAX_SAFE_INTEGER));
+      const linhas = cards.slice(0, MAX_LINHAS - usadas).map((c) => {
+        const d = diasDesde(c);
+        const situacao = d == null ? 'fechou e ainda não veio' : `última consulta há ${d} dias`;
+        const dia = c.weekday != null ? ` (${DIA_SEMANA[c.weekday]})` : '';
+        const tel = c.patient?.phone ? ` · ${c.patient.phone}` : '';
+        return `• ${c.patient?.name || 'Paciente'} — ${situacao}${dia}${tel}`;
+      });
+      usadas += linhas.length;
+      blocos.push(`*${dentista}* (${cards.length})\n${linhas.join('\n')}`);
+    }
+    const extra = lista.length - usadas;
+
+    const text =
+      `${header}\n\nSem próxima consulta de ortodontia: *${lista.length}*\n\n` +
+      blocos.join('\n\n') +
+      (extra > 0 ? `\n…e mais ${extra}` : '') +
+      `\n\nAbra a *Ortodontia* (Jornada do paciente) pra agendar.`;
+    return { text, total: lista.length };
+  }
+
+  /** Instância pra resumo interno: chip CLINICA do tenant (fallback: qualquer chip dele). */
+  private async resolveResumoInstanceName(tenantId: string): Promise<string | undefined> {
     const inst =
       (await this.prisma.instance.findFirst({
         where: { tenant_id: tenantId, purpose: 'CLINICA' },
@@ -4304,8 +4427,72 @@ export class QuotesService {
         select: { name: true },
         orderBy: { name: 'asc' },
       }));
-    await this.whatsapp.sendText(phone, text, inst?.name || undefined, undefined, tenantId);
+    return inst?.name || undefined;
+  }
+
+  /** Envia o resumo pra um telefone (teste manual na Central). kind 'orto' = de ortodontia. */
+  async sendSemAgendamentoTest(
+    tenantId: string,
+    phone: string,
+    kind?: string,
+  ): Promise<{ ok: boolean; text: string }> {
+    if (!this.whatsapp) throw new BadRequestException('WhatsApp não disponível');
+    const { text } =
+      kind === 'orto'
+        ? await this.buildOrtoSemAgendamentoDigest(tenantId)
+        : await this.buildSemAgendamentoDigest(tenantId);
+    const instanceName = await this.resolveResumoInstanceName(tenantId);
+    await this.whatsapp.sendText(phone, text, instanceName, undefined, tenantId);
     return { ok: true, text };
+  }
+
+  /** Manda um resumo interno a cada ADM (com telefone) do tenant. Dedup 1x/dia por
+   *  adm e por tipo (DispatchLog) — o geral e o de ortô não se bloqueiam. */
+  private async sendResumoAosAdms(tenantId: string, text: string, type: string, startOfToday: Date) {
+    const admins = await this.prisma.user.findMany({
+      where: { tenant_id: tenantId, roles: { has: 'ADMIN' }, phone: { not: null } },
+      select: { id: true, name: true, phone: true },
+    });
+    if (admins.length === 0) return 0;
+    const instanceName = await this.resolveResumoInstanceName(tenantId);
+
+    for (const adm of admins) {
+      const already = await this.prisma.dispatchLog.findFirst({
+        where: { tenant_id: tenantId, type, ref_user_id: adm.id, sent_at: { gte: startOfToday } },
+        select: { id: true },
+      });
+      if (already) continue;
+      try {
+        await this.whatsapp!.sendText(adm.phone as string, text, instanceName, undefined, tenantId);
+        await this.prisma.dispatchLog.create({
+          data: {
+            tenant_id: tenantId,
+            type,
+            channel: 'WHATSAPP',
+            recipient_name: adm.name,
+            recipient_phone: adm.phone,
+            status: 'SENT',
+            ref_user_id: adm.id,
+          },
+        });
+      } catch (err: any) {
+        await this.prisma.dispatchLog
+          .create({
+            data: {
+              tenant_id: tenantId,
+              type,
+              channel: 'WHATSAPP',
+              recipient_name: adm.name,
+              recipient_phone: adm.phone,
+              status: 'FAILED',
+              error: String(err?.response?.data?.message || err?.message || err).slice(0, 300),
+              ref_user_id: adm.id,
+            },
+          })
+          .catch(() => {});
+      }
+    }
+    return admins.length;
   }
 
   @Cron('0 8 * * *', { timeZone: 'America/Maceio' })
@@ -4326,83 +4513,40 @@ export class QuotesService {
     }
 
     for (const t of tenants) {
-      try {
-        // opt-in: só dispara se o toggle da clínica estiver ligado
-        const toggle = await this.prisma.globalSetting
+      // opt-in: cada resumo só sai com o toggle da clínica ligado
+      const [geral, orto] = await Promise.all([
+        this.prisma.globalSetting
           .findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_${t.id}` } })
-          .catch(() => null);
-        if (toggle?.value !== 'true') continue;
+          .catch(() => null),
+        this.prisma.globalSetting
+          .findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_ORTO_${t.id}` } })
+          .catch(() => null),
+      ]);
 
-        const digest = await this.buildSemAgendamentoDigest(t.id);
-        if (digest.semAgendar === 0 && digest.standby === 0) continue;
-
-        const admins = await this.prisma.user.findMany({
-          where: { tenant_id: t.id, roles: { has: 'ADMIN' }, phone: { not: null } },
-          select: { id: true, name: true, phone: true },
-        });
-        if (admins.length === 0) continue;
-
-        // instância p/ enviar: chip CLINICA (fallback: qualquer do tenant)
-        const inst =
-          (await this.prisma.instance.findFirst({
-            where: { tenant_id: t.id, purpose: 'CLINICA' },
-            select: { name: true },
-            orderBy: { name: 'asc' },
-          })) ||
-          (await this.prisma.instance.findFirst({
-            where: { tenant_id: t.id },
-            select: { name: true },
-            orderBy: { name: 'asc' },
-          }));
-        const instanceName = inst?.name || undefined;
-        const msg = digest.text;
-
-        for (const adm of admins) {
-          const already = await this.prisma.dispatchLog.findFirst({
-            where: {
-              tenant_id: t.id,
-              type: 'pacientes_sem_agendamento_adm',
-              ref_user_id: adm.id,
-              sent_at: { gte: startOfToday },
-            },
-            select: { id: true },
-          });
-          if (already) continue;
-          try {
-            await this.whatsapp.sendText(adm.phone as string, msg, instanceName, undefined, t.id);
-            await this.prisma.dispatchLog.create({
-              data: {
-                tenant_id: t.id,
-                type: 'pacientes_sem_agendamento_adm',
-                channel: 'WHATSAPP',
-                recipient_name: adm.name,
-                recipient_phone: adm.phone,
-                status: 'SENT',
-                ref_user_id: adm.id,
-              },
-            });
-          } catch (err: any) {
-            await this.prisma.dispatchLog
-              .create({
-                data: {
-                  tenant_id: t.id,
-                  type: 'pacientes_sem_agendamento_adm',
-                  channel: 'WHATSAPP',
-                  recipient_name: adm.name,
-                  recipient_phone: adm.phone,
-                  status: 'FAILED',
-                  error: String(err?.response?.data?.message || err?.message || err).slice(0, 300),
-                  ref_user_id: adm.id,
-                },
-              })
-              .catch(() => {});
+      if (geral?.value === 'true') {
+        try {
+          const d = await this.buildSemAgendamentoDigest(t.id);
+          if (d.semAgendar + d.parados + d.standby > 0) {
+            const adms = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_adm', startOfToday);
+            this.logger.log(
+              `[SEM_AGENDAMENTO] tenant ${t.id}: ${d.semAgendar} sem agendar, ${d.parados} parados, ${d.standby} standby → ${adms} adm(s)`,
+            );
           }
+        } catch (err: any) {
+          this.logger.warn(`[SEM_AGENDAMENTO] tenant ${t.id} falhou: ${err?.message}`);
         }
-        this.logger.log(
-          `[SEM_AGENDAMENTO] tenant ${t.id}: ${digest.semAgendar} sem agendar, ${digest.standby} standby → ${admins.length} adm(s)`,
-        );
-      } catch (err: any) {
-        this.logger.warn(`[SEM_AGENDAMENTO] tenant ${t.id} falhou: ${err?.message}`);
+      }
+
+      if (orto?.value === 'true') {
+        try {
+          const d = await this.buildOrtoSemAgendamentoDigest(t.id);
+          if (d.total > 0) {
+            const adms = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_orto_adm', startOfToday);
+            this.logger.log(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id}: ${d.total} sem agendar → ${adms} adm(s)`);
+          }
+        } catch (err: any) {
+          this.logger.warn(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id} falhou: ${err?.message}`);
+        }
       }
     }
   }
