@@ -576,7 +576,11 @@ export default function CentralDisparosPage() {
   }
 
   const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null));
-  const ativos = configuraveis.filter((d) => enabledOf(d)).length;
+  // Disparos de ortô em fluxo sem a regra "ordem de chegada" ligada não têm efeito
+  // (a ortô da clínica é por hora marcada) — não contam como ligados.
+  const ortoFluxoOn = !!(op as any)?.orto_ordem_chegada?.enabled;
+  const semEfeito = (d: DisparoItem) => !!d.requerOrtoFluxo && !ortoFluxoOn;
+  const ativos = configuraveis.filter((d) => enabledOf(d) && !semEfeito(d)).length;
 
   // Semáforo: status do chip de cada setor (purpose ↔ setor). null = sem chip próprio.
   const chipStatusOf = (setorId: Setor): 'open' | 'down' | 'unknown' | null => {
@@ -698,7 +702,7 @@ export default function CentralDisparosPage() {
                         key={d.id}
                         className={`flex items-center gap-3 px-4 py-3 transition-colors ${
                           clickable ? 'hover:bg-accent/40 cursor-pointer' : ''
-                        } ${d.emBreve ? 'opacity-60' : ''}`}
+                        } ${d.emBreve || semEfeito(d) ? 'opacity-60' : ''}`}
                         onClick={clickable ? () => {
                           // guarda onde a lista estava, pra restaurar ao voltar
                           const sp = getScrollParent(listRootRef.current);
@@ -723,6 +727,14 @@ export default function CentralDisparosPage() {
                             {d.emBreve && (
                               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
                                 Em breve
+                              </span>
+                            )}
+                            {semEfeito(d) && (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-600 dark:text-slate-300"
+                                title="Só vale com a regra Ortodontia por ordem de chegada ligada. Sua clínica atende ortodontia por horário marcado — a ortô recebe os disparos normais."
+                              >
+                                Sem efeito · ortô por horário marcado
                               </span>
                             )}
                           </div>

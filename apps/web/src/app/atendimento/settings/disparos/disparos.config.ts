@@ -119,6 +119,9 @@ export interface DisparoItem {
    *  status) SEM toggle nem editor — o liga/desliga vive em outro lugar (ex.:
    *  nutrição de leads = por sequência). A métrica vem do DispatchLog pelo id. */
   soMetrica?: boolean;
+  /** Disparo de ortô em FLUXO: só tem efeito com a regra da clínica "Ortodontia por
+   *  ordem de chegada" ligada — sem ela o card aparece apagado ("sem efeito"). */
+  requerOrtoFluxo?: boolean;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
 
@@ -138,13 +141,13 @@ export const DISPAROS: DisparoItem[] = [
     editor: null, operacionalKey: 'orto_ordem_chegada' },
   { id: 'confirmacao_orto_imediata', nome: 'Confirmação de agendamento · Ortodontia (na hora)', categoria: 'agendamento',
     gatilho: 'Assim que marca o horário · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
-    editor: 'orto_immediate', operacionalKey: 'confirmacao_orto_imediata' },
+    editor: 'orto_immediate', operacionalKey: 'confirmacao_orto_imediata', requerOrtoFluxo: true },
   { id: 'confirmacao_orto', nome: 'Confirmação de ortodontia · 1 dia antes', categoria: 'agendamento',
     gatilho: '~24h antes (véspera) · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
-    editor: 'confirmacao_orto', operacionalKey: 'confirmacao_orto' },
+    editor: 'confirmacao_orto', operacionalKey: 'confirmacao_orto', requerOrtoFluxo: true },
   { id: 'lembrete_orto_1h', nome: 'Lembrete de ortodontia · 1h antes (portões)', categoria: 'agendamento',
     gatilho: '~1h antes de abrir os portões · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
-    editor: 'orto_reminder', operacionalKey: 'lembrete_orto_1h' },
+    editor: 'orto_reminder', operacionalKey: 'lembrete_orto_1h', requerOrtoFluxo: true },
   { id: 'confirmacao_48h', nome: 'Confirmação de presença · 48h antes', categoria: 'agendamento',
     gatilho: '48h antes · pede pra confirmar (responde no WhatsApp)', canal: 'WhatsApp', tags: ['Template', 'Confirma'],
     editor: 'reminders', antecedenciaMin: 2880 },
