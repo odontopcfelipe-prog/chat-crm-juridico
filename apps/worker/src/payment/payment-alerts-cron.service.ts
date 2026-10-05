@@ -13,6 +13,7 @@ import {
   type CobrancaTipo,
 } from '@crm/shared';
 import axios from 'axios';
+import { buildGroupMessage, memberKey, planGroup, GROUP_MAX_PDFS, type GroupMember, type GroupPlan } from './cobranca-grupo';
 
 /**
  * Cron de COBRANÇA financeira — PACED / marca-passo (Onda 18.16).
@@ -85,6 +86,10 @@ const OVERDUE_REPEAT_DAYS = 7;
  *  ANTES do dedup por recência e os pacientes além do corte nunca são cobrados
  *  (starvation). 4000 cobre com folga uma clínica; se estourar, loga aviso. */
 const OVERDUE_SCAN_CAP = 4000;
+/** Teto de cobranças do aviso AGRUPADO buscadas no Asaas ao vivo por envio (cada
+ *  consulta até 15s com o marca-passo ocupado). O backfill grava no banco, então o
+ *  resto vem pronto nos próximos toques. */
+const GROUP_MAX_ENRICH = 6;
 
 interface ChargeCandidate {
   /** Boleto REPRESENTANTE do grupo (o mais atrasado). Só métrica/log. */
@@ -101,12 +106,13 @@ interface ChargeCandidate {
   name: string;
   /** TOTAL do grupo (soma dos N boletos daquele paciente+estágio). */
   amount: number;
-  /** Quantos boletos no grupo (>1 = mensagem agrupada, sem PDF). */
+  /** Quantos boletos no grupo (>1 = aviso agrupado, ver cobranca-grupo.ts). */
   count: number;
   dueDate: Date;
   link: string;
-  /** Links a MOSTRAR na legenda — só os SEM PDF (ex.: PIX). Boleto vira anexo. */
-  links: string[];
+  /** Cada cobrança do grupo (1 item no boleto único). O aviso agrupado decide por
+   *  aqui o que vai como PDF / PIX separado / link. */
+  members: GroupMember[];
   /** Código de pagamento copiável (PIX copia-e-cola do boleto, ou linha digitável).
    *  Só num boleto ÚNICO — agrupado com vários vira undefined (não dá pra pôr N). */
   codigo?: string;
@@ -198,17 +204,28 @@ export class PaymentAlertsCronService {
     // Onda 18.x — carteira IMPORTADA: cobrança sem boleto_url/PIX guardado (o import
     // não trouxe). Antes ia texto seco. Agora busca no Asaas AO VIVO (só 1 cobrança
     // única, sem PDF e/ou sem código) e enche PDF + código; faz backfill no banco.
+    // Agrupado (2+): mesmo padrão do único — busca o PDF/PIX de CADA cobrança que
+    // veio sem, e só então decide o que vai como anexo / PIX separado / link.
+    let groupPlan: GroupPlan | null = null;
     if (pick.count === 1 && (pick.pdfUrls.length === 0 || !pick.codigo)) {
       await this.enrichFromAsaas(pick);
+    } else if (pick.count > 1) {
+      await this.enrichGroupFromAsaas(pick);
+      groupPlan = planGroup(pick.members);
+      pick.pdfUrls = groupPlan.pdfs.map((m) => m.pdfUrl as string);
     }
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
-    const template = await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo);
     const clinica = await this.resolveClinicName(pick.tenantId);
-    const message = this.buildMessage(pick, template, clinica);
+    const message = groupPlan
+      ? buildGroupMessage(pick.name.split(' ')[0], clinica, pick.amount, groupPlan)
+      : this.buildMessage(pick, await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo), clinica);
     // Boleto(s) → manda CADA um como PDF anexo separado (o 1º leva a legenda; os
     // demais vão sem texto). PIX/sem-boleto seguem texto+link. Evolution não
     // configurado (NO_CONFIG): NÃO gasta o slot, tenta de novo no próximo tick.
     let messageId: string | false | 'NO_CONFIG';
+    // A mensagem que leva o TEXTO saiu? (no PDF é o 1º anexo — sem ele, código PIX
+    // chegaria "órfão", sem explicação).
+    let textoSaiu: boolean;
     if (pick.pdfUrls.length) {
       const ids: (string | false)[] = [];
       for (let i = 0; i < pick.pdfUrls.length; i++) {
@@ -217,21 +234,32 @@ export class PaymentAlertsCronService {
         ids.push(r);
       }
       messageId = ids.find((id) => id !== false) ?? false; // sucesso se ao menos 1 boleto saiu
+      textoSaiu = ids[0] !== false;
     } else {
       messageId = await this.sendWhatsApp(pick.phone, message, instanceName);
       if (messageId === 'NO_CONFIG') return 'cooldown';
+      textoSaiu = !!messageId;
     }
 
     // Onda 18.x — MENSAGEM 2: só o CÓDIGO PIX (copia-e-cola do boleto), num disparo
     // separado, pra o paciente copiar limpo (long-press pega só o código). Só quando a
     // msg 1 SAIU (messageId ok) e há PIX. Boleto único (count===1): agrupado não manda
     // código (ambíguo). É o PIX do próprio boleto → pagar dá baixa automática nele.
-    if (messageId && pick.codigo && pick.count === 1) {
+    if (textoSaiu && pick.codigo && pick.count === 1) {
       const r2 = await this.sendWhatsApp(pick.phone, pick.codigo, instanceName);
       if (r2 && r2 !== 'NO_CONFIG') {
         this.logger.log(`[COBRANCA] código PIX enviado em msg separada (charge ${pick.chargeId})`);
       } else {
         this.logger.warn(`[COBRANCA] falha ao enviar o código PIX separado (charge ${pick.chargeId}) — msg 1 já saiu`);
+      }
+    }
+    // Agrupado: 1 mensagem por código PIX, na ordem listada na msg 1.
+    if (textoSaiu && groupPlan) {
+      for (const m of groupPlan.pix) {
+        const r2 = await this.sendWhatsApp(pick.phone, m.codigo as string, instanceName);
+        if (!r2 || r2 === 'NO_CONFIG') {
+          this.logger.warn(`[COBRANCA] falha ao enviar o código PIX separado (charge ${m.chargeId}, agrupado) — msg 1 já saiu`);
+        }
       }
     }
 
@@ -522,8 +550,16 @@ export class PaymentAlertsCronService {
         count: 1,
         dueDate: new Date(c.due_date),
         link,
-        // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
-        links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        members: [{
+          chargeId: c.id,
+          externalId: c.external_id || undefined,
+          gateway: c.gateway || undefined,
+          amount: Number(c.amount),
+          dueDate: new Date(c.due_date),
+          link,
+          pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : undefined,
+          codigo: c.pix_copy_paste || undefined,
+        }],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
         codigo: (c.pix_copy_paste || undefined), // SO o PIX copia-e-cola (pagar baixa o boleto sozinho); barcode/nossoNumero NAO e PIX
@@ -543,15 +579,16 @@ export class PaymentAlertsCronService {
       const key = `${cand.tenantId}::${cand.patientId}::${cand.stage}`;
       const g = groups.get(key);
       if (!g) {
-        groups.set(key, { ...cand, links: [...cand.links], pdfUrls: [...cand.pdfUrls] });
+        groups.set(key, { ...cand, members: [...cand.members], pdfUrls: [...cand.pdfUrls] });
       } else {
+        // Mesma cobrança duplicada no banco (mesmo id Asaas) não sai 2× nem soma 2×.
+        const novos = cand.members.filter((x) => !g.members.some((y) => memberKey(y) === memberKey(x)));
+        if (novos.length === 0) continue;
         g.amount += cand.amount;
         g.count += 1;
-        g.codigo = undefined; // grupo com vários boletos → sem código único na legenda
-        for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
-        // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
-        // recebe N anexos, não 1 texto com N links).
-        for (const p of cand.pdfUrls) if (!g.pdfUrls.includes(p)) g.pdfUrls.push(p);
+        g.codigo = undefined; // código único é do boleto único; o grupo manda 1 por cobrança
+        // PDF / PIX separado / link de cada cobrança se decide no envio (planGroup).
+        g.members.push(...novos);
       }
     }
     const grouped = [...groups.values()];
@@ -659,8 +696,16 @@ export class PaymentAlertsCronService {
         count: 1,
         dueDate: new Date(c.due_date),
         link,
-        // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
-        links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        members: [{
+          chargeId: c.id,
+          externalId: c.external_id || undefined,
+          gateway: c.gateway || undefined,
+          amount: Number(c.amount),
+          dueDate: new Date(c.due_date),
+          link,
+          pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : undefined,
+          codigo: c.pix_copy_paste || undefined,
+        }],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
         codigo: (c.pix_copy_paste || undefined), // SO o PIX copia-e-cola (pagar baixa o boleto sozinho); barcode/nossoNumero NAO e PIX
@@ -677,15 +722,16 @@ export class PaymentAlertsCronService {
       const key = `${cand.tenantId}::${cand.patientId}`;
       const g = groups.get(key);
       if (!g) {
-        groups.set(key, { ...cand, links: [...cand.links], pdfUrls: [...cand.pdfUrls] });
+        groups.set(key, { ...cand, members: [...cand.members], pdfUrls: [...cand.pdfUrls] });
       } else {
+        // Mesma cobrança duplicada no banco (mesmo id Asaas) não sai 2× nem soma 2×.
+        const novos = cand.members.filter((x) => !g.members.some((y) => memberKey(y) === memberKey(x)));
+        if (novos.length === 0) continue;
         g.amount += cand.amount;
         g.count += 1;
-        g.codigo = undefined; // grupo com vários boletos → sem código único na legenda
-        for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
-        // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
-        // recebe N anexos, não 1 texto com N links).
-        for (const p of cand.pdfUrls) if (!g.pdfUrls.includes(p)) g.pdfUrls.push(p);
+        g.codigo = undefined; // código único é do boleto único; o grupo manda 1 por cobrança
+        // PDF / PIX separado / link de cada cobrança se decide no envio (planGroup).
+        g.members.push(...novos);
       }
     }
     const grouped = [...groups.values()];
@@ -777,62 +823,101 @@ export class PaymentAlertsCronService {
       if ((pick.gateway && pick.gateway !== 'ASAAS') || !pick.externalId) return;
       const cfg = await this.settings.getAsaasConfig(pick.tenantId);
       if (!cfg) return;
-      const headers = { access_token: cfg.apiKey, 'User-Agent': 'LexCRM/1.0' };
-      const dbUpdate: any = {};
-
-      // 1) Boleto/fatura: bankSlipUrl (PDF) + invoiceUrl (fallback de link).
-      if (pick.pdfUrls.length === 0) {
-        try {
-          const { data } = await axios.get(`${cfg.baseUrl}/payments/${pick.externalId}`, { headers, timeout: 15000 });
-          const pdf = data?.bankSlipUrl || null;
-          const inv = data?.invoiceUrl || null;
-          if (pdf) { pick.pdfUrls = [pdf]; pick.links = []; dbUpdate.boleto_url = pdf; }
-          if (inv && !pick.link) { pick.link = inv; dbUpdate.invoice_url = inv; }
-        } catch (e: any) {
-          this.logger.warn(`[COBRANCA] Asaas payment ${pick.externalId} falhou: ${e?.message}`);
-        }
-      }
-      // 2) PIX copia-e-cola (código) — todo boleto/cobrança Asaas tem.
-      if (!pick.codigo) {
-        try {
-          const { data } = await axios.get(`${cfg.baseUrl}/payments/${pick.externalId}/pixQrCode`, { headers, timeout: 15000 });
-          const payload = data?.payload || null;
-          if (payload) { pick.codigo = payload; dbUpdate.pix_copy_paste = payload; }
-        } catch (e: any) {
-          this.logger.warn(`[COBRANCA] Asaas pixQrCode ${pick.externalId} falhou: ${e?.message}`);
-        }
-      }
-      if (Object.keys(dbUpdate).length) {
-        await this.prisma.paymentGatewayCharge
-          .update({ where: { id: pick.chargeId }, data: dbUpdate })
-          .then(() => this.logger.log(`[COBRANCA] enriquecido do Asaas + backfill (charge ${pick.chargeId}): ${Object.keys(dbUpdate).join(', ')}`))
-          .catch((e: any) => this.logger.warn(`[COBRANCA] backfill não gravou (charge ${pick.chargeId}): ${e?.message}`));
-      }
+      const got = await this.fetchFromAsaas(cfg, pick.chargeId, pick.externalId, {
+        pdf: pick.pdfUrls.length === 0,
+        link: !pick.link,
+        codigo: !pick.codigo,
+      });
+      if (got.pdf) pick.pdfUrls = [got.pdf];
+      if (got.inv) pick.link = got.inv;
+      if (got.codigo) pick.codigo = got.codigo;
     } catch (e: any) {
       this.logger.warn(`[COBRANCA] enrichFromAsaas falhou (charge ${pick.chargeId}): ${e?.message}`);
     }
   }
 
-  /** Monta a mensagem do estágio com nome/valor/data/link. */
+  /** Igual ao enrichFromAsaas, pra CADA cobrança do aviso agrupado que veio sem PDF
+   *  (as que já têm PDF não precisam de nada). Até GROUP_MAX_ENRICH por envio. */
+  private async enrichGroupFromAsaas(pick: ChargeCandidate): Promise<void> {
+    try {
+      // Só busca o que ainda cabe como anexo (teto de PDFs do aviso).
+      const vagas = Math.max(0, GROUP_MAX_PDFS - pick.members.filter((m) => m.pdfUrl).length);
+      const faltando = pick.members
+        .filter((m) => !m.pdfUrl && m.externalId && (!m.gateway || m.gateway === 'ASAAS'))
+        .slice(0, Math.min(vagas, GROUP_MAX_ENRICH));
+      if (faltando.length === 0) return;
+      const cfg = await this.settings.getAsaasConfig(pick.tenantId);
+      if (!cfg) return;
+      for (const m of faltando) {
+        const got = await this.fetchFromAsaas(cfg, m.chargeId, m.externalId as string, {
+          pdf: true,
+          link: !m.link,
+          codigo: !m.codigo,
+        });
+        if (got.pdf) m.pdfUrl = got.pdf;
+        if (got.inv) m.link = got.inv;
+        if (got.codigo) m.codigo = got.codigo;
+        // Asaas fora/lento: não insiste no resto (o marca-passo fica preso enquanto isso).
+        if (got.erro) break;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] enrichGroupFromAsaas falhou (charge ${pick.chargeId}): ${e?.message}`);
+    }
+  }
+
+  /** Busca no Asaas o que faltar de UMA cobrança — PDF do boleto (bankSlipUrl),
+   *  link (invoiceUrl) e PIX copia-e-cola — e faz backfill no banco (best-effort).
+   *  Falha silenciosa: devolve só o que conseguiu. */
+  private async fetchFromAsaas(
+    cfg: { apiKey: string; baseUrl: string },
+    chargeId: string,
+    externalId: string,
+    need: { pdf: boolean; link: boolean; codigo: boolean },
+  ): Promise<{ pdf?: string; inv?: string; codigo?: string; erro?: boolean }> {
+    const headers = { access_token: cfg.apiKey, 'User-Agent': 'LexCRM/1.0' };
+    const out: { pdf?: string; inv?: string; codigo?: string; erro?: boolean } = {};
+    const dbUpdate: any = {};
+
+    // 1) Boleto/fatura: bankSlipUrl (PDF) + invoiceUrl (fallback de link).
+    if (need.pdf) {
+      try {
+        const { data } = await axios.get(`${cfg.baseUrl}/payments/${externalId}`, { headers, timeout: 15000 });
+        const pdf = data?.bankSlipUrl || null;
+        const inv = data?.invoiceUrl || null;
+        if (pdf) { out.pdf = pdf; dbUpdate.boleto_url = pdf; }
+        if (inv && need.link) { out.inv = inv; dbUpdate.invoice_url = inv; }
+      } catch (e: any) {
+        out.erro = true;
+        this.logger.warn(`[COBRANCA] Asaas payment ${externalId} falhou: ${e?.message}`);
+      }
+    }
+    // 2) PIX copia-e-cola (código) — todo boleto/cobrança Asaas tem.
+    if (need.codigo) {
+      try {
+        const { data } = await axios.get(`${cfg.baseUrl}/payments/${externalId}/pixQrCode`, { headers, timeout: 15000 });
+        const payload = data?.payload || null;
+        if (payload) { out.codigo = payload; dbUpdate.pix_copy_paste = payload; }
+      } catch (e: any) {
+        out.erro = true;
+        this.logger.warn(`[COBRANCA] Asaas pixQrCode ${externalId} falhou: ${e?.message}`);
+      }
+    }
+    if (Object.keys(dbUpdate).length) {
+      await this.prisma.paymentGatewayCharge
+        .update({ where: { id: chargeId }, data: dbUpdate })
+        .then(() => this.logger.log(`[COBRANCA] enriquecido do Asaas + backfill (charge ${chargeId}): ${Object.keys(dbUpdate).join(', ')}`))
+        .catch((e: any) => this.logger.warn(`[COBRANCA] backfill não gravou (charge ${chargeId}): ${e?.message}`));
+    }
+    return out;
+  }
+
+  /** Monta a mensagem do estágio (boleto ÚNICO) com nome/valor/data/link. O aviso
+   *  agrupado (2+) tem formato próprio em cobranca-grupo.ts. */
   private buildMessage(c: ChargeCandidate, template: string, clinica: string): string {
     const firstName = c.name.split(' ')[0];
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
     const mm = String(c.dueDate.getUTCMonth() + 1).padStart(2, '0');
-    // Onda 18.x — AGRUPADO: paciente com VÁRIOS boletos no mesmo estágio recebe
-    // UMA mensagem com o TOTAL + todos os links (não uma por boleto). Formato
-    // próprio (o template do estágio é singular "seu boleto"); {valor} = total.
-    if (c.count > 1) {
-      // Vários vencidos: os boletos vão como PDFs ANEXOS (sem link). Se sobrar algum
-      // SEM PDF no grupo (ex.: PIX), mostra só esse(s) link(s).
-      const anexo = c.pdfUrls.length ? `\n\nSeguem os boletos em anexo.` : '';
-      const linksTxt = c.links.length ? `\n\nAcesse pelos links abaixo:\n${c.links.join('\n')}` : '';
-      return (
-        `Olá ${firstName}, você tem ${c.count} boletos em aberto na ${clinica}, ` +
-        `no total de ${valor}.${anexo}${linksTxt}\n\n` +
-        `Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.`
-      );
-    }
     let base = template;
     // Disparo antecipado pra sexta (vencimento dom/seg): o template do 1d_antes diz
     // "amanhã" — troca pelo dia real pra não mentir. Best-effort: se a clínica editou
