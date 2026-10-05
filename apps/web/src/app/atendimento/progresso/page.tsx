@@ -81,6 +81,35 @@ const EMPTY_BOARD: BoardData = {
   by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [], STANDBY: [] },
 };
 
+// Ordem dentro de cada coluna — quem está SEM agendamento sobe (é o que pede ação):
+//  • A agendar: quem espera há mais tempo primeiro; venda rápida (balcão) no fim.
+//  • Agendado: consulta mais próxima primeiro.
+//  • Em tratamento: parados (sem próxima consulta) no topo, mais parado primeiro
+//    (balcão no fim deles); depois os com consulta, a mais próxima primeiro.
+//  • Stand by / Concluído: ordem do backend (fechamento mais recente primeiro).
+const LAST = Number.MAX_SAFE_INTEGER;
+const msOf = (iso: string | null) => (iso ? new Date(iso).getTime() : LAST);
+const balcaoLast = (a: JourneyCard, b: JourneyCard) => (a.is_venda_rapida ? 1 : 0) - (b.is_venda_rapida ? 1 : 0);
+function sortStage(stage: StageKey, cards: JourneyCard[]): JourneyCard[] {
+  const arr = [...cards];
+  if (stage === 'A_AGENDAR') {
+    return arr.sort((a, b) => balcaoLast(a, b) || msOf(a.accepted_at) - msOf(b.accepted_at));
+  }
+  if (stage === 'AGENDADO') {
+    return arr.sort((a, b) => msOf(a.next_appointment_at) - msOf(b.next_appointment_at));
+  }
+  if (stage === 'EM_TRATAMENTO') {
+    const comAgenda = (c: JourneyCard) => (c.has_future_appt ? 1 : 0);
+    return arr.sort((a, b) =>
+      comAgenda(a) - comAgenda(b) ||
+      (comAgenda(a) === 0
+        ? balcaoLast(a, b) || (b.days_stalled ?? 0) - (a.days_stalled ?? 0)
+        : msOf(a.next_appointment_at) - msOf(b.next_appointment_at)),
+    );
+  }
+  return arr;
+}
+
 const COLUMNS: Array<{
   key: StageKey;
   label: string;
@@ -377,14 +406,19 @@ export default function ProgressoPage() {
   // Filtro por dentista (client-side). Sem filtro → usa board/summary do backend
   // (concluido_total exato). Com filtro → recomputa a partir dos cards visíveis.
   const view = useMemo(() => {
-    if (!dentistFilter) return board;
+    const STAGES = ['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO', 'STANDBY'] as StageKey[];
+    if (!dentistFilter) {
+      const sorted = {} as Record<StageKey, JourneyCard[]>;
+      STAGES.forEach((k) => { sorted[k] = sortStage(k, board.by_stage[k] || []); });
+      return { ...board, by_stage: sorted };
+    }
     const match = (c: JourneyCard) => {
       const did = c.primary_dentist?.id || c.dentist?.id || null;
       return dentistFilter === '__none__' ? !did : did === dentistFilter;
     };
     const by = {} as Record<StageKey, JourneyCard[]>;
-    (['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO', 'STANDBY'] as StageKey[]).forEach((k) => {
-      by[k] = (board.by_stage[k] || []).filter(match);
+    STAGES.forEach((k) => {
+      by[k] = sortStage(k, (board.by_stage[k] || []).filter(match));
     });
     const all = [...by.A_AGENDAR, ...by.AGENDADO, ...by.EM_TRATAMENTO, ...by.CONCLUIDO];
     const now = new Date(Date.now() - 3 * 3600 * 1000);
