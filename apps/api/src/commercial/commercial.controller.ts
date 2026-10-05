@@ -228,6 +228,15 @@ export class CommercialController {
     return this.quotesService.markOrthoAlta(user.tenant_id, body.patient_id, user.id);
   }
 
+  // Stand by de ortodontia (⏸/▶ no card da Ortodontia): pausa/retoma o plano de ortô
+  // (ou marca o paciente sem plano). pausar=false retoma.
+  @RequiresPermission('manage_proposals')
+  @Post('quotes/ortho-board/pausa')
+  orthoPausa(@Body() body: { patient_id?: string; pausar?: boolean }, @Authenticated() user: AuthUser) {
+    if (!body?.patient_id) throw new BadRequestException('Informe o paciente');
+    return this.quotesService.setOrthoPause(user.tenant_id, body.patient_id, body.pausar !== false, user.id);
+  }
+
   // Disparos "Equipe → Pacientes sem agendamento" (geral e ?kind=orto): prévia + teste.
   // A prévia também abre pra quem usa o Progresso/Ortodontia (botão "Avisar ADMs") —
   // mostra os mesmos pacientes que esses quadros já mostram.

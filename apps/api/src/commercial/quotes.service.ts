@@ -4040,7 +4040,7 @@ export class QuotesService {
     for (const e of orthoEvents) if (e.patient_id) patientIds.add(e.patient_id);
     for (const q of orthoQuotes) if (q.patient_id) patientIds.add(q.patient_id);
 
-    const EMPTY = { summary: { total: 0, agendado: 0, nao_agendado: 0, concluido: 0, saiu: 0 }, patients: [] as any[] };
+    const EMPTY = { summary: { total: 0, agendado: 0, nao_agendado: 0, concluido: 0, saiu: 0, standby: 0 }, patients: [] as any[] };
     if (patientIds.size === 0) return EMPTY;
     const ids = Array.from(patientIds);
 
@@ -4099,6 +4099,15 @@ export class QuotesService {
     const altaByPatient = new Map<string, Date>();
     for (const a of altas) if (!altaByPatient.has(a.entity_id)) altaByPatient.set(a.entity_id, a.created_at);
 
+    // Stand by SEM plano (setOrthoPause) — vale o último pause/resume por paciente.
+    const pausas = await this.prisma.auditLog.findMany({
+      where: { entity: 'ORTHO_PAUSA', tenant_id: tenantId, entity_id: { in: ids } },
+      select: { entity_id: true, action: true },
+      orderBy: { created_at: 'desc' },
+    });
+    const ultimaPausaByPatient = new Map<string, string>();
+    for (const a of pausas) if (!ultimaPausaByPatient.has(a.entity_id)) ultimaPausaByPatient.set(a.entity_id, a.action);
+
     const dentistIds = new Set<string>();
     for (const m of dentistCount.values()) for (const did of m.keys()) dentistIds.add(did);
     for (const p of patients) if (p.ortho_dentist_id) dentistIds.add(p.ortho_dentist_id); // override de migração
@@ -4108,12 +4117,13 @@ export class QuotesService {
     const dentistNameById = new Map(dentistUsers.map((u) => [u.id, u.name]));
 
     // 5. Planos de ortô por paciente (concluído + ids p/ o botão "Concluir ortodontia")
-    const planByPatient = new Map<string, { ids: string[]; completed: boolean }>();
+    const planByPatient = new Map<string, { ids: string[]; completed: boolean; paused: boolean }>();
     for (const q of orthoQuotes) {
       if (!q.patient_id || !q.treatment_plan) continue;
-      const p = planByPatient.get(q.patient_id) ?? { ids: [], completed: false };
+      const p = planByPatient.get(q.patient_id) ?? { ids: [], completed: false, paused: false };
       p.ids.push(q.treatment_plan.id);
       if (q.treatment_plan.status === 'COMPLETED') p.completed = true;
+      if (q.treatment_plan.status === 'PAUSED') p.paused = true;
       planByPatient.set(q.patient_id, p);
     }
 
@@ -4169,8 +4179,13 @@ export class QuotesService {
       const ultimaMarcada = lastOrthoCreatedByPatient.get(p.id);
       const altaVale = !!alta && !(ultimaMarcada && ultimaMarcada > alta);
 
-      let status: 'concluido' | 'agendado' | 'saiu' | 'nao_agendado';
+      // Stand by: com plano de ortô vale o PLANO (PAUSED — o mesmo do Progresso);
+      // sem plano, o último marcador ORTHO_PAUSA.
+      const standby = plan ? plan.paused : ultimaPausaByPatient.get(p.id) === 'pause';
+
+      let status: 'concluido' | 'standby' | 'agendado' | 'saiu' | 'nao_agendado';
       if (plan?.completed || altaVale) status = 'concluido';
+      else if (standby) status = 'standby';
       else if (nextAppt) status = 'agendado';
       else if (archived || inativo) status = 'saiu';
       else status = 'nao_agendado';
@@ -4200,6 +4215,7 @@ export class QuotesService {
       nao_agendado: cards.filter((c) => c.status === 'nao_agendado').length,
       concluido: cards.filter((c) => c.status === 'concluido').length,
       saiu: cards.filter((c) => c.status === 'saiu').length,
+      standby: cards.filter((c) => c.status === 'standby').length,
     };
 
     this.logger.log(`[ORTHO_BOARD] OK pacientes=${cards.length} agendado=${summary.agendado} saiu=${summary.saiu}`);
@@ -4215,6 +4231,45 @@ export class QuotesService {
     if (!p) throw new NotFoundException('Paciente não encontrado');
     await this.prisma.auditLog.create({
       data: { entity: 'ORTHO_ALTA', entity_id: patientId, action: 'alta', tenant_id: tenantId, actor_user_id: userId || null },
+    });
+    return { ok: true };
+  }
+
+  /** Stand by de ortodontia (botão ⏸/▶ da Ortodontia, igual o do Progresso).
+   *  Com plano de ortô: pausa/retoma o PLANO (fonte da verdade — aparece em Stand by no
+   *  Progresso também; retomar só reativa plano PAUSED, nunca um PENDING_SIGNATURE).
+   *  Sem plano (paciente só da agenda): vale o marcador AuditLog ORTHO_PAUSA (último
+   *  pause/resume). O marcador é gravado sempre, como rastro de quem pausou/retomou. */
+  async setOrthoPause(tenantId: string, patientId: string, pausar: boolean, userId?: string | null) {
+    const p = await this.prisma.patient.findFirst({ where: { id: patientId, tenant_id: tenantId }, select: { id: true } });
+    if (!p) throw new NotFoundException('Paciente não encontrado');
+    const quotes = await this.prisma.quote.findMany({
+      where: {
+        patient_id: patientId,
+        patient: { tenant_id: tenantId },
+        status: 'ACCEPTED',
+        items: { some: { procedure: { category: 'ORTODONTIA' } } },
+      },
+      select: { treatment_plan: { select: { id: true, status: true } } },
+    });
+    for (const q of quotes) {
+      const plan = q.treatment_plan;
+      if (!plan || !this.treatmentPlans) continue;
+      try {
+        if (pausar && !['PAUSED', 'COMPLETED', 'CANCELLED'].includes(plan.status)) {
+          await this.treatmentPlans.pause(plan.id, tenantId);
+        } else if (!pausar && plan.status === 'PAUSED') {
+          await this.treatmentPlans.activate(plan.id, tenantId);
+        }
+      } catch (e: any) {
+        this.logger.warn(`[ORTHO_PAUSA] plano ${plan.id}: ${e?.message}`);
+      }
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        entity: 'ORTHO_PAUSA', entity_id: patientId, action: pausar ? 'pause' : 'resume',
+        tenant_id: tenantId, actor_user_id: userId || null,
+      },
     });
     return { ok: true };
   }

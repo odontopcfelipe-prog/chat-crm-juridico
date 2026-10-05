@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  CalendarDays, CalendarClock, CalendarPlus, CheckCircle2, Loader2, RefreshCw, Stethoscope, X,
+  CalendarDays, CalendarClock, CalendarPlus, CheckCircle2, Loader2, Pause, Play, RefreshCw, Stethoscope, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -15,7 +15,7 @@ import { useRole } from '@/lib/useRole';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
 
-type OrthoStatus = 'agendado' | 'nao_agendado' | 'concluido' | 'saiu';
+type OrthoStatus = 'agendado' | 'nao_agendado' | 'standby' | 'concluido' | 'saiu';
 
 interface OrthoCard {
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
@@ -30,13 +30,14 @@ interface OrthoCard {
   plan_ids: string[];
 }
 interface OrthoBoard {
-  summary: { total: number; agendado: number; nao_agendado: number; concluido: number; saiu: number };
+  summary: { total: number; agendado: number; nao_agendado: number; concluido: number; saiu: number; standby?: number };
   patients: OrthoCard[];
 }
 
 const STATUS_META: Record<OrthoStatus, { label: string; badge: string }> = {
   agendado: { label: 'Agendado', badge: 'bg-blue-500/15 text-blue-500' },
   nao_agendado: { label: 'Não agendado', badge: 'bg-amber-500/15 text-amber-500' },
+  standby: { label: 'Stand by', badge: 'bg-slate-500/15 text-slate-500' },
   concluido: { label: 'Concluído', badge: 'bg-emerald-500/15 text-emerald-500' },
   saiu: { label: 'Saiu', badge: 'bg-red-500/15 text-red-500' },
 };
@@ -50,6 +51,7 @@ const VIEWS: Array<{ key: ViewKey; label: string }> = [
   { key: 'agendado', label: 'Agendados' },
   { key: 'nao_agendado', label: 'Não agendados' },
   { key: 'concluido', label: 'Concluídos' },
+  { key: 'standby', label: 'Stand by' },
   { key: 'saiu', label: 'Saíram' },
 ];
 const ORTHO_WEEKDAYS = [1, 2, 3, 4, 5, 6]; // Seg–Sáb
@@ -63,7 +65,7 @@ const lastSeen = (c: OrthoCard) => c.last_ortho_at ?? c.last_visit_at;
 // Ordem dentro da coluna: SEM agendamento sobe (é o que pede ação) — quem nunca veio
 // primeiro, depois quem está há mais tempo sem vir; em seguida os agendados (consulta
 // mais próxima primeiro), concluídos e os que saíram.
-const STATUS_ORDER: Record<OrthoStatus, number> = { nao_agendado: 0, agendado: 1, concluido: 2, saiu: 3 };
+const STATUS_ORDER: Record<OrthoStatus, number> = { nao_agendado: 0, agendado: 1, standby: 2, concluido: 3, saiu: 4 };
 const ms = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : 0);
 const byPriority = (a: OrthoCard, b: OrthoCard) => {
   const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
@@ -175,6 +177,19 @@ export default function OrtodontiaPage() {
     }
   };
 
+  // ⏸/▶ Stand by — igual o do Progresso (pausa/retoma o plano de ortô; sem plano, marca o paciente)
+  const toggleStandby = async (card: OrthoCard) => {
+    const retomar = card.status === 'standby';
+    if (!window.confirm(retomar ? `Retomar o tratamento de ${card.patient.name}?` : `Colocar ${card.patient.name} em stand by?`)) return;
+    try {
+      await api.post('/quotes/ortho-board/pausa', { patient_id: card.patient.id, pausar: !retomar });
+      showSuccess(retomar ? 'Tratamento retomado' : 'Paciente em stand by');
+      load();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível alterar o stand by');
+    }
+  };
+
   const s = board?.summary;
   // Ortodontista de hoje — derivado dos dias configurados no cadastro (ortho_days).
   const todayWd = useMemo(() => new Date(Date.now() - 3 * 3600 * 1000).getUTCDay(), []); // fuso Maceió
@@ -188,7 +203,7 @@ export default function OrtodontiaPage() {
             <Stethoscope size={20} className="text-primary" /> Ortodontia
           </h1>
           <p className="text-sm text-muted-foreground">
-            Todos os pacientes de ortô, por dentista responsável — agendados, sem agendamento, concluídos e os que saíram.
+            Todos os pacientes de ortô, por dentista responsável — agendados, sem agendamento, em stand by, concluídos e os que saíram.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -223,10 +238,11 @@ export default function OrtodontiaPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <Kpi label="Total" value={s?.total ?? 0} color="text-foreground" />
         <Kpi label="Agendados" value={s?.agendado ?? 0} color="text-blue-500" />
         <Kpi label="Não agendados" value={s?.nao_agendado ?? 0} color="text-amber-500" />
+        <Kpi label="Stand by" value={s?.standby ?? 0} color="text-slate-500" />
         <Kpi label="Concluídos" value={s?.concluido ?? 0} color="text-emerald-500" />
         <Kpi label="Saíram" value={s?.saiu ?? 0} color="text-red-500" />
       </div>
@@ -357,6 +373,7 @@ export default function OrtodontiaPage() {
                       dentists={dentists}
                       migrating={migrating === c.patient.id}
                       onFinalize={() => setFinalizeCard(c)}
+                      onToggleStandby={() => toggleStandby(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
                       onSchedule={() => router.push(`/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA`)}
                       onMigrate={(did) => migrate(c.patient.id, did)}
@@ -395,9 +412,9 @@ function Kpi({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onOpen, onSchedule, onMigrate }: {
+function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onToggleStandby, onOpen, onSchedule, onMigrate }: {
   card: OrthoCard; showDentist?: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
-  onFinalize: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
+  onFinalize: () => void; onToggleStandby: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
 }) {
   const meta = STATUS_META[card.status];
   return (
@@ -419,6 +436,15 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onO
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-primary/10 text-primary" title="Dia de atendimento">{WD_LABEL[card.weekday]}</span>
         )}
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${meta.badge}`}>{meta.label}</span>
+        {card.status !== 'concluido' && (
+          <button
+            onClick={onToggleStandby}
+            className="shrink-0 p-1 rounded text-muted-foreground hover:text-slate-700 hover:bg-slate-500/10 transition-colors"
+            title={card.status === 'standby' ? 'Retomar tratamento' : 'Colocar em stand by'}
+          >
+            {card.status === 'standby' ? <Play size={14} /> : <Pause size={14} />}
+          </button>
+        )}
         {card.status !== 'concluido' && (
           <button
             onClick={onFinalize}
@@ -449,7 +475,7 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onO
       )}
 
       <div className="flex items-center gap-1.5 pt-0.5">
-        {card.status !== 'agendado' && card.status !== 'concluido' && (
+        {card.status !== 'agendado' && card.status !== 'concluido' && card.status !== 'standby' && (
           <button onClick={onSchedule} className="flex-1 text-[11px] font-semibold px-2 py-1.5 rounded-md bg-amber-500 text-white hover:opacity-90 inline-flex items-center justify-center gap-1">
             <CalendarPlus size={12} /> Agendar
           </button>
