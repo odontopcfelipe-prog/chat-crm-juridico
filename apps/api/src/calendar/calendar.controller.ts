@@ -256,11 +256,12 @@ export class CalendarController {
     @Query('end') end: string,
     @Query('excludeId') excludeId: string | undefined,
     @Request() req: any,
+    @Query('type') type?: string, // tipo do evento sendo marcado (ortô em fluxo não conflita)
   ) {
     // Usuários não-admin só podem checar conflitos da própria agenda
     const isAdmin = req.user?.roles?.includes('ADMIN');
     const effectiveUserId = isAdmin ? (userId || req.user.id) : req.user.id;
-    return this.calendarService.checkConflicts(effectiveUserId, start, end, excludeId, req.user?.tenant_id);
+    return this.calendarService.checkConflicts(effectiveUserId, start, end, excludeId, req.user?.tenant_id, type);
   }
 
   // ─── Availability ─────────────────────────────────────

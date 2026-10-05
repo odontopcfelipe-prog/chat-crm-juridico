@@ -106,6 +106,7 @@ export class FollowupService {
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
       bolAtrasadoSetting, blockSchedSetting, negocAvistaSetting, semAgendOrtoSetting,
+      ortoOrdemChegadaSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -166,6 +167,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_AVISTA_ENABLED_${tenantId}` } }),
       // Equipe: pacientes de ORTODONTIA sem agendamento (resumo separado aos adms). Default OFF.
       this.prisma.globalSetting.findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_ORTO_${tenantId}` } }),
+      // REGRA da clínica: ortodontia por ORDEM DE CHEGADA. Default OFF (= hora marcada).
+      this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -345,6 +348,9 @@ export class FollowupService {
       pacientes_sem_agendamento: { enabled: semAgendSetting?.value === 'true' },
       // Equipe: o mesmo resumo só de ORTODONTIA, por dentista. Default OFF (opt-in).
       pacientes_sem_agendamento_orto: { enabled: semAgendOrtoSetting?.value === 'true' },
+      // REGRA (não é disparo): ortô por ordem de chegada. OFF = ortô com hora marcada,
+      // igual qualquer consulta; os 3 disparos de ortô só valem com ela ligada.
+      orto_ordem_chegada: { enabled: ortoOrdemChegadaSetting?.value === 'true' },
       // Parte 1 — apresentação do Financeiro (D+1 da venda). Default OFF (opt-in).
       boleto_intro: { enabled: boletoIntroSetting?.value === 'true' },
       // Entrega dos boletos (D+2). Toggle próprio; quando nunca setado, HERDA a
@@ -786,6 +792,14 @@ export class FollowupService {
       // (cronPacientesSemAgendamento em quotes.service) lê são exatamente estas.
       case 'pacientes_sem_agendamento': {
         const key = `PACIENTES_SEM_AGENDAMENTO_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // REGRA da clínica: ortodontia por ordem de chegada (calendar.service, reminder
+      // worker e os crons de confirmação/lembrete de ortô leem esta key).
+      case 'orto_ordem_chegada': {
+        const key = `ORTO_ORDEM_CHEGADA_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

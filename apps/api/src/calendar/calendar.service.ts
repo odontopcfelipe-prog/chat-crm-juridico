@@ -489,7 +489,9 @@ export class CalendarService {
     // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
     // paciente (best-effort; so eventos clinicos com paciente/lead)
     if (data.tenant_id && this.isClinicalEvent(event.type)) {
-      if (event.type === 'ORTODONTIA') {
+      // Ortô só tem aviso próprio ("a partir das", ordem de chegada) quando a clínica
+      // atende ortô em FLUXO. Por hora marcada (padrão) cai no aviso normal abaixo.
+      if (event.type === 'ORTODONTIA' && (await this.isOrtoOrdemChegada(data.tenant_id))) {
         // Onda 18.x — ortô é por ORDEM DE CHEGADA e tem uma "Confirmação de
         // agendamento" IMEDIATA própria (texto "a partir das {hora}", sem hora
         // fixa), OPT-IN (default OFF). Só sai na hora que marca SE o toggle
@@ -973,17 +975,43 @@ export class CalendarService {
     return { deleted: true };
   }
 
+  /**
+   * REGRA DA CLÍNICA — ortodontia por ORDEM DE CHEGADA (Central › Agendamento, toggle
+   * ORTO_ORDEM_CHEGADA_<tenant>). Ligada: ortô é atendimento em FLUXO (vários pacientes
+   * no mesmo horário, sem slot exclusivo) e usa os disparos próprios de ortô ("a partir
+   * das {hora}", portões). Desligada (PADRÃO): ortô é consulta com HORA MARCADA — conflito
+   * de horário, avisos e lembretes iguais aos de qualquer consulta. Antes isso era fixo
+   * pra todas as clínicas (feito pra uma) e vazava pra quem atende por horário.
+   */
+  private async isOrtoOrdemChegada(tenantId?: string | null): Promise<boolean> {
+    if (!tenantId) return false;
+    const s = await this.prisma.globalSetting
+      .findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tenantId}` } })
+      .catch(() => null);
+    return s?.value === 'true';
+  }
+
   // ─── Conflict Detection ─────────────────────────────────
 
-  async checkConflicts(userId: string, startAt: string, endAt: string, excludeEventId?: string, tenantId?: string) {
+  async checkConflicts(
+    userId: string,
+    startAt: string,
+    endAt: string,
+    excludeEventId?: string,
+    tenantId?: string,
+    newEventType?: string,
+  ) {
     const start = new Date(startAt);
     const end = new Date(endAt);
+    // Ortô em FLUXO (regra da clínica) não ocupa slot exclusivo: marcar ortô não
+    // conflita, e as ortô existentes não bloqueiam o horário. Por HORA MARCADA
+    // (padrão), ortô conflita como qualquer consulta.
+    const ortoFluxo = await this.isOrtoOrdemChegada(tenantId);
+    if (ortoFluxo && newEventType === 'ORTODONTIA') return [];
     const where: any = {
       assigned_user_id: userId,
       status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
-      // Onda 18.x — ORTODONTIA é atendimento em FLUXO (vários pacientes no mesmo
-      // horário): não ocupa slot exclusivo, então não conta como conflito.
-      type: { not: 'ORTODONTIA' },
+      ...(ortoFluxo ? { type: { not: 'ORTODONTIA' } } : {}),
       // Overlap: evento começa antes do fim do range E (termina após início do range OU sem end_at mas começa dentro do range)
       start_at: { lt: end },
       OR: [
@@ -3905,7 +3933,9 @@ export class CalendarService {
           .replace(/\{local\}/g, local || '')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
-      } else if (event.type === 'ORTODONTIA') {
+      } else if (event.type === 'ORTODONTIA' && (await this.isOrtoOrdemChegada(tenantId))) {
+        // Só com a regra "ortodontia por ordem de chegada" LIGADA (por hora marcada,
+        // ortô usa o texto normal "às {hora}" do else abaixo).
         // Onda 18.x — ortô usa o TEXTO EDITÁVEL da "Confirmação de agendamento de
         // ortodontia (na hora)" (APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE), que fala "a
         // partir das {hora}" / ordem de chegada — nunca "às {hora}" (hora fixa

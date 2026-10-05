@@ -97,6 +97,8 @@ interface OperacionalData {
   // Equipe: pacientes sem agendamento (resumo aos adms) — geral e só ortodontia
   pacientes_sem_agendamento?: { enabled: boolean };
   pacientes_sem_agendamento_orto?: { enabled: boolean };
+  // REGRA da clínica: ortodontia por ordem de chegada (default OFF = hora marcada)
+  orto_ordem_chegada?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }

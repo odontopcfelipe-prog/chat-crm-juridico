@@ -17,7 +17,9 @@
  * Roda DENTRO do container da API (DATABASE_URL já está no ambiente — não hardcoda
  * senha). Instruções de execução no fim do arquivo.
  *
- *   --tenant=<uuid>   clínica alvo (default: 00000000-0000-0000-0000-000000000000)
+ *   --tenant=<uuid>   clínica alvo — OBRIGATÓRIO. (Antes o padrão era o Instituto: rodado
+ *                     pra configurar a Pra Sorrir, ligou ortô "ordem de chegada" no Instituto.)
+ *   Também liga a REGRA ORTO_ORDEM_CHEGADA_<tenant> — sem ela os disparos de ortô não valem.
  *   --confirm         aplica de verdade. SEM ele = DRY-RUN (só mostra o que faria).
  */
 const { PrismaClient } = require('@prisma/client');
@@ -31,12 +33,17 @@ const arg = (n) => {
 const has = (n) => argv.includes(`--${n}`);
 
 const CONFIRM = has('confirm');
-const TENANT = arg('tenant') || '00000000-0000-0000-0000-000000000000';
+const TENANT = arg('tenant');
+if (!TENANT) {
+  console.error('Informe a clínica: --tenant=<uuid>. Sem padrão de propósito (ver cabeçalho).');
+  process.exit(1);
+}
 
 const K = {
   mainTpl: `APPOINTMENT_CONFIRMATION_TEMPLATE_${TENANT}`,
   ortoConfEnabled: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${TENANT}`,
   ortoRemEnabled: `APPOINTMENT_ORTO_REMINDER_ENABLED_${TENANT}`,
+  ortoFluxo: `ORTO_ORDEM_CHEGADA_${TENANT}`, // regra da clínica (sem ela os disparos de ortô não valem)
 };
 
 async function readVal(key) {
@@ -79,7 +86,7 @@ async function main() {
       await tx.globalSetting.deleteMany({ where: { key: K.mainTpl } });
     }
     // 2) liga os 2 disparos de ortô
-    for (const key of [K.ortoConfEnabled, K.ortoRemEnabled]) {
+    for (const key of [K.ortoConfEnabled, K.ortoRemEnabled, K.ortoFluxo]) {
       await tx.globalSetting.upsert({
         where: { key },
         create: { key, value: 'true' },

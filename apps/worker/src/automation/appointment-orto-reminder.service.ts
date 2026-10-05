@@ -89,13 +89,16 @@ export class AppointmentOrtoReminderService {
         const phone = ev.patient?.phone;
         if (!phone) { skipped++; continue; }
 
-        // OPT-IN: só dispara com o toggle explicitamente ligado (default OFF).
+        // OPT-IN: só dispara com o toggle explicitamente ligado (default OFF) E com a
+        // regra da clínica "ortodontia por ordem de chegada" ligada (o lembrete fala
+        // de portões/ordem de chegada — não serve pra quem atende ortô por horário).
         let enabled = enabledByTenant.get(tid);
         if (enabled === undefined) {
-          const s = await this.prisma.globalSetting.findUnique({
-            where: { key: `APPOINTMENT_ORTO_REMINDER_ENABLED_${tid}` },
-          });
-          enabled = s?.value === 'true';
+          const [s, fluxo] = await Promise.all([
+            this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_REMINDER_ENABLED_${tid}` } }),
+            this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tid}` } }),
+          ]);
+          enabled = s?.value === 'true' && fluxo?.value === 'true';
           enabledByTenant.set(tid, enabled);
         }
         if (!enabled) { skipped++; continue; }

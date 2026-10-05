@@ -589,7 +589,13 @@ export class CalendarReminderWorker extends WorkerHost {
     // same-day (<1440) ↔ lembrete de ortô (portões). A faixa 48h (>=2880, pedido de
     // confirmação) e o lembrete do DENTISTA (acima) NÃO são afetados.
     let suppressOrtoClient = false;
-    if (event.type === 'ORTODONTIA' && event.tenant_id && minutesBefore < 2880) {
+    // Só com a regra da clínica "ortodontia por ordem de chegada" LIGADA — por hora
+    // marcada (padrão) os disparos de ortô não valem e o lembrete normal segue.
+    const ortoFluxo = event.type === 'ORTODONTIA' && !!event.tenant_id
+      && (await this.prisma.globalSetting
+        .findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${event.tenant_id}` } })
+        .catch(() => null))?.value === 'true';
+    if (ortoFluxo && minutesBefore < 2880) {
       const ortoKey =
         minutesBefore >= 1440
           ? `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${event.tenant_id}`

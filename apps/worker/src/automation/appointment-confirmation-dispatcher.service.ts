@@ -80,6 +80,7 @@ export class AppointmentConfirmationDispatcherService {
       const enabledByTenant = new Map<string, boolean>();
       // Onda 18.x — cache do liga/desliga da confirmação de ORTODONTIA por tenant
       const orthoEnabledByTenant = new Map<string, boolean>();
+      const ortoFluxoByTenant = new Map<string, boolean>(); // regra "ortô por ordem de chegada"
 
       let sent = 0;
       let failed = 0;
@@ -110,7 +111,15 @@ export class AppointmentConfirmationDispatcherService {
         // confirmação de orto (default OFF) OU a principal estiverem ligadas. Assim a
         // confirmação de orto sai mesmo com a principal desligada (cada uma na sua),
         // e a confirmação normal continua honrando só o toggle principal.
-        const isOrtho = c.appointment?.type === 'ORTODONTIA';
+        // Espelha o scheduler: ortô só é "especial" com a regra da clínica "ortodontia
+        // por ordem de chegada" ligada; por hora marcada vale só o toggle principal.
+        let ortoFluxo = ortoFluxoByTenant.get(tenantId);
+        if (ortoFluxo === undefined) {
+          const s = await this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tenantId}` } });
+          ortoFluxo = s?.value === 'true';
+          ortoFluxoByTenant.set(tenantId, ortoFluxo);
+        }
+        const isOrtho = c.appointment?.type === 'ORTODONTIA' && ortoFluxo;
         let orthoEnabled = false;
         if (isOrtho) {
           const cached = orthoEnabledByTenant.get(tenantId);

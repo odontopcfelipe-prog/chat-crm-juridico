@@ -79,6 +79,7 @@ export class AppointmentConfirmationSchedulerService {
       // Onda 18.x — caches do disparo de ORTODONTIA (liga/desliga + texto por tenant)
       const orthoEnabledByTenant = new Map<string, boolean>();
       const orthoTemplateByTenant = new Map<string, string>();
+      const ortoFluxoByTenant = new Map<string, boolean>(); // regra "ortô por ordem de chegada"
       const DEFAULT_TPL =
         'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
 
@@ -91,7 +92,16 @@ export class AppointmentConfirmationSchedulerService {
         // Onda 17.49 — respeita o toggle "Confirmação" (default LIGADO): nao cria
         // a confirmacao se o tenant desligou no painel Operacional.
         const tid = ev.tenant_id || '';
-        const isOrtho = ev.type === 'ORTODONTIA';
+        // Ortô só é "especial" (texto/toggle de ortô) quando a CLÍNICA atende ortô por
+        // ORDEM DE CHEGADA (ORTO_ORDEM_CHEGADA_<tenant>). Por hora marcada (padrão),
+        // ortô é confirmada como qualquer consulta.
+        let ortoFluxo = ortoFluxoByTenant.get(tid);
+        if (ortoFluxo === undefined) {
+          const s = await this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tid}` } });
+          ortoFluxo = s?.value === 'true';
+          ortoFluxoByTenant.set(tid, ortoFluxo);
+        }
+        const isOrtho = ev.type === 'ORTODONTIA' && ortoFluxo;
         let confEnabled = enabledByTenant.get(tid);
         if (confEnabled === undefined) {
           const s = await this.prisma.globalSetting.findUnique({

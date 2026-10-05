@@ -84,6 +84,8 @@ export type OperacionalKey =
   | 'pix_delivery'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
+  // REGRA da clínica (não é disparo): ortodontia por ordem de chegada (fluxo)
+  | 'orto_ordem_chegada'
   // Equipe: resumo diário aos adms de quem fechou/está em tratamento sem consulta marcada
   | 'pacientes_sem_agendamento'
   // Equipe: o mesmo resumo, só pacientes de ORTODONTIA, por dentista
@@ -129,14 +131,19 @@ export const DISPAROS: DisparoItem[] = [
   // cronológica: ao marcar (imediato) → 1 dia antes → 1h antes (portões). Só valem
   // pra eventos ORTODONTIA; a confirmação de orto usa o texto de ordem de chegada
   // (nunca "às {hora}", que contradiz a fila).
+  // REGRA DA CLÍNICA (não é disparo): sem ela LIGADA, ortô é consulta com HORA MARCADA
+  // (conflito, avisos e lembretes normais) e os 3 disparos de ortô abaixo não valem.
+  { id: 'orto_ordem_chegada', nome: 'Ortodontia por ordem de chegada', categoria: 'agendamento',
+    gatilho: 'Regra da clínica · ligada: ortô em fluxo (vários no mesmo horário) + disparos de ortô abaixo · desligada: ortô com hora marcada, igual consulta', canal: 'Painel', tags: ['Política', 'Ortô'],
+    editor: null, operacionalKey: 'orto_ordem_chegada' },
   { id: 'confirmacao_orto_imediata', nome: 'Confirmação de agendamento · Ortodontia (na hora)', categoria: 'agendamento',
-    gatilho: 'Assim que marca o horário · só ortodontia · ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    gatilho: 'Assim que marca o horário · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
     editor: 'orto_immediate', operacionalKey: 'confirmacao_orto_imediata' },
   { id: 'confirmacao_orto', nome: 'Confirmação de ortodontia · 1 dia antes', categoria: 'agendamento',
-    gatilho: '~24h antes (véspera) · só ortodontia · ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    gatilho: '~24h antes (véspera) · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
     editor: 'confirmacao_orto', operacionalKey: 'confirmacao_orto' },
   { id: 'lembrete_orto_1h', nome: 'Lembrete de ortodontia · 1h antes (portões)', categoria: 'agendamento',
-    gatilho: '~1h antes de abrir os portões · só ortodontia', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    gatilho: '~1h antes de abrir os portões · só ortodontia · só com "ordem de chegada" ligada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
     editor: 'orto_reminder', operacionalKey: 'lembrete_orto_1h' },
   { id: 'confirmacao_48h', nome: 'Confirmação de presença · 48h antes', categoria: 'agendamento',
     gatilho: '48h antes · pede pra confirmar (responde no WhatsApp)', canal: 'WhatsApp', tags: ['Template', 'Confirma'],
