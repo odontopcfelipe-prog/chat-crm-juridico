@@ -29,6 +29,7 @@ import {
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -465,6 +466,8 @@ export default function ProgressoPage() {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
+          {/* Disparo MANUAL do resumo "pacientes sem agendamento" aos ADMs */}
+          <AvisarAdmsSemAgendamento />
           <button
             onClick={load}
             disabled={loading}

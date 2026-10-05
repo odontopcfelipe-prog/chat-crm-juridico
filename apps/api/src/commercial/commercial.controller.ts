@@ -220,7 +220,9 @@ export class CommercialController {
   }
 
   // Disparos "Equipe → Pacientes sem agendamento" (geral e ?kind=orto): prévia + teste.
-  @RequiresPermission('view_marketing')
+  // A prévia também abre pra quem usa o Progresso/Ortodontia (botão "Avisar ADMs") —
+  // mostra os mesmos pacientes que esses quadros já mostram.
+  @RequiresPermission('view_marketing', 'manage_proposals', 'view_proposals')
   @Get('pacientes-sem-agendamento/preview')
   semAgendamentoPreview(@Query('kind') kind: string | undefined, @Authenticated() user: AuthUser) {
     return kind === 'orto'
@@ -233,6 +235,24 @@ export class CommercialController {
   semAgendamentoTest(@Body() body: { phone?: string; kind?: string }, @Authenticated() user: AuthUser) {
     if (!body?.phone) throw new BadRequestException('Informe um número pra testar');
     return this.quotesService.sendSemAgendamentoTest(user.tenant_id, body.phone, body.kind);
+  }
+
+  // Botão manual "Avisar ADMs" (Progresso / Ortodontia): ADMs que recebem + envio agora
+  // pra todos ou um (admin_id). Independe do toggle do disparo automático.
+  @RequiresPermission('manage_proposals', 'view_proposals', 'view_marketing')
+  @Get('pacientes-sem-agendamento/admins')
+  semAgendamentoAdmins(@Authenticated() user: AuthUser) {
+    return this.quotesService.listResumoAdmins(user.tenant_id);
+  }
+
+  @RequiresPermission('manage_proposals', 'view_marketing')
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Post('pacientes-sem-agendamento/send')
+  semAgendamentoSend(
+    @Body() body: { kind?: string; admin_id?: string },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.sendSemAgendamentoManual(user.tenant_id, body?.kind, body?.admin_id || undefined);
   }
 
   @RequiresPermission('manage_proposals', 'view_proposals')

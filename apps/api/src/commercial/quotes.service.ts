@@ -4446,53 +4446,105 @@ export class QuotesService {
     return { ok: true, text };
   }
 
-  /** Manda um resumo interno a cada ADM (com telefone) do tenant. Dedup 1x/dia por
-   *  adm e por tipo (DispatchLog) — o geral e o de ortô não se bloqueiam. */
-  private async sendResumoAosAdms(tenantId: string, text: string, type: string, startOfToday: Date) {
+  /** ADMs da clínica que recebem os resumos internos (User ADMIN com telefone válido). */
+  private async findResumoAdmins(tenantId: string) {
     const admins = await this.prisma.user.findMany({
       where: { tenant_id: tenantId, roles: { has: 'ADMIN' }, phone: { not: null } },
       select: { id: true, name: true, phone: true },
+      orderBy: { name: 'asc' },
     });
-    if (admins.length === 0) return 0;
+    return admins.filter((a) => (a.phone || '').replace(/\D/g, '').length >= 8) as Array<{
+      id: string; name: string; phone: string;
+    }>;
+  }
+
+  /** Lista p/ o botão manual "Avisar ADMs" (Progresso/Ortodontia): só nome + final do
+   *  telefone (pra diferenciar homônimos sem expor o número inteiro). */
+  async listResumoAdmins(tenantId: string) {
+    const admins = await this.findResumoAdmins(tenantId);
+    return admins.map((a) => ({ id: a.id, name: a.name, phone_tail: a.phone.replace(/\D/g, '').slice(-4) }));
+  }
+
+  /** Manda um resumo interno aos ADMs (todos ou só `onlyUserId`) pela instância da
+   *  clínica. `dedupSince` = trava 1x/dia por adm+tipo (cron); o envio manual não
+   *  trava. Sucesso REAL via wasSent (a Evolution devolve erro sem lançar) — falha
+   *  vira DispatchLog FAILED com o motivo, e volta no retorno pro front mostrar. */
+  private async sendResumoAosAdms(
+    tenantId: string,
+    text: string,
+    type: string,
+    opts: { dedupSince?: Date; onlyUserId?: string } = {},
+  ): Promise<{ recipients: number; sent: string[]; failed: Array<{ name: string; error: string }> }> {
+    let admins = await this.findResumoAdmins(tenantId);
+    if (opts.onlyUserId) admins = admins.filter((a) => a.id === opts.onlyUserId);
+    const out = { recipients: admins.length, sent: [] as string[], failed: [] as Array<{ name: string; error: string }> };
+    if (admins.length === 0) return out;
     const instanceName = await this.resolveResumoInstanceName(tenantId);
+    const errText = (v: any) => (typeof v === 'string' ? v : v ? JSON.stringify(v) : '');
 
     for (const adm of admins) {
-      const already = await this.prisma.dispatchLog.findFirst({
-        where: { tenant_id: tenantId, type, ref_user_id: adm.id, sent_at: { gte: startOfToday } },
-        select: { id: true },
-      });
-      if (already) continue;
+      if (opts.dedupSince) {
+        const already = await this.prisma.dispatchLog.findFirst({
+          where: { tenant_id: tenantId, type, ref_user_id: adm.id, sent_at: { gte: opts.dedupSince } },
+          select: { id: true },
+        });
+        if (already) continue;
+      }
+      let error: string | null = null;
       try {
-        await this.whatsapp!.sendText(adm.phone as string, text, instanceName, undefined, tenantId);
-        await this.prisma.dispatchLog.create({
+        const res: any = await this.whatsapp!.sendText(adm.phone, text, instanceName, undefined, tenantId);
+        if (!this.wasSent(res)) {
+          error = res?.exists === false
+            ? 'número não está no WhatsApp'
+            : errText(res?.error || res?.message) || `falha no envio (${res?.statusCode ?? 'sem resposta'})`;
+        }
+      } catch (err: any) {
+        error = errText(err?.response?.data?.message || err?.message || err) || 'falha no envio';
+      }
+      await this.prisma.dispatchLog
+        .create({
           data: {
             tenant_id: tenantId,
             type,
             channel: 'WHATSAPP',
             recipient_name: adm.name,
             recipient_phone: adm.phone,
-            status: 'SENT',
+            status: error ? 'FAILED' : 'SENT',
+            error: error ? error.slice(0, 300) : null,
             ref_user_id: adm.id,
           },
-        });
-      } catch (err: any) {
-        await this.prisma.dispatchLog
-          .create({
-            data: {
-              tenant_id: tenantId,
-              type,
-              channel: 'WHATSAPP',
-              recipient_name: adm.name,
-              recipient_phone: adm.phone,
-              status: 'FAILED',
-              error: String(err?.response?.data?.message || err?.message || err).slice(0, 300),
-              ref_user_id: adm.id,
-            },
-          })
-          .catch(() => {});
-      }
+        })
+        .catch(() => {});
+      if (error) out.failed.push({ name: adm.name, error: error.slice(0, 160) });
+      else out.sent.push(adm.name);
     }
-    return admins.length;
+    return out;
+  }
+
+  /** Botão manual "Avisar ADMs" (Progresso / Ortodontia): manda AGORA o mesmo resumo do
+   *  disparo automático, pra todos os ADMs ou só um. Independe do toggle da Central e
+   *  não tem trava diária (é pedido explícito). Tipo próprio no DispatchLog (*_manual)
+   *  → não consome a trava do cron das 8h e aparece no histórico do card da Central. */
+  async sendSemAgendamentoManual(tenantId: string, kind?: string, adminId?: string) {
+    if (!this.whatsapp) throw new BadRequestException('WhatsApp não disponível');
+    const orto = kind === 'orto';
+    const { text } = orto
+      ? await this.buildOrtoSemAgendamentoDigest(tenantId)
+      : await this.buildSemAgendamentoDigest(tenantId);
+    const r = await this.sendResumoAosAdms(
+      tenantId,
+      text,
+      orto ? 'pacientes_sem_agendamento_orto_manual' : 'pacientes_sem_agendamento_manual',
+      { onlyUserId: adminId },
+    );
+    if (r.recipients === 0) {
+      throw new BadRequestException(
+        adminId
+          ? 'Esse administrador não foi encontrado ou está sem telefone cadastrado.'
+          : 'Nenhum administrador com telefone cadastrado — cadastre o telefone em Configurações › Usuários.',
+      );
+    }
+    return r;
   }
 
   @Cron('0 8 * * *', { timeZone: 'America/Maceio' })
@@ -4527,9 +4579,9 @@ export class QuotesService {
         try {
           const d = await this.buildSemAgendamentoDigest(t.id);
           if (d.semAgendar + d.parados + d.standby > 0) {
-            const adms = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_adm', startOfToday);
+            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_adm', { dedupSince: startOfToday });
             this.logger.log(
-              `[SEM_AGENDAMENTO] tenant ${t.id}: ${d.semAgendar} sem agendar, ${d.parados} parados, ${d.standby} standby → ${adms} adm(s)`,
+              `[SEM_AGENDAMENTO] tenant ${t.id}: ${d.semAgendar} sem agendar, ${d.parados} parados, ${d.standby} standby → ${r.sent.length}/${r.recipients} adm(s)`,
             );
           }
         } catch (err: any) {
@@ -4541,8 +4593,8 @@ export class QuotesService {
         try {
           const d = await this.buildOrtoSemAgendamentoDigest(t.id);
           if (d.total > 0) {
-            const adms = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_orto_adm', startOfToday);
-            this.logger.log(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id}: ${d.total} sem agendar → ${adms} adm(s)`);
+            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_orto_adm', { dedupSince: startOfToday });
+            this.logger.log(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id}: ${d.total} sem agendar → ${r.sent.length}/${r.recipients} adm(s)`);
           }
         } catch (err: any) {
           this.logger.warn(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id} falhou: ${err?.message}`);

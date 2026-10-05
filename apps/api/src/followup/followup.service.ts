@@ -563,8 +563,9 @@ export class FollowupService {
       aniversario_presente: ['aniversario'],
       resumo_dentista: ['resumo_dentista'],
       lembrete_orto_1h: ['orto_reminder'],
-      pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm'],
-      pacientes_sem_agendamento_orto: ['pacientes_sem_agendamento_orto_adm'],
+      // automático (cron 8h) + manual (botão "Avisar ADMs" no Progresso/Ortodontia)
+      pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm', 'pacientes_sem_agendamento_manual'],
+      pacientes_sem_agendamento_orto: ['pacientes_sem_agendamento_orto_adm', 'pacientes_sem_agendamento_orto_manual'],
       recall_preventivo: ['recall_preventivo'],
       task_alerts: ['task_alert'],
       followup_lead: ['followup_lead'],

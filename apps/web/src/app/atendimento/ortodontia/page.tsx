@@ -12,6 +12,7 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
+import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'concluido' | 'saiu';
 
@@ -203,9 +204,16 @@ export default function OrtodontiaPage() {
             Todos os pacientes de ortô, por dentista responsável — agendados, sem agendamento, concluídos e os que saíram.
           </p>
         </div>
-        <button onClick={load} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent/30 shrink-0">
-          <RefreshCw size={14} /> Atualizar
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Disparo MANUAL do resumo "ortodontia sem agendamento" aos ADMs */}
+          <AvisarAdmsSemAgendamento
+            kind="orto"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent/30 shrink-0"
+          />
+          <button onClick={load} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent/30 shrink-0">
+            <RefreshCw size={14} /> Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Espaço "Ortodontista de hoje" — identifica quem faz ortô no dia (pelos dias do cadastro) */}
