@@ -24,6 +24,10 @@ export interface GroupMember {
   pdfUrl?: string;
   /** PIX copia-e-cola → vai em mensagem separada. */
   codigo?: string;
+  /** Tipo (pix/boleto/parcelado) e "vence em" DESTA cobrança — o freio ao vivo usa
+   *  pra refazer o texto quando a cobrança-base do aviso sai (já paga). */
+  tipo?: string;
+  venceEm?: string;
 }
 
 /** Tetos por aviso (anti-ban): PDFs anexos e códigos PIX em mensagens separadas.

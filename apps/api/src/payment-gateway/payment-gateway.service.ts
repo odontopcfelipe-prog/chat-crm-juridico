@@ -2193,8 +2193,8 @@ export class PaymentGatewayService {
    * Reconcile AUTOMÁTICO (self-heal) — antes o reconcile era 100% manual e ninguém
    * o disparava, então cobrança paga-no-Asaas ficava congelada PENDING/OVERDUE e a
    * régua cobrava quem já pagou. Este cron sincroniza o status real do Asaas SÓ pro
-   * CONJUNTO DE RISCO: cobranças VENCIDAS (due_date < hoje) ainda PENDING/OVERDUE —
-   * exatamente o que a régua pode cobrar. Baixa as que o Asaas diz pagas.
+   * CONJUNTO DE RISCO: cobranças ainda PENDING/OVERDUE VENCIDAS ou que vencem nos
+   * próximos 4 dias — exatamente o que a régua pode cobrar. Baixa as que o Asaas diz pagas.
    *
    * Anti-rate-limit: lote pequeno por rodada + AMOSTRAGEM ROTATIVA (offset aleatório)
    * pra varrer a carteira ao longo do dia sem martelar o Asaas nem re-checar sempre
@@ -2210,7 +2210,13 @@ export class PaymentGatewayService {
         gateway: 'ASAAS',
         status: { in: ['PENDING', 'OVERDUE'] },
         received_in_cash: false,
-        due_date: { lt: new Date() }, // só VENCIDAS — o conjunto que a régua cobra
+        // VENCIDAS + as que vencem nos PRÓXIMOS 4 DIAS = tudo que a régua pode cobrar
+        // (atraso, "vence hoje", "vence amanhã" e a antecipação de sexta pro vencimento
+        // de segunda). Antes só as vencidas: o "vence amanhã" de cobrança JÁ PAGA (webhook
+        // perdido/atrasado) ficava PENDING e a régua cobrava quem pagou (out/2026). O freio
+        // ao vivo do worker barra o envio; isto corrige o status (ficha/caixa) pela via
+        // idempotente do webhook.
+        due_date: { lt: new Date(Date.now() + 4 * 86_400_000) },
       };
       const count = await this.prisma.paymentGatewayCharge.count({ where });
       if (count === 0) return;
@@ -2221,7 +2227,7 @@ export class PaymentGatewayService {
         take: BATCH,
         skip,
         orderBy: { due_date: 'asc' },
-        select: { external_id: true, tenant_id: true, status: true },
+        select: { external_id: true, tenant_id: true, status: true, due_date: true },
       });
 
       let updated = 0;
@@ -2236,9 +2242,14 @@ export class PaymentGatewayService {
             // Reprocessa pela MESMA via idempotente do webhook — SILENCIOSO (baixa +
             // paid_at + caixa, mas SEM "Pagamento Confirmado" ao paciente: é um
             // pagamento antigo; avisar agora seria spam de confirmação atrasada).
+            // Ainda NÃO vencida (janela nova): NÃO silencia — quem pagou adiantado (ex.: PIX)
+            // com o webhook perdido/atrasado merece o "Pagamento Confirmado"; o gate de
+            // recência (48h) e a trava de dedup do handleWebhook evitam spam/duplicata.
+            // Vencida: silencioso como antes (pagamento antigo).
+            const aindaNaoVenceu = charge.due_date && new Date(charge.due_date).getTime() >= Date.now();
             await this.handleWebhook(
               { event: 'PAYMENT_' + asaasData.status, payment: asaasData },
-              { silent: true },
+              { silent: !aindaNaoVenceu },
             );
             updated++;
           }
@@ -2249,7 +2260,7 @@ export class PaymentGatewayService {
       }
       if (updated > 0 || errors > 0) {
         this.logger.log(
-          `[RECONCILE-CRON] Janela ${skip}-${skip + batch.length}/${count} vencidas em aberto — ${updated} baixadas, ${errors} erros`,
+          `[RECONCILE-CRON] Janela ${skip}-${skip + batch.length}/${count} em aberto (vencidas + próximos 4d) — ${updated} baixadas, ${errors} erros`,
         );
       }
     } catch (e: any) {

@@ -320,14 +320,42 @@ export class BoletoDeliveryService {
     const parcelas = charges.filter((c) => c.kind === 'INSTALLMENT');
     // Tudo que NÃO é parcela (entrada, sinal, boleto avulso 1×, kind legado null) vai
     // como PDF individual — assim venda de 1 boleto só também é entregue.
-    const avulsos = charges.filter((c) => c.kind !== 'INSTALLMENT');
+    const avulsosLocal = charges.filter((c) => c.kind !== 'INSTALLMENT');
+    let allOk = true;
+
+    // FREIO AO VIVO (regra do dono: nunca mandar cobrança pra quem já pagou). Entrada/
+    // sinal/1× costumam ser pagos NO DIA da venda — se o webhook se perdeu, o status
+    // local fica PENDING e o D+2 mandaria o PDF de algo pago. Confere cada um no Asaas
+    // antes: pago/cancelado/removido sai; Asaas sem resposta → não manda essa peça agora
+    // (fail-closed; allOk=false faz a próxima rodada tentar de novo, dedup por peça).
+    const avulsos: typeof avulsosLocal = [];
+    for (const c of avulsosLocal) {
+      if (!c.external_id) { avulsos.push(c); continue; }
+      try {
+        const d: any = await this.asaas.getCharge(c.external_id, tenantId);
+        const st = String(d?.status || '').toUpperCase();
+        if (d?.deleted || (st !== 'PENDING' && st !== 'OVERDUE')) {
+          this.logger.warn(`[BOLETO_DELIVERY][FREIO] ${c.kind || 'boleto'} ${c.external_id} do plano ${planId} está ${d?.deleted ? 'REMOVIDO' : st} no Asaas — NÃO enviado.`);
+          continue;
+        }
+        avulsos.push(c);
+      } catch (e: any) {
+        allOk = false;
+        this.logger.warn(`[BOLETO_DELIVERY][FREIO] não deu pra conferir ${c.external_id} no Asaas (${e?.message}) — não envia agora, tenta na próxima rodada.`);
+      }
+    }
+    if (parcelas.length === 0 && avulsos.length === 0) {
+      // Nada em aberto de verdade: se foi tudo conferido (allOk), considera entregue;
+      // se alguma conferência falhou, devolve false pra tentar de novo depois.
+      if (allOk) this.logger.warn(`[BOLETO_DELIVERY] Plano ${planId}: tudo já pago/cancelado no Asaas — nada a enviar.`);
+      return allOk;
+    }
     const instance = await this.resolveInstance(tenantId);
     const firstName = name.split(' ')[0];
-    let allOk = true;
 
     // Condições dos boletos ({condicoes}/{condicoes_sem_total}) DERIVADAS das cobranças
     // que estão indo neste envio (descreve o carnê, não é extrato do contrato).
-    const cond = this.buildDeliveryCondicoes(charges, parcelas);
+    const cond = this.buildDeliveryCondicoes([...parcelas, ...avulsos], parcelas);
 
     // 1) Texto de abertura — editável na Central de Disparos (card "Envio dos
     // boletos"); cai no default se a clínica não editou. NÃO cita prazo ("ontem"):

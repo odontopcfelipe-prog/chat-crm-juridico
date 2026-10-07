@@ -14,6 +14,7 @@ import {
 } from '@crm/shared';
 import axios from 'axios';
 import { buildGroupMessage, memberKey, planGroup, GROUP_MAX_PDFS, type GroupMember, type GroupPlan } from './cobranca-grupo';
+import { combinar, veredictoAsaas, veredictoLocal, type ConsultaAsaas, type Veredicto } from './cobranca-freio';
 
 /**
  * Cron de COBRANÇA financeira — PACED / marca-passo (Onda 18.16).
@@ -144,6 +145,11 @@ export class PaymentAlertsCronService {
   private nextGapMs = 0;
   /** Guard de reentrância: 1 envio por vez, mesmo se um tick passar de 60s. */
   private busy = false;
+  /** FREIO AO VIVO — `${patientId}:${stage}` barrado pelo freio → até quando pular.
+   *  Sem isto a cobrança PAGA (status local velho) seria re-escolhida a cada minuto e
+   *  travaria a fila (a seleção pega sempre a 1ª não enviada). Em memória: o worker é
+   *  1 réplica; após restart rechecaria 1× (barato e seguro). */
+  private freioPular = new Map<string, number>();
 
   private static readonly PACE_MIN_MS = 3 * 60_000; // 3 min
   private static readonly PACE_MAX_MS = 7 * 60_000; // 7 min
@@ -187,10 +193,16 @@ export class PaymentAlertsCronService {
     // 1º os MARCOS exatos (1/15/30d — prioridade, são sensíveis à data); se não há
     // nenhum pendente, drena a CARTEIRA de atrasados (recorrente, janela larga).
     // O findNextOverdue só custa uma query quando algum tenant ligou o toggle.
-    const pick = (await this.findNextCharge()) || (await this.findNextOverdue());
-    if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
-
-    return await this.sendPacedCharge(pick, nowMs);
+    // Se o FREIO barra o escolhido (já pago / não deu pra conferir), tenta o PRÓXIMO da
+    // fila no mesmo tick (até 5) — um lote de cobranças pagas com status velho, ou uma
+    // clínica que não dá pra conferir, não pode travar a régua das outras.
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+      const pick = (await this.findNextCharge()) || (await this.findNextOverdue());
+      if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
+      const r = await this.sendPacedCharge(pick, nowMs);
+      if (r !== 'freio') return r;
+    }
+    return 'cooldown';
     } finally {
       this.busy = false;
     }
@@ -200,7 +212,32 @@ export class PaymentAlertsCronService {
    * Envia UMA cobrança já escolhida (marco ou atrasado-recorrente) e avança o
    * marca-passo. Extraído pra ser reusado pelos dois passes (marcos + carteira).
    */
-  private async sendPacedCharge(pick: ChargeCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
+  private async sendPacedCharge(pick: ChargeCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown' | 'freio'> {
+    // WhatsApp não configurado: nada sai de qualquer jeito — sai antes do freio pra não
+    // consultar o Asaas a cada minuto à toa.
+    const evo = await this.settings.getEvolutionConfig();
+    if (!evo?.apiUrl || !evo?.apiKey) return 'cooldown';
+
+    // FREIO AO VIVO (regra do dono: cobrar quem já pagou NÃO pode acontecer). Antes de
+    // QUALQUER envio — único, agrupado ou carteira — reconfere cada cobrança no banco e
+    // no Asaas. Paga/cancelada sai do aviso; se nada sobrar, não envia. Asaas fora do
+    // ar → não envia agora (fail-closed). Não gasta o marca-passo; quem chama tenta o
+    // próximo da fila.
+    const freio = await this.aplicarFreioAoVivo(pick);
+    if (freio !== 'ok') {
+      const agora = Date.now();
+      if (freio === 'indisponivel_clinica') {
+        // Falha da CLÍNICA inteira (sem chave Asaas, chave recusada): barra a clínica,
+        // não o paciente — senão cada paciente dela ocuparia a vez dos outros.
+        this.freioPular.set(`tenant:${pick.tenantId}`, agora + 60 * 60_000);
+      } else {
+        // pago/cancelado: 24h (o reconcile da API corrige o status nesse meio-tempo);
+        // Asaas sem resposta pra ESTA cobrança: tenta de novo em 30 min.
+        this.freioPular.set(`${pick.patientId}:${pick.stage}`, agora + (freio === 'vazio' ? 24 * 3_600_000 : 30 * 60_000));
+      }
+      return 'freio';
+    }
+
     // Onda 18.x — carteira IMPORTADA: cobrança sem boleto_url/PIX guardado (o import
     // não trouxe). Antes ia texto seco. Agora busca no Asaas AO VIVO (só 1 cobrança
     // única, sem PDF e/ou sem código) e enche PDF + código; faz backfill no banco.
@@ -559,6 +596,8 @@ export class PaymentAlertsCronService {
           link,
           pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : undefined,
           codigo: c.pix_copy_paste || undefined,
+          tipo,
+          venceEm,
         }],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
@@ -602,7 +641,7 @@ export class PaymentAlertsCronService {
     });
     const sentSet = new Set(already.map((a) => `${a.entity_id}:${a.action}`));
 
-    return grouped.find((g) => !sentSet.has(`${g.patientId}:${g.stage}`)) || null;
+    return grouped.find((g) => !sentSet.has(`${g.patientId}:${g.stage}`) && !this.freioBarrado(g)) || null;
   }
 
   /**
@@ -705,6 +744,7 @@ export class PaymentAlertsCronService {
           link,
           pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : undefined,
           codigo: c.pix_copy_paste || undefined,
+          tipo,
         }],
         externalId: c.external_id || undefined,
         gateway: c.gateway || undefined,
@@ -756,7 +796,7 @@ export class PaymentAlertsCronService {
       select: { entity_id: true },
     });
     const recent = new Set(already.map((a) => a.entity_id));
-    return grouped.find((g) => !recent.has(g.patientId)) || null;
+    return grouped.find((g) => !recent.has(g.patientId) && !this.freioBarrado(g)) || null;
   }
 
   /** Tenants com o "cobrar atrasados (recorrente)" LIGADO (BOLETO_ATRASADO_${tenant}
@@ -810,6 +850,113 @@ export class PaymentAlertsCronService {
       this.logger.warn(`[COBRANCA] Falha ao resolver instância do tenant ${tenantId}: ${e.message}`);
     }
     return fallback;
+  }
+
+  /** O freio barrou este paciente+estágio (pago/cancelado ou Asaas sem resposta) ou a
+   *  CLÍNICA inteira (sem como conferir no Asaas) há pouco? */
+  private freioBarrado(g: { patientId: string; stage: Stage; tenantId: string }): boolean {
+    for (const key of [`${g.patientId}:${g.stage}`, `tenant:${g.tenantId}`]) {
+      const ate = this.freioPular.get(key);
+      if (ate === undefined) continue;
+      if (ate > Date.now()) return true;
+      this.freioPular.delete(key);
+    }
+    return false;
+  }
+
+  /**
+   * FREIO AO VIVO — reconfere CADA cobrança do aviso imediatamente antes do envio:
+   *  1) relê o status no BANCO (a baixa pode ter chegado depois da seleção, ou a
+   *     recepção marcou "recebido na clínica");
+   *  2) consulta o ASAAS ao vivo (GET /payments/{id}) — pega o pagamento cujo webhook
+   *     se perdeu/atrasou e que deixou o status local velho (o reconcile automático
+   *     só alcançava cobranças já vencidas, então o "vence amanhã" passava).
+   * Remove do aviso o que não pode mais ser cobrado e recalcula o pick (total, código,
+   * PDF). 'vazio' = nada a cobrar; 'indisponivel' = não deu pra conferir ESTA cobrança;
+   * 'indisponivel_clinica' = não dá pra conferir NADA da clínica (sem chave Asaas / chave
+   * recusada 401-403). Nos dois 'indisponivel' não envia (fail-closed).
+   * Cobrança fora do Asaas (gateway local) só tem a checagem 1.
+   */
+  private async aplicarFreioAoVivo(pick: ChargeCandidate): Promise<'ok' | 'vazio' | 'indisponivel' | 'indisponivel_clinica'> {
+    const ids = pick.members.map((m) => m.chargeId);
+    const rows = await this.prisma.paymentGatewayCharge.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, status: true, received_in_cash: true },
+    });
+    const local = new Map(rows.map((r) => [r.id, r]));
+    const precisaAsaas = pick.members.some((m) => m.externalId && (!m.gateway || m.gateway === 'ASAAS'));
+    const cfg = precisaAsaas ? await this.settings.getAsaasConfig(pick.tenantId).catch(() => null) : null;
+
+    const manter: GroupMember[] = [];
+    for (const m of pick.members) {
+      const vLocal = veredictoLocal(local.get(m.chargeId));
+      let v: Veredicto = vLocal;
+      let asaasStatus = '';
+      if (vLocal === 'cobrar' && m.externalId && (!m.gateway || m.gateway === 'ASAAS')) {
+        if (!cfg) {
+          this.logger.warn(`[COBRANCA][FREIO] sem config Asaas do tenant ${pick.tenantId} — não dá pra conferir as cobranças dela; NÃO cobra (clínica barrada por 1h).`);
+          return 'indisponivel_clinica';
+        }
+        const r = await this.consultarStatusAsaas(cfg, m.externalId);
+        asaasStatus = r.ok ? String(r.status || '') : `erro ${r.httpStatus ?? 'rede'}`;
+        if (!r.ok && (r.httpStatus === 401 || r.httpStatus === 403)) {
+          this.logger.warn(`[COBRANCA][FREIO] Asaas recusou a chave do tenant ${pick.tenantId} (${r.httpStatus}) — NÃO cobra (clínica barrada por 1h).`);
+          return 'indisponivel_clinica';
+        }
+        v = combinar(vLocal, veredictoAsaas(r));
+      }
+      if (v === 'indisponivel') {
+        this.logger.warn(`[COBRANCA][FREIO] Asaas não respondeu pra charge ${m.chargeId} (${asaasStatus}) — NÃO cobra agora, tenta depois.`);
+        return 'indisponivel';
+      }
+      if (v === 'nao_cobrar') {
+        const st = local.get(m.chargeId);
+        this.logger.warn(
+          `[COBRANCA][FREIO] charge ${m.chargeId} NÃO cobrada (${pick.stage}): local=${st ? `${st.status}${st.received_in_cash ? '/em espécie' : ''}` : 'sumiu'}` +
+          `${asaasStatus ? ` Asaas=${asaasStatus}` : ''}` +
+          (asaasStatus === 'erro 404' ? ' — não encontrada nesta conta do Asaas (não cobra por segurança).' : ' — já paga/cancelada.'),
+        );
+        continue;
+      }
+      manter.push(m);
+    }
+
+    if (manter.length === 0) return 'vazio';
+    if (manter.length < pick.members.length) {
+      // Recalcula o aviso só com o que ainda está em aberto.
+      pick.members = manter;
+      pick.count = manter.length;
+      pick.amount = manter.reduce((s, m) => s + m.amount, 0);
+      const r = manter[0];
+      pick.chargeId = r.chargeId;
+      pick.externalId = r.externalId;
+      pick.gateway = r.gateway;
+      pick.dueDate = r.dueDate;
+      pick.link = r.link;
+      if (manter.length === 1) {
+        pick.codigo = r.codigo;
+        pick.pdfUrls = r.pdfUrl ? [r.pdfUrl] : [];
+        // texto (PIX × boleto × parcela) e "vence amanhã/segunda" são DESTA cobrança
+        if (r.tipo) pick.tipo = r.tipo as CobrancaTipo;
+        pick.venceEm = r.venceEm;
+      } else {
+        pick.codigo = undefined; // agrupado: o código vai 1 por cobrança (planGroup)
+      }
+    }
+    return 'ok';
+  }
+
+  /** GET /payments/{id} no Asaas — só o status (o freio). Nunca lança. */
+  private async consultarStatusAsaas(cfg: { apiKey: string; baseUrl: string }, externalId: string): Promise<ConsultaAsaas> {
+    try {
+      const { data } = await axios.get(`${cfg.baseUrl}/payments/${externalId}`, {
+        headers: { access_token: cfg.apiKey, 'User-Agent': 'LexCRM/1.0' },
+        timeout: 15000,
+      });
+      return { ok: true, status: data?.status ?? null, deleted: data?.deleted ?? null };
+    } catch (e: any) {
+      return { ok: false, httpStatus: e?.response?.status ?? null };
+    }
   }
 
   /**
