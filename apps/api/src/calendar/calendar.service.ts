@@ -3821,22 +3821,39 @@ export class CalendarService {
         return { sent: false, reason: 'evento_passado' };
       }
 
-      // ── AGENDA DO COMERCIAL ────────────────────────────────────────────────
-      // Evento de LEAD (sem paciente, lead ainda não-cliente) com o toggle
-      // comercial da faixa LIGADO → sai a versão COMERCIAL (texto próprio, chip
-      // COMERCIAL) NO LUGAR da clínica — nunca os dois. Toggle OFF (default) →
-      // fluxo clínico atual, intocado. Ortodontia fica sempre no fluxo clínico.
+      // ── AGENDA DO COMERCIAL vs CLÍNICA (por is_client, NÃO por ter ficha) ──────
+      // Enquanto is_client=false o contato é LEAD (comercial) — MESMO que já tenha
+      // Patient criado (ex.: "Avaliação Aceita" cria a ficha mas NÃO vira cliente; o
+      // lead só vira paciente ao COMPARECER/pagar). Lead usa SEMPRE o chip COMERCIAL
+      // (versão própria); se o disparo comercial da faixa estiver DESLIGADO, NÃO manda
+      // nada — nunca cai no chip da CLÍNICA (era isso que, via eco do webhook,
+      // transferia o lead pra clínica antes de comparecer). Paciente (is_client=true)
+      // ou evento sem lead = fluxo clínico de sempre. Ortodontia fica no clínico.
       let comercial = false;
-      if (event?.type !== 'ORTODONTIA' && !patientId && leadId) {
-        const l = event?.lead && typeof event.lead.is_client === 'boolean'
-          ? event.lead
-          : await this.prisma.lead.findUnique({ where: { id: leadId }, select: { is_client: true } }).catch(() => null);
-        if (l && l.is_client === false) {
+      let isLead = false;
+      if (event?.type !== 'ORTODONTIA') {
+        let isClient: boolean | null = null;
+        if (event?.lead && typeof event.lead.is_client === 'boolean') {
+          isClient = event.lead.is_client;
+        } else if (leadId) {
+          const l = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { is_client: true } }).catch(() => null);
+          isClient = l ? l.is_client : null;
+        } else if (patientId) {
+          const p = await this.prisma.patient.findUnique({ where: { id: patientId }, select: { lead: { select: { is_client: true } } } }).catch(() => null);
+          isClient = p?.lead ? p.lead.is_client : null;
+        }
+        isLead = isClient === false;
+        if (isLead) {
           const { comercialAgendaEnabledKey } = await import('@crm/shared');
           const cid = kind === 'rescheduled' ? 'comercial_reagendamento' : 'comercial_confirmacao';
           const cs = await this.prisma.globalSetting.findUnique({ where: { key: comercialAgendaEnabledKey(cid, tenantId) } });
           comercial = cs?.value === 'true';
         }
+      }
+      // Lead com o disparo comercial DESLIGADO: não envia (não cai no chip da clínica).
+      if (isLead && !comercial) {
+        this.logger.log(`[AUTO-WPP] agendamento_${kind}: contato é LEAD e o disparo comercial da agenda está DESLIGADO — não envia (evita o chip da clínica). Evento ${event?.id}.`);
+        return { sent: false, reason: 'Disparo de agendamento do lead (Comercial) está desligado na Central' };
       }
 
       // O re-agendamento ("remarcada") respeita o toggle da Central

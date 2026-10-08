@@ -62,7 +62,7 @@ export class AppointmentConfirmationSchedulerService {
           start_at: true,
           location: true,
           assigned_user: { select: { name: true } },
-          patient: { select: { id: true, name: true, phone: true } },
+          patient: { select: { id: true, name: true, phone: true, lead: { select: { is_client: true } } } },
         },
       });
 
@@ -85,6 +85,15 @@ export class AppointmentConfirmationSchedulerService {
 
       for (const ev of eligible) {
         if (!ev.patient?.phone) {
+          skipped++;
+          continue;
+        }
+
+        // LEAD ainda não-cliente (is_client=false, mas já com ficha de Patient): a
+        // confirmação dele é do COMERCIAL (lembrete/confirmação do lead, chip comercial),
+        // NÃO a confirmação 24h da clínica — senão sairia pelo chip da clínica e
+        // transferia o lead antes de comparecer. Pula.
+        if (ev.patient?.lead && ev.patient.lead.is_client === false) {
           skipped++;
           continue;
         }

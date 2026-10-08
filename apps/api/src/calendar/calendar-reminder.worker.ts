@@ -639,8 +639,12 @@ export class CalendarReminderWorker extends WorkerHost {
       // Detecção segura mesmo após o merge lead||patient do process(): o paciente
       // "disfarçado" de lead não carrega is_client (undefined ≠ false), e evento
       // com paciente de verdade tem event.patient preenchido.
+      // LEAD = enquanto is_client=false (MESMO com Patient já criado). Antes exigia
+      // `!event.patient`, o que jogava leads-com-ficha pro fluxo clínico (chip errado
+      // + transferência via eco do webhook). Paciente de verdade não carrega is_client
+      // (o merge "disfarçado" do process() não seta), então undefined ≠ false = clínico.
       const leadComercial =
-        !(event as any).patient && !!event.lead && (event.lead as any).is_client === false;
+        !!event.lead && (event.lead as any).is_client === false;
       let usaComercial = false;
       let comercialCid: string | null = null;
       if (leadComercial && isClinical && event.type !== 'ORTODONTIA' && event.tenant_id) {
@@ -652,6 +656,13 @@ export class CalendarReminderWorker extends WorkerHost {
           });
           usaComercial = cs?.value === 'true';
         } catch { /* falha na leitura = segue o fluxo clínico */ }
+      }
+
+      // Lead com o disparo comercial da faixa DESLIGADO: NÃO manda pela clínica (evita
+      // o chip errado e a transferência). Ligue o lembrete do lead na Central.
+      if (leadComercial && !usaComercial && isClinical && event.type !== 'ORTODONTIA') {
+        this.logger.log(`[REMINDER] Lead (comercial) com disparo da faixa DESLIGADO (${minutesBefore}min antes) — não envia (evita o chip da clínica). Evento ${event.id}.`);
+        return { externalMsgId: null };
       }
 
       if (usaComercial) {

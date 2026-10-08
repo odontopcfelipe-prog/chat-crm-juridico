@@ -261,14 +261,20 @@ export class EvolutionService implements OnApplicationBootstrap {
       // marca is_client=true (vai pra aba Clientes / time clínico, sem nutrição de
       // lead). O número COMERCIAL (Instagram) mantém o padrão de lead. Promove,
       // NUNCA rebaixa. `inbox` aqui é a Instance (findByInstanceName) → tem `purpose`.
+      // `!isFromMe`: só promove quando o CONTATO realmente escreve no número da
+      // clínica (número privado = já é paciente). SEM esse guard, a própria mensagem
+      // do SISTEMA que sai pela Clínica (ex.: agendamento de um lead que caiu no chip
+      // errado) voltava como ECO e promovia o lead a paciente — transferindo pra
+      // clínica ANTES de comparecer. No modelo da clínica, o lead só vira paciente no
+      // 1º atendimento (evento CONCLUÍDO), nunca por uma mensagem nossa.
       const isClinicaChip = (inbox as any)?.purpose === 'CLINICA';
-      if (isClinicaChip && !lead.is_client) {
+      if (!isFromMe && isClinicaChip && !lead.is_client) {
         await this.prisma.lead.update({
           where: { id: lead.id },
           data: { is_client: true, became_client_at: (lead as any).became_client_at ?? new Date() },
         });
         (lead as any).is_client = true;
-        this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) via chip CLINICA → paciente (is_client=true)`);
+        this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) via chip CLINICA (msg do contato) → paciente (is_client=true)`);
       }
 
       // Onda 18.32 — ISOLAMENTO do chip FINANCEIRO: contato de cobrança tem conversa
