@@ -1014,7 +1014,12 @@ export class AiProcessor extends WorkerHost {
         const dateStr = day.toISOString().split('T')[0];
         const anchor = new Date(`${dateStr}T12:00:00Z`);
         if (anchor.getUTCDay() === 0) continue; // pula domingo
-        const dayslots = await this.getAvailability(dentistId, dateStr, 60);
+        const dayslots = await this.getAvailability(
+          dentistId,
+          dateStr,
+          60,
+          convo.tenant_id || convo.lead?.tenant_id || null,
+        );
         if (dayslots.length > 0) {
           daysWithSlots.push({ label: formatDateBR(anchor), dateStr, times: dayslots.map((s) => s.start) });
         }
@@ -1053,13 +1058,15 @@ export class AiProcessor extends WorkerHost {
   // PrismaClientValidationError em toda chamada → {{available_slots}} sempre caía
   // no catch ("Erro ao consultar horários"). Além disso lia hora LOCAL em vez de
   // UTC naive. computeDaySlots corrige tudo (multi-turno, UTC, ScheduleBlock,
-  // feriado recorrente).
+  // feriado recorrente). `tenantId` = clínica REAL da conversa (inclui o tenant
+  // all-zeros do Instituto): só os feriados dela + globais fecham o dia.
   private async getAvailability(
     userId: string,
     dateStr: string,
     durationMinutes: number,
+    tenantId: string | null,
   ): Promise<{ start: string; end: string }[]> {
-    const starts = await computeDaySlots(this.prisma as any, userId, dateStr, durationMinutes);
+    const starts = await computeDaySlots(this.prisma as any, userId, dateStr, durationMinutes, tenantId);
     return starts.map((start) => {
       const [h, m] = start.split(':').map(Number);
       const endMin = h * 60 + m + durationMinutes;
@@ -1629,7 +1636,7 @@ export class AiProcessor extends WorkerHost {
             const dateStr = day.toISOString().split('T')[0];
             const anchor = new Date(`${dateStr}T12:00:00Z`); // 12:00Z = 09:00 Maceió, mesmo dia
             if (anchor.getUTCDay() === 0) continue; // pula domingo (clinica fechada)
-            const slots = await this.getAvailability(assignedDentistId, dateStr, 60);
+            const slots = await this.getAvailability(assignedDentistId, dateStr, 60, profileTenantId);
             if (slots.length > 0) {
               daysWithSlots.push({
                 label: `${formatWeekday(anchor)} ${formatDateBR(anchor)} (${dateStr})`,
@@ -1810,25 +1817,27 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // Variável dinâmica: bloco informativo sobre horário de expediente.
       // Vazio se dentro do expediente; multi-linha (inclui motivo + próximo
       // horário útil) se fora. A skill decide como usar via {{business_hours_info}}.
-      // Passa null quando tenant_id é string vazia/UUID dummy — evita filtrar
-      // holidays por tenant inexistente. (rawTenantId vem de 6c.)
+      // Horário e feriados são DA CLÍNICA REAL da conversa (profileTenantId, de 6c —
+      // inclui o tenant all-zeros do Instituto, que é uma clínica real): antes ia
+      // null pra ele e a tabela Holiday era lida sem filtro (feriado de qualquer
+      // clínica fechava esta). tenantIdForBH continua só pro ToolContext (abaixo).
       const tenantIdForBH =
         rawTenantId && rawTenantId !== '00000000-0000-0000-0000-000000000000'
           ? rawTenantId
           : null;
       const businessHoursInfo = await computeBusinessHoursInfo(
         this.prisma,
-        tenantIdForBH,
+        profileTenantId,
       ).catch((e: any) => {
         this.logger.warn(`[AI] Falha ao calcular business_hours_info: ${e.message}`);
         return '';
       });
       this.logger.log(
-        `[AI] business_hours_info len=${businessHoursInfo.length} tenant="${tenantIdForBH}" preview="${businessHoursInfo.slice(0, 120).replace(/\n/g, '\\n')}"`,
+        `[AI] business_hours_info len=${businessHoursInfo.length} tenant="${profileTenantId}" preview="${businessHoursInfo.slice(0, 120).replace(/\n/g, '\\n')}"`,
       );
       // Clínica com grade própria (Ajustes › IA): o "aberta/fechada agora" segue ELA,
-      // não o horário global (AFTER_HOURS_*, igual pra todas as clínicas). Feriado
-      // cadastrado continua mandando. Hora local de Maceió em naive-UTC.
+      // não o horário do escritório (AFTER_HOURS_* da clínica, senão o global). Feriado
+      // cadastrado (da clínica ou global) continua mandando. Hora local de Maceió em naive-UTC.
       const isHolidayToday = /FERIADO/i.test(businessHoursInfo);
       const clinicStatus = clinicStatusNow(clinicCtx.hours, new Date(Date.now() - 3 * 60 * 60 * 1000));
       const effectiveBusinessHoursInfo =
@@ -2078,7 +2087,7 @@ STATUS DA FICHA:
         // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
         // no prompt final enviado ao LLM.
         const hasLiteralVar = systemPrompt.includes('{{business_hours_info}}');
-        const hasResolved = systemPrompt.includes('ESCRITÓRIO FECHADO');
+        const hasResolved = systemPrompt.includes('CLÍNICA FECHADA');
         this.logger.log(
           `[AI] systemPrompt: literal_var=${hasLiteralVar} resolved_block=${hasResolved} length=${systemPrompt.length}`,
         );

@@ -8,7 +8,15 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateSkillDto, UpdateSkillDto, CreateSkillToolDto, UpdateSkillToolDto } from './dto/settings.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeBusinessHoursInfo, type AiChipProfile, type ClinicHours } from '@crm/shared';
+import {
+  computeBusinessHoursInfo,
+  formatClinicHours,
+  isAfterHoursAiEnabled,
+  loadOfficeHoursValues,
+  type AiChipProfile,
+  type ClinicHours,
+} from '@crm/shared';
+import { setTenantSetting } from '../tenants/tenant-settings.helper';
 import { AiTestChatService } from './ai-test-chat.service';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
@@ -118,59 +126,73 @@ export class SettingsController {
   }
 
   // ─── Horário do Escritório (afeta cron AfterHours e {{business_hours_info}}) ───
+  // POR CLÍNICA: lê/grava TenantSetting da clínica do JWT; chave que a clínica
+  // ainda não gravou herda o GlobalSetting legado (comportamento antigo). Sem
+  // clínica no JWT = global (legado). A grade por dia de Ajustes › IA
+  // (AI_CLINIC_HOURS), se existir, vence abertura/fechamento/dias.
 
   @Get('office-hours')
   @Roles('ADMIN')
-  async getOfficeHours() {
-    const [enabled, start, end, days, tz] = await Promise.all([
-      this.settingsService.get('AFTER_HOURS_AI_ENABLED'),
-      this.settingsService.get('AFTER_HOURS_START'),
-      this.settingsService.get('AFTER_HOURS_END'),
-      this.settingsService.get('BUSINESS_DAYS'),
-      this.settingsService.get('TIMEZONE'),
-    ]);
+  async getOfficeHours(@Request() req: any) {
+    const tenantId: string | null = req.user?.tenant_id ?? null;
+    const { values, ownKeys, clinicHours } = await loadOfficeHoursValues(this.prisma, tenantId);
     return {
       // NOTA: na var `AFTER_HOURS_START` está a hora que o escritório FECHA.
       // Na UI exportamos como "close" pra não confundir o admin.
-      ai_enabled: (enabled ?? 'true').toLowerCase() !== 'false',
-      open_time:  end   ?? '08:00', // AFTER_HOURS_END  = abertura
-      close_time: start ?? '17:00', // AFTER_HOURS_START = fechamento
-      business_days: (days ?? '1,2,3,4,5')
+      ai_enabled: isAfterHoursAiEnabled(values),
+      open_time:  values.AFTER_HOURS_END   ?? '08:00', // AFTER_HOURS_END  = abertura
+      close_time: values.AFTER_HOURS_START ?? '17:00', // AFTER_HOURS_START = fechamento
+      business_days: (values.BUSINESS_DAYS ?? '1,2,3,4,5')
         .split(',')
         .map((v) => Number.parseInt(v.trim(), 10))
         .filter((n) => Number.isFinite(n) && n >= 0 && n <= 6),
-      timezone: tz ?? 'America/Maceio',
+      timezone: values.TIMEZONE ?? 'America/Maceio',
+      // 'clinic' = a clínica já tem horário próprio; 'global' = herdando o padrão.
+      scope: tenantId && ownKeys.length > 0 ? 'clinic' : 'global',
+      // Grade de Ajustes › IA em texto (null = clínica sem grade).
+      clinic_hours_text: clinicHours ? formatClinicHours(clinicHours) : null,
     };
   }
 
   @Put('office-hours')
   @Roles('ADMIN')
-  async saveOfficeHours(@Body() body: {
+  async saveOfficeHours(@Request() req: any, @Body() body: {
     ai_enabled?: boolean;
     open_time?: string;
     close_time?: string;
     business_days?: number[];
     timezone?: string;
   }) {
+    const tenantId: string | null = req.user?.tenant_id ?? null;
+    if (body.timezone && body.timezone.length > 0) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: body.timezone });
+      } catch {
+        throw new BadRequestException(`Fuso horário inválido: "${body.timezone}". Ex.: America/Maceio`);
+      }
+    }
+    const save = (key: string, value: string) =>
+      tenantId ? setTenantSetting(this.prisma, tenantId, key, value) : this.settingsService.upsert(key, value);
+
     if (typeof body.ai_enabled === 'boolean') {
-      await this.settingsService.upsert('AFTER_HOURS_AI_ENABLED', body.ai_enabled ? 'true' : 'false');
+      await save('AFTER_HOURS_AI_ENABLED', body.ai_enabled ? 'true' : 'false');
     }
     if (body.open_time && /^\d{2}:\d{2}$/.test(body.open_time)) {
-      await this.settingsService.upsert('AFTER_HOURS_END', body.open_time);
+      await save('AFTER_HOURS_END', body.open_time);
     }
     if (body.close_time && /^\d{2}:\d{2}$/.test(body.close_time)) {
-      await this.settingsService.upsert('AFTER_HOURS_START', body.close_time);
+      await save('AFTER_HOURS_START', body.close_time);
     }
     if (Array.isArray(body.business_days)) {
       const clean = body.business_days
         .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
         .join(',');
-      if (clean) await this.settingsService.upsert('BUSINESS_DAYS', clean);
+      if (clean) await save('BUSINESS_DAYS', clean);
     }
     if (body.timezone && body.timezone.length > 0) {
-      await this.settingsService.upsert('TIMEZONE', body.timezone);
+      await save('TIMEZONE', body.timezone);
     }
-    return { message: 'Horário do escritório salvo' };
+    return { message: 'Horário da clínica salvo' };
   }
 
   /**
@@ -183,8 +205,9 @@ export class SettingsController {
    */
   @Get('variable-preview')
   @Roles('ADMIN')
-  async getVariablePreview() {
-    const businessHoursInfo = await computeBusinessHoursInfo(this.prisma).catch(() => '');
+  async getVariablePreview(@Request() req: any) {
+    // Clínica de quem está na tela: horário e feriados DELA (nunca de outra).
+    const businessHoursInfo = await computeBusinessHoursInfo(this.prisma, req.user?.tenant_id ?? null).catch(() => '');
     return {
       business_hours_info: businessHoursInfo,
     };

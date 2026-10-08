@@ -11,7 +11,7 @@ import {
   daysToApiSlots,
 } from '@/components/ScheduleEditor';
 
-// Usado APENAS na seçao "Horario do Escritorio (Global)" — o ScheduleEditor
+// Usado APENAS na seçao "Horario de Atendimento da Clinica" — o ScheduleEditor
 // (turnos por dentista) ja tem seu proprio array interno. Mantemos aqui pra
 // nao quebrar a UI do toggle de dias uteis do escritorio.
 const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -60,7 +60,7 @@ export default function OfficeSettingsPage() {
   // Onda 17.32.180 — config SMTP saiu desta tela: e global do SaaS e
   // agora vive no painel /admin/settings (somente SUPER_ADMIN)
 
-  // ─── Horário do Escritório (GlobalSetting — cron + {{business_hours_info}}) ───
+  // ─── Horário da clínica (TenantSetting da clínica, herda o global — cron + {{business_hours_info}}) ───
   const [officeHours, setOfficeHours] = useState({
     ai_enabled: true,
     open_time: '08:00',
@@ -68,8 +68,13 @@ export default function OfficeSettingsPage() {
     business_days: [1, 2, 3, 4, 5] as number[],
     timezone: 'America/Maceio',
   });
+  // 'global' = a clínica ainda herda o padrão do sistema (vira dela ao salvar).
+  const [officeHoursScope, setOfficeHoursScope] = useState<'clinic' | 'global'>('clinic');
+  // Grade de Ajustes › IA em texto — quando existe, vence abertura/fechamento/dias.
+  const [clinicHoursText, setClinicHoursText] = useState<string | null>(null);
   const [officeHoursSaved, setOfficeHoursSaved] = useState(false);
   const [officeHoursSaving, setOfficeHoursSaving] = useState(false);
+  const [officeHoursError, setOfficeHoursError] = useState('');
 
   // ─── Load Data ─────────────────────────────────────
   useEffect(() => {
@@ -144,16 +149,22 @@ export default function OfficeSettingsPage() {
         business_days: Array.isArray(res.data?.business_days) ? res.data.business_days : [1, 2, 3, 4, 5],
         timezone: res.data?.timezone || 'America/Maceio',
       });
+      setOfficeHoursScope(res.data?.scope === 'global' ? 'global' : 'clinic');
+      setClinicHoursText(res.data?.clinic_hours_text || null);
     } catch {}
   };
 
   const saveOfficeHours = async () => {
     setOfficeHoursSaving(true);
+    setOfficeHoursError('');
     try {
       await api.put('/settings/office-hours', officeHours);
+      setOfficeHoursScope('clinic');
       setOfficeHoursSaved(true);
       setTimeout(() => setOfficeHoursSaved(false), 2000);
-    } catch {}
+    } catch (e: any) {
+      setOfficeHoursError(e?.response?.data?.message || 'Não foi possível salvar o horário.');
+    }
     setOfficeHoursSaving(false);
   };
 
@@ -234,19 +245,22 @@ export default function OfficeSettingsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-6">
-        {/* ═══════ Seção 0: Horário do Escritório (global) ═══════ */}
+        {/* ═══════ Seção 0: Horário de atendimento DA CLÍNICA ═══════ */}
         {isAdmin && (
           <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Clock size={16} className="text-primary" />
                 <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Horário do Escritório (Global)
+                  Horário de Atendimento da Clínica
                 </h2>
               </div>
               <div className="flex items-center gap-2">
                 {officeHoursSaved && (
                   <span className="text-xs text-primary font-semibold animate-fade-in">✓ Salvo</span>
+                )}
+                {officeHoursError && (
+                  <span className="text-xs text-destructive font-semibold">{officeHoursError}</span>
                 )}
                 <button
                   onClick={saveOfficeHours}
@@ -260,11 +274,30 @@ export default function OfficeSettingsPage() {
             </div>
 
             <p className="text-[12px] text-muted-foreground mb-4">
-              Define quando o escritório está &quot;aberto&quot;. Fora desse horário, a IA Sophia é ativada automaticamente
-              para atender clientes (via cron AfterHours) e a variável <code className="text-[11px] bg-muted/40 px-1.5 py-0.5 rounded">{'{{business_hours_info}}'}</code> no
+              Define quando <strong>esta clínica</strong> está &quot;aberta&quot; — não afeta as outras clínicas. Fora desse
+              horário (e nos feriados cadastrados abaixo), a IA é ativada automaticamente para atender clientes (via cron
+              AfterHours) e a variável <code className="text-[11px] bg-muted/40 px-1.5 py-0.5 rounded">{'{{business_hours_info}}'}</code> no
               prompt das skills traz contexto pra IA avisar o cliente sobre o horário.
             </p>
 
+            {officeHoursScope === 'global' && (
+              <div className="mb-4 px-3 py-2 rounded-lg border border-border bg-muted/30 text-[12px] text-muted-foreground">
+                Esta clínica ainda usa o horário padrão do sistema. Ao salvar, ele passa a ser o horário próprio dela.
+              </div>
+            )}
+
+            {clinicHoursText ? (
+              <div className="mb-4 px-3 py-2.5 rounded-lg border border-primary/30 bg-primary/5 text-[12px] text-foreground">
+                <p className="font-semibold mb-1">Valem os horários de atendimento de Ajustes › IA:</p>
+                <p className="text-muted-foreground">{clinicHoursText}</p>
+                <p className="text-muted-foreground mt-1">
+                  Para mudar dias e horários, edite em{' '}
+                  <a href="/atendimento/settings/ai" className="text-primary font-semibold hover:underline">Ajustes › IA</a>.
+                  Aqui ficam o fuso horário e a ativação automática da IA.
+                </p>
+              </div>
+            ) : (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
@@ -314,6 +347,8 @@ export default function OfficeSettingsPage() {
                 })}
               </div>
             </div>
+            </>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

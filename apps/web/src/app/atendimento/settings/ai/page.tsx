@@ -241,7 +241,7 @@ export default function AiSettingsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Preview das variáveis dinâmicas (calculadas em tempo real pelo backend)
-  // — ex: business_hours_info mostra bloco "ESCRITÓRIO FECHADO..." se fora do expediente
+  // — ex: business_hours_info mostra bloco "CLÍNICA FECHADA..." se fora do expediente
   const [variablePreview, setVariablePreview] = useState<Record<string, string>>({});
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);

@@ -1,3 +1,4 @@
+import { findClinicHoliday } from '@crm/shared';
 import type { ToolHandler, ToolContext } from '../tool-executor';
 import { ensureOrcamentistaAssigned } from '../orcamentista';
 
@@ -57,6 +58,9 @@ export class CheckAvailabilityHandler implements ToolHandler {
       startDate.setUTCDate(startDate.getUTCDate() + 1);
     }
 
+    // Feriados: só os DESTA clínica + globais (nunca os de outra clínica).
+    const tenantId = await resolveConversationTenantId(prisma, context);
+
     const slots: { date: string; times: string[] }[] = [];
 
     for (let i = 0; i < daysToCheck && slots.length < 5; i++) {
@@ -67,7 +71,7 @@ export class CheckAvailabilityHandler implements ToolHandler {
       // retorna [] se nao tem UserSchedule pro dia da semana — efeito
       // equivalente sem hardcode (clinicas que atendem sabado funcionam).
       const dateStr = day.toISOString().split('T')[0];
-      const daySlots = await this.getSlots(prisma, userId, dateStr, durationMinutes);
+      const daySlots = await this.getSlots(prisma, userId, dateStr, durationMinutes, tenantId);
       if (daySlots.length > 0) {
         slots.push({ date: dateStr, times: daySlots.slice(0, 6) });
       }
@@ -85,9 +89,27 @@ export class CheckAvailabilityHandler implements ToolHandler {
     userId: string,
     dateStr: string,
     durationMinutes: number,
+    tenantId: string | null,
   ): Promise<string[]> {
-    return computeDaySlots(prisma, userId, dateStr, durationMinutes);
+    return computeDaySlots(prisma, userId, dateStr, durationMinutes, tenantId);
   }
+}
+
+/**
+ * Clínica REAL da conversa (inclui o tenant all-zeros do Instituto — o
+ * context.tenantId vem vazio pra ele fora do chat de teste). Conversa legada
+ * sem clínica cai pra clínica do lead; chat de teste (conversa não existe no
+ * banco) usa o tenant do contexto.
+ */
+export async function resolveConversationTenantId(
+  prisma: any,
+  context: Pick<ToolContext, 'conversationId' | 'tenantId'>,
+): Promise<string | null> {
+  const convo = await prisma.conversation.findUnique({
+    where: { id: context.conversationId },
+    select: { tenant_id: true, lead: { select: { tenant_id: true } } },
+  });
+  return convo?.tenant_id || convo?.lead?.tenant_id || context.tenantId || null;
 }
 
 /**
@@ -101,12 +123,17 @@ export class CheckAvailabilityHandler implements ToolHandler {
  * multi-turno (UserSchedule.findMany), feriados (exato + recorrente), bloqueios
  * (dia inteiro + parcial), eventos existentes e almoço por turno. Tudo em UTC
  * naive (getUTCDay/getUTCHours) pra bater com book-appointment.ts.
+ *
+ * `tenantId` = clínica da conversa: só os feriados DELA + os globais bloqueiam
+ * o dia (null = só os globais). Antes a tabela Holiday era lida sem filtro e o
+ * feriado de uma clínica fechava a agenda da IA de todas.
  */
 export async function computeDaySlots(
   prisma: any,
   userId: string,
   dateStr: string,
   durationMinutes: number,
+  tenantId: string | null | undefined,
 ): Promise<string[]> {
     const dayStart = new Date(`${dateStr}T00:00:00Z`);
     const dayEnd = new Date(`${dateStr}T23:59:59Z`);
@@ -114,7 +141,7 @@ export async function computeDaySlots(
     // v9: feriado matchea (1) data exata OU (2) recurring_yearly + MM-DD igual.
     // Antes so a clausula 1 era checada — feriados anuais cadastrados em 2026
     // nao bloqueavam o mesmo dia em 2027+. Helper isHolidayMatch resolve isso.
-    if (await isHolidayMatch(prisma, dayStart)) return [];
+    if (await isHolidayMatch(prisma, dayStart, tenantId)) return [];
 
     // v9: bloqueio de agenda (ferias/doenca/curso) — se cobre o dia INTEIRO
     // (all_day OR intervalo cobre 00:00-23:59), retorna []. Bloqueios parciais
@@ -218,38 +245,19 @@ export async function computeDaySlots(
 }
 
 /**
- * v9: detecta se uma data UTC eh feriado considerando recurring_yearly.
+ * v9: detecta se uma data UTC (naive) eh feriado considerando recurring_yearly
+ * (data exata OU MM-DD igual quando recurring_yearly=true — Natal, Tiradentes).
  *
- * Estrategia:
- *   1. Match por data exata (qualquer ano, recurring=false)
- *   2. Match por MM-DD igual quando recurring_yearly=true (Natal, Tiradentes)
+ * Isolado por clínica: feriados do `tenantId` + globais (tenant_id NULL); sem
+ * tenant, só os globais. Mesma regra do {{business_hours_info}} e da agenda da
+ * API (fonte única: findClinicHoliday em @crm/shared).
  *
  * Helper exportado pra ser reusado por book-appointment.ts.
  */
-export async function isHolidayMatch(prisma: any, date: Date): Promise<boolean> {
-  const dayStart = new Date(date);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = new Date(date);
-  dayEnd.setUTCHours(23, 59, 59, 999);
-
-  // Match 1: feriado de data exata caindo nesse dia
-  const exactMatch = await prisma.holiday.count({
-    where: {
-      recurring_yearly: false,
-      date: { gte: dayStart, lte: dayEnd },
-    },
-  });
-  if (exactMatch > 0) return true;
-
-  // Match 2: feriado recorrente — extrai MM-DD da data e compara via raw query
-  // (Prisma nao tem helper pra extract month/day, entao usamos $queryRaw)
-  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(date.getUTCDate()).padStart(2, '0');
-  const recurringMatch: { count: bigint }[] = await prisma.$queryRaw`
-    SELECT COUNT(*) as count
-    FROM "Holiday"
-    WHERE recurring_yearly = true
-      AND TO_CHAR(date, 'MM-DD') = ${`${mm}-${dd}`}
-  `;
-  return Number(recurringMatch[0]?.count ?? 0) > 0;
+export async function isHolidayMatch(
+  prisma: any,
+  date: Date,
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  return (await findClinicHoliday(prisma, date, tenantId)) !== null;
 }

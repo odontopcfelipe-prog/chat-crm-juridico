@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
 import type { ToolHandler, ToolContext } from '../tool-executor';
-import { isHolidayMatch } from './check-availability';
+import { isHolidayMatch, resolveConversationTenantId } from './check-availability';
 import { isAiAutobookEnabled } from '../auto-book-gate';
 
 /**
@@ -111,11 +111,13 @@ export class BookAppointmentHandler implements ToolHandler {
     // (book direto sem check tambem acontece quando user manda data fixa
     // tipo "agenda dia 25/12 as 9h").
 
-    // 1. Feriado (incluindo recorrentes anuais via isHolidayMatch)
-    if (await isHolidayMatch(prisma, startAt)) {
+    // 1. Feriado (incluindo recorrentes anuais via isHolidayMatch) — só os DESTA
+    // clínica + globais; o feriado de outra clínica não bloqueia esta agenda.
+    const holidayTenantId = convo?.tenant_id ?? (await resolveConversationTenantId(prisma, context));
+    if (await isHolidayMatch(prisma, startAt, holidayTenantId)) {
       return {
         success: false,
-        error: `Data ${params.date} é feriado nacional. Ofereça outro dia ao paciente.`,
+        error: `Data ${params.date} é feriado. Ofereça outro dia ao paciente.`,
       };
     }
 
