@@ -13,19 +13,23 @@ export class InboxesService {
     return (this.prisma as any).instance;
   }
 
-  async findAllOperators() {
+  async findAllOperators(tenantId?: string) {
+    // Fail-closed: sem tenant no JWT não lista ninguém (antes vazava setores e
+    // usuários de TODAS as clínicas no modal de transferência).
+    if (!tenantId) return [];
     const [inboxes, allEligible, allOperators] = await Promise.all([
       this.inbox.findMany({
-        include: { users: { select: { id: true, name: true } } },
+        where: { tenant_id: tenantId, is_active: true },
+        include: { users: { where: { tenant_id: tenantId }, select: { id: true, name: true } } },
         orderBy: { name: 'asc' },
       }),
       (this.prisma as any).user.findMany({
-        where: { roles: { hasSome: ['OPERADOR', 'DENTIST', 'ADMIN', 'COMERCIAL', 'FINANCEIRO', 'ASSISTANT'] } },
+        where: { tenant_id: tenantId, roles: { hasSome: ['OPERADOR', 'DENTIST', 'ADMIN', 'COMERCIAL', 'FINANCEIRO', 'ASSISTANT'] } },
         select: { id: true, name: true, roles: true },
         orderBy: { name: 'asc' },
       }),
       (this.prisma as any).user.findMany({
-        where: { roles: { has: 'OPERADOR' } },
+        where: { tenant_id: tenantId, roles: { has: 'OPERADOR' } },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),

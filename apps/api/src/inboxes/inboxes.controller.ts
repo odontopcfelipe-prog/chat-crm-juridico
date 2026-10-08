@@ -16,8 +16,8 @@ export class InboxesController {
   }
 
   @Get('operators')
-  async getAllOperators() {
-    return this.inboxesService.findAllOperators();
+  async getAllOperators(@Request() req: any) {
+    return this.inboxesService.findAllOperators(req.user?.tenant_id);
   }
 
   @Get(':id')

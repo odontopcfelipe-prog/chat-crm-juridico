@@ -106,7 +106,7 @@ export function TransferModals({
                   {transferGroups.map(g => ({ ...g, users: g.users.filter(u => u.id !== currentUserId) })).filter(g => g.users.length > 0 || (g.type === 'SECTOR' && g.auto_route)).map(group => (
                     <div key={group.id}>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 px-1">
-                        {group.type === 'SECTOR' ? (group.auto_route ? '{"⚖️"}' : '{"🏢"}') : '{"📥"}'} {group.name}
+                        {group.name}
                         {group.auto_route && <span className="ml-1 text-violet-400">(auto)</span>}
                       </p>
                       {group.type === 'SECTOR' && group.auto_route ? (
@@ -210,9 +210,9 @@ export function TransferModals({
               'bg-sky-500/5'
             }`}>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">
-                {reasonPopupContext === 'lawyer' ? '{"⚖️"} Transferencia para especialista' :
-                 reasonPopupContext === 'return' ? '{"↩"} Devolver contato' :
-                 '{"📨"} Solicitar transferencia'}
+                {reasonPopupContext === 'lawyer' ? 'Transferencia para especialista' :
+                 reasonPopupContext === 'return' ? 'Devolver contato' :
+                 'Solicitar transferencia'}
               </p>
               <h3 className="font-bold text-sm text-foreground">
                 {reasonPopupContext === 'return' ? `Para: ${reasonPopupTargetName}` : reasonPopupTargetName}
@@ -276,9 +276,9 @@ export function TransferModals({
                     : 'bg-sky-500 text-white hover:bg-sky-600'
                 }`}
               >
-                {transferring ? '{"⏳"} Enviando...' :
-                 reasonPopupContext === 'lawyer' ? '{"⚖️"} Confirmar' :
-                 reasonPopupContext === 'return' ? '{"↩"} Devolver' :
+                {transferring ? 'Enviando...' :
+                 reasonPopupContext === 'lawyer' ? 'Confirmar' :
+                 reasonPopupContext === 'return' ? 'Devolver' :
                  'Enviar'}
               </button>
             </div>
