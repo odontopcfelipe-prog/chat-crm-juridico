@@ -23,3 +23,7 @@ export * from './cobranca';
 export * from './comercial-agenda';
 // Perfil da IA por clínica/chip (nome da assistente, tamanho, tempo de resposta, horários)
 export * from './ai-profile';
+// Base de Conhecimento da clínica: categorias + filtro de dado interno
+export * from './memory-categories';
+// Instruções da memória (extração, perfil do paciente, resumo da clínica) + peneira da extração
+export * from './memory-prompts';

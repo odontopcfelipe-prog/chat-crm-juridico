@@ -27,9 +27,10 @@ export class MemoriesController {
 
   // ─── Organization ────────────────────────────────────────
 
+  /** ?status=archived lista as arquivadas (padrão: active). */
   @Get('organization')
-  async listOrganization(@Request() req: any) {
-    return this.memoriesService.listOrganization(req.user?.tenant_id);
+  async listOrganization(@Request() req: any, @Query('status') status?: string) {
+    return this.memoriesService.listOrganization(req.user?.tenant_id, status || 'active');
   }
 
   @Get('organization/stats')
@@ -143,6 +144,36 @@ export class MemoriesController {
       req.user.tenant_id,
       body.summary,
     );
+  }
+
+  // ─── Limpeza da Base de Conhecimento (só ADMIN, só a clínica do token) ──
+  // Rotas fixas ANTES das rotas com ':id'.
+
+  /** Sugere o que arquivar (dado interno, paciente, jurídico, preço, pontual, duplicada, errada). Não altera nada. */
+  @Post('organization/review')
+  @Roles('ADMIN')
+  async reviewOrg(@Request() req: any) {
+    if (!req.user?.tenant_id) throw new BadRequestException('tenant_id ausente');
+    return this.memoriesService.reviewOrganizationMemories(req.user.tenant_id);
+  }
+
+  /**
+   * Arquivar / restaurar devolvem { archived|restored, summary }: summary diz o
+   * que aconteceu com o resumo da clínica — 'regen_queued' (atualiza em ~1 min),
+   * 'skipped_manual' (editado à mão: só com "Regenerar") ou 'none'.
+   */
+  @Post('organization/archive')
+  @Roles('ADMIN')
+  async archiveOrg(@Request() req: any, @Body() body: { ids: string[] }) {
+    if (!req.user?.tenant_id) throw new BadRequestException('tenant_id ausente');
+    return this.memoriesService.archiveOrganizationMemories(req.user.tenant_id, body?.ids);
+  }
+
+  @Post('organization/restore')
+  @Roles('ADMIN')
+  async restoreOrg(@Request() req: any, @Body() body: { ids: string[] }) {
+    if (!req.user?.tenant_id) throw new BadRequestException('tenant_id ausente');
+    return this.memoriesService.restoreOrganizationMemories(req.user.tenant_id, body?.ids);
   }
 
   @Post('organization')

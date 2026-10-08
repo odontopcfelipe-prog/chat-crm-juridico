@@ -1,19 +1,14 @@
 import { Logger } from '@nestjs/common';
+import { ORG_MEMORY_LABELS } from '@crm/shared';
 import type { LLMToolDef } from './llm-client';
 
 /**
- * Rotulos legiveis das subcategorias de memoria organizacional.
- * Usado para compor o bloco "Informacoes do Escritorio" no prompt.
+ * Rotulos legiveis das subcategorias de memoria organizacional (contrato unico
+ * em @crm/shared — ORG_MEMORY_LABELS, o mesmo da tela Base de Conhecimento).
+ * Usado para compor o bloco "Informações da clínica" no prompt.
  */
 const ORG_SUBCATEGORY_LABELS: Record<string, string> = {
-  office_info: 'Escritorio',
-  team: 'Equipe',
-  fees: 'Honorarios',
-  procedures: 'Procedimentos',
-  court_info: 'Foruns e Varas',
-  legal_knowledge: 'Conhecimento Local',
-  contacts: 'Contatos Uteis',
-  rules: 'Regras',
+  ...Object.fromEntries(Object.entries(ORG_MEMORY_LABELS).map(([key, v]) => [key, v.label])),
   geral: 'Geral',
 };
 
@@ -79,7 +74,7 @@ export class PromptBuilder {
       orgText = this.buildOrganizationMemoryBlock(params.orgMemories);
     }
     if (orgText) {
-      parts.push(`## Informacoes do Escritorio (use naturalmente, nao cite como "base de dados"):\n${orgText}`);
+      parts.push(`## Informações da clínica (use naturalmente, não cite como 'base de dados'):\n${orgText}`);
     }
 
     if (params.leadProfileSummary && params.leadProfileSummary.trim()) {

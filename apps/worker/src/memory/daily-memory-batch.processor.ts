@@ -8,6 +8,7 @@ import { SettingsService } from '../settings/settings.service';
 import { EmbeddingService } from './embedding.service';
 import { MemoryRetrievalService } from './memory-retrieval.service';
 import { BATCH_EXTRACTION_PROMPT } from './memory-prompts';
+import { screenExtractedOrgMemory } from '@crm/shared';
 
 const DEFAULT_BATCH_SIZE = 30;
 const MIN_MESSAGE_LEN = 3;
@@ -33,6 +34,13 @@ interface ExtractionResult {
   superseded: SupersededMemory[];
 }
 
+/** Memorias "da clinica" barradas antes de gravar (so contagem — nunca o conteudo). */
+interface OrgDiscards {
+  internal: number; // dado interno (caixa, vendas, cobranca, lista de pacientes...)
+  subcategory: number; // categoria antiga/invalida (fees, court_info, contacts, vazia)
+  financeiro: number; // conversa do chip FINANCEIRO nao ensina nada sobre a clinica
+}
+
 /**
  * DailyMemoryBatchProcessor
  * ─────────────────────────
@@ -44,6 +52,12 @@ interface ExtractionResult {
  *   2. processTenantBatch() — varre conversas do dia em lotes de 30 msgs
  *   3. extractFromBatch() — chama LLM, dedupe, insere memorias
  *   4. Ao final: enfileira consolidate-profiles-after-batch
+ *
+ * Memoria da CLINICA (scope=organization) vai pro prompt da IA que fala com
+ * paciente, entao passa por uma peneira antes de gravar: dado interno
+ * (relatorios automaticos de caixa/vendas/cobranca que chegam pelo WhatsApp)
+ * e categoria antiga sao descartados, e conversa do chip FINANCEIRO nao gera
+ * memoria da clinica (a do paciente continua).
  */
 @Injectable()
 export class DailyMemoryBatchProcessor {
@@ -106,6 +120,8 @@ export class DailyMemoryBatchProcessor {
       select: {
         id: true,
         lead_id: true,
+        instance_name: true,
+        inbox: { select: { purpose: true } },
         messages: {
           where: { created_at: { gte: since } },
           orderBy: { created_at: 'asc' },
@@ -115,6 +131,8 @@ export class DailyMemoryBatchProcessor {
             type: true,
             created_at: true,
             skill_id: true,
+            // Chip que de fato recebeu/enviou a msg (a conversa flutua entre chips).
+            instance_name: true,
           },
         },
       },
@@ -125,18 +143,58 @@ export class DailyMemoryBatchProcessor {
       `[MemoryBatch] Tenant ${tenant_id}: ${conversations.length} conversas, ${totalMessages} mensagens`,
     );
 
+    // Funcao do chip, resolvida UMA vez (Conversation.instance_name e
+    // Message.instance_name -> Instance.purpose). Instance.name e unico, entao
+    // nao mistura clinicas.
+    const instanceNames = [
+      ...new Set(
+        conversations
+          .flatMap((c) => [c.instance_name, ...c.messages.map((m) => m.instance_name)])
+          .filter((n): n is string => !!n),
+      ),
+    ];
+    const financeiroInstances = instanceNames.length
+      ? await this.prisma.instance.findMany({
+          where: { name: { in: instanceNames }, purpose: 'FINANCEIRO' },
+          select: { name: true },
+        })
+      : [];
+    const financeiroNames = new Set(financeiroInstances.map((i) => i.name));
+
     let leadMemories = 0;
     let orgMemories = 0;
+    let orgDiscardedTotal = 0;
 
     for (const conv of conversations) {
       const useful = conv.messages.filter((m) => m.text && m.text.trim().length > MIN_MESSAGE_LEN);
       if (useful.length === 0) continue;
 
+      // Chip FINANCEIRO (cobranca/boletos): so memoria do paciente, nunca da clinica.
+      // Inbox.purpose espelha Instance.purpose — cobre conversa antiga sem instance_name.
+      const isFinanceiro =
+        (!!conv.instance_name && financeiroNames.has(conv.instance_name)) ||
+        conv.inbox?.purpose === 'FINANCEIRO';
+      const discarded: OrgDiscards = { internal: 0, subcategory: 0, financeiro: 0 };
+
       for (const batch of this.chunk(useful, DEFAULT_BATCH_SIZE)) {
+        // Msg do lote que passou por um chip FINANCEIRO (conversa flutuou de chip):
+        // o lote inteiro nao gera memoria da clinica (a do paciente continua).
+        const batchTouchesFinanceiro = batch.some(
+          (m) => !!m.instance_name && financeiroNames.has(m.instance_name),
+        );
         try {
-          const result = await this.extractFromBatch(tenant_id, conv.lead_id, conv.id, batch);
+          const result = await this.extractFromBatch(
+            tenant_id,
+            conv.lead_id,
+            conv.id,
+            batch,
+            !isFinanceiro && !batchTouchesFinanceiro,
+          );
           leadMemories += result.leadCount;
           orgMemories += result.orgCount;
+          discarded.internal += result.discarded.internal;
+          discarded.subcategory += result.discarded.subcategory;
+          discarded.financeiro += result.discarded.financeiro;
         } catch (e: any) {
           this.logger.error(
             `[MemoryBatch] Falha em batch (conv=${conv.id}): ${e.message}`,
@@ -144,10 +202,19 @@ export class DailyMemoryBatchProcessor {
           // Continua processando outros batches — nao propaga a falha
         }
       }
+
+      const convDiscarded = discarded.internal + discarded.subcategory + discarded.financeiro;
+      if (convDiscarded > 0) {
+        orgDiscardedTotal += convDiscarded;
+        // So contagens — o conteudo pode ter dado de paciente/financeiro.
+        this.logger.log(
+          `[MemoryBatch] conv=${conv.id}: ${convDiscarded} memorias da clinica descartadas (dado interno=${discarded.internal}, categoria invalida=${discarded.subcategory}, chip financeiro=${discarded.financeiro})`,
+        );
+      }
     }
 
     this.logger.log(
-      `[MemoryBatch] Tenant ${tenant_id}: ${leadMemories} memorias lead + ${orgMemories} organizacionais`,
+      `[MemoryBatch] Tenant ${tenant_id}: ${leadMemories} memorias lead + ${orgMemories} organizacionais (${orgDiscardedTotal} da clinica descartadas)`,
     );
 
     // Reconsolida perfis dos leads afetados — executa apos 5s para dar tempo
@@ -166,7 +233,11 @@ export class DailyMemoryBatchProcessor {
     };
   }
 
-  /** Chama LLM, dedupe, persiste memorias. */
+  /**
+   * Chama LLM, dedupe, persiste memorias.
+   * `orgAllowed=false` (conversa ou msg do lote no chip FINANCEIRO): nao manda as memorias da clinica pro LLM
+   * (nem pra marcar como superadas) e descarta qualquer memoria organization.
+   */
   private async extractFromBatch(
     tenantId: string,
     leadId: string,
@@ -178,7 +249,9 @@ export class DailyMemoryBatchProcessor {
       created_at: Date;
       skill_id: string | null;
     }>,
-  ): Promise<{ leadCount: number; orgCount: number }> {
+    orgAllowed: boolean,
+  ): Promise<{ leadCount: number; orgCount: number; discarded: OrgDiscards }> {
+    const discarded: OrgDiscards = { internal: 0, subcategory: 0, financeiro: 0 };
     const [existingLead, existingOrg] = await Promise.all([
       this.prisma.memory.findMany({
         where: { tenant_id: tenantId, scope: 'lead', scope_id: leadId, status: 'active' },
@@ -186,38 +259,59 @@ export class DailyMemoryBatchProcessor {
         take: MAX_EXISTING_MEMORIES_LEAD,
         select: { id: true, content: true },
       }),
-      this.prisma.memory.findMany({
-        where: { tenant_id: tenantId, scope: 'organization', scope_id: tenantId, status: 'active' },
-        orderBy: { created_at: 'desc' },
-        take: MAX_EXISTING_MEMORIES_ORG,
-        select: { id: true, content: true, subcategory: true },
-      }),
+      orgAllowed
+        ? this.prisma.memory.findMany({
+            where: { tenant_id: tenantId, scope: 'organization', scope_id: tenantId, status: 'active' },
+            orderBy: { created_at: 'desc' },
+            take: MAX_EXISTING_MEMORIES_ORG,
+            select: { id: true, content: true, subcategory: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; content: string; subcategory: string | null }>),
     ]);
 
     const payload = {
+      // Saida sem skill = equipe OU mensagem automatica do sistema (lembrete,
+      // cobranca, relatorio de caixa/vendas) — o LLM precisa saber que nem toda
+      // saida "humana" e fala da equipe.
       conversation_messages: messages.map((m) => ({
         sender:
           m.direction === 'in'
             ? 'CLIENTE'
             : m.skill_id
               ? 'IA'
-              : 'OPERADOR',
+              : 'EQUIPE_OU_SISTEMA',
         text: m.text,
         time: m.created_at,
       })),
       existing_lead_memories: existingLead,
       existing_org_memories: existingOrg,
+      organization_allowed: orgAllowed,
     };
 
     const result = await this.callLLM(payload);
-    if (!result) return { leadCount: 0, orgCount: 0 };
+    if (!result) return { leadCount: 0, orgCount: 0, discarded };
 
     let leadCount = 0;
     let orgCount = 0;
 
     for (const memory of result.memories) {
-      if (!memory.content || memory.content.trim().length < 5) continue;
+      if (!memory || typeof memory.content !== 'string' || memory.content.trim().length < 5) continue;
       const scopeId = memory.scope === 'organization' ? tenantId : leadId;
+
+      // Peneira da memoria da CLINICA (antes do embedding — nao gasta a chamada).
+      let subcategory: string | null = memory.subcategory ?? null;
+      if (memory.scope === 'organization') {
+        if (!orgAllowed) {
+          discarded.financeiro++;
+          continue;
+        }
+        const screen = screenExtractedOrgMemory(memory.content, memory.subcategory);
+        if (!screen.ok) {
+          discarded[screen.reason]++;
+          continue;
+        }
+        subcategory = screen.subcategory;
+      }
 
       let embedding: number[];
       try {
@@ -254,7 +348,7 @@ export class DailyMemoryBatchProcessor {
           memory.scope,
           scopeId,
           memory.type ?? 'semantic',
-          memory.subcategory ?? null,
+          subcategory,
           memory.content,
           this.embedding.toVectorLiteral(embedding),
           conversationId,
@@ -267,18 +361,41 @@ export class DailyMemoryBatchProcessor {
       }
     }
 
+    // Superseded: so vale id que FOI ENVIADO ao LLM neste lote (id inventado ou
+    // de outra clinica/lead e ignorado). Memoria da CLINICA so e aposentada se o
+    // lote podia gerar organization E gravou de fato uma memoria organization
+    // nova (senao a clinica perderia a info sem ganhar a substituta).
+    const sentLeadIds = new Set(existingLead.map((m) => m.id));
+    const sentOrgIds = new Set(existingOrg.map((m) => m.id));
+    let supIgnored = 0;
     for (const sup of result.superseded) {
+      const oldId = typeof sup?.old_memory_id === 'string' ? sup.old_memory_id.trim() : '';
+      if (!oldId) continue;
+      const isLead = sentLeadIds.has(oldId);
+      const isOrg = !isLead && sentOrgIds.has(oldId);
+      if (!isLead && (!isOrg || !orgAllowed || orgCount === 0)) {
+        supIgnored++;
+        continue;
+      }
       try {
         await this.prisma.memory.updateMany({
-          where: { id: sup.old_memory_id, tenant_id: tenantId },
-          data: { status: 'superseded', superseded_by: sup.reason },
+          where: { id: oldId, tenant_id: tenantId, scope: isLead ? 'lead' : 'organization' },
+          data: {
+            status: 'superseded',
+            superseded_by: typeof sup.reason === 'string' ? sup.reason : null,
+          },
         });
       } catch {
         // Ignora se memoria nao existir mais
       }
     }
+    if (supIgnored > 0) {
+      this.logger.log(
+        `[MemoryBatch] conv=${conversationId}: ${supIgnored} superseded ignorados (id fora do lote ou sem memoria da clinica nova gravada)`,
+      );
+    }
 
-    return { leadCount, orgCount };
+    return { leadCount, orgCount, discarded };
   }
 
   /** Chamada ao GPT-4.1 com response_format=json_object. */

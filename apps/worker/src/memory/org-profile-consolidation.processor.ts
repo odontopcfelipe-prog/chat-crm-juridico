@@ -10,6 +10,15 @@ import {
 } from './memory-prompts';
 
 const MIN_CONFIDENCE_FOR_INCLUSION = 0.6;
+const MAX_TOKENS_INCREMENTAL = 4000;
+const MAX_TOKENS_FROM_SCRATCH = 2500;
+
+/**
+ * Resumo ainda no formato do sistema antigo (escritorio de advocacia). Se o
+ * resumo nao foi editado a mao, refaz do zero em vez do incremental — o
+ * incremental preserva o texto e nunca limparia esses cabecalhos/termos.
+ */
+const LEGACY_SUMMARY_RE = /##\s*sobre o escrit|##\s*honor|advogad|honor[aá]rio/i;
 
 /**
  * OrgProfileConsolidationProcessor
@@ -126,13 +135,30 @@ export class OrgProfileConsolidationProcessor {
 
     // Primeira geracao ou profile zerado: from-scratch obrigatorio
     if (!existing || !existing.summary || existing.summary.trim().length < 50) {
-      await this.consolidateProfile(tenantId);
-      return { changed: true };
+      const written = await this.consolidateProfile(tenantId);
+      return { changed: written };
+    }
+
+    // Resumo juridico antigo (nao editado a mao): refaz do zero mesmo sem
+    // memorias novas — o incremental so remendaria o texto velho.
+    if (!existing.manually_edited_at && LEGACY_SUMMARY_RE.test(existing.summary)) {
+      this.logger.log(
+        `[OrgProfileConsolidation] Tenant ${tenantId}: resumo com termos do sistema antigo (juridico) — refazendo do zero em vez do incremental`,
+      );
+      const written = await this.consolidateProfile(tenantId);
+      if (!written) {
+        this.logger.warn(
+          `[OrgProfileConsolidation] Tenant ${tenantId}: refazer do zero nao gravou (sem memorias ativas ou falha no LLM) — resumo antigo continua`,
+        );
+      }
+      return { changed: written };
     }
 
     const since = existing.last_incorporated_at ?? existing.generated_at;
 
-    // Memorias NOVAS desde a ultima incorporacao
+    // Memorias NOVAS desde a ultima incorporacao — criadas OU atualizadas
+    // (restauradas do arquivo / editadas) depois do marcador. Uma query so com
+    // OR, entao a que foi criada e editada no periodo nao vem duplicada.
     const newMemories = await this.prisma.memory.findMany({
       where: {
         tenant_id: tenantId,
@@ -140,7 +166,7 @@ export class OrgProfileConsolidationProcessor {
         scope_id: tenantId,
         status: 'active',
         confidence: { gte: MIN_CONFIDENCE_FOR_INCLUSION },
-        created_at: { gt: since },
+        OR: [{ created_at: { gt: since } }, { updated_at: { gt: since } }],
       },
       orderBy: { created_at: 'asc' },
       select: { content: true, subcategory: true, confidence: true, created_at: true },
@@ -203,7 +229,12 @@ export class OrgProfileConsolidationProcessor {
       where: { tenant_id: tenantId },
       data: {
         summary: result.summary,
-        facts: result.facts ?? existing.facts,
+        // callLLM devolve {} quando o modelo nao manda facts (ex.: instrucao
+        // personalizada antiga) — nesse caso mantem os facts atuais em vez de zerar.
+        facts:
+          result.facts && typeof result.facts === 'object' && Object.keys(result.facts).length > 0
+            ? result.facts
+            : existing.facts,
         source_memory_count: activeCount,
         version: changed ? { increment: 1 } : undefined,
         generated_at: changed ? new Date() : undefined,
@@ -212,7 +243,7 @@ export class OrgProfileConsolidationProcessor {
     });
 
     this.logger.log(
-      `[OrgProfileConsolidation] Tenant ${tenantId}: incremental — ${newMemories.length} novas + ${deletedMemories.length} deletadas${changed ? ` → summary atualizado (${result.summary.length} chars)` : ' → sem mudanca no texto'}`,
+      `[OrgProfileConsolidation] Tenant ${tenantId}: incremental — ${newMemories.length} novas/atualizadas + ${deletedMemories.length} deletadas${changed ? ` → summary atualizado (${result.summary.length} chars)` : ' → sem mudanca no texto'}`,
     );
 
     return { changed };
@@ -227,7 +258,7 @@ export class OrgProfileConsolidationProcessor {
    *   - Botao "Refazer do zero" na UI
    *   - Fallback quando incremental nao e possivel
    */
-  async consolidateProfile(tenantId: string): Promise<void> {
+  async consolidateProfile(tenantId: string): Promise<boolean> {
     const memories = await this.prisma.memory.findMany({
       where: {
         tenant_id: tenantId,
@@ -242,7 +273,7 @@ export class OrgProfileConsolidationProcessor {
 
     if (memories.length === 0) {
       this.logger.log(`[OrgProfileConsolidation] Tenant ${tenantId}: sem memorias org, pulando`);
-      return;
+      return false;
     }
 
     const payload = {
@@ -256,7 +287,7 @@ export class OrgProfileConsolidationProcessor {
     };
 
     const result = await this.callLLM(payload, 'from-scratch');
-    if (!result) return;
+    if (!result) return false;
 
     await this.prisma.organizationProfile.upsert({
       where: { tenant_id: tenantId },
@@ -282,6 +313,12 @@ export class OrgProfileConsolidationProcessor {
     this.logger.log(
       `[OrgProfileConsolidation] Tenant ${tenantId}: from-scratch — ${memories.length} memorias → ${result.summary.length} chars`,
     );
+    if (LEGACY_SUMMARY_RE.test(result.summary)) {
+      this.logger.warn(
+        `[OrgProfileConsolidation] Tenant ${tenantId}: resumo refeito AINDA tem termos do sistema antigo (juridico) — revisar as memorias da clinica`,
+      );
+    }
+    return true;
   }
 
   /**
@@ -326,10 +363,19 @@ export class OrgProfileConsolidationProcessor {
           { role: 'user', content: JSON.stringify(payload) },
         ],
         response_format: { type: 'json_object' },
-        max_completion_tokens: 2500,
+        max_completion_tokens: mode === 'incremental' ? MAX_TOKENS_INCREMENTAL : MAX_TOKENS_FROM_SCRATCH,
         temperature: 0.3,
       });
-      const content = response.choices[0]?.message?.content;
+      const choice = response.choices[0];
+      if (choice?.finish_reason === 'length') {
+        // Resposta cortada no limite de tokens: JSON incompleto/resumo truncado.
+        // Nao grava — o marcador nao avanca e a proxima rodada tenta de novo.
+        this.logger.warn(
+          `[OrgProfileConsolidation] LLM cortou a resposta no limite de tokens (${mode}, model=${model}, finish_reason=length) — resumo NAO atualizado`,
+        );
+        return null;
+      }
+      const content = choice?.message?.content;
       if (!content) return null;
       const parsed = JSON.parse(content);
       if (!parsed.summary || typeof parsed.summary !== 'string') return null;

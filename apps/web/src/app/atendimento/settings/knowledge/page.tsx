@@ -1,17 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Brain,
   MapPin,
   Users,
   DollarSign,
   ClipboardList,
+  Stethoscope,
+  CreditCard,
   Scale,
   BookOpen,
   Phone,
   ShieldAlert,
   Layers,
+  Tag,
+  Archive,
   Plus,
   Pencil,
   Trash2,
@@ -33,22 +38,57 @@ import {
   FileCode2,
 } from 'lucide-react';
 import api from '@/lib/api';
+import {
+  ORG_MEMORY_SUBCATEGORIES,
+  LEGACY_ORG_MEMORY_SUBCATEGORIES,
+  ORG_MEMORY_LABELS,
+  ORG_MEMORY_PRICE_RE,
+  archiveEffectText,
+  isOrgMemorySubcategory,
+  orgMemoryLabel,
+  orgSummaryNote,
+  type OrgSummaryState,
+} from './memory-categories';
+import { MemoryReviewPanel, type ActiveMemorySnapshot } from './MemoryReviewPanel';
 
-const SUBCATEGORIES: Array<{
+type IconCmp = React.ComponentType<{ className?: string; size?: number }>;
+
+const CATEGORY_ICONS: Record<string, IconCmp> = {
+  office_info: MapPin,
+  team: Users,
+  procedures: ClipboardList,
+  treatments: Stethoscope,
+  payment: CreditCard,
+  rules: ShieldAlert,
+  // antigas (sistema jurídico) — só aparecem se ainda tiverem memórias
+  fees: DollarSign,
+  court_info: Scale,
+  legal_knowledge: BookOpen,
+  contacts: Phone,
+};
+
+interface CategoryView {
   key: string;
   label: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
   hint: string;
-}> = [
-  { key: 'office_info', label: 'Escritório', icon: MapPin, hint: 'Endereço, telefone, horário' },
-  { key: 'team', label: 'Equipe', icon: Users, hint: 'Advogados e especialidades' },
-  { key: 'fees', label: 'Honorários', icon: DollarSign, hint: 'Tabelas, formas de pagamento' },
-  { key: 'procedures', label: 'Procedimentos', icon: ClipboardList, hint: 'Documentos, fluxo de atendimento' },
-  { key: 'court_info', label: 'Fóruns e Varas', icon: Scale, hint: 'Endereços, tendências de juízes' },
-  { key: 'legal_knowledge', label: 'Conhecimento Local', icon: BookOpen, hint: 'Prazos típicos, jurisprudência local' },
-  { key: 'contacts', label: 'Contatos Úteis', icon: Phone, hint: 'Peritos, parceiros, terceiros' },
-  { key: 'rules', label: 'Regras', icon: ShieldAlert, hint: 'O que aceitamos/não aceitamos' },
-];
+  icon: IconCmp;
+  /** Categoria antiga/desconhecida: não oferece "adicionar" e mostra a dica sempre. */
+  legacy: boolean;
+}
+
+/** Onde a clínica configura preços (a memória não guarda valores). */
+const PRICES_HREF = '/atendimento/settings/ai#etapa-valores';
+
+/**
+ * Parece preço? ("R$ 150", "150 reais", "10% de desconto") — preço não fica na
+ * memória. Mesma regra da revisão/extração (ORG_MEMORY_PRICE_RE do shared).
+ */
+function looksLikePrice(text: string): boolean {
+  return ORG_MEMORY_PRICE_RE.test(text);
+}
+
+/** A atualização do resumo roda ~60s depois de arquivar/restaurar (debounce da API) + o tempo da IA. */
+const PROFILE_REFRESH_DELAY_MS = 90_000;
 
 interface MemoryItem {
   id: string;
@@ -142,10 +182,17 @@ export default function KnowledgeSettingsPage() {
   const [editing, setEditing] = useState<MemoryItem | null>(null);
   const [newContent, setNewContent] = useState('');
   const [editContent, setEditContent] = useState('');
+  // Categoria na edição ('' = manter a atual; usado pra tirar memória de categoria antiga)
+  const [editSubcategory, setEditSubcategory] = useState('');
   const [saving, setSaving] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  // Muda quando arquiva por aqui → o painel recarrega a lista de arquivadas se estiver aberta
+  const [archivedVersion, setArchivedVersion] = useState(0);
   const [batchEnabled, setBatchEnabled] = useState(true);
   const [extracting, setExtracting] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: 'ok' | 'err' | 'warn' } | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [orgProfile, setOrgProfile] = useState<OrgProfile | null>(null);
   const [profileOpen, setProfileOpen] = useState(true);
   const [regeneratingProfile, setRegeneratingProfile] = useState(false);
@@ -164,8 +211,9 @@ export default function KnowledgeSettingsPage() {
   const [editRebuild, setEditRebuild] = useState('');
   const [activePromptTab, setActivePromptTab] = useState<'incremental' | 'rebuild'>('incremental');
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // quiet=true: recarrega sem trocar a lista pelo "Carregando..." (ex.: depois de arquivar)
+  const loadData = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [memsRes, statsRes, settingsRes, profileRes] = await Promise.all([
@@ -191,8 +239,75 @@ export default function KnowledgeSettingsPage() {
     loadData();
   }, [loadData]);
 
+  const reloadQuiet = useCallback(() => loadData(true), [loadData]);
+
+  // Resumo: sem resumo a IA lê as memórias cruas; editado à mão não muda sozinho.
+  const summaryState: OrgSummaryState = !orgProfile ? 'none' : orgProfile.manually_edited_at ? 'manual' : 'auto';
+
+  // Memórias ativas (id → texto/categoria): o painel de revisão tira/desmarca
+  // sugestões velhas quando a lista recarrega (editar, apagar, arquivar pela lista).
+  const activeMemories = useMemo(() => {
+    const map = new Map<string, ActiveMemorySnapshot>();
+    for (const items of Object.values(groups)) {
+      for (const m of items) map.set(m.id, { content: m.content, subcategory: m.subcategory ?? null });
+    }
+    return map;
+  }, [groups]);
+
+  // Depois de arquivar/restaurar, a API atualiza o resumo em ~1 min: busca de novo
+  // só o resumo (não mexe na lista nem em edição aberta).
+  const refreshProfileLater = useCallback(() => {
+    if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+    profileTimerRef.current = setTimeout(async () => {
+      profileTimerRef.current = null;
+      try {
+        const res = await api.get<OrgProfile | null>('/memories/organization/profile');
+        setOrgProfile(res.data);
+      } catch {
+        // fica o resumo atual — recarregar a página resolve
+      }
+    }, PROFILE_REFRESH_DELAY_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    },
+    [],
+  );
+
   const toggleGroup = (key: string) =>
     setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  // As 6 categorias da clínica sempre; antigas (jurídico) e desconhecidas só se
+  // ainda tiverem memórias — pra poder revisar/mover/arquivar.
+  const categories = useMemo<CategoryView[]>(() => {
+    const out: CategoryView[] = ORG_MEMORY_SUBCATEGORIES.map((key) => ({
+      key,
+      label: ORG_MEMORY_LABELS[key].label,
+      hint: ORG_MEMORY_LABELS[key].hint,
+      icon: CATEGORY_ICONS[key] ?? Layers,
+      legacy: false,
+    }));
+    const known = new Set<string>([...ORG_MEMORY_SUBCATEGORIES, ...LEGACY_ORG_MEMORY_SUBCATEGORIES]);
+    const extraKeys = [
+      ...LEGACY_ORG_MEMORY_SUBCATEGORIES,
+      ...Object.keys(groups).filter((k) => !known.has(k)),
+    ];
+    for (const key of extraKeys) {
+      if (!(groups[key]?.length > 0)) continue;
+      const meta = ORG_MEMORY_LABELS[key];
+      out.push({
+        key,
+        label: meta ? meta.label : `${orgMemoryLabel(key)} (antigo)`,
+        hint: meta ? meta.hint : 'Mova para uma das categorias novas ou arquive',
+        icon: CATEGORY_ICONS[key] ?? Layers,
+        legacy: true,
+      });
+    }
+    return out;
+  }, [groups]);
 
   const filteredGroups = useMemo(() => {
     if (!search.trim()) return groups;
@@ -205,9 +320,14 @@ export default function KnowledgeSettingsPage() {
     return out;
   }, [groups, search]);
 
-  const showFeedback = (text: string, type: 'ok' | 'err' = 'ok') => {
+  // Um timer só: aviso novo não é apagado pelo timer do anterior.
+  const showFeedback = (text: string, type: 'ok' | 'err' | 'warn' = 'ok', ms = 4000) => {
     setMessage({ text, type });
-    setTimeout(() => setMessage(null), 4000);
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => {
+      feedbackTimerRef.current = null;
+      setMessage(null);
+    }, ms);
   };
 
   const handleAdd = async () => {
@@ -215,6 +335,12 @@ export default function KnowledgeSettingsPage() {
     const content = newContent.trim();
     if (content.length < 5) {
       showFeedback('Conteúdo muito curto (mín. 5 caracteres)', 'err');
+      return;
+    }
+    if (
+      looksLikePrice(content) &&
+      !confirm('Isto parece um preço. Preços ficam em Ajustes IA › Valores, não aqui. Salvar mesmo assim?')
+    ) {
       return;
     }
     setSaving(true);
@@ -241,11 +367,22 @@ export default function KnowledgeSettingsPage() {
       showFeedback('Conteúdo muito curto', 'err');
       return;
     }
+    if (
+      content !== editing.content.trim() &&
+      looksLikePrice(content) &&
+      !confirm('Isto parece um preço. Preços ficam em Ajustes IA › Valores, não aqui. Salvar mesmo assim?')
+    ) {
+      return;
+    }
+    // Só manda a categoria se mudou (serve pra tirar memória de categoria antiga)
+    const payload: { content: string; subcategory?: string } = { content };
+    if (editSubcategory && editSubcategory !== editing.subcategory) payload.subcategory = editSubcategory;
     setSaving(true);
     try {
-      await api.put(`/memories/${editing.id}`, { content });
+      await api.put(`/memories/${editing.id}`, payload);
       setEditing(null);
       setEditContent('');
+      setEditSubcategory('');
       await loadData();
       showFeedback('Memória atualizada');
     } catch (e: any) {
@@ -256,13 +393,58 @@ export default function KnowledgeSettingsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Remover esta memória? A IA deixa de usá-la.')) return;
+    if (
+      !confirm(
+        // Apagar NÃO passa pela atualização do resumo (só arquivar passa): no resumo
+        // automático o fato continua lá até Refazer do zero — por isso o texto próprio.
+        `Apagar esta memória de vez? Não dá pra desfazer. ${
+          summaryState === 'auto'
+            ? 'Atenção: apagar NÃO tira isso do resumo da clínica, que é o que a IA usa. Para a IA parar de usar, prefira "Arquivar" (o resumo se atualiza em cerca de 1 minuto).'
+            : archiveEffectText(summaryState, 1)
+        }\n\nSe quiser poder desfazer, use "Arquivar".`,
+      )
+    )
+      return;
     try {
       await api.delete(`/memories/${id}`);
       await loadData();
       showFeedback('Memória removida');
     } catch (e: any) {
       showFeedback(e?.response?.data?.message || 'Erro ao remover', 'err');
+    }
+  };
+
+  // Arquivar não apaga: sai da base e dá pra restaurar em "Ver arquivadas".
+  // Confirma antes (como o apagar): o que muda pra IA depende do resumo da clínica.
+  const handleArchive = async (id: string) => {
+    if (
+      !confirm(
+        `Arquivar esta memória? ${archiveEffectText(summaryState, 1)}\n\nArquivar não apaga: dá pra restaurar em Ver arquivadas.`,
+      )
+    )
+      return;
+    setArchivingId(id);
+    try {
+      const res = await api.post<{ archived?: number; summary?: string }>('/memories/organization/archive', {
+        ids: [id],
+      });
+      const n = Number(res.data?.archived ?? 1);
+      await loadData(true);
+      setArchivedVersion((v) => v + 1);
+      if (n <= 0) {
+        showFeedback('Essa memória já não estava ativa — a lista foi atualizada', 'err');
+        return;
+      }
+      const note = orgSummaryNote(res.data?.summary, summaryState, n);
+      if (note?.outcome === 'regen_queued') refreshProfileLater();
+      const base = 'Memória arquivada — dá pra restaurar em "Ver arquivadas".';
+      if (!note) showFeedback(base);
+      else if (note.tone === 'warn') showFeedback(`${base} ${note.text}`, 'warn', 12000);
+      else showFeedback(`${base} ${note.text}`, 'ok', 6000);
+    } catch (e: any) {
+      showFeedback(e?.response?.data?.message || 'Erro ao arquivar', 'err');
+    } finally {
+      setArchivingId(null);
     }
   };
 
@@ -295,15 +477,15 @@ export default function KnowledgeSettingsPage() {
     // Se tem edição manual, confirma antes de sobrescrever
     if (orgProfile?.manually_edited_at) {
       const ok = confirm(
-        'Este perfil tem edição manual salva. A atualização incremental pode ajustar seu texto com memórias novas. Continuar?',
+        'Este resumo foi editado à mão. A atualização pode ajustar o texto com as memórias novas. Continuar?',
       );
       if (!ok) return;
     }
     setRegeneratingProfile(true);
     try {
       await api.post('/memories/organization/regenerate-profile');
-      showFeedback('Atualização incremental disparada — atualiza em ~1 minuto');
-      setTimeout(() => loadData(), 8000);
+      showFeedback('Atualização do resumo pedida — fica pronta em ~1 minuto');
+      setTimeout(() => loadData(true), 8000);
     } catch (e: any) {
       showFeedback(e?.response?.data?.message || 'Erro ao regenerar', 'err');
     } finally {
@@ -319,8 +501,8 @@ export default function KnowledgeSettingsPage() {
     setRebuildingProfile(true);
     try {
       await api.post('/memories/organization/rebuild-profile');
-      showFeedback('Reconstrução disparada — atualiza em ~1 minuto');
-      setTimeout(() => loadData(), 8000);
+      showFeedback('Resumo sendo refeito — fica pronto em ~1 minuto');
+      setTimeout(() => loadData(true), 8000);
     } catch (e: any) {
       showFeedback(e?.response?.data?.message || 'Erro ao refazer', 'err');
     } finally {
@@ -392,9 +574,9 @@ export default function KnowledgeSettingsPage() {
     else setEditRebuild(settings.rebuild_prompt_default);
   };
 
+  // Sem resumo ainda: começa em branco (o PUT cria o resumo).
   const handleStartEditProfile = () => {
-    if (!orgProfile) return;
-    setEditProfileContent(orgProfile.summary);
+    setEditProfileContent(orgProfile?.summary ?? '');
     setEditingProfile(true);
   };
 
@@ -411,11 +593,17 @@ export default function KnowledgeSettingsPage() {
     }
     setSavingProfile(true);
     try {
+      const isNew = !orgProfile;
       await api.put('/memories/organization/profile', { summary });
       setEditingProfile(false);
       setEditProfileContent('');
-      await loadData();
-      showFeedback('Resumo atualizado — cron automático não vai mais sobrescrever');
+      setProfileOpen(true);
+      await loadData(true);
+      showFeedback(
+        isNew
+          ? 'Resumo criado — a atualização automática da madrugada não sobrescreve texto escrito à mão'
+          : 'Resumo atualizado — a atualização automática da madrugada não sobrescreve texto editado à mão',
+      );
     } catch (e: any) {
       showFeedback(e?.response?.data?.message || 'Erro ao salvar', 'err');
     } finally {
@@ -432,9 +620,9 @@ export default function KnowledgeSettingsPage() {
             <Brain className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento do Escritório</h1>
+            <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento da Clínica</h1>
             <p className="text-sm text-muted-foreground">
-              Informações que a IA usa em <strong>todos</strong> os atendimentos.
+              O que a IA sabe sobre a clínica e usa em <strong>todos</strong> os atendimentos com pacientes.
             </p>
           </div>
         </div>
@@ -487,7 +675,7 @@ export default function KnowledgeSettingsPage() {
             <Sparkles className="w-4 h-4 text-primary" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold">Resumo Consolidado do Escritório</span>
+                <span className="text-sm font-semibold">Resumo da clínica</span>
                 {orgProfile && (
                   <span className="text-[10px] text-muted-foreground font-mono">
                     v{orgProfile.version}
@@ -496,17 +684,17 @@ export default function KnowledgeSettingsPage() {
                 {orgProfile?.manually_edited_at && (
                   <span
                     className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full"
-                    title="Este perfil foi editado manualmente — cron automático NÃO vai sobrescrever"
+                    title="Este resumo foi editado à mão — a atualização automática NÃO sobrescreve"
                   >
                     <Lock className="w-2.5 h-2.5" />
-                    editado manualmente
+                    editado à mão
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 {orgProfile
-                  ? `Atualiza cirurgicamente toda noite com mudanças nas ${orgProfile.source_memory_count} memórias — injetado em {{office_memories}} no prompt da IA`
-                  : 'Ainda não foi gerado. A IA está usando as memórias cruas agrupadas.'}
+                  ? `A IA lê este texto em todas as conversas com pacientes. Atualiza toda noite com as ${orgProfile.source_memory_count} memórias abaixo.`
+                  : 'Ainda não existe. Gere a partir das memórias ou escreva o seu. Por enquanto a IA usa as memórias abaixo.'}
               </p>
             </div>
             {!editingProfile && (
@@ -517,11 +705,11 @@ export default function KnowledgeSettingsPage() {
               )
             )}
           </button>
-          {!editingProfile && orgProfile && (
+          {!editingProfile && (
             <button
               onClick={handleStartEditProfile}
               className="px-3 py-2 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-              title="Editar manualmente"
+              title={orgProfile ? 'Editar à mão' : 'Escrever o resumo'}
             >
               <Pencil className="w-4 h-4" />
             </button>
@@ -531,7 +719,13 @@ export default function KnowledgeSettingsPage() {
               onClick={handleRegenerateProfile}
               disabled={regeneratingProfile}
               className="px-3 py-2 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
-              title={orgProfile?.manually_edited_at ? 'Regenerar (sobrescreve edição manual)' : 'Regenerar perfil agora'}
+              title={
+                !orgProfile
+                  ? 'Gerar o resumo a partir das memórias'
+                  : orgProfile.manually_edited_at
+                    ? 'Atualizar com as memórias (pode ajustar o texto editado à mão)'
+                    : 'Atualizar o resumo agora'
+              }
             >
               {regeneratingProfile ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -547,13 +741,20 @@ export default function KnowledgeSettingsPage() {
             {editingProfile ? (
               <div>
                 <p className="text-[11px] text-muted-foreground mb-2">
-                  Edite o resumo que a IA usa nos atendimentos. Enquanto existir edição manual, o cron automático das 02h <strong>não sobrescreve</strong> este texto. Para voltar à geração automática, clique em "Regenerar".
+                  {orgProfile
+                    ? 'Edite o texto que a IA lê nas conversas com pacientes.'
+                    : 'Escreva o que a IA precisa saber da clínica pra atender pacientes: onde fica, quem atende, como funciona a avaliação, formas de pagamento, regras.'}{' '}
+                  Texto escrito à mão <strong>não é sobrescrito</strong> pela atualização automática da madrugada. Para voltar à geração automática, use o botão de atualizar.
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 mb-2">
+                  Não coloque aqui assunto interno (caixa, vendas, cobrança), dados de pacientes nem preços. Preços ficam em{' '}
+                  <Link href={PRICES_HREF} className="font-semibold underline">Ajustes IA › Valores</Link>.
                 </p>
                 <textarea
                   value={editProfileContent}
                   onChange={(e) => setEditProfileContent(e.target.value)}
                   className="w-full min-h-[400px] text-[13px] p-3 rounded-lg bg-card border border-border focus:outline-none focus:ring-1 focus:ring-primary leading-relaxed resize-y font-mono"
-                  placeholder="## Sobre o Escritório..."
+                  placeholder={'## Sobre a clínica\nEndereço, horário, Instagram...\n\n## Equipe\nDentistas e especialidades...\n\n## Como atendemos\nAvaliação, agendamento, faltas...'}
                   autoFocus
                 />
                 <div className="flex items-center justify-between mt-3">
@@ -579,7 +780,7 @@ export default function KnowledgeSettingsPage() {
                       ) : (
                         <Save className="w-3.5 h-3.5" />
                       )}
-                      Salvar edição
+                      {orgProfile ? 'Salvar edição' : 'Salvar resumo'}
                     </button>
                   </div>
                 </div>
@@ -592,7 +793,7 @@ export default function KnowledgeSettingsPage() {
                 <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                   <p className="text-[10px] text-muted-foreground">
                     {orgProfile.manually_edited_at
-                      ? `Editado manualmente em ${formatDate(orgProfile.manually_edited_at)}`
+                      ? `Editado à mão em ${formatDate(orgProfile.manually_edited_at)}`
                       : `Última atualização: ${formatDate(orgProfile.generated_at)}`}
                   </p>
                   <button
@@ -612,27 +813,48 @@ export default function KnowledgeSettingsPage() {
               </>
             ) : (
               <div className="text-center py-4 text-sm text-muted-foreground">
-                <p>Nenhum perfil consolidado gerado ainda.</p>
-                <button
-                  onClick={handleRegenerateProfile}
-                  disabled={regeneratingProfile}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 disabled:opacity-50"
-                >
-                  {regeneratingProfile ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3 h-3" />
-                  )}
-                  Gerar agora
-                </button>
+                <p>A clínica ainda não tem resumo.</p>
+                <p className="text-[11px] mt-0.5">
+                  Dica: antes de gerar, use &quot;Revisar com IA&quot; abaixo pra tirar da base o que não serve pra atender pacientes.
+                </p>
+                <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+                  <button
+                    onClick={handleRegenerateProfile}
+                    disabled={regeneratingProfile}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 disabled:opacity-50"
+                  >
+                    {regeneratingProfile ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
+                    Gerar a partir das memórias
+                  </button>
+                  <button
+                    onClick={handleStartEditProfile}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-foreground/[0.05]"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Escrever o resumo
+                  </button>
+                </div>
               </div>
             )}
           </div>
         )}
       </div>
 
+      {/* Limpeza com IA + arquivadas */}
+      <MemoryReviewPanel
+        onChanged={reloadQuiet}
+        archivedVersion={archivedVersion}
+        summaryState={summaryState}
+        activeMemories={activeMemories}
+        onSummaryQueued={refreshProfileLater}
+      />
+
       {/* Search */}
-      <div className="relative mb-4">
+      <div className="relative mb-2">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           type="text"
@@ -642,6 +864,16 @@ export default function KnowledgeSettingsPage() {
           className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-card border border-border focus:outline-none focus:ring-1 focus:ring-primary"
         />
       </div>
+      <p className="mb-4 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Tag className="w-3 h-3 shrink-0" />
+        <span>
+          Preços não ficam aqui: use{' '}
+          <Link href={PRICES_HREF} className="text-primary hover:underline">
+            Ajustes IA › Valores
+          </Link>
+          .
+        </span>
+      </p>
 
       {/* Message */}
       {message && (
@@ -649,11 +881,27 @@ export default function KnowledgeSettingsPage() {
           className={`mb-4 px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
             message.type === 'ok'
               ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-              : 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
+              : message.type === 'warn'
+                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                : 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
           }`}
         >
-          {message.type === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          {message.text}
+          {message.type === 'ok' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span className="flex-1">{message.text}</span>
+          {message.type === 'warn' && (
+            <button
+              onClick={() => setMessage(null)}
+              className="p-0.5 rounded hover:bg-amber-500/10 shrink-0"
+              title="Fechar aviso"
+              aria-label="Fechar aviso"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
@@ -675,12 +923,22 @@ export default function KnowledgeSettingsPage() {
       {/* Groups */}
       {!loading && !error && (
         <div className="space-y-2">
-          {SUBCATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const items = filteredGroups[cat.key] || [];
             const open = openGroups[cat.key] ?? false;
             const Icon = cat.icon;
+            const startAdding = () => {
+              setAdding({ subcategory: cat.key });
+              setNewContent('');
+              setOpenGroups((prev) => ({ ...prev, [cat.key]: true }));
+            };
             return (
-              <div key={cat.key} className="bg-card border border-border rounded-xl overflow-hidden">
+              <div
+                key={cat.key}
+                className={`bg-card border rounded-xl overflow-hidden ${
+                  cat.legacy ? 'border-amber-500/30' : 'border-border'
+                }`}
+              >
                 <div className="flex items-center">
                   <button
                     onClick={() => toggleGroup(cat.key)}
@@ -691,43 +949,45 @@ export default function KnowledgeSettingsPage() {
                     ) : (
                       <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     )}
-                    <Icon className="w-4 h-4 text-primary" />
+                    <Icon className={`w-4 h-4 ${cat.legacy ? 'text-amber-600 dark:text-amber-400' : 'text-primary'}`} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{cat.label}</span>
                         <span className="text-xs text-muted-foreground">({items.length})</span>
                       </div>
-                      {!open && (
-                        <p className="text-[11px] text-muted-foreground truncate">{cat.hint}</p>
+                      {(!open || cat.legacy) && (
+                        <p
+                          className={`text-[11px] truncate ${
+                            cat.legacy ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+                          }`}
+                        >
+                          {cat.hint}
+                        </p>
                       )}
                     </div>
                   </button>
-                  <button
-                    onClick={() => {
-                      setAdding({ subcategory: cat.key });
-                      setNewContent('');
-                    }}
-                    className="px-3 py-2 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                    title="Adicionar memória"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                  {/* Categoria antiga não recebe memória nova */}
+                  {!cat.legacy && (
+                    <button
+                      onClick={startAdding}
+                      className="px-3 py-2 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Adicionar memória"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
                 {open && (
                   <div className="border-t border-border bg-foreground/[0.02]">
                     {items.length === 0 && adding?.subcategory !== cat.key && (
                       <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                        <p>Nenhuma memória nesta categoria.</p>
-                        <button
-                          onClick={() => {
-                            setAdding({ subcategory: cat.key });
-                            setNewContent('');
-                          }}
-                          className="mt-2 text-primary text-xs hover:underline"
-                        >
-                          + Adicionar primeira memória
-                        </button>
+                        <p>{search.trim() ? 'Nada encontrado nesta categoria.' : 'Nenhuma memória nesta categoria.'}</p>
+                        {!cat.legacy && !search.trim() && (
+                          <button onClick={startAdding} className="mt-2 text-primary text-xs hover:underline">
+                            + Adicionar primeira memória
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -775,24 +1035,45 @@ export default function KnowledgeSettingsPage() {
                               className="w-full text-sm p-2 rounded-lg bg-card border border-border focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-none"
                               autoFocus
                             />
-                            <div className="flex items-center justify-end gap-2 mt-2">
-                              <button
-                                onClick={() => {
-                                  setEditing(null);
-                                  setEditContent('');
-                                }}
-                                className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={handleUpdate}
-                                disabled={saving}
-                                className="px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5"
-                              >
-                                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                                Salvar
-                              </button>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-2">
+                              {/* Categoria: só as 6 da clínica (tira memória de categoria antiga) */}
+                              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                Categoria
+                                <select
+                                  value={editSubcategory}
+                                  onChange={(e) => setEditSubcategory(e.target.value)}
+                                  className="text-xs p-1.5 rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                >
+                                  {!isOrgMemorySubcategory(item.subcategory) && (
+                                    <option value="">Manter em {cat.label}</option>
+                                  )}
+                                  {ORG_MEMORY_SUBCATEGORIES.map((k) => (
+                                    <option key={k} value={k}>
+                                      {ORG_MEMORY_LABELS[k].label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => {
+                                    setEditing(null);
+                                    setEditContent('');
+                                    setEditSubcategory('');
+                                  }}
+                                  className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={handleUpdate}
+                                  disabled={saving}
+                                  className="px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5"
+                                >
+                                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                  Salvar
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -812,16 +1093,29 @@ export default function KnowledgeSettingsPage() {
                                 onClick={() => {
                                   setEditing(item);
                                   setEditContent(item.content);
+                                  setEditSubcategory(isOrgMemorySubcategory(item.subcategory) ? item.subcategory : '');
                                 }}
                                 className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors"
-                                title="Editar"
+                                title={cat.legacy ? 'Editar / mudar de categoria' : 'Editar'}
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
+                                onClick={() => handleArchive(item.id)}
+                                disabled={archivingId === item.id}
+                                className="p-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 rounded transition-colors disabled:opacity-50"
+                                title="Arquivar (sai da base; dá pra restaurar em Ver arquivadas)"
+                              >
+                                {archivingId === item.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Archive className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
                                 onClick={() => handleDelete(item.id)}
                                 className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
-                                title="Remover"
+                                title="Apagar de vez"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -937,7 +1231,7 @@ export default function KnowledgeSettingsPage() {
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-[11px] text-muted-foreground">
-                            Usado toda noite (02h) para atualizar o resumo com memórias novas/deletadas do dia.{' '}
+                            Usado toda madrugada (02h) para atualizar o resumo com as memórias novas ou apagadas do dia.{' '}
                             {editIncremental.trim() === '' && (
                               <span className="text-foreground font-medium">Usando padrão do sistema.</span>
                             )}
@@ -976,7 +1270,7 @@ export default function KnowledgeSettingsPage() {
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-[11px] text-muted-foreground">
-                            Usado quando admin clica "Refazer do zero" — gera resumo completamente novo a partir de todas as memórias.{' '}
+                            Usado quando alguém clica "Refazer do zero" — escreve um resumo novo a partir de todas as memórias.{' '}
                             {editRebuild.trim() === '' && (
                               <span className="text-foreground font-medium">Usando padrão do sistema.</span>
                             )}

@@ -13,7 +13,7 @@
  * manutencao — nao chame de dentro de jobs normais.
  */
 
-import { PrismaClient } from '@crm/shared';
+import { PrismaClient, screenExtractedOrgMemory } from '@crm/shared';
 import OpenAI from 'openai';
 import { createHash } from 'crypto';
 import { RETROACTIVE_ORG_PROMPT } from './memory-prompts';
@@ -54,9 +54,38 @@ async function main() {
   const since = new Date();
   since.setMonth(since.getMonth() - LOOKBACK_MONTHS);
 
+  // Chip FINANCEIRO (cobranca/boletos/relatorios) nao ensina nada sobre a
+  // clinica — fora da extracao. Instance.name e unico; inclui instancia sem
+  // tenant (legado) por seguranca, ja que so filtra msgs DESTA clinica.
+  const financeiroInstances = await prisma.instance.findMany({
+    where: { purpose: 'FINANCEIRO', OR: [{ tenant_id: tenantId }, { tenant_id: null }] },
+    select: { name: true },
+  });
+  const financeiroNames = financeiroInstances.map((i) => i.name);
+  // Campo nullable: `notIn` sozinho descartaria NULL no Prisma — por isso o OR.
+  const notFinanceiroChip = financeiroNames.length
+    ? [{ OR: [{ instance_name: null }, { instance_name: { notIn: financeiroNames } }] }]
+    : [];
+  console.log(`[Retroactive] ${financeiroNames.length} chip(s) FINANCEIRO excluido(s)`);
+
   const messages = await prisma.message.findMany({
     where: {
-      conversation: { tenant_id: tenantId },
+      conversation: {
+        tenant_id: tenantId,
+        AND: [
+          // Inbox FINANCEIRO fora; conversa sem inbox / inbox sem purpose fica.
+          {
+            OR: [
+              { inbox_id: null },
+              { inbox: { is: { OR: [{ purpose: null }, { purpose: { not: 'FINANCEIRO' } }] } } },
+            ],
+          },
+          // Conversa presa ao chip FINANCEIRO (msg antiga sem instance_name).
+          ...notFinanceiroChip,
+        ],
+      },
+      // Msg que saiu pelo chip FINANCEIRO.
+      AND: notFinanceiroChip,
       direction: 'out',
       type: 'text',
       skill_id: null, // apenas humanos, nao IA
@@ -76,6 +105,9 @@ async function main() {
 
   const batches = chunk(messages, BATCH_SIZE);
   let totalInserted = 0;
+  // Memorias da clinica barradas pela peneira (so contagem — nunca o conteudo)
+  let discardedInternal = 0;
+  let discardedSubcategory = 0;
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
@@ -111,6 +143,16 @@ async function main() {
         const content = memory.content.trim();
         if (content.length < 5) continue;
 
+        // Peneira (antes do embedding): dado interno (caixa, vendas, cobranca,
+        // lista de pacientes) e categoria antiga/invalida nao viram memoria da
+        // clinica; legal_knowledge vira treatments.
+        const screen = screenExtractedOrgMemory(content, memory.subcategory);
+        if (!screen.ok) {
+          if (screen.reason === 'internal') discardedInternal++;
+          else discardedSubcategory++;
+          continue;
+        }
+
         const embResp = await openai.embeddings.create({
           model: 'text-embedding-3-small',
           input: content,
@@ -145,7 +187,7 @@ async function main() {
           )
           `,
           tenantId,
-          memory.subcategory || 'geral',
+          screen.subcategory,
           content,
           vec,
           typeof memory.confidence === 'number' ? memory.confidence : 0.8,
@@ -159,7 +201,9 @@ async function main() {
     }
   }
 
-  console.log(`[Retroactive] Concluido. ${totalInserted} memorias organizacionais inseridas.`);
+  console.log(
+    `[Retroactive] Concluido. ${totalInserted} memorias organizacionais inseridas; descartadas: dado interno=${discardedInternal}, categoria invalida=${discardedSubcategory}.`,
+  );
   await prisma.$disconnect();
 }
 
