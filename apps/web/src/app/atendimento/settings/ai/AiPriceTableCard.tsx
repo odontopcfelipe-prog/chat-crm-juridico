@@ -73,7 +73,8 @@ export function buildPriceGuide(f: Form): string {
  * Orientação de valores da Sophia — por clínica. "Modelo pronto" (só troca nome e
  * valores) ou texto livre, + chave pra liberar ou não a IA a passar valores.
  */
-export function AiPriceTableCard() {
+/** onStatus(true) = há orientação de valores salva (a etapa "Valores" está concluída). */
+export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => void } = {}) {
   const [mode, setMode] = useState<Mode>('template');
   const [form, setForm] = useState<Form>(DEFAULT_FORM);
   const [freeText, setFreeText] = useState('');
@@ -92,6 +93,7 @@ export function AiPriceTableCard() {
         const d = r.data || {};
         setEnabled(d.enabled !== false);
         setNeverSaved(!String(d.value || '').trim());
+        onStatus?.(!!String(d.value || '').trim());
         if (d.form?.mode === 'free' || (!d.form && d.value)) {
           setMode('free');
           setFreeText(d.value || '');
@@ -101,6 +103,7 @@ export function AiPriceTableCard() {
       })
       .catch(() => setError('Não consegui carregar a orientação de valores.'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const preview = useMemo(() => buildPriceGuide(form), [form]);
@@ -117,6 +120,7 @@ export function AiPriceTableCard() {
       });
       setSaved(true);
       setNeverSaved(!finalText.trim());
+      onStatus?.(!!finalText.trim());
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Não consegui salvar.');

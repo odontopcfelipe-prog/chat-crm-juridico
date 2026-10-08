@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout,
+  UserCog, Bot, Shield, ChevronLeft, MessageSquare, MessageCircle, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
   Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send, RotateCcw,
@@ -78,6 +78,8 @@ const settingsSections: MenuSection[] = [
           { label: 'Custos IA', href: '/atendimento/settings/costs', icon: DollarSign },
         ],
       },
+      // Conversa de teste com a IA (página própria, logo abaixo dos ajustes)
+      { label: 'Teste sua IA', href: '/atendimento/settings/ai/teste', icon: MessageCircle },
       { label: 'Base de Conhecimento', href: '/atendimento/settings/knowledge', icon: Brain },
       { label: 'Disparos e Lembretes', href: '/atendimento/settings/disparos', icon: Send },
       // Onda 17.55 — e-mails automaticos pros pacientes (movido de Clínica pra cá)
@@ -99,6 +101,7 @@ const adminOnlyPaths = new Set([
   '/atendimento/settings/users',
   '/atendimento/settings/permissions',
   '/atendimento/settings/ai',
+  '/atendimento/settings/ai/teste',
   '/atendimento/settings/costs',
   '/atendimento/settings/knowledge',
   '/atendimento/settings/whatsapp',

@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power } from 'lucide-react';
+import Link from 'next/link';
+import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
-import { AiTestChatCard } from './AiTestChatCard';
 import { AiPriceTableCard } from './AiPriceTableCard';
 import { AiClinicInfoCard } from './AiClinicInfoCard';
 import { AiChipProfileEditor } from './AiChipProfileEditor';
+import { AiSetupStep, AiSetupStepNav, type AiSetupStepInfo } from './AiSetupStep';
 import type { AiProfileResponse } from './clinic-hours';
 import { OPENAI_MODELS, ANTHROPIC_MODELS, AVAILABLE_MODELS } from './ai-models';
 
@@ -221,6 +222,8 @@ export default function AiSettingsPage() {
   // TTS
   const [ttsEnabled, setTtsEnabled]         = useState(false);
   const [ttsConfigured, setTtsConfigured]   = useState(false);
+  // Voz SALVA ligada (a etapa 5 só conta depois de salvar, não ao mexer na chave)
+  const [ttsSavedOn, setTtsSavedOn] = useState(false);
   const [ttsGoogleApiKey, setTtsGoogleApiKey] = useState('');
   const [ttsVoice, setTtsVoice]             = useState('pt-BR-Neural2-B');
   const [isEditingTtsKey, setIsEditingTtsKey] = useState(false);
@@ -230,6 +233,8 @@ export default function AiSettingsPage() {
 
   // Skills
   const [skills, setSkills] = useState<Skill[]>([]);
+  // Etapa "Valores": há orientação de valores salva? (o card avisa ao carregar/salvar)
+  const [priceSaved, setPriceSaved] = useState(false);
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   // Onda 18.23 — gaveta aberta por chip (Comercial abre por padrão, é onde estão as skills).
   const [expandedChips, setExpandedChips] = useState<Record<string, boolean>>({ COMERCIAL: true });
@@ -270,6 +275,7 @@ export default function AiSettingsPage() {
       setCooldownSeconds(configRes.data.cooldownSeconds ?? 8);
       setSkills(skillsRes.data);
       setTtsEnabled(ttsRes.data.enabled ?? false);
+      setTtsSavedOn(!!ttsRes.data.enabled);
       setTtsConfigured(ttsRes.data.isConfigured ?? false);
       setTtsVoice(ttsRes.data.voice || 'pt-BR-Neural2-B');
     } catch (e) {
@@ -354,6 +360,7 @@ export default function AiSettingsPage() {
       if (ttsGoogleApiKey.trim()) payload.googleApiKey = ttsGoogleApiKey.trim();
       await api.patch('/settings/tts', payload);
       if (ttsGoogleApiKey.trim()) setTtsConfigured(true);
+      setTtsSavedOn(ttsEnabled);
       setIsEditingTtsKey(false);
       setTtsGoogleApiKey('');
       setSavedTts(true);
@@ -560,702 +567,784 @@ export default function AiSettingsPage() {
     </div>
   );
 
+  // Situação de cada ETAPA (topo da página + selo em cada etapa).
+  const setupSteps: AiSetupStepInfo[] = [
+    { n: 1, id: 'etapa-conectar', title: 'Conectar a IA', status: isConfigured || isAnthropicKeyConfigured ? 'done' : 'pending' },
+    {
+      n: 2,
+      id: 'etapa-clinica',
+      title: 'Dados da clínica',
+      status: aiProfile?.clinic?.hours && aiProfile?.clinic?.formattedAddress ? 'done' : 'pending',
+    },
+    { n: 3, id: 'etapa-valores', title: 'Valores', status: priceSaved ? 'done' : 'pending' },
+    {
+      n: 4,
+      id: 'etapa-chips',
+      title: 'Assistente em cada chip',
+      status: Object.values(aiChip).some(Boolean) && skills.length > 0 ? 'done' : 'pending',
+    },
+    {
+      n: 5,
+      id: 'etapa-voz',
+      title: 'Voz (opcional)',
+      optional: true,
+      status: ttsSavedOn && (ttsConfigured || !!ttsGoogleApiKey.trim()) ? 'done' : 'optional',
+    },
+  ];
+
   return (
     <div className="flex-1 flex flex-col pt-8 overflow-hidden bg-background">
       <header className="px-8 mb-6 shrink-0">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Ajustes IA</h1>
-        <p className="text-[13px] text-muted-foreground mt-1">Configure modelos, prompts e comportamento do assistente virtual.</p>
+        <p className="text-[13px] text-muted-foreground mt-1">Configure a sua assistente virtual seguindo as etapas, na ordem.</p>
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 flex flex-col gap-6">
 
-        {/* ── IA por chip (Onda 18.23): liberação + skills JUNTOS. Cada chip é uma
-              gaveta — clica pra abrir e ver/editar as skills dele; o toggle liga/
-              desliga a IA daquele chip. ── */}
-        <div className="rounded-2xl border-2 border-border bg-card overflow-hidden">
-          <div className="p-4 border-b border-border bg-primary/5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-              <Power size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-foreground tracking-tight">IA por chip</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
-                Ligue/desligue e configure as skills de cada chip no mesmo lugar. Desligar os três = IA totalmente desligada.
-              </p>
-            </div>
-          </div>
+        <AiSetupStepNav steps={setupSteps} loading={loading} />
 
-          {loading ? (
-            <div className="p-6 flex items-center justify-center">
-              <RefreshCw className="animate-spin text-muted-foreground" size={20} />
+        <AiSetupStep
+          n={1}
+          id="etapa-conectar"
+          title="Conectar a IA"
+          description="Cadastre a chave da OpenAI (ou da Anthropic) e escolha o modelo padrão. Sem isso a IA não responde."
+          status={loading ? 'checking' : setupSteps[0].status}
+        >
+          {/* ── Config Global ── */}
+          <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between bg-primary/5">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <KeyRound size={16} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">Configuração Global</h4>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">API Key + Modelo padrão</p>
+                </div>
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {([...AI_CHIPS, { id: 'GERAL' as const, label: 'Geral', color: '#7A7A8C' }]).map((chip) => {
-                const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
-                const isRealChip = chip.id !== 'GERAL';
-                // Geral só aparece com skills; chips reais aparecem SEMPRE (pro toggle).
-                if (!isRealChip && chipSkills.length === 0) return null;
-                const on = isRealChip ? aiChip[chip.id as AiChipId] : true;
-                const open = !!expandedChips[chip.id];
-                const creatingHere = editingId === 'new' && newSkillChip === chip.id;
-                return (
-                  <div key={chip.id}>
-                    {/* Cabeçalho-gaveta: clica pra abrir/fechar; o toggle não propaga */}
-                    <div
-                      className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                      onClick={() => toggleExpand(chip.id)}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {open ? <ChevronDown size={15} className="text-muted-foreground shrink-0" /> : <ChevronRight size={15} className="text-muted-foreground shrink-0" />}
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
-                        <span className="text-sm font-bold w-24 shrink-0" style={{ color: chip.color }}>{chip.label}</span>
-                        {isRealChip ? (
-                          <span className={`text-[10px] font-black uppercase tracking-wider py-0.5 rounded-md w-28 text-center shrink-0 ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
-                            {on ? 'IA LIGADA' : 'IA DESLIGADA'}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground w-28 shrink-0">responde em qualquer chip</span>
-                        )}
-                        <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">· {chipSkills.length} skill{chipSkills.length === 1 ? '' : 's'}</span>
-                      </div>
-                      {isRealChip && (
+
+            {loading ? (
+              <div className="p-6 flex items-center justify-center">
+                <RefreshCw className="animate-spin text-muted-foreground" size={20} />
+              </div>
+            ) : (
+              <div className="p-5 space-y-4">
+                {/* Modelo padrão (sempre visível) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Modelo padrão (Chat / Skills)</label>
+                  <select
+                    value={defaultModel}
+                    onChange={(e) => setDefaultModel(e.target.value)}
+                    className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+                  >
+                    {AVAILABLE_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">Modelo usado quando a skill não define um modelo específico.</p>
+                </div>
+
+                {/* Modelo DJEN */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <span>⚖️</span> Modelo para análise DJEN
+                  </label>
+                  <select
+                    value={djenModel}
+                    onChange={(e) => setDjenModel(e.target.value)}
+                    className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+                  >
+                    <optgroup label="OpenAI">
+                      {[
+                        { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini — rápido, inteligente' },
+                        { value: 'gpt-4o-mini',  label: 'GPT-4o Mini — rápido, econômico' },
+                        { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — balanceado' },
+                        { value: 'gpt-4.1',      label: 'GPT-4.1 — analítico avançado' },
+                        { value: 'gpt-4o',       label: 'GPT-4o — alta precisão' },
+                      ].map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Anthropic (requer API Key Anthropic)">
+                      {[
+                        { value: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 — rápido, econômico' },
+                        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — balanceado, preciso' },
+                        { value: 'claude-opus-4-6',   label: 'Claude Opus 4.6 — máxima capacidade' },
+                      ].map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Modelo usado pelo botão <strong>Analisar IA</strong> na página de publicações DJEN.
+                    Modelos Anthropic exigem a API Key Anthropic configurada abaixo.
+                  </p>
+                </div>
+
+                {/* Prompt DJEN */}
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowDjenPrompt((v) => !v)}
+                    className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
+                  >
+                    <span>⚖️</span> Prompt de análise DJEN
+                    <span className="ml-auto text-[10px] font-normal text-primary">
+                      {showDjenPrompt ? '▲ fechar' : '▼ editar'}
+                    </span>
+                  </button>
+                  {showDjenPrompt && (
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={djenPrompt}
+                        onChange={(e) => setDjenPrompt(e.target.value)}
+                        rows={20}
+                        className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 transition-all resize-y"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Prompt do sistema enviado à IA ao analisar publicações DJEN. Deixe vazio para usar o prompt padrão.<br />
+                        <strong>Atenção:</strong> o retorno deve ser sempre um JSON com os campos obrigatórios (resumo, urgencia, event_type, data_audiencia, data_prazo, etc.).
+                      </p>
+                      {djenPromptIsCustom && (
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); toggleChipAi(chip.id as AiChipId); }}
-                          disabled={savingChip === chip.id || loading}
-                          className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-red-500'}`}
-                          title={on ? 'Clique para desligar a IA deste chip' : 'Clique para ligar a IA deste chip'}
+                          onClick={() => { setDjenPrompt(DEFAULT_DJEN_PROMPT); setDjenPromptIsCustom(false); }}
+                          className="text-[11px] text-destructive hover:underline"
                         >
-                          <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${on ? 'translate-x-7' : 'translate-x-0'}`} />
+                          Restaurar prompt padrão do sistema
                         </button>
                       )}
                     </div>
-
-                    {/* Gaveta aberta: skills do chip + nova skill */}
-                    {open && (
-                      <div className="bg-muted/10 border-t border-border/50">
-                        {/* Perfil da IA deste chip (nome, assinatura, tamanho, tempo, instruções) */}
-                        {isRealChip && (
-                          <AiChipProfileEditor
-                            purpose={chip.id as AiChipId}
-                            profile={aiProfile?.chips?.[chip.id as AiChipId] ?? null}
-                            defaultCooldown={aiProfile?.defaults?.cooldownSeconds ?? cooldownSeconds}
-                            onSaved={reloadAiProfile}
-                          />
-                        )}
-
-                        {/* Banner Sincronizar SDR só no Comercial (onde a SDR vive) */}
-                        {chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
-                          <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
-                            <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
-                              {skills.some((s) => s.name === 'SDR Jurídico — Sophia')
-                                ? <>A skill <span className="font-bold">SDR Jurídico — Sophia</span> ainda está no domínio jurídico. Clique para migrar (preserva uploads e tools).</>
-                                : <>Aplicar a versão mais recente do prompt e da reference na <span className="font-bold">SDR — Sophia</span>. Preserva model, temperature, uploads e tools.</>}
-                            </span>
-                            <button
-                              onClick={async () => {
-                                const isLegacy = skills.some((s) => s.name === 'SDR Jurídico — Sophia');
-                                const msg = isLegacy
-                                  ? 'Migrar a SDR para o domínio odontológico? Renomeia para "SDR — Sophia" e aplica o prompt + reference padrão. Uploads e tools preservados.'
-                                  : 'Sincronizar a SDR com a versão mais recente? Substitui prompt, description, trigger_keywords e reference. Uploads e tools preservados.';
-                                if (!confirm(msg)) return;
-                                try {
-                                  const res = await api.post('/settings/skills/migrate-sdr-to-odonto');
-                                  alert(`Sincronização concluída.\nskill_id: ${res.data.skill_id}\nlegacy_removed: ${res.data.legacy_removed}`);
-                                  window.location.reload();
-                                } catch (e: any) {
-                                  alert(e?.response?.data?.message || 'Erro ao sincronizar SDR.');
-                                }
-                              }}
-                              className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors shrink-0"
-                            >
-                              {skills.some((s) => s.name === 'SDR Jurídico — Sophia') ? 'Migrar para Odonto' : 'Sincronizar SDR'}
-                            </button>
-                          </div>
-                        )}
-
-                        {chipSkills.length > 0 && (
-                          <div className="divide-y divide-border/50">{chipSkills.map(renderSkillCard)}</div>
-                        )}
-
-                        {chipSkills.length === 0 && !creatingHere && (
-                          <div className="px-4 py-3 text-[11px] text-muted-foreground italic">
-                            Nenhuma skill neste chip ainda.{isRealChip ? ' Enquanto vazio e ligado, a IA fica em silêncio aqui.' : ''}
-                          </div>
-                        )}
-
-                        {/* Nova skill deste chip (editor inline) */}
-                        {creatingHere && (
-                          <div className="p-4 bg-violet-500/5 border-t border-violet-500/20">
-                            <p className="text-xs font-bold text-violet-400 mb-3 uppercase tracking-wide flex items-center gap-2">
-                              <Plus size={12} /> Nova skill · {chip.label}
-                            </p>
-                            <SkillEditor
-                              form={form}
-                              setForm={setForm}
-                              textareaRef={textareaRef}
-                              saving={savingSkill}
-                              onSave={saveSkill}
-                              onCancel={cancelEdit}
-                              insertVar={insertVar}
-                              skillId={null}
-                              tools={[]}
-                              assets={[]}
-                              onRefresh={fetchData}
-                              variablePreview={variablePreview}
-                            />
-                          </div>
-                        )}
-
-                        {!creatingHere && (
-                          <div className="p-3">
-                            <button
-                              onClick={() => openNew(chip.id)}
-                              className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
-                            >
-                              <Plus size={13} /> Nova skill neste chip
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ── Dados da clínica (valem p/ todos os chips) + chat de teste + valores (por clínica) ── */}
-        <AiClinicInfoCard />
-        <AiTestChatCard
-          chipNames={{
-            COMERCIAL: aiProfile?.chips?.COMERCIAL?.assistantName,
-            CLINICA: aiProfile?.chips?.CLINICA?.assistantName,
-            FINANCEIRO: aiProfile?.chips?.FINANCEIRO?.assistantName,
-          }}
-        />
-        <AiPriceTableCard />
-
-        {/* ── Config Global ── */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-border flex items-center justify-between bg-primary/5">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <KeyRound size={16} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-foreground">Configuração Global</h4>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">API Key + Modelo padrão</p>
-              </div>
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="p-6 flex items-center justify-center">
-              <RefreshCw className="animate-spin text-muted-foreground" size={20} />
-            </div>
-          ) : (
-            <div className="p-5 space-y-4">
-              {/* Modelo padrão (sempre visível) */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Modelo padrão (Chat / Skills)</label>
-                <select
-                  value={defaultModel}
-                  onChange={(e) => setDefaultModel(e.target.value)}
-                  className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
-                >
-                  {AVAILABLE_MODELS.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-muted-foreground">Modelo usado quando a skill não define um modelo específico.</p>
-              </div>
-
-              {/* Modelo DJEN */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                  <span>⚖️</span> Modelo para análise DJEN
-                </label>
-                <select
-                  value={djenModel}
-                  onChange={(e) => setDjenModel(e.target.value)}
-                  className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
-                >
-                  <optgroup label="OpenAI">
-                    {[
-                      { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini — rápido, inteligente' },
-                      { value: 'gpt-4o-mini',  label: 'GPT-4o Mini — rápido, econômico' },
-                      { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — balanceado' },
-                      { value: 'gpt-4.1',      label: 'GPT-4.1 — analítico avançado' },
-                      { value: 'gpt-4o',       label: 'GPT-4o — alta precisão' },
-                    ].map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Anthropic (requer API Key Anthropic)">
-                    {[
-                      { value: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 — rápido, econômico' },
-                      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — balanceado, preciso' },
-                      { value: 'claude-opus-4-6',   label: 'Claude Opus 4.6 — máxima capacidade' },
-                    ].map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </optgroup>
-                </select>
-                <p className="text-[11px] text-muted-foreground">
-                  Modelo usado pelo botão <strong>Analisar IA</strong> na página de publicações DJEN.
-                  Modelos Anthropic exigem a API Key Anthropic configurada abaixo.
-                </p>
-              </div>
-
-              {/* Prompt DJEN */}
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowDjenPrompt((v) => !v)}
-                  className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
-                >
-                  <span>⚖️</span> Prompt de análise DJEN
-                  <span className="ml-auto text-[10px] font-normal text-primary">
-                    {showDjenPrompt ? '▲ fechar' : '▼ editar'}
-                  </span>
-                </button>
-                {showDjenPrompt && (
-                  <div className="space-y-1.5">
-                    <textarea
-                      value={djenPrompt}
-                      onChange={(e) => setDjenPrompt(e.target.value)}
-                      rows={20}
-                      className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 transition-all resize-y"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Prompt do sistema enviado à IA ao analisar publicações DJEN. Deixe vazio para usar o prompt padrão.<br />
-                      <strong>Atenção:</strong> o retorno deve ser sempre um JSON com os campos obrigatórios (resumo, urgencia, event_type, data_audiencia, data_prazo, etc.).
-                    </p>
-                    {djenPromptIsCustom && (
-                      <button
-                        type="button"
-                        onClick={() => { setDjenPrompt(DEFAULT_DJEN_PROMPT); setDjenPromptIsCustom(false); }}
-                        className="text-[11px] text-destructive hover:underline"
-                      >
-                        Restaurar prompt padrão do sistema
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Template de notificação ao cliente (DJEN) */}
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowDjenNotifyTemplate((v) => !v)}
-                  className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
-                >
-                  <span>📱</span> Template de notificação ao cliente (DJEN)
-                  <span className="ml-auto text-[10px] font-normal text-primary">
-                    {showDjenNotifyTemplate ? '▲ fechar' : '▼ editar'}
-                  </span>
-                </button>
-                {showDjenNotifyTemplate && (
-                  <div className="space-y-1.5">
-                    <textarea
-                      value={djenNotifyTemplate}
-                      onChange={(e) => setDjenNotifyTemplate(e.target.value)}
-                      rows={18}
-                      className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 transition-all resize-y"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Mensagem enviada via WhatsApp ao cliente quando uma publicação DJEN é vinculada ao processo dele.<br />
-                      Linhas com variáveis vazias são removidas automaticamente.<br />
-                      <strong>Variáveis:</strong>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{nome}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{processo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{tipo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{data}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{assunto}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{resumo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{fase_processo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{prazo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{local_evento}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{proximo_passo}}'}</code>{' '}
-                      <code className="text-[10px] bg-muted px-1 rounded">{'{{orientacao}}'}</code>
-                    </p>
-                    {djenNotifyTemplateIsCustom && (
-                      <button
-                        type="button"
-                        onClick={() => { setDjenNotifyTemplate(DEFAULT_DJEN_NOTIFY_TEMPLATE); setDjenNotifyTemplateIsCustom(false); }}
-                        className="text-[11px] text-destructive hover:underline"
-                      >
-                        Restaurar template padrão
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Admin Command Bot */}
-              <div className="flex items-center justify-between py-1">
-                <div className="space-y-0.5">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                    <span>🤖</span> Bot de Comando Admin (WhatsApp)
-                  </label>
-                  <p className="text-[11px] text-muted-foreground">
-                    Permite controlar o CRC enviando mensagens para o número do escritório.
-                    {!adminBotEnabled && <span className="text-sky-400 font-semibold ml-1">Desativado — admins serão atendidos como clientes normais.</span>}
-                  </p>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAdminBotEnabled((v) => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${adminBotEnabled ? 'bg-primary' : 'bg-muted'}`}
-                >
-                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${adminBotEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
-              </div>
 
-              {/* Tempo de resposta padrão (cooldownSeconds) — o chip sem tempo próprio usa este */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-                  Tempo de resposta padrão:{' '}
-                  <span className="text-foreground">
-                    {cooldownSeconds === 0 ? 'responde na hora' : `${cooldownSeconds}s`}
-                  </span>
-                </label>
-                <input
-                  type="range" min={0} max={60} step={1}
-                  value={cooldownSeconds}
-                  onChange={(e) => setCooldownSeconds(Number(e.target.value))}
-                  className="w-full accent-primary"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>0s</span><span>60s</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Usado nos chips que não definem o próprio tempo. A IA espera o paciente parar de escrever por esse tempo antes de responder. Atenção: este padrão vale para TODAS as clínicas do sistema; para mudar só a sua, defina o tempo dentro do chip.
-                </p>
-              </div>
-
-              {/* ── API Key (regular) ── */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key OpenAI</label>
-                  <button
-                    onClick={() => { setIsEditingKey(!isEditingKey); setApiKey(''); setShowKey(false); }}
-                    className="text-xs font-bold text-primary hover:underline"
-                  >
-                    {isEditingKey ? 'Cancelar' : isConfigured ? 'Trocar' : 'Configurar'}
-                  </button>
-                </div>
-                {isEditingKey ? (
-                  <div className="space-y-1.5">
-                    <div className="relative">
-                      <input
-                        type={showKey ? 'text' : 'password'}
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="sk-proj-..."
-                        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                        autoFocus
-                      />
-                      <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                        {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">Obtenha em <span className="font-mono text-primary">platform.openai.com/api-keys</span></p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
-                    <span className="text-muted-foreground">Usada pelo worker para chamadas à IA</span>
-                    {isConfigured ? (
-                      <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* ── Admin Key (para Custos de IA) ── */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Admin Key OpenAI</label>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Necessária para acompanhar custos reais em <strong>Custos IA</strong>.</p>
-                  </div>
-                  <button
-                    onClick={() => { setIsEditingAdminKey(!isEditingAdminKey); setAdminKey(''); setShowAdminKey(false); }}
-                    className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
-                  >
-                    {isEditingAdminKey ? 'Cancelar' : isAdminKeyConfigured ? 'Trocar' : 'Configurar'}
-                  </button>
-                </div>
-                {isEditingAdminKey ? (
-                  <div className="space-y-1.5">
-                    <div className="relative">
-                      <input
-                        type={showAdminKey ? 'text' : 'password'}
-                        value={adminKey}
-                        onChange={(e) => setAdminKey(e.target.value)}
-                        placeholder="sk-admin-..."
-                        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                        autoFocus
-                      />
-                      <button type="button" onClick={() => setShowAdminKey(!showAdminKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                        {showAdminKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Crie em <span className="font-mono text-primary">platform.openai.com/settings/organization/admin-keys</span>
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
-                    <span className="text-muted-foreground">Acessa a API de custos da organização</span>
-                    {isAdminKeyConfigured ? (
-                      <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* ── API Key Anthropic Claude ── */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key Anthropic Claude</label>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Necessária para skills que usam provider &quot;Anthropic Claude&quot;.</p>
-                  </div>
-                  <button
-                    onClick={() => { setIsEditingAnthropicKey(!isEditingAnthropicKey); setAnthropicKey(''); setShowAnthropicKey(false); }}
-                    className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
-                  >
-                    {isEditingAnthropicKey ? 'Cancelar' : isAnthropicKeyConfigured ? 'Trocar' : 'Configurar'}
-                  </button>
-                </div>
-                {isEditingAnthropicKey ? (
-                  <div className="space-y-1.5">
-                    <div className="relative">
-                      <input
-                        type={showAnthropicKey ? 'text' : 'password'}
-                        value={anthropicKey}
-                        onChange={(e) => setAnthropicKey(e.target.value)}
-                        placeholder="sk-ant-..."
-                        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                        autoFocus
-                      />
-                      <button type="button" onClick={() => setShowAnthropicKey(!showAnthropicKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                        {showAnthropicKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Obtenha em <span className="font-mono text-primary">console.anthropic.com/settings/keys</span>
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
-                    <span className="text-muted-foreground">Usada por skills com provider Anthropic</span>
-                    {isAnthropicKeyConfigured ? (
-                      <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-muted-foreground font-bold"><div className="w-1.5 h-1.5 rounded-full bg-muted-foreground" /> NÃO CONFIGURADO</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  disabled={savingConfig}
-                  onClick={handleSaveConfig}
-                  className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
-                >
-                  {savingConfig ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
-                  Salvar Configurações
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Text-to-Speech ── */}
-        <div className="bg-card/50 rounded-2xl border border-border overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                <Volume2 size={15} className="text-emerald-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-foreground">Text-to-Speech</h3>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Converte respostas da IA em mensagens de voz no WhatsApp</p>
-              </div>
-            </div>
-            {/* Toggle ativar/desativar */}
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <div
-                onClick={() => setTtsEnabled(!ttsEnabled)}
-                className={`relative w-10 h-5.5 rounded-full transition-all cursor-pointer ${ttsEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
-                style={{ width: 40, height: 22 }}
-              >
-                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow ${ttsEnabled ? 'left-5' : 'left-0.5'}`} />
-              </div>
-              <span className={`text-xs font-bold ${ttsEnabled ? 'text-emerald-400' : 'text-muted-foreground'}`}>
-                {ttsEnabled ? 'Ativo' : 'Inativo'}
-              </span>
-            </label>
-          </div>
-
-          <div className="p-5 space-y-5">
-            {/* Google API Key */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key Google Cloud TTS</label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Obtenha em <span className="font-mono text-primary">console.cloud.google.com → Text-to-Speech API</span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => { setIsEditingTtsKey(!isEditingTtsKey); setTtsGoogleApiKey(''); setShowTtsKey(false); }}
-                  className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
-                >
-                  {isEditingTtsKey ? 'Cancelar' : ttsConfigured ? 'Trocar' : 'Configurar'}
-                </button>
-              </div>
-              {isEditingTtsKey ? (
+                {/* Template de notificação ao cliente (DJEN) */}
                 <div className="space-y-1.5">
-                  <div className="relative">
-                    <input
-                      type={showTtsKey ? 'text' : 'password'}
-                      value={ttsGoogleApiKey}
-                      onChange={(e) => setTtsGoogleApiKey(e.target.value)}
-                      placeholder="AIza..."
-                      className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                      autoFocus
-                    />
-                    <button type="button" onClick={() => setShowTtsKey(!showTtsKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                      {showTtsKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <button
+                    type="button"
+                    onClick={() => setShowDjenNotifyTemplate((v) => !v)}
+                    className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
+                  >
+                    <span>📱</span> Template de notificação ao cliente (DJEN)
+                    <span className="ml-auto text-[10px] font-normal text-primary">
+                      {showDjenNotifyTemplate ? '▲ fechar' : '▼ editar'}
+                    </span>
+                  </button>
+                  {showDjenNotifyTemplate && (
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={djenNotifyTemplate}
+                        onChange={(e) => setDjenNotifyTemplate(e.target.value)}
+                        rows={18}
+                        className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 transition-all resize-y"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Mensagem enviada via WhatsApp ao cliente quando uma publicação DJEN é vinculada ao processo dele.<br />
+                        Linhas com variáveis vazias são removidas automaticamente.<br />
+                        <strong>Variáveis:</strong>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{nome}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{processo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{tipo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{data}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{assunto}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{resumo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{fase_processo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{prazo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{local_evento}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{proximo_passo}}'}</code>{' '}
+                        <code className="text-[10px] bg-muted px-1 rounded">{'{{orientacao}}'}</code>
+                      </p>
+                      {djenNotifyTemplateIsCustom && (
+                        <button
+                          type="button"
+                          onClick={() => { setDjenNotifyTemplate(DEFAULT_DJEN_NOTIFY_TEMPLATE); setDjenNotifyTemplateIsCustom(false); }}
+                          className="text-[11px] text-destructive hover:underline"
+                        >
+                          Restaurar template padrão
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Admin Command Bot */}
+                <div className="flex items-center justify-between py-1">
+                  <div className="space-y-0.5">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <span>🤖</span> Bot de Comando Admin (WhatsApp)
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Permite controlar o CRC enviando mensagens para o número do escritório.
+                      {!adminBotEnabled && <span className="text-sky-400 font-semibold ml-1">Desativado — admins serão atendidos como clientes normais.</span>}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAdminBotEnabled((v) => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${adminBotEnabled ? 'bg-primary' : 'bg-muted'}`}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${adminBotEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {/* Tempo de resposta padrão (cooldownSeconds) — o chip sem tempo próprio usa este */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+                    Tempo de resposta padrão:{' '}
+                    <span className="text-foreground">
+                      {cooldownSeconds === 0 ? 'responde na hora' : `${cooldownSeconds}s`}
+                    </span>
+                  </label>
+                  <input
+                    type="range" min={0} max={60} step={1}
+                    value={cooldownSeconds}
+                    onChange={(e) => setCooldownSeconds(Number(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>0s</span><span>60s</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Usado nos chips que não definem o próprio tempo. A IA espera o paciente parar de escrever por esse tempo antes de responder. Atenção: este padrão vale para TODAS as clínicas do sistema; para mudar só a sua, defina o tempo dentro do chip.
+                  </p>
+                </div>
+
+                {/* ── API Key (regular) ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key OpenAI</label>
+                    <button
+                      onClick={() => { setIsEditingKey(!isEditingKey); setApiKey(''); setShowKey(false); }}
+                      className="text-xs font-bold text-primary hover:underline"
+                    >
+                      {isEditingKey ? 'Cancelar' : isConfigured ? 'Trocar' : 'Configurar'}
                     </button>
                   </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
-                  <span className="text-muted-foreground">Chave de API para síntese de voz</span>
-                  {ttsConfigured ? (
-                    <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                  {isEditingKey ? (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <input
+                          type={showKey ? 'text' : 'password'}
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="sk-proj-..."
+                          className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                          {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">Obtenha em <span className="font-mono text-primary">platform.openai.com/api-keys</span></p>
+                    </div>
                   ) : (
-                    <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
+                    <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                      <span className="text-muted-foreground">Usada pelo worker para chamadas à IA</span>
+                      {isConfigured ? (
+                        <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+
+                {/* ── Admin Key (para Custos de IA) ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Admin Key OpenAI</label>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Necessária para acompanhar custos reais em <strong>Custos IA</strong>.</p>
+                    </div>
+                    <button
+                      onClick={() => { setIsEditingAdminKey(!isEditingAdminKey); setAdminKey(''); setShowAdminKey(false); }}
+                      className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
+                    >
+                      {isEditingAdminKey ? 'Cancelar' : isAdminKeyConfigured ? 'Trocar' : 'Configurar'}
+                    </button>
+                  </div>
+                  {isEditingAdminKey ? (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <input
+                          type={showAdminKey ? 'text' : 'password'}
+                          value={adminKey}
+                          onChange={(e) => setAdminKey(e.target.value)}
+                          placeholder="sk-admin-..."
+                          className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => setShowAdminKey(!showAdminKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                          {showAdminKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Crie em <span className="font-mono text-primary">platform.openai.com/settings/organization/admin-keys</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                      <span className="text-muted-foreground">Acessa a API de custos da organização</span>
+                      {isAdminKeyConfigured ? (
+                        <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── API Key Anthropic Claude ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key Anthropic Claude</label>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Necessária para skills que usam provider &quot;Anthropic Claude&quot;.</p>
+                    </div>
+                    <button
+                      onClick={() => { setIsEditingAnthropicKey(!isEditingAnthropicKey); setAnthropicKey(''); setShowAnthropicKey(false); }}
+                      className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
+                    >
+                      {isEditingAnthropicKey ? 'Cancelar' : isAnthropicKeyConfigured ? 'Trocar' : 'Configurar'}
+                    </button>
+                  </div>
+                  {isEditingAnthropicKey ? (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <input
+                          type={showAnthropicKey ? 'text' : 'password'}
+                          value={anthropicKey}
+                          onChange={(e) => setAnthropicKey(e.target.value)}
+                          placeholder="sk-ant-..."
+                          className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => setShowAnthropicKey(!showAnthropicKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                          {showAnthropicKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Obtenha em <span className="font-mono text-primary">console.anthropic.com/settings/keys</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                      <span className="text-muted-foreground">Usada por skills com provider Anthropic</span>
+                      {isAnthropicKeyConfigured ? (
+                        <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-muted-foreground font-bold"><div className="w-1.5 h-1.5 rounded-full bg-muted-foreground" /> NÃO CONFIGURADO</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    disabled={savingConfig}
+                    onClick={handleSaveConfig}
+                    className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
+                  >
+                    {savingConfig ? <RefreshCw className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
+                    Salvar Configurações
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </AiSetupStep>
+
+        <AiSetupStep
+          n={2}
+          id="etapa-clinica"
+          title="Dados da clínica"
+          description="Nome, telefone, endereço, dias e horários e o resumo da clínica: é o que a IA responde quando o paciente pergunta. Vale para todos os chips."
+          status={loading ? 'checking' : setupSteps[1].status}
+        >
+          <AiClinicInfoCard onSaved={reloadAiProfile} />
+        </AiSetupStep>
+
+        <AiSetupStep
+          n={3}
+          id="etapa-valores"
+          title="Valores"
+          description="Quais valores a IA pode passar (com o que está incluso) e como explicar o resto. Dá para desligar se não quiser que ela fale preço."
+          status={loading ? 'checking' : setupSteps[2].status}
+        >
+          <AiPriceTableCard onStatus={setPriceSaved} />
+        </AiSetupStep>
+
+        <AiSetupStep
+          n={4}
+          id="etapa-chips"
+          title="Assistente em cada chip"
+          description="Ligue a IA em cada WhatsApp (Comercial, Clínica, Financeiro). Abra o chip para dar nome à assistente, escolher o tamanho e o tempo das respostas, as instruções e as skills."
+          status={loading ? 'checking' : setupSteps[3].status}
+        >
+          {/* ── IA por chip (Onda 18.23): liberação + skills JUNTOS. Cada chip é uma
+                gaveta — clica pra abrir e ver/editar as skills dele; o toggle liga/
+                desliga a IA daquele chip. ── */}
+          <div className="rounded-2xl border-2 border-border bg-card overflow-hidden">
+            <div className="p-4 border-b border-border bg-primary/5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Power size={18} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground tracking-tight">IA por chip</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
+                  Ligue/desligue e configure as skills de cada chip no mesmo lugar. Desligar os três = IA totalmente desligada.
+                </p>
+              </div>
             </div>
 
-            {/* Seleção de voz */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Voz</label>
-              <select
-                value={ttsVoice}
-                onChange={(e) => setTtsVoice(e.target.value)}
-                className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
-              >
-                <optgroup label="Gemini — Suaves e Acolhedoras">
-                  <option value="Sulafat">Sulafat — Quente</option>
-                  <option value="Vindemiatrix">Vindemiatrix — Gentil</option>
-                  <option value="Achernar">Achernar — Suave</option>
-                  <option value="Achird">Achird — Amigável</option>
-                  <option value="Aoede">Aoede — Leve</option>
-                  <option value="Leda">Leda — Jovial</option>
-                </optgroup>
-                <optgroup label="Gemini — Profissionais e Claras">
-                  <option value="Kore">Kore — Firme</option>
-                  <option value="Charon">Charon — Informativo</option>
-                  <option value="Iapetus">Iapetus — Claro</option>
-                  <option value="Erinome">Erinome — Claro</option>
-                  <option value="Schedar">Schedar — Equilibrado</option>
-                  <option value="Sadaltager">Sadaltager — Sábio</option>
-                  <option value="Rasalgethi">Rasalgethi — Informativo</option>
-                </optgroup>
-                <optgroup label="Gemini — Animadas e Energéticas">
-                  <option value="Puck">Puck — Animado</option>
-                  <option value="Zephyr">Zephyr — Brilhante</option>
-                  <option value="Fenrir">Fenrir — Empolgado</option>
-                  <option value="Laomedeia">Laomedeia — Animado</option>
-                  <option value="Sadachbia">Sadachbia — Vivaz</option>
-                  <option value="Autonoe">Autonoe — Brilhante</option>
-                </optgroup>
-                <optgroup label="Gemini — Relaxadas e Casuais">
-                  <option value="Algieba">Algieba — Suave</option>
-                  <option value="Despina">Despina — Suave</option>
-                  <option value="Callirrhoe">Callirrhoe — Tranquilo</option>
-                  <option value="Umbriel">Umbriel — Tranquilo</option>
-                  <option value="Zubenelgenubi">Zubenelgenubi — Casual</option>
-                  <option value="Enceladus">Enceladus — Sussurrante</option>
-                </optgroup>
-                <optgroup label="Gemini — Maduras e Fortes">
-                  <option value="Orus">Orus — Firme</option>
-                  <option value="Alnilam">Alnilam — Firme</option>
-                  <option value="Gacrux">Gacrux — Maduro</option>
-                  <option value="Algenib">Algenib — Grave</option>
-                  <option value="Pulcherrima">Pulcherrima — Projetado</option>
-                </optgroup>
-              </select>
+            {loading ? (
+              <div className="p-6 flex items-center justify-center">
+                <RefreshCw className="animate-spin text-muted-foreground" size={20} />
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {([...AI_CHIPS, { id: 'GERAL' as const, label: 'Geral', color: '#7A7A8C' }]).map((chip) => {
+                  const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
+                  const isRealChip = chip.id !== 'GERAL';
+                  // Geral só aparece com skills; chips reais aparecem SEMPRE (pro toggle).
+                  if (!isRealChip && chipSkills.length === 0) return null;
+                  const on = isRealChip ? aiChip[chip.id as AiChipId] : true;
+                  const open = !!expandedChips[chip.id];
+                  const creatingHere = editingId === 'new' && newSkillChip === chip.id;
+                  return (
+                    <div key={chip.id}>
+                      {/* Cabeçalho-gaveta: clica pra abrir/fechar; o toggle não propaga */}
+                      <div
+                        className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                        onClick={() => toggleExpand(chip.id)}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {open ? <ChevronDown size={15} className="text-muted-foreground shrink-0" /> : <ChevronRight size={15} className="text-muted-foreground shrink-0" />}
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
+                          <span className="text-sm font-bold w-24 shrink-0" style={{ color: chip.color }}>{chip.label}</span>
+                          {isRealChip ? (
+                            <span className={`text-[10px] font-black uppercase tracking-wider py-0.5 rounded-md w-28 text-center shrink-0 ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
+                              {on ? 'IA LIGADA' : 'IA DESLIGADA'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground w-28 shrink-0">responde em qualquer chip</span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">· {chipSkills.length} skill{chipSkills.length === 1 ? '' : 's'}</span>
+                        </div>
+                        {isRealChip && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleChipAi(chip.id as AiChipId); }}
+                            disabled={savingChip === chip.id || loading}
+                            className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-red-500'}`}
+                            title={on ? 'Clique para desligar a IA deste chip' : 'Clique para ligar a IA deste chip'}
+                          >
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${on ? 'translate-x-7' : 'translate-x-0'}`} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Gaveta aberta: skills do chip + nova skill */}
+                      {open && (
+                        <div className="bg-muted/10 border-t border-border/50">
+                          {/* Perfil da IA deste chip (nome, assinatura, tamanho, tempo, instruções) */}
+                          {isRealChip && (
+                            <AiChipProfileEditor
+                              purpose={chip.id as AiChipId}
+                              profile={aiProfile?.chips?.[chip.id as AiChipId] ?? null}
+                              defaultCooldown={aiProfile?.defaults?.cooldownSeconds ?? cooldownSeconds}
+                              onSaved={reloadAiProfile}
+                            />
+                          )}
+
+                          {/* Banner Sincronizar SDR só no Comercial (onde a SDR vive) */}
+                          {chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
+                            <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
+                              <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
+                                {skills.some((s) => s.name === 'SDR Jurídico — Sophia')
+                                  ? <>A skill <span className="font-bold">SDR Jurídico — Sophia</span> ainda está no domínio jurídico. Clique para migrar (preserva uploads e tools).</>
+                                  : <>Aplicar a versão mais recente do prompt e da reference na <span className="font-bold">SDR — Sophia</span>. Preserva model, temperature, uploads e tools.</>}
+                              </span>
+                              <button
+                                onClick={async () => {
+                                  const isLegacy = skills.some((s) => s.name === 'SDR Jurídico — Sophia');
+                                  const msg = isLegacy
+                                    ? 'Migrar a SDR para o domínio odontológico? Renomeia para "SDR — Sophia" e aplica o prompt + reference padrão. Uploads e tools preservados.'
+                                    : 'Sincronizar a SDR com a versão mais recente? Substitui prompt, description, trigger_keywords e reference. Uploads e tools preservados.';
+                                  if (!confirm(msg)) return;
+                                  try {
+                                    const res = await api.post('/settings/skills/migrate-sdr-to-odonto');
+                                    alert(`Sincronização concluída.\nskill_id: ${res.data.skill_id}\nlegacy_removed: ${res.data.legacy_removed}`);
+                                    window.location.reload();
+                                  } catch (e: any) {
+                                    alert(e?.response?.data?.message || 'Erro ao sincronizar SDR.');
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors shrink-0"
+                              >
+                                {skills.some((s) => s.name === 'SDR Jurídico — Sophia') ? 'Migrar para Odonto' : 'Sincronizar SDR'}
+                              </button>
+                            </div>
+                          )}
+
+                          {chipSkills.length > 0 && (
+                            <div className="divide-y divide-border/50">{chipSkills.map(renderSkillCard)}</div>
+                          )}
+
+                          {chipSkills.length === 0 && !creatingHere && (
+                            <div className="px-4 py-3 text-[11px] text-muted-foreground italic">
+                              Nenhuma skill neste chip ainda.{isRealChip ? ' Enquanto vazio e ligado, a IA fica em silêncio aqui.' : ''}
+                            </div>
+                          )}
+
+                          {/* Nova skill deste chip (editor inline) */}
+                          {creatingHere && (
+                            <div className="p-4 bg-violet-500/5 border-t border-violet-500/20">
+                              <p className="text-xs font-bold text-violet-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+                                <Plus size={12} /> Nova skill · {chip.label}
+                              </p>
+                              <SkillEditor
+                                form={form}
+                                setForm={setForm}
+                                textareaRef={textareaRef}
+                                saving={savingSkill}
+                                onSave={saveSkill}
+                                onCancel={cancelEdit}
+                                insertVar={insertVar}
+                                skillId={null}
+                                tools={[]}
+                                assets={[]}
+                                onRefresh={fetchData}
+                                variablePreview={variablePreview}
+                              />
+                            </div>
+                          )}
+
+                          {!creatingHere && (
+                            <div className="p-3">
+                              <button
+                                onClick={() => openNew(chip.id)}
+                                className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
+                              >
+                                <Plus size={13} /> Nova skill neste chip
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </AiSetupStep>
+
+        <AiSetupStep
+          n={5}
+          id="etapa-voz"
+          title="Voz (opcional)"
+          description="Responder com áudio quando o paciente manda áudio."
+          status={loading ? 'checking' : setupSteps[4].status}
+        >
+          {/* ── Text-to-Speech ── */}
+          <div className="bg-card/50 rounded-2xl border border-border overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                  <Volume2 size={15} className="text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Text-to-Speech</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Converte respostas da IA em mensagens de voz no WhatsApp</p>
+                </div>
+              </div>
+              {/* Toggle ativar/desativar */}
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <div
+                  onClick={() => setTtsEnabled(!ttsEnabled)}
+                  className={`relative w-10 h-5.5 rounded-full transition-all cursor-pointer ${ttsEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
+                  style={{ width: 40, height: 22 }}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow ${ttsEnabled ? 'left-5' : 'left-0.5'}`} />
+                </div>
+                <span className={`text-xs font-bold ${ttsEnabled ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                  {ttsEnabled ? 'Ativo' : 'Inativo'}
+                </span>
+              </label>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Google API Key */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">API Key Google Cloud TTS</label>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Obtenha em <span className="font-mono text-primary">console.cloud.google.com → Text-to-Speech API</span>
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setIsEditingTtsKey(!isEditingTtsKey); setTtsGoogleApiKey(''); setShowTtsKey(false); }}
+                    className="text-xs font-bold text-primary hover:underline shrink-0 ml-4"
+                  >
+                    {isEditingTtsKey ? 'Cancelar' : ttsConfigured ? 'Trocar' : 'Configurar'}
+                  </button>
+                </div>
+                {isEditingTtsKey ? (
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <input
+                        type={showTtsKey ? 'text' : 'password'}
+                        value={ttsGoogleApiKey}
+                        onChange={(e) => setTtsGoogleApiKey(e.target.value)}
+                        placeholder="AIza..."
+                        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary/50 transition-all font-mono"
+                        autoFocus
+                      />
+                      <button type="button" onClick={() => setShowTtsKey(!showTtsKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        {showTtsKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                    <span className="text-muted-foreground">Chave de API para síntese de voz</span>
+                    {ttsConfigured ? (
+                      <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Seleção de voz */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Voz</label>
+                <select
+                  value={ttsVoice}
+                  onChange={(e) => setTtsVoice(e.target.value)}
+                  className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+                >
+                  <optgroup label="Gemini — Suaves e Acolhedoras">
+                    <option value="Sulafat">Sulafat — Quente</option>
+                    <option value="Vindemiatrix">Vindemiatrix — Gentil</option>
+                    <option value="Achernar">Achernar — Suave</option>
+                    <option value="Achird">Achird — Amigável</option>
+                    <option value="Aoede">Aoede — Leve</option>
+                    <option value="Leda">Leda — Jovial</option>
+                  </optgroup>
+                  <optgroup label="Gemini — Profissionais e Claras">
+                    <option value="Kore">Kore — Firme</option>
+                    <option value="Charon">Charon — Informativo</option>
+                    <option value="Iapetus">Iapetus — Claro</option>
+                    <option value="Erinome">Erinome — Claro</option>
+                    <option value="Schedar">Schedar — Equilibrado</option>
+                    <option value="Sadaltager">Sadaltager — Sábio</option>
+                    <option value="Rasalgethi">Rasalgethi — Informativo</option>
+                  </optgroup>
+                  <optgroup label="Gemini — Animadas e Energéticas">
+                    <option value="Puck">Puck — Animado</option>
+                    <option value="Zephyr">Zephyr — Brilhante</option>
+                    <option value="Fenrir">Fenrir — Empolgado</option>
+                    <option value="Laomedeia">Laomedeia — Animado</option>
+                    <option value="Sadachbia">Sadachbia — Vivaz</option>
+                    <option value="Autonoe">Autonoe — Brilhante</option>
+                  </optgroup>
+                  <optgroup label="Gemini — Relaxadas e Casuais">
+                    <option value="Algieba">Algieba — Suave</option>
+                    <option value="Despina">Despina — Suave</option>
+                    <option value="Callirrhoe">Callirrhoe — Tranquilo</option>
+                    <option value="Umbriel">Umbriel — Tranquilo</option>
+                    <option value="Zubenelgenubi">Zubenelgenubi — Casual</option>
+                    <option value="Enceladus">Enceladus — Sussurrante</option>
+                  </optgroup>
+                  <optgroup label="Gemini — Maduras e Fortes">
+                    <option value="Orus">Orus — Firme</option>
+                    <option value="Alnilam">Alnilam — Firme</option>
+                    <option value="Gacrux">Gacrux — Maduro</option>
+                    <option value="Algenib">Algenib — Grave</option>
+                    <option value="Pulcherrima">Pulcherrima — Projetado</option>
+                  </optgroup>
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  Vozes Gemini são naturais e aceitam instruções de estilo. Teste em <span className="font-mono text-primary">aistudio.google.com</span>
+                </p>
+              </div>
+
+              {/* Botão salvar */}
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={handleSaveTts}
+                  disabled={savingTts}
+                  className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
+                >
+                  {savingTts ? (
+                    <RefreshCw className="animate-spin" size={15} />
+                  ) : savedTts ? (
+                    <CheckCircle2 size={15} className="text-emerald-300" />
+                  ) : (
+                    <CheckCircle2 size={15} />
+                  )}
+                  {savedTts ? 'Salvo!' : 'Salvar TTS'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </AiSetupStep>
+
+        {/* ── Pronto: ir testar ── */}
+        <div className="rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 p-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-foreground">Tudo pronto?</p>
+            <p className="text-[12px] text-muted-foreground">Converse com a sua IA como se fosse um paciente. Nada é enviado nem gravado.</p>
+          </div>
+          <Link
+            href="/atendimento/settings/ai/teste"
+            className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 flex items-center gap-2 shadow-lg shadow-primary/20"
+          >
+            <MessageCircle size={16} /> Teste sua IA
+          </Link>
+        </div>
+
+        {/* ── Avançado (recolhido) ── */}
+        <details className="group">
+          <summary className="cursor-pointer select-none text-xs font-bold text-muted-foreground uppercase tracking-wide hover:text-foreground">
+            Avançado: variáveis dos prompts
+          </summary>
+          <div className="mt-3">
+            {/* ── Referência de variáveis ── */}
+            <div className="bg-card/50 rounded-2xl border border-border p-5 space-y-3">
+              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                <ChevronDown size={13} /> Variáveis disponíveis nos prompts
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
+                {TEMPLATE_VARS.map((v) => {
+                  const preview = formatPreview(variablePreview[bareVarKey(v.key)]);
+                  return (
+                    <div key={v.key} className="flex items-center gap-2 text-xs">
+                      <code className="font-mono text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded text-[11px]">
+                        {v.key}
+                      </code>
+                      <span className="text-muted-foreground">{v.desc}</span>
+                      {preview && (
+                        <span className="text-[10px] text-violet-300/70 truncate" title={variablePreview[bareVarKey(v.key)]}>
+                          {preview}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
               <p className="text-[11px] text-muted-foreground">
-                Vozes Gemini são naturais e aceitam instruções de estilo. Teste em <span className="font-mono text-primary">aistudio.google.com</span>
+                Use <code className="font-mono">ESCALAR_HUMANO</code> (ou qualquer palavra configurada em &quot;Sinal de escalada&quot;) para que a IA transfira a conversa de volta ao atendente humano.
               </p>
             </div>
-
-            {/* Botão salvar */}
-            <div className="flex justify-end pt-1">
-              <button
-                onClick={handleSaveTts}
-                disabled={savingTts}
-                className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
-              >
-                {savingTts ? (
-                  <RefreshCw className="animate-spin" size={15} />
-                ) : savedTts ? (
-                  <CheckCircle2 size={15} className="text-emerald-300" />
-                ) : (
-                  <CheckCircle2 size={15} />
-                )}
-                {savedTts ? 'Salvo!' : 'Salvar TTS'}
-              </button>
-            </div>
           </div>
-        </div>
-
-        {/* ── Referência de variáveis ── */}
-        <div className="bg-card/50 rounded-2xl border border-border p-5 space-y-3">
-          <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-            <ChevronDown size={13} /> Variáveis disponíveis nos prompts
-          </h4>
-          <div className="grid grid-cols-2 gap-2">
-            {TEMPLATE_VARS.map((v) => {
-              const preview = formatPreview(variablePreview[bareVarKey(v.key)]);
-              return (
-                <div key={v.key} className="flex items-center gap-2 text-xs">
-                  <code className="font-mono text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded text-[11px]">
-                    {v.key}
-                  </code>
-                  <span className="text-muted-foreground">{v.desc}</span>
-                  {preview && (
-                    <span className="text-[10px] text-violet-300/70 truncate" title={variablePreview[bareVarKey(v.key)]}>
-                      {preview}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Use <code className="font-mono">ESCALAR_HUMANO</code> (ou qualquer palavra configurada em &quot;Sinal de escalada&quot;) para que a IA transfira a conversa de volta ao atendente humano.
-          </p>
-        </div>
+        </details>
 
       </div>
     </div>

@@ -83,7 +83,8 @@ function Field({ label, className = '', children }: { label: string; className?:
  * o resumo da clínica). Valem para TODOS os chips desta clínica — nunca de outra.
  * Nome/telefone/endereço são os mesmos de Ajustes › Identidade (mudar aqui muda lá).
  */
-export function AiClinicInfoCard() {
+/** onSaved: avisa a página (Ajustes › IA) pra atualizar a situação das etapas. */
+export function AiClinicInfoCard({ onSaved }: { onSaved?: () => void } = {}) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -238,6 +239,7 @@ export function AiClinicInfoCard() {
       if (summaryDirty) payload.summary = summary;
       const { data } = await api.put('/settings/ai-profile/clinic', payload);
       applyData(data);
+      onSaved?.();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {

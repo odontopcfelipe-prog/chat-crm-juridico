@@ -46,7 +46,11 @@ const lengthLabel = (v: string | null) => (v ? LENGTH_LABEL[v] || v : '');
  * agendamento e mudança de etapa são só simulados.
  */
 /** chipNames: nome da assistente de cada chip (perfil salvo) — usado antes da 1ª resposta. */
-export function AiTestChatCard({ chipNames }: { chipNames?: Partial<Record<string, string>> } = {}) {
+/** tall: página própria (Teste sua IA) — conversa ocupa a altura da tela. */
+export function AiTestChatCard({
+  chipNames,
+  tall = false,
+}: { chipNames?: Partial<Record<string, string>>; tall?: boolean } = {}) {
   const [chip, setChip] = useState<ChipId>('COMERCIAL');
   const [isClient, setIsClient] = useState(false);
   // '' = usa o modelo configurado na skill (o mesmo do WhatsApp)
@@ -120,7 +124,9 @@ export function AiTestChatCard({ chipNames }: { chipNames?: Partial<Record<strin
   };
 
   return (
-    <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+    <div
+      className={`bg-card rounded-2xl border border-border shadow-sm overflow-hidden ${tall ? 'flex flex-col h-full min-h-0' : ''}`}
+    >
       <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-3 bg-primary/5">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -169,7 +175,9 @@ export function AiTestChatCard({ chipNames }: { chipNames?: Partial<Record<strin
         </div>
       </div>
 
-      <div className="h-[380px] overflow-y-auto px-4 py-4 space-y-2 bg-muted/20">
+      <div
+        className={`${tall ? 'flex-1 min-h-[240px]' : 'h-[380px]'} overflow-y-auto px-4 py-4 space-y-2 bg-muted/20`}
+      >
         {msgs.length === 0 && !busy && (
           <p className="text-center text-xs text-muted-foreground mt-24">
             Escreva como um paciente escreveria. Ex.: &quot;Boa tarde, quanto fica a limpeza?&quot;<br />Shift+Enter: cada linha vira uma mensagem separada do paciente.
