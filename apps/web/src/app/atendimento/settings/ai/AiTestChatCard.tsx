@@ -5,6 +5,12 @@ import { MessageCircle, Send, RotateCcw, RefreshCw } from 'lucide-react';
 import api from '@/lib/api';
 import { OPENAI_MODELS, ANTHROPIC_MODELS } from './ai-models';
 
+// Mesmo ritmo do WhatsApp — cópia de apps/worker/src/ai/conversation-guide.ts
+// (bubbleTypingMs / bubblePauseMs), manter igual.
+const bubbleTypingMs = (bubble: string) => Math.min(Math.max(900 + bubble.length * 45, 1800), 8000);
+const bubblePauseMs = (index: number) => (index === 0 ? 0 : 600 + Math.round(Math.random() * 600));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 type Msg = { from: 'patient' | 'ai'; text: string; model?: string };
 type Meta = {
   skill: string | null;
@@ -61,12 +67,17 @@ export function AiTestChatCard({
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // Cada pergunta/recomeço ganha um número; a revelação dos balões em andamento
+  // para se a pessoa recomeçar ou mandar outra mensagem.
+  const runRef = useRef(0);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' });
   }, [msgs, busy]);
 
   const reset = () => {
+    runRef.current++;
+    setBusy(false);
     setMsgs([]);
     setMeta(null);
     setError(null);
@@ -92,6 +103,7 @@ export function AiTestChatCard({
   };
 
   const ask = async (history: Msg[]) => {
+    const run = ++runRef.current;
     setMsgs(history);
     setBusy(true);
     setError(null);
@@ -102,7 +114,16 @@ export function AiTestChatCard({
         { timeout: 100_000 },
       );
       const bubbles: string[] = Array.isArray(data?.bubbles) ? data.bubbles : [];
-      setMsgs([...history, ...bubbles.map((b) => ({ from: 'ai' as const, text: b, model: data?.model || '' }))]);
+      // Mostra os balões UM POR UM, com o mesmo ritmo do WhatsApp (pausa +
+      // "digitando..." proporcional) — antes os 3 apareciam juntos, igual robô.
+      let shown: Msg[] = history;
+      for (let i = 0; i < bubbles.length; i++) {
+        await sleep(bubblePauseMs(i) + bubbleTypingMs(bubbles[i]));
+        if (runRef.current !== run) return; // recomeçou ou mandou outra mensagem
+        shown = [...shown, { from: 'ai' as const, text: bubbles[i], model: data?.model || '' }];
+        setMsgs(shown);
+      }
+      if (runRef.current !== run) return;
       setMeta({
         skill: data?.skill || null,
         model: data?.model || '',
@@ -119,7 +140,7 @@ export function AiTestChatCard({
     } catch (e: any) {
       setError(e?.response?.data?.message || 'A IA não respondeu. Tente de novo.');
     } finally {
-      setBusy(false);
+      if (runRef.current === run) setBusy(false);
     }
   };
 

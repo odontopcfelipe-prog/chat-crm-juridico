@@ -16,7 +16,7 @@ import { computeBusinessHoursInfo, clinicStatusNow } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
-import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply, resolveReplyStyle, detectPatientStyle } from './conversation-guide';
+import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, bubbleTypingMs, bubblePauseMs, tidyReply, resolveReplyStyle, detectPatientStyle } from './conversation-guide';
 import { loadClinicAiContext, type ClinicAiContext } from './clinic-ai-context';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
@@ -2964,7 +2964,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Onda 19.x — resposta em BALÕES, como a recepção escreve (uma ideia por
       // mensagem). O guia manda separar balões com linha em branco; cada balão
       // vira uma mensagem no WhatsApp com seu próprio "digitando..." proporcional
-      // ao tamanho (~pessoa digitando, piso 1,5s / teto 7s). Só o 1º leva a assinatura.
+      // ao tamanho (bubbleTypingMs: piso 1,8s / teto 8s) e pausa entre balões. Só o 1º leva a assinatura.
       // Cada balão é gravado com o ID real da Evolution (dedup do echo do webhook).
       const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText, 3, patientStyle);
       const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
@@ -2979,7 +2979,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         let bubbleFailed = false;
 
         if (!_willAudio) {
-          const typingMs = Math.min(Math.max(bubble.length * 28, 1500), 7000);
+          // Ritmo humano: pausa curta antes do próximo balão + "digitando" proporcional.
+          const pauseMs = bubblePauseMs(i);
+          if (pauseMs) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+          const typingMs = bubbleTypingMs(bubble);
           // Formato flat (sem wrapper "options") — conforme comportamento real da API
           axios
             .post(

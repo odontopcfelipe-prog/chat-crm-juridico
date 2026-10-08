@@ -170,6 +170,22 @@ export function resolveReplyStyle(
   return { style: detected, hint: PATIENT_STYLE_HINT[detected], explicit: false };
 }
 
+/**
+ * Ritmo humano entre os balões (WhatsApp e chat de teste usam a MESMA conta —
+ * cópia em apps/web/.../settings/ai/AiTestChatCard.tsx, manter igual):
+ *  - "digitando..." proporcional ao tamanho: 0,9s + 45ms por caractere,
+ *    entre 1,8s e 8s (uma pessoa digitando no celular);
+ *  - antes do 2º/3º balão, uma pausa curta de "pensando" (0,6s a 1,2s).
+ * Antes era 28ms/caractere com piso de 1,5s: os 3 balões chegavam quase juntos.
+ */
+export function bubbleTypingMs(bubble: string): number {
+  return Math.min(Math.max(900 + bubble.length * 45, 1800), 8000);
+}
+
+export function bubblePauseMs(index: number): number {
+  return index === 0 ? 0 : 600 + Math.round(Math.random() * 600);
+}
+
 export function splitIntoBubbles(text: string, max = 3, style: PatientStyle = 'curto'): string[] {
   // Paciente de texto grande: resposta numa mensagem só (mantém os parágrafos).
   if (style === 'longo') return [text.trim()];
