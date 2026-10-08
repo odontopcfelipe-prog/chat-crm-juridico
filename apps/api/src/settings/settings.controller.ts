@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Request, Param, Put, Logger, UseInterceptors, UploadedFile, Res, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Request, Param, Put, Logger, UseInterceptors, UploadedFile, Res, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { SettingsService } from './settings.service';
@@ -298,7 +298,11 @@ export class SettingsController {
     if (body?.enabled !== undefined) await upsert('AI_PRICES_ENABLED', body.enabled ? 'true' : 'false');
     // Campos do "modelo pronto" (nome da doutora, valores) — só pra tela reabrir
     // preenchida; a IA lê o texto final (AI_PRICE_TABLE).
-    if (body?.form !== undefined) await upsert('AI_PRICE_FORM', JSON.stringify(body.form ?? null).slice(0, 2000));
+    if (body?.form !== undefined) {
+      const formJson = JSON.stringify(body.form ?? null);
+      if (formJson.length > 8000) throw new BadRequestException('Lista de procedimentos grande demais.');
+      await upsert('AI_PRICE_FORM', formJson);
+    }
     return { ok: true };
   }
 

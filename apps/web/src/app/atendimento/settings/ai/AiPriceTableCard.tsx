@@ -1,13 +1,42 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Tag, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Tag, CheckCircle2, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 
 type Mode = 'template' | 'free';
-type Form = { doctor: string; avaliacao: string; limpeza: string; manutencao: string };
+type Item = { name: string; price: string; includes: string };
+type Form = { doctor: string; items: Item[] };
 
-const DEFAULT_FORM: Form = { doctor: '', avaliacao: '150', limpeza: '350', manutencao: '150' };
+const DEFAULT_ITEMS: Item[] = [
+  { name: 'Consulta de avaliação', price: '150', includes: '' },
+  { name: 'Limpeza', price: '350', includes: 'remoção de tártaro, polimento e aplicação de flúor' },
+  { name: 'Manutenção de aparelho', price: '150', includes: '' },
+];
+const DEFAULT_FORM: Form = { doctor: '', items: DEFAULT_ITEMS };
+
+/** Lê o form salvo (aceita o formato antigo, de 3 campos fixos). */
+function normalizeForm(raw: any): Form {
+  if (!raw) return DEFAULT_FORM;
+  if (Array.isArray(raw.items)) {
+    return {
+      doctor: String(raw.doctor || ''),
+      items: raw.items.map((i: any) => ({
+        name: String(i?.name || ''),
+        price: String(i?.price || ''),
+        includes: String(i?.includes || ''),
+      })),
+    };
+  }
+  return {
+    doctor: String(raw.doctor || ''),
+    items: [
+      { ...DEFAULT_ITEMS[0], price: String(raw.avaliacao ?? '') },
+      { ...DEFAULT_ITEMS[1], price: String(raw.limpeza ?? '') },
+      { ...DEFAULT_ITEMS[2], price: String(raw.manutencao ?? '') },
+    ],
+  };
+}
 
 const money = (v: string) => {
   const n = v.replace(/[^\d,.]/g, '').trim();
@@ -20,11 +49,9 @@ const money = (v: string) => {
  */
 export function buildPriceGuide(f: Form): string {
   const doctor = f.doctor.trim() || 'a doutora';
-  const lines = [
-    money(f.avaliacao) && `• Consulta de avaliação: ${money(f.avaliacao)}`,
-    money(f.limpeza) && `• Limpeza: ${money(f.limpeza)} (remoção de tártaro, polimento e aplicação de flúor)`,
-    money(f.manutencao) && `• Manutenção de aparelho: ${money(f.manutencao)}`,
-  ].filter(Boolean);
+  const lines = f.items
+    .filter((i) => i.name.trim() && money(i.price))
+    .map((i) => `• ${i.name.trim()}: ${money(i.price)}${i.includes.trim() ? ` (${i.includes.trim()})` : ''}`);
   return [
     lines.length ? `Valores que podemos informar:\n${lines.join('\n')}` : 'Nenhum valor pode ser informado antes da consulta.',
     '',
@@ -60,7 +87,7 @@ export function AiPriceTableCard() {
           setMode('free');
           setFreeText(d.value || '');
         } else if (d.form) {
-          setForm({ ...DEFAULT_FORM, ...d.form });
+          setForm(normalizeForm(d.form));
         }
       })
       .catch(() => setError('Não consegui carregar a orientação de valores.'))
@@ -88,20 +115,12 @@ export function AiPriceTableCard() {
     }
   };
 
-  const field = (key: keyof Form, label: string, placeholder: string, prefix?: string) => (
-    <label className="flex flex-col gap-1">
-      <span className="text-[11px] font-semibold text-muted-foreground">{label}</span>
-      <div className="flex items-center rounded-xl border border-border bg-background focus-within:border-primary/60">
-        {prefix && <span className="pl-3 text-sm text-muted-foreground">{prefix}</span>}
-        <input
-          value={form[key]}
-          onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          placeholder={placeholder}
-          className="w-full bg-transparent px-3 py-2 text-sm text-foreground outline-none"
-        />
-      </div>
-    </label>
-  );
+  const setItem = (idx: number, patch: Partial<Item>) =>
+    setForm((f) => ({ ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)) }));
+  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, { name: '', price: '', includes: '' }] }));
+  const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  const inputCls =
+    'w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60';
 
   return (
     <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -160,13 +179,68 @@ export function AiPriceTableCard() {
 
             {mode === 'template' ? (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {field('doctor', 'Quem faz a avaliação', 'Ex.: a Dra. Suellen')}
-                  {field('avaliacao', 'Consulta de avaliação', '150', 'R$')}
-                  {field('limpeza', 'Limpeza', '350', 'R$')}
-                  {field('manutencao', 'Manutenção de aparelho', '150', 'R$')}
+                <label className="flex flex-col gap-1 max-w-sm">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Quem faz a avaliação</span>
+                  <input
+                    value={form.doctor}
+                    onChange={(e) => setForm((f) => ({ ...f, doctor: e.target.value }))}
+                    placeholder="Ex.: a Dra. Suellen"
+                    className={inputCls}
+                  />
+                </label>
+
+                <div className="space-y-2">
+                  <div className="hidden sm:grid grid-cols-[1.2fr_120px_2fr_36px] gap-2 px-1 text-[11px] font-semibold text-muted-foreground">
+                    <span>Procedimento</span>
+                    <span>Valor</span>
+                    <span>O que está incluso (opcional)</span>
+                    <span />
+                  </div>
+                  {form.items.map((it, idx) => (
+                    <div key={idx} className="grid grid-cols-1 sm:grid-cols-[1.2fr_120px_2fr_36px] gap-2 items-center">
+                      <input
+                        value={it.name}
+                        onChange={(e) => setItem(idx, { name: e.target.value })}
+                        placeholder="Ex.: Clareamento"
+                        className={inputCls}
+                      />
+                      <div className="flex items-center rounded-xl border border-border bg-background focus-within:border-primary/60">
+                        <span className="pl-3 text-sm text-muted-foreground">R$</span>
+                        <input
+                          value={it.price}
+                          onChange={(e) => setItem(idx, { price: e.target.value })}
+                          placeholder="0"
+                          className="w-full bg-transparent px-2 py-2 text-sm text-foreground outline-none"
+                        />
+                      </div>
+                      <input
+                        value={it.includes}
+                        onChange={(e) => setItem(idx, { includes: e.target.value })}
+                        placeholder="Ex.: polimento, flúor e remoção de tártaro"
+                        className={inputCls}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeItem(idx)}
+                        aria-label="Remover procedimento"
+                        className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+                  >
+                    <Plus size={13} /> Adicionar procedimento
+                  </button>
                 </div>
-                <p className="text-[11px] text-muted-foreground">Deixe um valor em branco para a IA não informar aquele item.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Só os procedimentos desta lista têm valor informado. Os especialistas (implante, ortodontia, lentes…)
+                  explicam o tratamento, mas o valor fica pra depois da consulta. Item sem valor não é informado.
+                </p>
                 <div>
                   <p className="text-[11px] font-semibold text-muted-foreground mb-1">O que a Sophia vai seguir:</p>
                   <pre className={`whitespace-pre-wrap rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-sm text-foreground font-sans ${!enabled ? 'opacity-60' : ''}`}>
