@@ -1796,7 +1796,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       let doctorName = 'a dentista avaliadora';
       let priceTable = NO_PRICE_TABLE;
       try {
-        const [tenantRow, doctorRow, priceRow] = await Promise.all([
+        const [tenantRow, doctorRow, priceRow, pricesOnRow] = await Promise.all([
           rawTenantId
             ? (this.prisma as any).tenant.findUnique({ where: { id: rawTenantId }, select: { name: true } })
             : null,
@@ -1808,10 +1808,16 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
                 where: { tenant_id_key: { tenant_id: rawTenantId, key: 'AI_PRICE_TABLE' } },
               })
             : null,
+          rawTenantId
+            ? (this.prisma as any).tenantSetting.findUnique({
+                where: { tenant_id_key: { tenant_id: rawTenantId, key: 'AI_PRICES_ENABLED' } },
+              })
+            : null,
         ]);
         if (tenantRow?.name) firmName = tenantRow.name;
         if (doctorRow?.name) doctorName = doctorRow.name;
-        if (priceRow?.value?.trim()) priceTable = priceRow.value.trim();
+        // AI_PRICES_ENABLED='false' = clínica desligou "passar valores" (mantém o texto salvo).
+        if (priceRow?.value?.trim() && pricesOnRow?.value !== 'false') priceTable = priceRow.value.trim();
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao carregar dados da clínica pro prompt: ${e.message}`);
       }

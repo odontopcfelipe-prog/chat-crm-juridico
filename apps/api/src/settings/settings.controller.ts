@@ -273,24 +273,32 @@ export class SettingsController {
   @Roles('ADMIN')
   async getAiPriceTable(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    if (!tenantId) return { value: '' };
-    const row = await this.prisma.tenantSetting.findUnique({
-      where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
-    });
-    return { value: row?.value || '' };
+    if (!tenantId) return { value: '', enabled: true };
+    const [row, on] = await Promise.all([
+      this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
+      }),
+      this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICES_ENABLED' } },
+      }),
+    ]);
+    return { value: row?.value || '', enabled: on?.value !== 'false' };
   }
 
   @Put('ai-price-table')
   @Roles('ADMIN')
-  async setAiPriceTable(@Request() req: any, @Body() body: { value?: string }) {
+  async setAiPriceTable(@Request() req: any, @Body() body: { value?: string; enabled?: boolean }) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
-    const value = String(body?.value ?? '').slice(0, 4000);
-    await this.prisma.tenantSetting.upsert({
-      where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
-      create: { tenant_id: tenantId, key: 'AI_PRICE_TABLE', value },
-      update: { value },
-    });
+    const upsert = (key: string, value: string) =>
+      this.prisma.tenantSetting.upsert({
+        where: { tenant_id_key: { tenant_id: tenantId, key } },
+        create: { tenant_id: tenantId, key, value },
+        update: { value },
+      });
+    if (body?.value !== undefined) await upsert('AI_PRICE_TABLE', String(body.value).slice(0, 4000));
+    // Chave "a IA pode passar valores" — desligada guarda o texto, só não usa.
+    if (body?.enabled !== undefined) await upsert('AI_PRICES_ENABLED', body.enabled ? 'true' : 'false');
     return { ok: true };
   }
 
