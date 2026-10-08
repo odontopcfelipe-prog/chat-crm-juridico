@@ -79,7 +79,7 @@ COMO VENDER (jeito de vendedora da recepção — vale pra todas as skills):
    Posso dar uma olhada na agenda e ver se consigo pra essa semana?"
 - Faça isso UMA vez por procedimento. Se perguntarem de novo, responda só o valor.
 - Procedimento cujo valor NÃO está na orientação acima: não informe valor nem faixa. Construa o valor da CONSULTA do mesmo jeito (o que é feito nela, segundo a orientação acima) e feche com a oferta de agenda.
-- Nunca use frases genéricas como "depende muito do que você vai precisar" ou "agendamos sem compromisso" sozinhas: sempre explique o que a pessoa ganha.
+- PROIBIDO frase genérica solta, sem construir o valor. Exemplos REAIS que não podem se repetir: "depende muito do que você vai precisar", "a consulta de avaliação a gente agenda sem compromisso", "só na avaliação a doutora consegue te dizer". Se o valor sai na avaliação, diga NA MESMA mensagem o que é feito na consulta e o que a pessoa ganha com ela (o plano certo pro caso dela). Se o paciente insistir no valor, não repita a mesma explicação: reconheça a pergunta com empatia e mostre de outro jeito por que a avaliação vale a pena.
 
 REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
 
@@ -104,12 +104,112 @@ REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
 7. Se você disser que cancelou/desmarcou, é OBRIGATÓRIO emitir scheduling_action correspondente. Nunca diga "cancelei" sem a ação.
 
 8. Use {{data_hoje}} pra calcular "amanhã", "quinta que vem" etc.
+
+9. PACIENTE ENCERROU SEM AGENDAR: vale quando ele NÃO tem consulta marcada e NÃO está respondendo a um lembrete (aí vale a regra 6). Sinais: respondeu só "ok", "obrigado(a)", "vou pensar", "depois vejo", "vou ver", "qualquer coisa eu chamo", "beleza", "tá bom", "entendi"…
+   - NÃO feche a porta. PROIBIDO: "precisando, é só me chamar", "qualquer coisa estou à disposição", "fico à disposição", "estou por aqui", "quando quiser é só chamar" e despedidas ("tenha um ótimo dia", "até mais", "abraço").
+   - Responda CURTO e caloroso (1 balão, sem pressão), mostrando que entendeu. Ex.: "Imagina, Felipe!" ou "Claro, pensa com calma." (com suas palavras).
+   - NÃO ofereça horário nem pergunte de agenda nesta mesma mensagem: a tentativa de agendar vai SEPARADA, alguns minutos depois, enviada pelo sistema.
+   - Marque retry_scheduling: true no respond_to_client (se responder em JSON: "retry_scheduling": true). Fora deste caso, não marque.
 `;
 
-/** Texto padrão quando a clínica ainda não cadastrou a tabela de valores da IA. */
 /** Texto quando a clínica desligou "passar valores" ou não cadastrou orientação. */
 export const NO_PRICE_TABLE =
-  '(Nenhum valor liberado por esta clínica. Não informe preço de nada: explique que depende da avaliação e convide para a consulta.)';
+  '(Nenhum valor liberado por esta clínica. Não informe preço nem faixa de nada. Quando perguntarem valor, construa o valor da CONSULTA de avaliação (o que é feito nela e o que a pessoa ganha) e explique que o valor do tratamento sai dali, com o plano certo pro caso dela; depois convide para a consulta. Nunca responda só "depende do caso".)';
+
+// ─── 2ª TENTATIVA DE AGENDAMENTO ─────────────────────────────────────────────
+// Paciente encerrou sem agendar ("ok", "vou pensar"): a IA responde curto SEM fechar
+// a porta e, alguns minutos depois (perfil do chip: schedulingRetryMin), o sistema
+// manda UMA mensagem separada oferecendo 2 horários. Helpers puros (sem banco) —
+// usados no fluxo real e no chat de teste (dryRun).
+
+/** Minúsculas e sem acento — os regex abaixo são ASCII (\b não entende "ã"). */
+function plain(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Encerramento curto: "ok", "obrigada", "vou pensar", "depois vejo", "qualquer coisa eu chamo"…
+const CLOSING_RE =
+  /\b(ok(?:ay|ey|k+)?|blz|beleza|obrigad[oa]s?|obg|brigad[oa]|valeu|vlw|vou pensar|vou ver|vou analisar|vou avaliar|vou me organizar|depois (?:eu )?(?:vejo|veja|falo|te falo|retorno|chamo|te chamo)|qualquer coisa (?:eu )?(?:te |lhe )?(?:chamo|falo|aviso|procuro|retorno)|ta bom|ta certo|tudo bem|tranquilo|entendi|certo|show|joia|combinado)\b/;
+// Ainda tem intenção/pergunta aberta — não é encerramento ("ok, tem amanhã?", "sim", "quero").
+const OPEN_INTENT_RE =
+  /\?|\b(?:horario|agend|marc|quando|amanha|hoje|segunda|terca|quarta|quinta|sexta|sabado|quanto|valor|preco|pode ser|quero|vamos|bora)|\bsim\b/;
+// Recusa / pedido pra parar / já resolveu — NUNCA vira 2ª tentativa ("não, obrigado",
+// "não tenho interesse", "desisti", "não me mande mais", "já marquei", "outro dentista").
+const REFUSAL_RE =
+  /\bnao\b|\bnem\b|desist|sem interesse|para(?:r)? de|me (?:tira|remov)|ja (?:fui|sou|marquei|agendei|fiz|tenho|resolvi|consegui)|outr[oa] (?:dentista|clinica|lugar)|cancel|bloque/;
+// Saudação de abertura ("oi, tudo bem", "bom dia") — conversa começando, não encerrando.
+const GREETING_RE = /^(?:oi+|ola|opa|e ai|eai|bom dia|boa tarde|boa noite|hello|hey)\b/;
+// Só emoji de "ok" (👍, 🙏, 😊) também encerra.
+const EMOJI_ONLY_RE = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}\u{200D}\s]+$/u;
+
+/**
+ * A mensagem do paciente é um ENCERRAMENTO curto, sem pedido aberto? Rede de
+ * segurança quando o modelo não marca retry_scheduling.
+ */
+export function isClosingWithoutScheduling(text: string | null | undefined): boolean {
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 60) return false;
+  if (EMOJI_ONLY_RE.test(raw)) return true;
+  const t = plain(raw);
+  if (REFUSAL_RE.test(t) || GREETING_RE.test(t)) return false;
+  if (OPEN_INTENT_RE.test(t)) return false;
+  return CLOSING_RE.test(t);
+}
+
+/**
+ * A resposta da IA já propõe horário / oferece agenda? (data + hora, "quinta às 14h",
+ * lista com "•", "quer que eu reserve", "posso olhar a agenda"…). Se sim, NÃO agenda
+ * a 2ª tentativa — seria a mesma oferta repetida minutos depois.
+ */
+export function replyProposesSlots(text: string | null | undefined): boolean {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  if (raw.includes('•')) return true;
+  const t = plain(raw);
+  return (
+    /\b\d{1,2}\/\d{1,2}\b[\s\S]*\b\d{1,2}(?:h|:\d{2})/.test(t) ||
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|amanha|hoje)\b[^.!?\n]{0,30}\b\d{1,2}(?:h\d{0,2}|:\d{2})\b/.test(t) ||
+    // "às 14 horas", "a 9h" soltos e "quinta de manhã / sexta à tarde"
+    /\b(?:as|a)\s+\d{1,2}\s*(?:h\b|horas?\b)/.test(t) ||
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|amanha)\b.{0,20}\b(?:de manha|a tarde|a noite|pela manha|pela tarde)\b/.test(t) ||
+    /tenho\s+(?:essas?|esses?)\s+(?:opcoes|horarios)/.test(t) ||
+    /(?:que\s+tal|posso\s+te?\s+encaixar|consigo\s+te?\s+encaixar|quer\s+que\s+eu\s+(?:reserve|agende|marque|veja)|posso\s+(?:dar\s+uma\s+olhada|olhar|ver|verificar|checar)\s+(?:na\s+|a\s+)?agenda|vamos\s+(?:deixar|agendar|marcar))/.test(
+      t,
+    )
+  );
+}
+
+// Nomes que não são nome de gente (lead sem nome, teste) — não chama por eles.
+const GENERIC_NAMES = new Set(['paciente', 'cliente', 'lead', 'contato', 'desconhecido', 'teste', 'sem']);
+
+/** Primeiro nome "chamável" do lead ("felipe santos" → "Felipe"); null se não houver. */
+export function leadFirstName(name: string | null | undefined): string | null {
+  const first = String(name || '').trim().split(/\s+/)[0] || '';
+  if (!/^[A-Za-zÀ-ÖØ-öø-ÿ]{2,}$/.test(first)) return null;
+  if (GENERIC_NAMES.has(plain(first))) return null;
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
+/**
+ * Instrução interna da 2ª tentativa — SUBSTITUI a instrução normal do turno. A
+ * última mensagem da conversa é nossa (de propósito): a IA volta por conta própria,
+ * como a recepcionista que foi olhar a agenda.
+ */
+export function buildSchedulingRetryInstruction(firstName: string | null): string {
+  const nameRule = firstName
+    ? `Chame pelo primeiro nome: ${firstName}.`
+    : 'Você não sabe o nome do paciente: não invente nome.';
+  return `[INSTRUÇÃO INTERNA — não exiba ao cliente]
+SEGUNDA TENTATIVA DE AGENDAMENTO. Alguns minutos atrás o paciente encerrou sem agendar e você já respondeu. Agora você volta por conta própria, como a recepcionista que foi olhar a agenda e voltou com uma proposta. Mande UMA mensagem nova, curta e natural (no máximo 2 balões, linha em branco entre eles):
+- ${nameRule}
+- Ofereça 2 horários concretos da PROPOSTA SUGERIDA (HORÁRIOS DISPONÍVEIS), em dias diferentes quando houver, o mais cedo primeiro, e pergunte se pode reservar um deles.
+- NÃO repita valores, explicações nem perguntas que já estão na conversa. Nada de "como falei" ou "conforme te expliquei".
+- Sem pressão nem urgência inventada, sem despedida, sem "fico à disposição".
+- Não marque retry_scheduling e não emita scheduling_action.
+- ESTA mensagem é a exceção às regras "não ofereça horário na mesma mensagem do encerramento" e "ofereça horário UMA vez": aqui você DEVE oferecer os 2 horários.
+- Se algum horário já foi oferecido antes nesta conversa, ofereça OUTROS (use a AGENDA COMPLETA), para não repetir a mesma oferta.
+Modelo do tom (adapte, não copie): "Felipe, olhei aqui a agenda: consigo quinta às 14h ou sexta às 9h pra sua avaliação. Quer que eu reserve uma?"`;
+}
 
 /**
  * Quebra a resposta em balões pela LINHA EM BRANCO (como o guia pede). Mantém

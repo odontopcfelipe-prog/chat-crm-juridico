@@ -35,6 +35,11 @@ export interface AiChipProfile {
   responseDelaySec: number | null;
   /** Instruções extras só deste chip (texto livre do admin). */
   instructions: string;
+  /**
+   * Minutos até a SEGUNDA tentativa de agendamento quando o paciente encerra sem
+   * agendar ("ok", "vou pensar"). 0 = desligado. Uma vez por conversa a cada 24h.
+   */
+  schedulingRetryMin: number;
 }
 
 export const DEFAULT_ASSISTANT_NAME = 'Sophia';
@@ -45,9 +50,17 @@ export const DEFAULT_AI_CHIP_PROFILE: AiChipProfile = {
   replyLength: 'auto',
   responseDelaySec: null,
   instructions: '',
+  schedulingRetryMin: 5,
 };
 
 /** Lê o JSON salvo (ou objeto vindo da tela) e devolve um perfil válido, com defaults. */
+/** Minutos da 2ª tentativa de agendamento: ausente = 5 (padrão); 0 = desligado; máx. 120. */
+function normalizeRetryMin(v: unknown): number {
+  if (v === undefined || v === null || v === '') return 5;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(120, Math.max(0, n)) : 5;
+}
+
 export function normalizeAiChipProfile(raw: unknown): AiChipProfile {
   let o: any = raw;
   if (typeof raw === 'string') {
@@ -69,6 +82,7 @@ export function normalizeAiChipProfile(raw: unknown): AiChipProfile {
     responseDelaySec:
       delayNum === null || !Number.isFinite(delayNum) ? null : Math.min(60, Math.max(0, Math.round(delayNum))),
     instructions: String(o.instructions ?? '').trim().slice(0, 2000),
+    schedulingRetryMin: normalizeRetryMin(o.schedulingRetryMin),
   };
 }
 

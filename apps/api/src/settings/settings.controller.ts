@@ -336,7 +336,16 @@ export class SettingsController {
   @Roles('ADMIN')
   async aiTestChat(
     @Request() req: any,
-    @Body() body: { purpose?: string; isClient?: boolean; leadName?: string; model?: string; history?: { from: 'patient' | 'ai'; text: string }[] },
+    @Body()
+    body: {
+      purpose?: string;
+      isClient?: boolean;
+      leadName?: string;
+      model?: string;
+      history?: { from: 'patient' | 'ai'; text: string }[];
+      /** "Ver como seria" a 2ª tentativa de agendamento (mensagem separada, minutos depois). */
+      retryScheduling?: boolean;
+    },
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
@@ -348,6 +357,7 @@ export class SettingsController {
       leadName: body?.leadName ? String(body.leadName).slice(0, 80) : null,
       model: /^[a-z0-9][a-z0-9.-]{1,60}$/i.test(String(body?.model || '')) ? String(body!.model) : null,
       history: Array.isArray(body?.history) ? body!.history : [],
+      retryScheduling: body?.retryScheduling === true,
     });
   }
 

@@ -9,6 +9,12 @@ export interface AiTestChatInput {
   /** Modelo só pro teste (comparar). Vazio = o da skill. */
   model?: string | null;
   history: { from: 'patient' | 'ai'; text: string }[];
+  /**
+   * "Ver como seria" a 2ª tentativa de agendamento (paciente encerrou sem agendar):
+   * o worker gera a mensagem SEPARADA que ela mandaria minutos depois. Aqui o
+   * histórico termina nos balões da IA, não no paciente.
+   */
+  retryScheduling?: boolean;
 }
 
 /**
@@ -42,7 +48,13 @@ export class AiTestChatService implements OnModuleDestroy {
     const history = (input.history || [])
       .filter((m) => m && (m.from === 'patient' || m.from === 'ai') && String(m.text || '').trim())
       .slice(-40);
-    if (!history.length || history[history.length - 1].from !== 'patient') {
+    const retryScheduling = !!input.retryScheduling;
+    if (!history.length) {
+      throw new BadRequestException('Mande ao menos uma mensagem do paciente no teste.');
+    }
+    // Na tentativa de agendamento o histórico termina na IA (é ela quem volta a
+    // chamar); na resposta normal, a última precisa ser do paciente.
+    if (!retryScheduling && history[history.length - 1].from !== 'patient') {
       throw new BadRequestException('A última mensagem do teste precisa ser do paciente.');
     }
     const { queue, events } = this.ensure();
@@ -57,6 +69,9 @@ export class AiTestChatService implements OnModuleDestroy {
         leadName: input.leadName || null,
         model: input.model || null,
         history,
+        // Só a mensagem separada da 2ª tentativa. O worker devolve retryScheduling/
+        // retryAfterMin no resultado — repassamos sem mexer.
+        ...(retryScheduling ? { schedulingRetry: true } : {}),
       },
       { removeOnComplete: true, removeOnFail: true, attempts: 1 },
     );

@@ -25,6 +25,11 @@ const INSTRUCTIONS_PLACEHOLDER: Record<AiChipPurpose, string> = {
   FINANCEIRO: 'Ex.: No financeiro, seja objetiva e sempre mande o link do boleto.',
 };
 
+// 2ª tentativa de agendamento quando o paciente encerra sem agendar ("ok", "vou pensar").
+// 0 = desligado; 5 min é o padrão do perfil (DEFAULT_AI_CHIP_PROFILE).
+const SCHEDULING_RETRY_OPTIONS = [0, 3, 5, 10, 30];
+const schedulingRetryLabel = (min: number) => (min === 0 ? 'Não tentar de novo' : `${min} min${min === 5 ? ' (padrão)' : ''}`);
+
 const REPLY_LENGTH_HELP: Record<AiReplyLength, string> = {
   auto: 'Espelha o paciente: se ele manda mensagens curtas, ela responde curto; se ele escreve textão, ela explica mais.',
   curta: 'Sempre direto ao ponto: uma ou duas frases por mensagem.',
@@ -69,6 +74,10 @@ export function AiChipProfileEditor({ purpose, profile, defaultCooldown, onSaved
   const label = CHIP_LABEL[purpose];
   const name = p.assistantName.replace(/\s+/g, ' ').trim() || 'Sophia';
   const ownDelay = p.responseDelaySec !== null;
+  // Valor salvo fora da lista (ex.: 15 min gravado antes) continua aparecendo, pra não sumir ao salvar.
+  const retryOptions = SCHEDULING_RETRY_OPTIONS.includes(p.schedulingRetryMin)
+    ? SCHEDULING_RETRY_OPTIONS
+    : [...SCHEDULING_RETRY_OPTIONS, p.schedulingRetryMin].sort((a, b) => a - b);
   const dirty = JSON.stringify(normalizeAiChipProfile(p)) !== profileKey;
   const set = (patch: Partial<AiChipProfile>) => setP((s) => ({ ...s, ...patch }));
 
@@ -197,6 +206,28 @@ export function AiChipProfileEditor({ purpose, profile, defaultCooldown, onSaved
           </div>
         </div>
       </div>
+
+      {/* 2ª tentativa de agendamento — não existe no Financeiro (lá não se oferece consulta) */}
+      {purpose === 'FINANCEIRO' ? null : <div className="space-y-1.5">
+        <span className="text-[11px] font-semibold text-muted-foreground block">Se o paciente encerrar sem agendar</span>
+        <div className="inline-flex flex-wrap rounded-xl border border-border p-0.5 text-xs font-semibold">
+          {retryOptions.map((min) => (
+            <button
+              key={min}
+              type="button"
+              onClick={() => set({ schedulingRetryMin: min })}
+              className={`px-3 py-1.5 rounded-lg transition-colors ${p.schedulingRetryMin === min ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {schedulingRetryLabel(min)}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {p.schedulingRetryMin === 0
+            ? 'Desligado: ela não volta a chamar o paciente pra agendar.'
+            : 'Ela não fecha a porta e, depois desse tempo, manda uma mensagem separada com 2 horários pra tentar agendar (no máx. 1 vez por dia por conversa; não manda se o paciente responder antes, recusar ou já tiver consulta).'}
+        </p>
+      </div>}
 
       {/* Instruções deste chip */}
       <label className="flex flex-col gap-1">

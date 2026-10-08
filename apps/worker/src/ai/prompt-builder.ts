@@ -281,6 +281,11 @@ export class PromptBuilder {
                 },
               },
             },
+            retry_scheduling: {
+              type: 'boolean',
+              description:
+                'Marque true quando o paciente ENCERROU ou HESITOU sem agendar ("ok", "obrigado(a)", "vou pensar", "depois vejo", "qualquer coisa eu chamo"…) e ele NÃO tem consulta marcada. Nesse caso a sua resposta é curta e calorosa, sem fechar a porta e SEM oferecer horário: alguns minutos depois o sistema manda uma tentativa SEPARADA de agendamento com 2 horários. Não marque quando você já ofereceu horário, confirmou agendamento ou o paciente ainda está conversando.',
+            },
           },
           required: ['reply'],
         },

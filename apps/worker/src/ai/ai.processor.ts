@@ -16,8 +16,22 @@ import { computeBusinessHoursInfo, clinicStatusNow } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
-import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, bubbleTypingMs, bubblePauseMs, tidyReply, resolveReplyStyle, detectPatientStyle } from './conversation-guide';
-import { loadClinicAiContext, type ClinicAiContext } from './clinic-ai-context';
+import {
+  CONVERSATION_GUIDE,
+  SCHEDULING_RULES,
+  NO_PRICE_TABLE,
+  splitIntoBubbles,
+  bubbleTypingMs,
+  bubblePauseMs,
+  tidyReply,
+  resolveReplyStyle,
+  detectPatientStyle,
+  isClosingWithoutScheduling,
+  replyProposesSlots,
+  leadFirstName,
+  buildSchedulingRetryInstruction,
+} from './conversation-guide';
+import { loadClinicAiContext, isChipAiEnabledForClinic, type ClinicAiContext } from './clinic-ai-context';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
 
@@ -47,8 +61,125 @@ export class AiProcessor extends WorkerHost {
     private s3: S3Service,
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
     private memoryRetrieval: MemoryRetrievalService,
+    // Mesma fila deste processor (registrada no AiModule) — usada só pra agendar a
+    // 2ª tentativa de agendamento ('ai-scheduling-retry'). Sem import entre módulos.
+    @InjectQueue('ai-jobs') private aiQueue: Queue,
   ) {
     super();
+  }
+
+  // ─── 2ª TENTATIVA DE AGENDAMENTO ─────────────────────────────────────────
+  // Paciente encerrou sem agendar ("ok", "vou pensar"): a IA responde curto sem
+  // fechar a porta e, schedulingRetryMin minutos depois (perfil do chip), este
+  // mesmo processor manda UMA mensagem separada oferecendo 2 horários. No máx. 1
+  // por conversa por dia (jobId fixo por conversa + dia de Maceió).
+
+  /** Tipos de evento que contam como "consulta" do paciente (mesmos dos safeguards). */
+  private static readonly CLINICAL_EVENT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+
+  /**
+   * O lead/paciente já tem consulta FUTURA (AGENDADO/CONFIRMADO)? Procura pela
+   * conversa, pelo lead e pelo Patient ligado ao lead (eventos criados na tela).
+   * Agenda é naive-UTC (hora de Maceió gravada como UTC) → "agora" = Date.now()-3h.
+   * Erro = assume que TEM (não manda tentativa às cegas).
+   */
+  private async hasFutureClinicalAppointment(convo: any): Promise<boolean> {
+    try {
+      const leadId: string | null = convo.lead_id || convo.lead?.id || null;
+      const patient = leadId
+        ? await (this.prisma as any).patient
+            .findUnique({ where: { lead_id: leadId }, select: { id: true } })
+            .catch(() => null)
+        : null;
+      const or: any[] = [{ conversation_id: convo.id }];
+      if (leadId) or.push({ lead_id: leadId });
+      if (patient?.id) or.push({ patient_id: patient.id });
+      const nowNaive = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      const ev = await (this.prisma as any).calendarEvent.findFirst({
+        where: {
+          OR: or,
+          type: { in: AiProcessor.CLINICAL_EVENT_TYPES },
+          status: { in: ['AGENDADO', 'CONFIRMADO'] },
+          start_at: { gt: nowNaive },
+        },
+        select: { id: true },
+      });
+      return !!ev;
+    } catch (e: any) {
+      this.logger.warn(`[AI-RETRY] Falha ao checar consulta futura (conv ${convo?.id}): ${e?.message} — não agenda tentativa`);
+      return true;
+    }
+  }
+
+  /**
+   * Agenda a 2ª tentativa (job 'ai-scheduling-retry' na fila ai-jobs). jobId fixo
+   * por conversa + dia de Maceió: se já existe um job PENDENTE (delayed/waiting),
+   * troca pelo novo (timer e marco reiniciam); se já RODOU hoje (completed/failed,
+   * guardado 24h), não cria outro. Best-effort: erro só loga.
+   */
+  private async scheduleSchedulingRetry(convo: any, minutes: number, reason: string): Promise<void> {
+    try {
+      if (await this.hasFutureClinicalAppointment(convo)) {
+        this.logger.log(`[AI-RETRY] conv ${convo.id}: lead já tem consulta futura — 2ª tentativa NÃO agendada`);
+        return;
+      }
+      const dayKey = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+      const jobId = `ai-sched-retry-${convo.id}-${dayKey}`;
+      const existing = await this.aiQueue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState().catch(() => 'unknown');
+        if (state === 'delayed' || state === 'waiting' || state === 'prioritized') {
+          await existing.remove();
+          this.logger.log(`[AI-RETRY] conv ${convo.id}: tentativa pendente substituída (timer reiniciado)`);
+        } else {
+          this.logger.log(
+            `[AI-RETRY] conv ${convo.id}: já houve 2ª tentativa hoje (job ${jobId} em ${state}) — não agenda outra`,
+          );
+          return;
+        }
+      }
+      const retryAfterMessageAt = new Date().toISOString();
+      await this.aiQueue.add(
+        'ai-scheduling-retry',
+        {
+          conversation_id: convo.id,
+          lead_id: convo.lead_id || convo.lead?.id || null,
+          schedulingRetry: true,
+          retryAfterMessageAt,
+          // Quem estava atribuído ao agendar: se mudar até o disparo, um humano assumiu.
+          assignedUserId: convo.assigned_user_id || null,
+        },
+        {
+          jobId,
+          delay: Math.max(1, minutes) * 60_000,
+          attempts: 1, // nunca reenviar a tentativa em duplicidade
+          removeOnComplete: { age: 24 * 60 * 60 },
+          removeOnFail: { age: 24 * 60 * 60 },
+        },
+      );
+      this.logger.log(
+        `[AI-RETRY] conv ${convo.id}: 2ª tentativa de agendamento AGENDADA em ${minutes} min (job ${jobId}, motivo: ${reason})`,
+      );
+    } catch (e: any) {
+      this.logger.warn(`[AI-RETRY] Falha ao agendar 2ª tentativa (conv ${convo?.id}): ${e?.message}`);
+    }
+  }
+
+  /**
+   * Checagens SÍNCRONAS da 2ª tentativa sobre a conversa já carregada (mensagens
+   * DESC). Devolve o motivo pra abortar, ou null pra seguir.
+   */
+  private schedulingRetryAbortReason(convo: any, data: any): string | null {
+    const after = Date.parse(String(data?.retryAfterMessageAt || ''));
+    if (!Number.isFinite(after)) return 'job sem retryAfterMessageAt válido';
+    const newer = (convo.messages || []).filter((m: any) => new Date(m.created_at).getTime() > after);
+    if (newer.some((m: any) => m.direction === 'in')) return 'paciente respondeu depois (o fluxo normal cuida)';
+    if (newer.some((m: any) => m.direction === 'out')) return 'outra mensagem saiu depois (operador/disparo)';
+    // Recepção fechou/adiou a conversa (os botões só mudam o status) → não manda.
+    if (convo.status && convo.status !== 'ABERTO') return `conversa ${convo.status}`;
+    const before = data?.assignedUserId || null;
+    if (convo.assigned_user_id && convo.assigned_user_id !== before) return 'conversa atribuída a um humano depois';
+    return null;
   }
 
   // ─── TRIAGEM NÃO-PACIENTE ────────────────────────────────────────────────
@@ -420,12 +551,15 @@ export class AiProcessor extends WorkerHost {
     updates: any;
     scheduling_action?: { action: string; date?: string; time?: string };
     slots_to_offer?: { date: string; time: string; label: string }[];
+    /** Paciente encerrou sem agendar → sistema manda a 2ª tentativa depois. */
+    retry_scheduling?: boolean;
   } {
     const extract = (parsed: any) => ({
       reply: parsed.reply ?? '',
       updates: parsed.updates || parsed.lead_update || {},
       scheduling_action: parsed.scheduling_action || undefined,
       slots_to_offer: parsed.slots_to_offer || undefined,
+      retry_scheduling: parsed.retry_scheduling === true || parsed.retry_scheduling === 'true',
     });
 
     // 1. JSON puro
@@ -452,7 +586,7 @@ export class AiProcessor extends WorkerHost {
         .replace(/\\"/g, '"')
         .replace(/\\\\/g, '\\');
       this.logger.warn(`[AI] JSON malformado — reply extraído via regex (${reply.length} chars)`);
-      return { reply, updates: {} };
+      return { reply, updates: {}, retry_scheduling: /"retry_scheduling"\s*:\s*(?:true|"true")/.test(raw) };
     }
 
     this.logger.warn('[AI] Resposta não é JSON válido — usando como texto puro');
@@ -1148,6 +1282,10 @@ export class AiProcessor extends WorkerHost {
     // Chat de teste (Ajustes › IA): roda o MESMO cérebro numa conversa em memória —
     // nada é enviado pro WhatsApp nem gravado (mensagem, lead, agenda, custo).
     const dryRun = job.data?.dryRun === true;
+    // 2ª tentativa de agendamento (job 'ai-scheduling-retry', agendado por este
+    // processor depois que o paciente encerrou sem agendar). No dryRun é o "Ver como
+    // seria" da tela: roda só a instrução da tentativa, sem checagens de banco.
+    const isSchedulingRetry = job.data?.schedulingRetry === true;
 
     try {
       // 2. Buscar conversa + lead + últimas 20 mensagens com mídia incluída
@@ -1165,7 +1303,10 @@ export class AiProcessor extends WorkerHost {
       });
 
       // 3. Verificar ai_mode ativo
-      if (!convo) return;
+      if (!convo) {
+        if (isSchedulingRetry) this.logger.log(`[AI-RETRY] Job ${job.id} abortado — conversa ${conversation_id} não existe mais`);
+        return;
+      }
 
       // 3a. Quando ai_mode=false (operador humano atende), nada a fazer aqui.
       //
@@ -1174,20 +1315,34 @@ export class AiProcessor extends WorkerHost {
       // conversas de operadores humanos junto com as da IA, gerando Memory
       // entries e atualizando LeadProfile automaticamente.
       if (!convo.ai_mode) {
+        if (isSchedulingRetry) this.logger.log(`[AI-RETRY] Job ${job.id} abortado — IA desligada na conversa ${conversation_id} (humano atende)`);
         return;
       }
 
-      // 3b. Anti-stale check — aborta job duplicado/obsoleto
-      // Mensagens carregadas em ordem DESC: convo.messages[0] = mais recente.
-      // Se a mensagem mais recente já é outbound (IA/operador respondeu), não há nada a responder.
-      // Isso ocorre quando dois jobs são enfileirados quase ao mesmo tempo (race condition)
-      // e o segundo encontra a conversa já respondida pelo primeiro.
-      const mostRecentMsg = convo.messages[0];
-      if (mostRecentMsg && mostRecentMsg.direction === 'out') {
-        this.logger.warn(
-          `[AI] Job ${job.id} abortado — última msg já é outbound (race condition evitada) para conv ${conversation_id}`,
-        );
-        return;
+      if (isSchedulingRetry) {
+        // 3b'. 2ª tentativa: a última mensagem É nossa, de propósito — pula o
+        // anti-stale. Mas aborta se o paciente respondeu, se outra mensagem saiu
+        // depois (operador/disparo) ou se um humano assumiu a conversa.
+        if (!dryRun) {
+          const abortReason = this.schedulingRetryAbortReason(convo, job.data);
+          if (abortReason) {
+            this.logger.log(`[AI-RETRY] Job ${job.id} abortado (conv ${conversation_id}): ${abortReason}`);
+            return;
+          }
+        }
+      } else {
+        // 3b. Anti-stale check — aborta job duplicado/obsoleto
+        // Mensagens carregadas em ordem DESC: convo.messages[0] = mais recente.
+        // Se a mensagem mais recente já é outbound (IA/operador respondeu), não há nada a responder.
+        // Isso ocorre quando dois jobs são enfileirados quase ao mesmo tempo (race condition)
+        // e o segundo encontra a conversa já respondida pelo primeiro.
+        const mostRecentMsg = convo.messages[0];
+        if (mostRecentMsg && mostRecentMsg.direction === 'out') {
+          this.logger.warn(
+            `[AI] Job ${job.id} abortado — última msg já é outbound (race condition evitada) para conv ${conversation_id}`,
+          );
+          return;
+        }
       }
 
       // 4. (Debounce gerenciado no enqueue — evolution.service.ts)
@@ -1358,6 +1513,24 @@ export class AiProcessor extends WorkerHost {
       const aiProfile = clinicCtx.profile;
       const assistantName = aiProfile.assistantName;
 
+      // 6d. 2ª tentativa de agendamento (fluxo real): checagens que dependem da
+      // clínica/chip. O webhook NÃO passa por aqui, então o liga/desliga da IA do
+      // chip é conferido de novo (mesma regra do webhook).
+      if (isSchedulingRetry && !dryRun) {
+        let abortReason: string | null = null;
+        if (aiProfile.schedulingRetryMin <= 0) abortReason = 'clínica desligou a 2ª tentativa no perfil do chip';
+        else if (profilePurpose === 'FINANCEIRO') abortReason = 'chip Financeiro não faz tentativa de agendamento';
+        else if (convo.lead?.is_client) abortReason = 'contato já é paciente (Pós-Venda)';
+        else if (!(await isChipAiEnabledForClinic(this.prisma, rawTenantId || chipTenantId || (convo as any).lead?.tenant_id, chipPurpose)))
+          abortReason = `IA desligada no chip ${chipPurpose ?? 'sem função'} desta clínica`;
+        else if (await this.hasFutureClinicalAppointment(convo)) abortReason = 'lead já tem consulta futura';
+        if (abortReason) {
+          this.logger.log(`[AI-RETRY] Job ${job.id} abortado (conv ${conversation_id}): ${abortReason}`);
+          return;
+        }
+        this.logger.log(`[AI-RETRY] conv ${conversation_id}: rodando a 2ª tentativa de agendamento`);
+      }
+
       // 7. Montar histórico com rótulos (Cliente / <assistente> / Operador)
       // Invertemos o array (que veio desc) para ordem cronológica correta
       const chronological = [...convo.messages].reverse();
@@ -1456,7 +1629,8 @@ export class AiProcessor extends WorkerHost {
       // religar) e avisa os ADMs. Só no chip COMERCIAL (ou sem função definida) e só
       // quando NÃO é cliente já cadastrado. Opt-in por tenant (default OFF). Best-effort:
       // qualquer dúvida/erro → trata como PACIENTE e segue o fluxo normal de venda.
-      if (!dryRun && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
+      // (2ª tentativa: a conversa já foi triada no turno normal — não reclassifica.)
+      if (!dryRun && !isSchedulingRetry && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
         try {
           const handled = await this.maybeHandleNonPatient(convo, chronological);
           if (handled) return;
@@ -1690,6 +1864,23 @@ export class AiProcessor extends WorkerHost {
           this.logger.warn(`[AI] Falha ao buscar disponibilidade: ${e.message}`);
           availableSlots = 'Erro ao consultar horários — tente novamente.';
         }
+      }
+
+      // 2ª tentativa sem horário concreto pra oferecer = não manda nada (a mensagem
+      // existe pra propor 2 horários; sem eles vira só cobrança).
+      if (isSchedulingRetry && !availableSlots.includes('PROPOSTA SUGERIDA')) {
+        this.logger.log(`[AI-RETRY] conv ${conversation_id}: sem PROPOSTA SUGERIDA na agenda (${availableSlots.slice(0, 80)}) — tentativa não enviada`);
+        if (dryRun) {
+          return {
+            dryRun: true,
+            schedulingRetry: true,
+            bubbles: [],
+            retrySkipped: 'Sem horários livres na agenda para oferecer — a 2ª tentativa não seria enviada.',
+            retryScheduling: false,
+            retryAfterMin: aiProfile.schedulingRetryMin,
+          };
+        }
+        return;
       }
 
       // ── Próximos eventos do calendário do lead — perícias, audiências, prazos ──
@@ -2132,13 +2323,14 @@ OBRIGATÓRIO:
    espera: "Os próximos dias estão lotados. Quer que eu te coloque na lista
    de espera pra avisar assim que abrir?"
 
-Retorne SOMENTE JSON válido: {"reply":"texto para enviar","updates":{"name":null,"status":"INICIAL","area":null,"lead_summary":"resumo","next_step":"duvidas","notes":"","loss_reason":null,"form_data":null},"scheduling_action":null}
+Retorne SOMENTE JSON válido: {"reply":"texto para enviar","updates":{"name":null,"status":"INICIAL","area":null,"lead_summary":"resumo","next_step":"duvidas","notes":"","loss_reason":null,"form_data":null},"scheduling_action":null,"retry_scheduling":false}
 
 Valores válidos para updates.status: INICIAL | QUALIFICANDO | AGUARDANDO_FORM | REUNIAO_AGENDADA | AGUARDANDO_DOCS | AGUARDANDO_PROC | FINALIZADO | PERDIDO
 Valores válidos para updates.next_step: duvidas | triagem_concluida | entrevista | formulario | reuniao | documentos | procuracao | encerrado | perdido
 updates.loss_reason: motivo da perda em português (ex: "Sem interesse"). Obrigatório quando next_step="perdido". Null nos demais casos.
 form_data: objeto com campos trabalhistas extraídos (só quando area=Trabalhista). Null quando não se aplica.
-scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} quando confirmar agendamento. Null quando não se aplica.`;
+scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} quando confirmar agendamento. Null quando não se aplica.
+retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar", "depois vejo"…) e não tem consulta marcada (ver regra PACIENTE ENCERROU SEM AGENDAR). False nos demais casos.`;
         systemPrompt = this.promptBuilder.buildSystemPrompt({
           mediaCapabilities: MEDIA_CAPABILITIES_HEADER,
           behaviorRules: CORE_RULES,
@@ -2257,7 +2449,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           : replyStyle.explicit && patientStyle === 'normal'
             ? 'Respostas de tamanho médio, objetivas; separe balões por linha em branco só quando houver ideias diferentes.'
             : 'Mensagens curtas, balões separados por linha em branco.';
-      const instruction = `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. ${lengthInstruction} Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
+      // 2ª tentativa de agendamento: a instrução própria SUBSTITUI a normal (a
+      // última mensagem é nossa; a IA volta por conta própria com 2 horários).
+      const instruction = isSchedulingRetry
+        ? buildSchedulingRetryInstruction(leadFirstName(convo.lead?.name))
+        : `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. ${lengthInstruction} Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
+      // Balões: a 2ª tentativa é UMA mensagem curta (no máx. 2 balões).
+      const maxBubbles = isSchedulingRetry ? 2 : 3;
 
       // Montar array final de mensagens para a OpenAI (multi-turn real)
       const openAiMessages: any[] = [
@@ -2285,6 +2483,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       let scheduling_action: any = null;
       let slotsToOffer: any[] | null = null;
       let toolCallLogs: any[] = [];
+      // Modelo marcou retry_scheduling (paciente encerrou sem agendar).
+      let retrySchedulingFlag = false;
 
       if (useToolCalling) {
         // ─── PATH NOVO: Function Calling com Tool Executor ───
@@ -2308,7 +2508,9 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         const handlerMap = buildHandlerMap(skillTools);
         // Chat de teste: só ferramentas de CONSULTA rodam de verdade; as que gravam
         // (agendar, atualizar lead, escalar…) devolvem um "ok simulado".
-        if (dryRun) {
+        // Chat de teste e 2ª tentativa: ferramentas de escrita (agendar, atualizar lead...)
+        // viram "ok simulado" — a tentativa só PROPÕE horário.
+        if (dryRun || isSchedulingRetry) {
           const READ_ONLY_TOOLS = new Set([
             'check_availability', 'get_procedures', 'get_esthetic_procedures',
             'search_references', 'search_memory', 'check_esthetic_revisit_due',
@@ -2379,12 +2581,15 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           updates = respondCall.input.updates || {};
           scheduling_action = respondCall.input.scheduling_action || null;
           slotsToOffer = respondCall.input.slots_to_offer || null;
+          retrySchedulingFlag =
+            respondCall.input.retry_scheduling === true || respondCall.input.retry_scheduling === 'true';
         } else if (toolResult.response.content) {
           // Fallback: parse content as JSON (hybrid mode) ou texto puro
           const parsed = this.parseAiResponse(toolResult.response.content);
           aiText = parsed.reply;
           updates = parsed.updates || {};
           scheduling_action = parsed.scheduling_action || null;
+          retrySchedulingFlag = !!parsed.retry_scheduling;
         }
 
         // Propaga stage/next_step de update_lead quando respond_to_client não trouxe status.
@@ -2480,6 +2685,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         updates = parsed.updates;
         scheduling_action = parsed.scheduling_action;
         slotsToOffer = parsed.slots_to_offer || null;
+        retrySchedulingFlag = !!parsed.retry_scheduling;
       }
 
       this.logger.log(
@@ -2503,6 +2709,62 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           if (!updates.lead_summary && sanitized.updates?.lead_summary) updates.lead_summary = sanitized.updates.lead_summary;
           if (!updates.next_step && sanitized.updates?.next_step) updates.next_step = sanitized.updates.next_step;
           if (!updates.notes && sanitized.updates?.notes) updates.notes = sanitized.updates.notes;
+          if (sanitized.retry_scheduling) retrySchedulingFlag = true;
+        }
+      }
+
+      // 13c. Vai ter 2ª tentativa de agendamento? Pelo modelo (retry_scheduling) ou
+      // pela REDE DE SEGURANÇA: a última mensagem do paciente é um encerramento curto
+      // ("ok", "vou pensar") e a resposta não propõe horário. Nunca numa resposta que
+      // já oferece horário, com scheduling_action (confirmou/cancelou/remarcou), no
+      // chip Financeiro, pra quem já é paciente (Pós-Venda) ou se a própria resposta
+      // já é a 2ª tentativa. Consulta futura é conferida no banco ao agendar.
+      const lastInboundForRetry = [...chronological].reverse().find((m: any) => m.direction === 'in');
+      const retryBySafetyNet = !retrySchedulingFlag && isClosingWithoutScheduling(lastInboundForRetry?.text);
+      // A conversa já estava em andamento (a IA/equipe falou antes do "ok") — um "ok"
+      // solto de lead novo não dispara a tentativa.
+      const lastInboundAt = lastInboundForRetry ? new Date(lastInboundForRetry.created_at).getTime() : 0;
+      const hadPriorReply = chronological.some(
+        (m: any) => m.direction === 'out' && new Date(m.created_at).getTime() < lastInboundAt,
+      );
+      const retryEligible =
+        !isSchedulingRetry &&
+        hadPriorReply &&
+        aiProfile.schedulingRetryMin > 0 &&
+        // Lead marcado como perdido nesta resposta (recusou) → não insiste.
+        updates?.status !== 'PERDIDO' &&
+        updates?.next_step !== 'perdido' &&
+        !updates?.loss_reason &&
+        profilePurpose !== 'FINANCEIRO' &&
+        !isActiveClient &&
+        !scheduling_action?.action &&
+        !!aiText.trim() &&
+        !replyProposesSlots(aiText);
+      const wantsSchedulingRetry = retryEligible && (retrySchedulingFlag || retryBySafetyNet);
+      const retryReason = retrySchedulingFlag ? 'modelo marcou retry_scheduling' : 'rede de segurança (encerramento curto)';
+      if (retrySchedulingFlag || retryBySafetyNet) {
+        this.logger.log(
+          `[AI-RETRY] conv ${conversation_id}: ${retryReason} → ${wantsSchedulingRetry ? `2ª tentativa em ${aiProfile.schedulingRetryMin} min` : 'NÃO elegível (perfil/chip/paciente/ação/horário na resposta)'}`,
+        );
+      }
+
+      // A 2ª tentativa NUNCA agenda/cancela sozinha (o paciente não respondeu a ela) e
+      // só sai se de fato propõe horário — senão seria outra mensagem de encerramento solta.
+      if (isSchedulingRetry) {
+        scheduling_action = null;
+        if (!replyProposesSlots(aiText)) {
+          this.logger.log(`[AI-RETRY] conv ${conversation_id}: resposta sem horário — 2ª tentativa NÃO enviada`);
+          if (dryRun) {
+            return {
+              dryRun: true,
+              bubbles: [],
+              schedulingRetry: true,
+              retrySkipped: 'A IA não montou uma proposta com horários — a 2ª tentativa não seria enviada.',
+              model,
+              skill: skill?.name || null,
+            };
+          }
+          return;
         }
       }
 
@@ -2514,7 +2776,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         const reply = tidyReply(willHandoff ? aiText.split(handoff).join('') : aiText);
         return {
           dryRun: true,
-          bubbles: splitIntoBubbles(reply, 3, patientStyle),
+          bubbles: splitIntoBubbles(reply, maxBubbles, patientStyle),
+          // 2ª tentativa de agendamento: esta resposta marcaria a tentativa (modelo ou
+          // rede de segurança, e o perfil permite)? E em quantos minutos. Com
+          // schedulingRetry no job, os balões acima SÃO a tentativa ("Ver como seria").
+          schedulingRetry: isSchedulingRetry,
+          retryScheduling: wantsSchedulingRetry && !willHandoff,
+          retryAfterMin: aiProfile.schedulingRetryMin,
           // Jeito DETECTADO do paciente (a escolha da clínica vai em profile.effectiveStyle).
           patientStyle: detectPatientStyle(chronological as any[]),
           // Perfil aplicado (Ajustes › IA) — a tela mostra nome/tamanho usados no teste.
@@ -2577,7 +2845,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
 
       // GATILHO 1: IA usou palavra de cancelamento sem emitir action
       // GATILHO 2: lead negou + IA nao emitiu action nem propos horarios novos
-      const shouldForceCancel = noActionFromAi && (aiSaysCancel || patientSaidNo);
+      // (2ª tentativa: o "não" do paciente é antigo e já foi tratado no turno normal.)
+      const shouldForceCancel = !isSchedulingRetry && noActionFromAi && (aiSaysCancel || patientSaidNo);
 
       if (shouldForceCancel) {
         const reason = aiSaysCancel
@@ -2633,6 +2902,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       }
 
       const handoffSignal = skill?.handoff_signal || null;
+      const handedOff = !!handoffSignal && finalText.includes(handoffSignal);
       if (handoffSignal && finalText.includes(handoffSignal)) {
         finalText = finalText
           .replace(new RegExp(handoffSignal, 'g'), '')
@@ -2966,7 +3236,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // vira uma mensagem no WhatsApp com seu próprio "digitando..." proporcional
       // ao tamanho (bubbleTypingMs: piso 1,8s / teto 8s) e pausa entre balões. Só o 1º leva a assinatura.
       // Cada balão é gravado com o ID real da Evolution (dedup do echo do webhook).
-      const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText, 3, patientStyle);
+      const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText, maxBubbles, patientStyle);
       const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
       const savedMsgs: any[] = [];
       let sendFailed = false;
@@ -2975,6 +3245,20 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
 
       for (let i = 0; i < bubbles.length; i++) {
         const bubble = bubbles[i];
+        // 2ª tentativa: o job leva 15–40s (agenda, LLM, "digitando"). Se o paciente
+        // escreveu nesse meio-tempo, para aqui — senão a mensagem dele ficaria sem
+        // resposta (o job normal abortaria pelo anti-stale ao ver a nossa por último).
+        if (isSchedulingRetry) {
+          const after = new Date(String(job.data?.retryAfterMessageAt || 0));
+          const replied = await this.prisma.message.findFirst({
+            where: { conversation_id: convo.id, direction: 'in', created_at: { gt: after } },
+            select: { id: true },
+          });
+          if (replied) {
+            this.logger.log(`[AI-RETRY] conv ${convo.id}: paciente escreveu durante a tentativa — parei antes do balão ${i + 1}`);
+            break;
+          }
+        }
         evolutionMsgId = `sys_ai_${Date.now()}_${i}`;
         let bubbleFailed = false;
 
@@ -3045,6 +3329,9 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         if (bubbleFailed) break; // não manda o resto se um balão falhou (ordem quebrada)
       }
       const savedMsg = savedMsgs[savedMsgs.length - 1];
+      // 2ª tentativa interrompida antes do 1º balão (paciente escreveu): nada saiu,
+      // o job normal da mensagem dele responde.
+      if (!savedMsg) return;
 
       // 18. Atualizar last_message_at
       await this.prisma.conversation.update({
@@ -3194,6 +3481,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       //
       // Leitura de AiMemory permanece como fallback na linha ~970 para
       // leads legacy sem tenant_id que nao puderam ser migrados em massa.
+
+      // 19b. 2ª tentativa de agendamento — SÓ depois do envio dar certo (e do áudio,
+      // se houve: o marco retryAfterMessageAt é "agora", depois de tudo que saiu).
+      // Nunca a partir de uma 2ª tentativa (13c), nem com handoff pra humano.
+      if (wantsSchedulingRetry && !sendFailed && !handedOff) {
+        await this.scheduleSchedulingRetry(convo, aiProfile.schedulingRetryMin, retryReason);
+      }
 
       // 20. Retorna IDs para o AiEventsService da API emitir WebSocket em tempo real
       // messageIds: todos os balões (a API emite cada um no WebSocket).

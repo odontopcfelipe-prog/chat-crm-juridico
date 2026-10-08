@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, Send, RotateCcw, RefreshCw } from 'lucide-react';
+import { MessageCircle, Send, RotateCcw, RefreshCw, Timer } from 'lucide-react';
 import api from '@/lib/api';
 import { OPENAI_MODELS, ANTHROPIC_MODELS } from './ai-models';
 
@@ -11,7 +11,8 @@ const bubbleTypingMs = (bubble: string) => Math.min(Math.max(900 + bubble.length
 const bubblePauseMs = (index: number) => (index === 0 ? 0 : 600 + Math.round(Math.random() * 600));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type Msg = { from: 'patient' | 'ai'; text: string; model?: string };
+// 'system' = linha do próprio teste (ex.: "5 min depois…"); nunca vai no histórico pra IA.
+type Msg = { from: 'patient' | 'ai' | 'system'; text: string; model?: string };
 type Meta = {
   skill: string | null;
   model: string;
@@ -66,14 +67,19 @@ export function AiTestChatCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
+  // Paciente encerrou sem agendar e o chip tem a 2ª tentativa ligada: daqui a
+  // `afterMin` minutos ela mandaria uma mensagem separada tentando agendar.
+  const [retryAfterMin, setRetryAfterMin] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   // Cada pergunta/recomeço ganha um número; a revelação dos balões em andamento
   // para se a pessoa recomeçar ou mandar outra mensagem.
   const runRef = useRef(0);
+  // No WhatsApp a 2ª tentativa sai no máx. 1 vez por conversa/dia — no teste também.
+  const retryShownRef = useRef(false);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [msgs, busy]);
+  }, [msgs, busy, retryAfterMin]);
 
   const reset = () => {
     runRef.current++;
@@ -81,6 +87,8 @@ export function AiTestChatCard({
     setMsgs([]);
     setMeta(null);
     setError(null);
+    setRetryAfterMin(null);
+    retryShownRef.current = false;
   };
 
   const send = () => {
@@ -96,27 +104,49 @@ export function AiTestChatCard({
   // IAs na mesma conversa.
   const redo = () => {
     if (busy) return;
+    // Volta até a última mensagem do paciente (pula os balões da IA e a tentativa de agendamento).
     let end = msgs.length;
-    while (end > 0 && msgs[end - 1].from === 'ai') end--;
+    while (end > 0 && msgs[end - 1].from !== 'patient') end--;
     if (end === 0 || end === msgs.length) return;
     ask(msgs.slice(0, end));
   };
 
-  const ask = async (history: Msg[]) => {
+  // "Ver como seria" a 2ª tentativa: mesmo histórico (com os balões da IA) e o
+  // worker gera a mensagem separada que ela mandaria depois de `afterMin` minutos.
+  const showRetry = () => {
+    if (busy || retryAfterMin === null) return;
+    retryShownRef.current = true;
+    ask(msgs, retryAfterMin);
+  };
+
+  /** retryAfter: definido = pede a tentativa de agendamento (mensagem separada, minutos depois). */
+  const ask = async (history: Msg[], retryAfter?: number) => {
     const run = ++runRef.current;
-    setMsgs(history);
+    const isRetry = retryAfter !== undefined;
+    // Na tentativa, marca a passagem do tempo antes do "digitando…".
+    const base: Msg[] = isRetry ? [...history, { from: 'system', text: `${retryAfter} min depois…` }] : history;
+    setMsgs(base);
+    setRetryAfterMin(null);
     setBusy(true);
     setError(null);
     try {
       const { data } = await api.post(
         '/settings/ai-test-chat',
-        { purpose: chip, isClient, model: model || undefined, history: history.map(({ from, text }) => ({ from, text })) },
+        {
+          purpose: chip,
+          isClient,
+          model: model || undefined,
+          history: history
+            .filter((m) => m.from !== 'system')
+            .map(({ from, text }) => ({ from, text })),
+          ...(isRetry ? { retryScheduling: true } : {}),
+        },
         { timeout: 100_000 },
       );
       const bubbles: string[] = Array.isArray(data?.bubbles) ? data.bubbles : [];
       // Mostra os balões UM POR UM, com o mesmo ritmo do WhatsApp (pausa +
       // "digitando..." proporcional) — antes os 3 apareciam juntos, igual robô.
-      let shown: Msg[] = history;
+      let shown: Msg[] = base;
       for (let i = 0; i < bubbles.length; i++) {
         await sleep(bubblePauseMs(i) + bubbleTypingMs(bubbles[i]));
         if (runRef.current !== run) return; // recomeçou ou mandou outra mensagem
@@ -124,6 +154,17 @@ export function AiTestChatCard({
         setMsgs(shown);
       }
       if (runRef.current !== run) return;
+      if (isRetry && !bubbles.length) {
+        setMsgs([
+          ...shown,
+          { from: 'system', text: data?.retrySkipped || 'Nesta conversa ela não mandaria a tentativa de agendamento.' },
+        ]);
+      }
+      // Só oferece a tentativa depois de uma resposta normal (no máx. 1 por conversa).
+      const after = Number(data?.retryAfterMin);
+      if (!isRetry && !retryShownRef.current && data?.retryScheduling && Number.isFinite(after) && after > 0) {
+        setRetryAfterMin(after);
+      }
       setMeta({
         skill: data?.skill || null,
         model: data?.model || '',
@@ -139,6 +180,11 @@ export function AiTestChatCard({
       });
     } catch (e: any) {
       setError(e?.response?.data?.message || 'A IA não respondeu. Tente de novo.');
+      // Tentativa falhou: tira o "N min depois…" e deixa o botão pra tentar de novo.
+      if (isRetry && runRef.current === run) {
+        setMsgs(history);
+        setRetryAfterMin(retryAfter ?? null);
+      }
     } finally {
       if (runRef.current === run) setBusy(false);
     }
@@ -204,7 +250,11 @@ export function AiTestChatCard({
             Escreva como um paciente escreveria. Ex.: &quot;Boa tarde, quanto fica a limpeza?&quot;<br />Shift+Enter: cada linha vira uma mensagem separada do paciente.
           </p>
         )}
-        {msgs.map((m, i) => (
+        {msgs.map((m, i) => m.from === 'system' ? (
+          <div key={i} className="flex justify-center py-1">
+            <span className="text-[11px] italic text-muted-foreground">{m.text}</span>
+          </div>
+        ) : (
           <div key={i} className={`flex ${m.from === 'patient' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
@@ -220,6 +270,16 @@ export function AiTestChatCard({
             </div>
           </div>
         ))}
+        {retryAfterMin !== null && !busy && (
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 py-1 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Timer size={12} /> Daqui a {retryAfterMin} min ela mandaria uma tentativa de agendamento
+            </span>
+            <button type="button" onClick={showRetry} className="font-semibold text-primary hover:underline">
+              Ver como seria
+            </button>
+          </div>
+        )}
         {busy && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md bg-card border border-border px-3.5 py-2 text-xs text-muted-foreground">
