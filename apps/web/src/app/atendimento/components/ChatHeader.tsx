@@ -20,7 +20,8 @@ function MoveSectorButton({ conversationId }: { conversationId?: string }) {
     if (!window.confirm(
       `Mover esta conversa pro setor ${label}?\n\n` +
       `O atendimento passa pro time de ${label} e as PRÓXIMAS mensagens saem pelo NÚMERO desse setor ` +
-      `(o cliente recebe do número novo — vira um chat novo no WhatsApp dele).`,
+      `(o cliente recebe do número novo — vira um chat novo no WhatsApp dele).\n\n` +
+      `Se a IA estiver ligada no chip ${label}, a assistente passa a atender esta conversa a partir da próxima mensagem do cliente.`,
     )) return;
     setMoving(true);
     try {

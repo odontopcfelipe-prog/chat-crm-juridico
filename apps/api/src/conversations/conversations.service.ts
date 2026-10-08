@@ -6,6 +6,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Prisma, Conversation } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
+import { isChipAiEnabled } from '../settings/chip-ai-enabled.util';
 
 @Injectable()
 export class ConversationsService {
@@ -595,6 +596,12 @@ export class ConversationsService {
       );
     }
 
+    // Entrou num chip com a IA LIGADA (nesta clínica) → a assistente assume a conversa
+    // na hora. Antes a chave da conversa ficava como estava: quase toda conversa da
+    // Clínica está "IA inativa" (alguém assumiu) e, ao voltar pro Comercial, a IA
+    // ficava quieta até alguém religar. Chip com IA desligada: não mexe na chave.
+    const aiOnInTarget = await isChipAiEnabled(this.prisma, conv.tenant_id, purpose);
+
     const updated = await this.prisma.conversation.update({
       where: { id },
       data: {
@@ -602,6 +609,7 @@ export class ConversationsService {
         instance_name: chip.name,
         assigned_user_id: null, // novo setor assume (round-robin / pega manual)
         ai_mode_source: 'MANUAL',
+        ...(aiOnInTarget ? { ai_mode: true, ai_mode_disabled_at: null } : {}),
       },
     });
 
@@ -624,7 +632,9 @@ export class ConversationsService {
     }
 
     this.chatGateway.emitConversationsUpdate(conv.tenant_id);
-    this.logger.log(`[CONV-MOVE] ${id} → setor ${purpose} (chip ${chip.name}) por ${actorId ?? 'sistema'}`);
+    this.logger.log(
+      `[CONV-MOVE] ${id} → setor ${purpose} (chip ${chip.name}) por ${actorId ?? 'sistema'}${aiOnInTarget ? ' — IA assumiu a conversa' : ''}`,
+    );
     return updated;
   }
 
