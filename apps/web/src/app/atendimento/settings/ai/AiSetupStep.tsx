@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, CircleDashed } from 'lucide-react';
 
 export type StepStatus = 'done' | 'pending' | 'optional' | 'checking';
@@ -55,7 +56,7 @@ export function AiSetupStep({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-4 space-y-3">
+    <section id={id} className="scroll-mt-32 space-y-3">
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground px-2 text-sm font-black shadow-sm shadow-primary/20">
           {n}
@@ -74,13 +75,59 @@ export function AiSetupStep({
   );
 }
 
-/** Atalhos pras etapas, no topo da página (rola até a etapa). */
+/** Primeiro ancestral que rola (o container da página de Ajustes). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  let cur = el?.parentElement ?? null;
+  while (cur) {
+    const oy = getComputedStyle(cur).overflowY;
+    if (oy === 'auto' || oy === 'scroll') return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Barra das etapas, FIXA no topo enquanto a página rola: atalhos (rola até a etapa),
+ * contagem das obrigatórias e destaque da etapa em que a pessoa está.
+ */
 export function AiSetupStepNav({ steps, loading = false }: { steps: AiSetupStepInfo[]; loading?: boolean }) {
   const requiredSteps = steps.filter((s) => !s.optional);
   const done = requiredSteps.filter((s) => s.status === 'done').length;
   const required = requiredSteps.length;
+  const navRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState<string | null>(null);
+  const ids = steps.map((s) => s.id).join('|');
+
+  // Etapa atual = a última cujo topo já passou da barra fixa.
+  useEffect(() => {
+    const scroller = scrollParent(navRef.current);
+    if (!scroller) return;
+    const onScroll = () => {
+      const limit = (navRef.current?.getBoundingClientRect().bottom ?? 0) + 120;
+      let current: string | null = null;
+      const list = ids.split('|');
+      for (const id of list) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= limit) current = id;
+      }
+      // Fim da página: a última etapa não sobe até a barra — marca ela.
+      const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+      const lastEl = document.getElementById(list[list.length - 1]);
+      if (atBottom && lastEl && lastEl.getBoundingClientRect().top < scroller.getBoundingClientRect().bottom) {
+        current = list[list.length - 1];
+      }
+      setActive(current);
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [ids]);
+
   return (
-    <div className="space-y-2">
+    <div
+      ref={navRef}
+      className="sticky top-0 z-20 -mx-8 px-8 py-3 space-y-2 bg-background/95 backdrop-blur border-b border-border/60"
+    >
       <p className="text-[11px] text-muted-foreground">
         {loading ? 'Verificando as etapas…' : `${done} de ${required} etapas obrigatórias concluídas.`} Faça na ordem; depois teste em{' '}
         <b className="text-foreground">Teste sua IA</b>.
@@ -91,7 +138,10 @@ export function AiSetupStepNav({ steps, loading = false }: { steps: AiSetupStepI
             key={s.id}
             type="button"
             onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            aria-current={active === s.id ? 'step' : undefined}
             className={`shrink-0 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+              active === s.id ? 'ring-2 ring-primary/50 ' : ''
+            }${
               !loading && s.status === 'done'
                 ? 'border-emerald-500/30 bg-emerald-500/5 text-foreground hover:bg-emerald-500/10'
                 : 'border-border bg-card text-foreground hover:bg-muted/40'

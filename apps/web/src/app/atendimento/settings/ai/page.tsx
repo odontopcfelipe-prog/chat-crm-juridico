@@ -593,7 +593,7 @@ export default function AiSettingsPage() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col pt-8 overflow-hidden bg-background">
+    <div className="h-full flex flex-col pt-8 overflow-hidden bg-background">
       <header className="px-8 mb-6 shrink-0">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Ajustes IA</h1>
         <p className="text-[13px] text-muted-foreground mt-1">Configure a sua assistente virtual seguindo as etapas, na ordem.</p>
