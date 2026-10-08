@@ -2081,6 +2081,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         );
       }
 
+      // Chat de teste: permite trocar o modelo pra comparar (só no teste — o
+      // WhatsApp real continua usando o modelo da skill). O provider (OpenAI x
+      // Anthropic) é detectado pelo nome do modelo mais abaixo.
+      if (dryRun && typeof job.data?.model === 'string' && job.data.model.trim()) {
+        model = this.normalizeModelId(job.data.model.trim());
+      }
+
       // 11. Montar histórico MULTI-TURN (memória natural do modelo)
       // Imagens do cliente são incluídas inline no turn correto (não descoladas no final).
       const supportsVision = this.modelSupportsVision(model);
@@ -2194,7 +2201,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         // ─── PATH NOVO: Function Calling com Tool Executor ───
         // Auto-detectar provider pelo nome do modelo (evita inconsistência model/provider)
         const isClaudeModel = model.startsWith('claude-');
-        const provider: LLMProvider = isClaudeModel ? 'anthropic' : (skill.provider || 'openai');
+        // (no chat de teste o modelo pode ter sido trocado — aí o provider segue o modelo)
+        const provider: LLMProvider = isClaudeModel ? 'anthropic' : (dryRun && job.data?.model ? 'openai' : (skill.provider || 'openai'));
         const apiKeyForSkill = provider === 'anthropic'
           ? await this.settings.getAnthropicKey()
           : await this.settings.getOpenAiKey();

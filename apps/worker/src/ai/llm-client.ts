@@ -85,6 +85,10 @@ function usesMaxCompletionTokens(model: string): boolean {
   return /^(gpt-4\.1|gpt-5|o1|o3)/i.test(model);
 }
 
+function isReasoningModel(model: string): boolean {
+  return /^(o1|o3|o4|gpt-5)/i.test(model);
+}
+
 // ─── OpenAI Client ────────────────────────────────────────────
 
 export class OpenAIClient {
@@ -101,15 +105,19 @@ export class OpenAIClient {
       ...params.messages,
     ];
 
+    // Modelos de RACIOCÍNIO (o1/o3/o4/gpt-5*) só aceitam a temperatura padrão e
+    // gastam tokens "pensando" antes de responder — sem folga, voltam vazios.
+    const reasoning = isReasoningModel(params.model);
+    const maxTokens = reasoning ? Math.max(params.maxTokens, 4000) : params.maxTokens;
     const tokenParam = usesMaxCompletionTokens(params.model)
-      ? { max_completion_tokens: params.maxTokens }
-      : { max_tokens: params.maxTokens };
+      ? { max_completion_tokens: maxTokens }
+      : { max_tokens: maxTokens };
 
     const requestParams: any = {
       model: params.model,
       messages,
       ...tokenParam,
-      temperature: params.temperature,
+      ...(reasoning ? {} : { temperature: params.temperature }),
     };
 
     if (params.tools?.length) {

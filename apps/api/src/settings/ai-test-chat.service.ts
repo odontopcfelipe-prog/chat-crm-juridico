@@ -6,6 +6,8 @@ export interface AiTestChatInput {
   purpose?: 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO' | null;
   isClient?: boolean;
   leadName?: string | null;
+  /** Modelo só pro teste (comparar). Vazio = o da skill. */
+  model?: string | null;
   history: { from: 'patient' | 'ai'; text: string }[];
 }
 
@@ -53,6 +55,7 @@ export class AiTestChatService implements OnModuleDestroy {
         purpose: input.purpose || null,
         isClient: !!input.isClient,
         leadName: input.leadName || null,
+        model: input.model || null,
         history,
       },
       { removeOnComplete: true, removeOnFail: true, attempts: 1 },

@@ -5,6 +5,7 @@ import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Tras
 import api from '@/lib/api';
 import { AiTestChatCard } from './AiTestChatCard';
 import { AiPriceTableCard } from './AiPriceTableCard';
+import { OPENAI_MODELS, ANTHROPIC_MODELS, AVAILABLE_MODELS } from './ai-models';
 
 interface SkillTool {
   id: string;
@@ -74,23 +75,6 @@ const AI_CHIPS = [
 ] as const;
 type AiChipId = (typeof AI_CHIPS)[number]['id'];
 
-const OPENAI_MODELS = [
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini — rápido, inteligente' },
-  { value: 'gpt-5.1', label: 'GPT-5.1 — conversacional avançado' },
-  { value: 'gpt-4.1', label: 'GPT-4.1 — analítico' },
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — balanceado' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini — rápido, econômico' },
-  { value: 'gpt-4o', label: 'GPT-4o — capaz' },
-  { value: 'o1-mini', label: 'o1 Mini — raciocínio' },
-];
-
-const ANTHROPIC_MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — balanceado' },
-  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — rápido, econômico' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 — máxima capacidade' },
-];
-
-const AVAILABLE_MODELS = [...OPENAI_MODELS, ...ANTHROPIC_MODELS];
 
 const TEMPLATE_VARS = [
   { key: '{{lead_name}}', desc: 'Nome do cliente' },
