@@ -5,6 +5,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Prisma, Conversation } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
+import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 
 @Injectable()
 export class ConversationsService {
@@ -575,6 +576,12 @@ export class ConversationsService {
     });
     if (!conv) throw new NotFoundException('Conversa não encontrada');
     if (!conv.tenant_id) throw new BadRequestException('Conversa sem tenant');
+
+    // Lead agendado só vai pra Clínica depois de comparecer ou pagar.
+    if (purpose === 'CLINICA' && conv.lead_id && !conv.lead?.is_client) {
+      const blocked = await clinicTransferBlockReason(this.prisma, conv.lead_id);
+      if (blocked) throw new BadRequestException(blocked);
+    }
 
     // Chip + inbox do setor-alvo (por função, escopado por tenant).
     const chip = await this.prisma.instance.findFirst({

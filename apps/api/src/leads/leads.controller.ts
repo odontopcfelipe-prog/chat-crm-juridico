@@ -141,7 +141,9 @@ export class LeadsController {
     if (!patient?.id) {
       return { ok: false, error: 'Nao foi possivel criar/encontrar paciente vinculado' };
     }
-    return this.leadsService.graduateLeadToClient(patient.id, tenantId, userId);
+    const res = await this.leadsService.graduateLeadToClient(patient.id, tenantId, userId);
+    if (res.blocked) throw new BadRequestException(res.blocked);
+    return res;
   }
 
   /**

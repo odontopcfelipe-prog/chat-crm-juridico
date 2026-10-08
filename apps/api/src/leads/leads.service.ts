@@ -9,6 +9,7 @@ import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
 import { brazilPhoneMatchVariants, normalizeBrazilianPhone } from '../common/utils/phone';
+import { clinicTransferBlockReason } from './clinic-transfer-guard';
 import OpenAI from 'openai';
 
 /**
@@ -806,6 +807,12 @@ export class LeadsService {
       if (!conv?.specialty) {
         throw new ForbiddenException('Lead precisa ter especialidade definida para ser finalizado');
       }
+      // FINALIZADO vira cliente (Clínica) — lead agendado só depois de comparecer/pagar.
+      const cur = await this.prisma.lead.findUnique({ where: { id }, select: { is_client: true } });
+      if (!cur?.is_client) {
+        const blocked = await clinicTransferBlockReason(this.prisma, id);
+        if (blocked) throw new BadRequestException(blocked);
+      }
     }
 
     // Captura o stage atual antes de alterar (para o histórico)
@@ -1071,7 +1078,7 @@ export class LeadsService {
     patientId: string,
     tenantId: string,
     userId?: string,
-  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean; stageFinalized?: boolean }> {
+  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean; stageFinalized?: boolean; blocked?: string }> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
       select: { id: true, tenant_id: true, lead_id: true },
@@ -1088,6 +1095,13 @@ export class LeadsService {
     if (lead.is_client) {
       // Idempotente — varias parcelas pagas no mesmo lead nao fazem efeito extra
       return { ok: true, leadId: lead.id, alreadyClient: true };
+    }
+
+    // Lead agendado só vira paciente (Clínica) depois de comparecer ou pagar.
+    const blocked = await clinicTransferBlockReason(this.prisma, lead.id);
+    if (blocked) {
+      this.logger.log(`[LEAD→CLIENT] Lead ${lead.id} NÃO promovido: agendado sem comparecimento/pagamento`);
+      return { ok: false, leadId: lead.id, blocked };
     }
 
     // PASSO 1: Sempre seta is_client=true imediatamente (garantido).
