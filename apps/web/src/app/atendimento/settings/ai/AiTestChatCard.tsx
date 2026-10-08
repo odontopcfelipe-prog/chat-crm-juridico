@@ -6,7 +6,7 @@ import api from '@/lib/api';
 import { OPENAI_MODELS, ANTHROPIC_MODELS } from './ai-models';
 
 type Msg = { from: 'patient' | 'ai'; text: string; model?: string };
-type Meta = { skill: string | null; model: string; tools: string[]; handoff: boolean; scheduling: string | null };
+type Meta = { skill: string | null; model: string; tools: string[]; handoff: boolean; scheduling: string | null; style: string | null };
 
 const CHIPS = [
   { id: 'COMERCIAL', label: 'Comercial (lead novo)' },
@@ -41,10 +41,12 @@ export function AiTestChatCard() {
   };
 
   const send = () => {
-    const text = input.trim();
-    if (!text || busy) return;
+    // Cada linha (Shift+Enter) vira uma mensagem separada do paciente — simula
+    // quem manda várias mensagens curtas em sequência.
+    const lines = input.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length || busy) return;
     setInput('');
-    ask([...msgs, { from: 'patient', text }]);
+    ask([...msgs, ...lines.map((text) => ({ from: 'patient' as const, text }))]);
   };
 
   // Refaz a ÚLTIMA resposta da Sophia com o modelo selecionado agora — pra comparar
@@ -74,6 +76,7 @@ export function AiTestChatCard() {
         model: data?.model || '',
         tools: data?.tools || [],
         handoff: !!data?.handoff,
+        style: data?.patientStyle || null,
         scheduling: data?.scheduling_action?.action
           ? `${data.scheduling_action.action}${data.scheduling_action.date ? ` ${data.scheduling_action.date} ${data.scheduling_action.time || ''}` : ''}`
           : null,
@@ -138,7 +141,7 @@ export function AiTestChatCard() {
       <div className="h-[380px] overflow-y-auto px-4 py-4 space-y-2 bg-muted/20">
         {msgs.length === 0 && !busy && (
           <p className="text-center text-xs text-muted-foreground mt-24">
-            Escreva como um paciente escreveria. Ex.: &quot;Boa tarde, quanto fica a limpeza?&quot;
+            Escreva como um paciente escreveria. Ex.: &quot;Boa tarde, quanto fica a limpeza?&quot;<br />Shift+Enter: cada linha vira uma mensagem separada do paciente.
           </p>
         )}
         {msgs.map((m, i) => (
@@ -173,6 +176,11 @@ export function AiTestChatCard() {
           <span>Modelo: <b className="text-foreground">{meta.model}</b></span>
           {meta.tools.length > 0 && <span>Ferramentas: {meta.tools.join(', ')}</span>}
           {meta.scheduling && <span>Agendaria (simulado): {meta.scheduling}</span>}
+          {meta.style && (
+            <span>
+              Paciente escreve: <b className="text-foreground">{meta.style === 'curto' ? 'curto e separado' : meta.style === 'longo' ? 'textos grandes' : 'equilibrado'}</b>
+            </span>
+          )}
           {meta.handoff && <span className="text-amber-600">Passaria para um humano</span>}
           <button
             type="button"
@@ -193,8 +201,8 @@ export function AiTestChatCard() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
           }}
-          rows={1}
-          placeholder="Mensagem do paciente…"
+          rows={Math.min(4, input.split('\n').length)}
+          placeholder="Mensagem do paciente… (Shift+Enter = outra mensagem)"
           className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
         />
         <button

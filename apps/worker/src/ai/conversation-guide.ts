@@ -10,7 +10,7 @@
  * cada mensagem e copiar o mesmo texto. Nada aqui é específico de uma clínica:
  * nome da clínica, doutora e preços vêm de variáveis por tenant.
  *
- * Variáveis usadas: {{firm_name}}, {{doctor_name}}, {{price_table}},
+ * Variáveis usadas: {{firm_name}}, {{doctor_name}}, {{price_table}}, {{patient_style}},
  * {{available_slots}}, {{data_hoje}}.
  */
 
@@ -18,12 +18,13 @@
 export const CONVERSATION_GUIDE = `COMO VOCÊ CONVERSA (jeito da recepção da {{firm_name}}):
 Você é a Sophia, da recepção. Escreva como uma recepcionista experiente no WhatsApp: simples, educada, direta e humana.
 
-- Mensagens CURTAS. Uma ideia por balão. Quando tiver 2 ou 3 ideias, separe os balões com UMA LINHA EM BRANCO (cada bloco vira uma mensagem separada no WhatsApp). No máximo 3 balões por resposta.
+- ESPELHE O JEITO DO PACIENTE: {{patient_style}}
+- Para separar balões, use UMA LINHA EM BRANCO entre eles (cada bloco vira uma mensagem no WhatsApp). No máximo 3 balões por resposta.
 - Lista de horários fica junta no mesmo balão (um horário por linha).
 - Trate por Sr./Sra. + primeiro nome quando souber o nome. Sem "Prezado(a)", sem "Fico à disposição para quaisquer dúvidas", sem "Ótima pergunta".
 - No máximo 1 emoji na conversa toda, e só quando combinar (ex.: ao confirmar). Na dúvida, nenhum.
 - Fale com suas próprias palavras. Nunca repita uma frase que você já mandou nesta conversa.
-- Acompanhe o tom do paciente: se ele escreve curto e informal, responda curto.
+- Acompanhe também o tom: se ele escreve informal, seja mais leve; se escreve formal, seja mais formal.
 
 RESPONDA PRIMEIRO O QUE FOI PERGUNTADO:
 - Se o paciente fez uma pergunta, responda ELA antes de qualquer outra coisa. Pergunta sem resposta é o pior erro possível.
@@ -87,13 +88,108 @@ export const NO_PRICE_TABLE =
  * Quebra a resposta em balões pela LINHA EM BRANCO (como o guia pede). Mantém
  * listas (linhas simples) juntas. Máx. `max` balões — o excedente vai no último.
  */
-export function splitIntoBubbles(text: string, max = 3): string[] {
+/**
+ * Jeito do paciente escrever — a Sophia espelha:
+ *  - 'curto':  manda várias mensagens curtas em sequência → balões curtos;
+ *  - 'longo':  escreve textos grandes numa mensagem só → resposta numa mensagem só;
+ *  - 'normal': meio-termo → só separa onde a própria IA separou.
+ * Olha as últimas mensagens do paciente (rajada mais recente + tamanho médio).
+ */
+export type PatientStyle = 'curto' | 'longo' | 'normal';
+
+export function detectPatientStyle(chronological: { direction: string; text?: string | null }[]): PatientStyle {
+  const inbound = chronological.filter((m) => m.direction === 'in' && (m.text || '').trim());
+  if (!inbound.length) return 'normal';
+  // Rajada mais recente: mensagens seguidas do paciente desde a última resposta.
+  let burst = 0;
+  for (let i = chronological.length - 1; i >= 0 && chronological[i].direction === 'in'; i--) burst++;
+  const recent = inbound.slice(-8);
+  const avg = recent.reduce((n, m) => n + (m.text || '').trim().length, 0) / recent.length;
+  if (avg >= 110 && burst <= 1) return 'longo';
+  if (burst >= 2 || avg < 45) return 'curto';
+  return 'normal';
+}
+
+export const PATIENT_STYLE_HINT: Record<PatientStyle, string> = {
+  curto: 'O paciente escreve em mensagens CURTAS e separadas. Responda do mesmo jeito: frases curtas, 2 ou 3 balões (linha em branco entre eles).',
+  longo: 'O paciente escreve TEXTOS MAIORES numa mensagem só. Responda numa mensagem só, um pouco mais completa (pode ter 2 parágrafos), sem picotar em vários balões.',
+  normal: 'O paciente escreve de forma equilibrada. Responda curto; separe em balões só quando tiver ideias diferentes.',
+};
+
+export function splitIntoBubbles(text: string, max = 3, style: PatientStyle = 'curto'): string[] {
+  // Paciente de texto grande: resposta numa mensagem só (mantém os parágrafos).
+  if (style === 'longo') return [text.trim()];
   const parts = text
     .split(/\n[ \t]*\n+/)
     .map((p) => p.trim())
     .filter(Boolean);
+  // O modelo nem sempre separa os balões (manda "Bom dia! Meu nome é Sophia… Em
+  // que posso ajudar?" num parágrafo só). Pra paciente de mensagens curtas, sem
+  // linha em branco, quebra por FRASE.
+  if (parts.length === 1) return style === 'curto' ? splitBySentences(parts[0], max) : parts;
   if (parts.length <= max) return parts.length ? parts : [text.trim()];
   return [...parts.slice(0, max - 1), parts.slice(max - 1).join('\n\n')];
+}
+
+// Abreviações que terminam em ponto mas NÃO encerram a frase.
+const ABBREV = /(?:^|\s)(?:dr|dra|sr|sra|srta|prof|profa|av|n|nº|obs|aprox|tel)\.$/i;
+
+/**
+ * Quebra um parágrafo único em até `max` balões nas fronteiras de frase. Só olha a
+ * 1ª linha: listas (horários, valores) ficam inteiras, junto da frase que as
+ * apresenta. Até `max` frases = uma por balão; mais que isso, agrupa pelo tamanho.
+ */
+function splitBySentences(text: string, max: number): string[] {
+  const nl = text.indexOf('\n');
+  let head = nl >= 0 ? text.slice(0, nl) : text;
+  if (head.length >= 40) {
+    const cap = (_: string, a: string, b: string) => `${a} ${b.toUpperCase()}`;
+    head = head
+      // "Bom dia, meu nome é…" → "Bom dia! Meu nome é…" (saudação vira o 1º balão)
+      .replace(/^((?:bom dia|boa tarde|boa noite|olá|ola|oi)(?:\s+[A-ZÀ-Ö][\wÀ-ÿ]*)?)\s*,\s*(\S)/i, (_m, g, c) => `${g}! ${c.toUpperCase()}`)
+      // "…Passos, em que posso ajudar?" → "…Passos. Em que posso ajudar?"
+      .replace(/,\s*((?:em que|como|posso|quer|qual|gostaria)[^,.!?]{4,60}\?)\s*$/i, (_m, q) => `. ${q.charAt(0).toUpperCase()}${q.slice(1)}`)
+      .replace(/([.!?])\s+([a-zà-ÿ])/g, cap);
+  }
+  const tail = nl >= 0 ? text.slice(nl) : '';
+  if (head.length < 40) return [text];
+
+  const sentences: string[] = [];
+  let start = 0;
+  const re = /[.!?…]+["”)]?\s+(?=[A-ZÀ-ÖØ-Þ0-9"“(¿¡])/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(head))) {
+    const end = m.index + m[0].trimEnd().length;
+    const piece = head.slice(start, end);
+    if (ABBREV.test(piece)) continue; // "Dra. Suellen" não quebra
+    sentences.push(piece.trim());
+    start = m.index + m[0].length;
+  }
+  sentences.push(head.slice(start).trim());
+  const s = sentences.filter(Boolean);
+  if (s.length < 2) return [text];
+
+  let groups: string[];
+  if (s.length <= max) {
+    groups = s;
+  } else {
+    // Mais frases que balões: distribui por tamanho, mantendo a ordem.
+    const total = s.reduce((n, x) => n + x.length, 0);
+    const target = total / max;
+    groups = [];
+    let cur = '';
+    for (const x of s) {
+      if (cur && cur.length + x.length > target * 1.15 && groups.length < max - 1) {
+        groups.push(cur);
+        cur = x;
+      } else {
+        cur = cur ? `${cur} ${x}` : x;
+      }
+    }
+    groups.push(cur);
+  }
+  groups[groups.length - 1] += tail; // lista fica com a última frase
+  return groups.map((g) => g.trim()).filter(Boolean);
 }
 
 /**

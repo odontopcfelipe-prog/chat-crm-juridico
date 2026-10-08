@@ -16,7 +16,7 @@ import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
-import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply } from './conversation-guide';
+import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply, detectPatientStyle, PATIENT_STYLE_HINT } from './conversation-guide';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
 
@@ -1311,6 +1311,8 @@ export class AiProcessor extends WorkerHost {
       // 7. Montar histórico com rótulos (Cliente / Sophia / Operador)
       // Invertemos o array (que veio desc) para ordem cronológica correta
       const chronological = [...convo.messages].reverse();
+      // Jeito do paciente escrever (mensagens curtas x textão) — a Sophia espelha.
+      const patientStyle = detectPatientStyle(chronological as any[]);
       const historyText = chronological
         .map((m: any) => {
           const sender =
@@ -1850,6 +1852,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         ai_notes: aiNotesBlock,
         active_cases_info: activeCasesInfoBlock,
         business_hours_info: businessHoursInfo,
+        patient_style: PATIENT_STYLE_HINT[patientStyle],
       };
 
       // Cabeçalho fixo de capacidades — injetado antes de qualquer skill prompt
@@ -2431,7 +2434,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         const reply = tidyReply(willHandoff ? aiText.split(handoff).join('') : aiText);
         return {
           dryRun: true,
-          bubbles: splitIntoBubbles(reply),
+          bubbles: splitIntoBubbles(reply, 3, patientStyle),
+          patientStyle,
           skill: skill?.name || null,
           model,
           handoff: willHandoff,
@@ -2873,7 +2877,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // vira uma mensagem no WhatsApp com seu próprio "digitando..." proporcional
       // ao tamanho (~pessoa digitando, piso 1,5s / teto 7s). Só o 1º leva "Sophia:".
       // Cada balão é gravado com o ID real da Evolution (dedup do echo do webhook).
-      const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText);
+      const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText, 3, patientStyle);
       const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
       const savedMsgs: any[] = [];
       let sendFailed = false;
