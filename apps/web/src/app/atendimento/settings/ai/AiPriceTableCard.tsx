@@ -10,7 +10,12 @@ type Form = { doctor: string; items: Item[] };
 
 const DEFAULT_ITEMS: Item[] = [
   { name: 'Consulta de avaliação', price: '150', includes: '' },
-  { name: 'Limpeza', price: '350', includes: 'remoção de tártaro, polimento e aplicação de flúor' },
+  {
+    name: 'Limpeza',
+    price: '350',
+    includes:
+      'remoção de todo o tártaro com raspagem em todos os dentes (inclusive subgengival), aplicação de flúor, polimento de todos os dentes, escovação e fio dental em cada dente',
+  },
   { name: 'Manutenção de aparelho', price: '150', includes: '' },
 ];
 const DEFAULT_FORM: Form = { doctor: '', items: DEFAULT_ITEMS };
@@ -76,6 +81,9 @@ export function AiPriceTableCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Nada salvo ainda pra esta clínica: os campos mostram só a SUGESTÃO e a Sophia
+  // não informa valor nenhum — avisa claramente pra não parecer que já vale.
+  const [neverSaved, setNeverSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,6 +91,7 @@ export function AiPriceTableCard() {
       .then((r) => {
         const d = r.data || {};
         setEnabled(d.enabled !== false);
+        setNeverSaved(!String(d.value || '').trim());
         if (d.form?.mode === 'free' || (!d.form && d.value)) {
           setMode('free');
           setFreeText(d.value || '');
@@ -107,6 +116,7 @@ export function AiPriceTableCard() {
         form: mode === 'template' ? { mode, ...form } : { mode },
       });
       setSaved(true);
+      setNeverSaved(!finalText.trim());
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Não consegui salvar.');
@@ -155,6 +165,11 @@ export function AiPriceTableCard() {
           <div className="flex justify-center py-4"><RefreshCw className="animate-spin text-muted-foreground" size={18} /></div>
         ) : (
           <>
+            {neverSaved && (
+              <p className="text-xs font-semibold rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-2">
+                Ainda não está valendo: isto é só a sugestão. Confira e clique em Salvar. Até lá a Sophia não informa nenhum valor.
+              </p>
+            )}
             {!enabled && (
               <p className="text-xs rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 px-3 py-2">
                 Desligado: a Sophia não informa nenhum valor. Diz que depende da avaliação e convida pra consulta. O texto fica guardado.

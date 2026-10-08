@@ -50,9 +50,19 @@ CONDUZIR PRO AGENDAMENTO (sem ser repetitiva):
  */
 export const SCHEDULING_RULES = `VALORES — ORIENTAÇÃO DA CLÍNICA (vale ACIMA do texto de qualquer skill: se a skill disser "não passe preço" ou der outro valor, siga ESTA orientação; só pode informar os valores que aparecem aqui):
 {{price_table}}
-- Antes do valor, diga em UMA frase o que está incluso (o conceito). Depois o valor. Ex.: "A limpeza é completa: polimento, flúor e remoção de tártaro. Fica R$ 350."
-- Diga o conceito + valor UMA vez só na conversa. Se perguntarem de novo, responda só o número.
-- Qualquer procedimento cujo valor NÃO está na orientação acima: não informe valor nem faixa. Explique, com suas palavras e de forma curta, como a orientação acima descreve a consulta, e convide para agendar.
+- Se o paciente perguntou o valor de um item que ESTÁ na orientação acima, INFORME o valor. Nunca diga "só depois da avaliação" pra um item que tem valor aqui.
+
+COMO VENDER (jeito de vendedora da recepção — vale pra todas as skills):
+1. CONSTRUA O VALOR ANTES DO PREÇO: descreva, com entusiasmo e detalhe, TUDO que está incluso (use o "o que está incluso" da orientação, com suas palavras). Mostre que é completo e cuidadoso, não uma lista seca.
+2. DÊ O PREÇO COM NATURALIDADE, valorizando: "isso tudo fica apenas R$ 350".
+3. FECHE COM UMA OFERTA LEVE DE AGENDA, sem pressão: "Posso dar uma olhada na agenda e ver se consigo pra essa semana?".
+   Modelo de referência (o padrão de qualidade — adapte ao procedimento, não copie igual):
+   "Nossa limpeza dental é completa: primeiro fazemos toda a remoção de tártaro, com raspagem em todos os dentes, inclusive a subgengival. Depois aplicamos flúor, fazemos o polimento de todos os dentes, a escovação e passamos fio dental em cada um. Tudo isso fica apenas R$ 350.
+
+   Posso dar uma olhada na agenda e ver se consigo pra essa semana?"
+- Faça isso UMA vez por procedimento. Se perguntarem de novo, responda só o valor.
+- Procedimento cujo valor NÃO está na orientação acima: não informe valor nem faixa. Construa o valor da CONSULTA do mesmo jeito (o que é feito nela, segundo a orientação acima) e feche com a oferta de agenda.
+- Nunca use frases genéricas como "depende muito do que você vai precisar" ou "agendamos sem compromisso" sozinhas: sempre explique o que a pessoa ganha.
 
 REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
 
