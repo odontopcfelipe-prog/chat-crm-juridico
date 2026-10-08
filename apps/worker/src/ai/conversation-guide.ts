@@ -1,5 +1,8 @@
+import type { AiReplyLength } from '@crm/shared';
+
 /**
- * Guia de conversa da Sophia — tom e regras de agendamento.
+ * Guia de conversa da assistente da recepção (Sophia por padrão; o nome vem do
+ * perfil do chip de cada clínica) — tom e regras de agendamento.
  *
  * Escrito a partir de conversas REAIS da recepção (out/2026) que o dono marcou como
  * "bem espontâneas e naturais": mensagens curtas, uma ideia por balão, horário
@@ -8,17 +11,25 @@
  * Substitui os blocos antigos (tom "INVIOLÁVEL", 🚨, frases prontas e a ordem de
  * "SEMPRE propor horário" repetida 4×) que faziam a IA repetir "vamos agendar" a
  * cada mensagem e copiar o mesmo texto. Nada aqui é específico de uma clínica:
- * nome da clínica, doutora e preços vêm de variáveis por tenant.
+ * nome da clínica, da assistente, contato, doutora e preços vêm de variáveis por
+ * tenant (perfil do chip em Ajustes › IA — AI_PROFILE_<PURPOSE> — e cadastro da clínica).
  *
- * Variáveis usadas: {{firm_name}}, {{doctor_name}}, {{price_table}}, {{patient_style}},
- * {{available_slots}}, {{data_hoje}}.
+ * Variáveis usadas: {{assistant_name}}, {{firm_name}}, {{clinic_address}},
+ * {{clinic_phone}}, {{clinic_hours}}, {{clinic_now}}, {{chip_instructions}}, {{doctor_name}},
+ * {{price_table}}, {{patient_style}}, {{available_slots}}, {{data_hoje}}.
  */
 
 /** Tom e jeito de conversar — entra junto das regras técnicas (CORE_RULES). */
 export const CONVERSATION_GUIDE = `COMO VOCÊ CONVERSA (jeito da recepção da {{firm_name}}):
-Você é a Sophia, da recepção. Escreva como uma recepcionista experiente no WhatsApp: simples, educada, direta e humana.
+Você é a {{assistant_name}}, da recepção da {{firm_name}}. Escreva como uma recepcionista experiente no WhatsApp: simples, educada, direta e humana.
 
-- ESPELHE O JEITO DO PACIENTE: {{patient_style}}
+DADOS DA CLÍNICA (informe quando perguntarem; nunca invente):
+- Endereço: {{clinic_address}}
+- Telefone: {{clinic_phone}}
+- Horário de atendimento: {{clinic_hours}}
+- Situação agora: {{clinic_now}}
+
+- TAMANHO E JEITO DAS RESPOSTAS: {{patient_style}}
 - Para separar balões, use UMA LINHA EM BRANCO entre eles (cada bloco vira uma mensagem no WhatsApp). No máximo 3 balões por resposta.
 - Lista de horários fica junta no mesmo balão (um horário por linha).
 - Trate por Sr./Sra. + primeiro nome quando souber o nome. Sem "Prezado(a)", sem "Fico à disposição para quaisquer dúvidas", sem "Ótima pergunta".
@@ -47,8 +58,14 @@ CONDUZIR PRO AGENDAMENTO (sem ser repetitiva):
  * Valores da clínica + regras de agendamento — entram POR ÚLTIMO no prompt
  * (finalRules), depois do texto da skill: o modelo pesa mais o final, então a
  * orientação de valores da clínica vence skill que diga "não passe preço".
+ * Começa reafirmando a IDENTIDADE: as skills são globais e citam "Sophia do
+ * Instituto Odonto Passos" fixo — aqui no final vale o nome/clínica DESTE tenant.
  */
-export const SCHEDULING_RULES = `VALORES — ORIENTAÇÃO DA CLÍNICA (vale ACIMA do texto de qualquer skill: se a skill disser "não passe preço" ou der outro valor, siga ESTA orientação; só pode informar os valores que aparecem aqui):
+export const SCHEDULING_RULES = `IDENTIDADE (vale acima de qualquer texto anterior):
+- Seu nome é {{assistant_name}} e você fala pela {{firm_name}}. Se algum texto acima (skill/referência) usar outro nome de assistente ou de clínica, ignore e use estes.
+- INSTRUÇÕES DA CLÍNICA PARA ESTE CANAL (siga): {{chip_instructions}}
+
+VALORES — ORIENTAÇÃO DA CLÍNICA (vale ACIMA do texto de qualquer skill: se a skill disser "não passe preço" ou der outro valor, siga ESTA orientação; só pode informar os valores que aparecem aqui):
 {{price_table}}
 - Se o paciente perguntou o valor de um item que ESTÁ na orientação acima, INFORME o valor. Nunca diga "só depois da avaliação" pra um item que tem valor aqui.
 
@@ -125,6 +142,33 @@ export const PATIENT_STYLE_HINT: Record<PatientStyle, string> = {
   longo: 'O paciente escreve TEXTOS MAIORES numa mensagem só. Responda numa mensagem só, um pouco mais completa (pode ter 2 parágrafos), sem picotar em vários balões.',
   normal: 'O paciente escreve de forma equilibrada. Responda curto; separe em balões só quando tiver ideias diferentes.',
 };
+
+/**
+ * Tamanho ESCOLHIDO pela clínica no perfil do chip (replyLength ≠ 'auto'): vence o
+ * espelhamento do paciente. Chave = estilo efetivo (curta→curto, media→normal,
+ * longa→longo).
+ */
+export const CLINIC_STYLE_HINT: Record<PatientStyle, string> = {
+  curto: 'A clínica escolheu respostas CURTAS: frases curtas e diretas, 2 ou 3 balões (linha em branco entre eles), sem textão.',
+  normal: 'A clínica escolheu respostas de tamanho MÉDIO: objetivas, com o essencial explicado; separe em balões só quando tiver ideias diferentes.',
+  longo: 'A clínica escolheu respostas LONGAS: responda numa mensagem só, mais completa e explicada (pode ter 2 ou 3 parágrafos), sem picotar em vários balões.',
+};
+
+/**
+ * Estilo EFETIVO da resposta: 'auto' espelha o paciente (detectPatientStyle);
+ * 'curta' / 'media' / 'longa' = escolha da clínica no perfil do chip. Devolve o
+ * estilo (usado no splitIntoBubbles) e o texto pra {{patient_style}}.
+ */
+export function resolveReplyStyle(
+  replyLength: AiReplyLength,
+  chronological: { direction: string; text?: string | null }[],
+): { style: PatientStyle; hint: string; explicit: boolean } {
+  const chosen: PatientStyle | null =
+    replyLength === 'curta' ? 'curto' : replyLength === 'media' ? 'normal' : replyLength === 'longa' ? 'longo' : null;
+  if (chosen) return { style: chosen, hint: CLINIC_STYLE_HINT[chosen], explicit: true };
+  const detected = detectPatientStyle(chronological);
+  return { style: detected, hint: PATIENT_STYLE_HINT[detected], explicit: false };
+}
 
 export function splitIntoBubbles(text: string, max = 3, style: PatientStyle = 'curto'): string[] {
   // Paciente de texto grande: resposta numa mensagem só (mantém os parágrafos).

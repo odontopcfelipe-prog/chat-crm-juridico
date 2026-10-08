@@ -5,6 +5,9 @@ import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Tras
 import api from '@/lib/api';
 import { AiTestChatCard } from './AiTestChatCard';
 import { AiPriceTableCard } from './AiPriceTableCard';
+import { AiClinicInfoCard } from './AiClinicInfoCard';
+import { AiChipProfileEditor } from './AiChipProfileEditor';
+import type { AiProfileResponse } from './clinic-hours';
 import { OPENAI_MODELS, ANTHROPIC_MODELS, AVAILABLE_MODELS } from './ai-models';
 
 interface SkillTool {
@@ -195,6 +198,10 @@ export default function AiSettingsPage() {
   const [aiChip, setAiChip] = useState<Record<AiChipId, boolean>>({ COMERCIAL: true, CLINICA: true, FINANCEIRO: true });
   const [savingChip, setSavingChip] = useState<AiChipId | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(8);
+  // Perfil da IA de cada chip desta clínica (nome, assinatura, tamanho, tempo, instruções).
+  // null = não carregou (a gaveta avisa em vez de mostrar o editor vazio). Os dados
+  // da clínica (endereço/horário/resumo) do mesmo GET ficam no AiClinicInfoCard.
+  const [aiProfile, setAiProfile] = useState<AiProfileResponse | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
   const [isAdminKeyConfigured, setIsAdminKeyConfigured] = useState(false);
   const [isEditingKey, setIsEditingKey] = useState(false);
@@ -272,7 +279,23 @@ export default function AiSettingsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Recarrega SÓ o perfil da IA (depois de salvar um chip ou o tempo padrão) —
+  // sem o fetchData inteiro, que apagaria o que está sendo editado nos outros cards.
+  const reloadAiProfile = useCallback(async () => {
+    try {
+      const res = await api.get('/settings/ai-profile');
+      if (res.data?.chips) setAiProfile(res.data);
+    } catch {
+      /* mantém o que já está na tela */
+    }
+  }, []);
+
+  // Perfil da IA carrega à parte: falha em outra config não pode esconder o perfil.
+  useEffect(() => {
+    fetchData();
+    reloadAiProfile();
+  }, [fetchData, reloadAiProfile]);
 
   // Onda 18.21 — liga/desliga a IA de UM chip (salva na hora). A liberação da IA
   // é 100% por chip; o global antigo virou só fallback interno (migração).
@@ -314,6 +337,7 @@ export default function AiSettingsPage() {
       setAnthropicKey('');
       setSavedConfig(true);
       setTimeout(() => setSavedConfig(false), 3000);
+      reloadAiProfile(); // o "Usar o padrão (Xs)" dos chips acompanha o tempo novo
     } catch (e) {
       console.error('Erro ao salvar config IA:', e);
       alert('Erro ao salvar. Verifique se você é administrador.');
@@ -611,6 +635,16 @@ export default function AiSettingsPage() {
                     {/* Gaveta aberta: skills do chip + nova skill */}
                     {open && (
                       <div className="bg-muted/10 border-t border-border/50">
+                        {/* Perfil da IA deste chip (nome, assinatura, tamanho, tempo, instruções) */}
+                        {isRealChip && (
+                          <AiChipProfileEditor
+                            purpose={chip.id as AiChipId}
+                            profile={aiProfile?.chips?.[chip.id as AiChipId] ?? null}
+                            defaultCooldown={aiProfile?.defaults?.cooldownSeconds ?? cooldownSeconds}
+                            onSaved={reloadAiProfile}
+                          />
+                        )}
+
                         {/* Banner Sincronizar SDR só no Comercial (onde a SDR vive) */}
                         {chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
                           <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
@@ -693,8 +727,15 @@ export default function AiSettingsPage() {
           )}
         </div>
 
-        {/* ── Chat de teste + valores que a IA pode falar (por clínica) ── */}
-        <AiTestChatCard />
+        {/* ── Dados da clínica (valem p/ todos os chips) + chat de teste + valores (por clínica) ── */}
+        <AiClinicInfoCard />
+        <AiTestChatCard
+          chipNames={{
+            COMERCIAL: aiProfile?.chips?.COMERCIAL?.assistantName,
+            CLINICA: aiProfile?.chips?.CLINICA?.assistantName,
+            FINANCEIRO: aiProfile?.chips?.FINANCEIRO?.assistantName,
+          }}
+        />
         <AiPriceTableCard />
 
         {/* ── Config Global ── */}
@@ -875,12 +916,12 @@ export default function AiSettingsPage() {
                 </button>
               </div>
 
-              {/* Cooldown entre respostas da IA */}
+              {/* Tempo de resposta padrão (cooldownSeconds) — o chip sem tempo próprio usa este */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-                  Cooldown entre respostas:{' '}
+                  Tempo de resposta padrão:{' '}
                   <span className="text-foreground">
-                    {cooldownSeconds === 0 ? 'desativado' : `${cooldownSeconds}s`}
+                    {cooldownSeconds === 0 ? 'responde na hora' : `${cooldownSeconds}s`}
                   </span>
                 </label>
                 <input
@@ -890,10 +931,10 @@ export default function AiSettingsPage() {
                   className="w-full accent-primary"
                 />
                 <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>desativado</span><span>60s</span>
+                  <span>0s</span><span>60s</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Tempo mínimo entre respostas da IA na mesma conversa. Evita resposta duplicada quando o cliente envia várias mensagens em sequência rápida.
+                  Usado nos chips que não definem o próprio tempo. A IA espera o paciente parar de escrever por esse tempo antes de responder. Atenção: este padrão vale para TODAS as clínicas do sistema; para mudar só a sua, defina o tempo dentro do chip.
                 </p>
               </div>
 

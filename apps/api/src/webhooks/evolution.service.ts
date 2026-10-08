@@ -12,6 +12,7 @@ import { FollowupService } from '../followup/followup.service';
 import { AdminBotService } from '../admin-bot/admin-bot.service';
 import { MediaDownloadService } from '../media/media-download.service';
 import { PostCareService } from '../post-care/post-care.service';
+import { aiEnabledKey, aiProfileKey, isAiChipPurpose, normalizeAiChipProfile } from '@crm/shared';
 
 interface EvolutionWebhookPayload {
   event: string;
@@ -645,17 +646,38 @@ export class EvolutionService implements OnApplicationBootstrap {
         const master = (killSwitch?.value ?? 'true') !== 'false';
         let aiEnabled = master;
         let chipPurpose: string | null = null;
+        // Liga/desliga e tempo de resposta são POR CLÍNICA (perfil da IA em
+        // Ajustes › IA): a clínica é a da conversa — nunca mistura clínicas.
+        let convTenantId: string | null = conv.tenant_id ?? effectiveTenantId ?? lead.tenant_id ?? null;
         if (instanceName) {
           const inst = await this.prisma.instance.findFirst({
             where: { name: instanceName },
-            select: { purpose: true },
+            select: { purpose: true, tenant_id: true },
           });
           chipPurpose = inst?.purpose || null;
+          // Conversa/inbox/lead legados sem clínica: o dono do chip decide.
+          convTenantId = conv.tenant_id ?? effectiveTenantId ?? inst?.tenant_id ?? lead.tenant_id ?? null;
           if (chipPurpose) {
-            const flag = await this.prisma.globalSetting.findUnique({
-              where: { key: `AI_ENABLED_${chipPurpose}` },
-            });
-            aiEnabled = flag?.value != null ? flag.value !== 'false' : master;
+            // 1º a chave DA CLÍNICA (TenantSetting AI_ENABLED_<P>); sem ela, regra
+            // antiga (GlobalSetting AI_ENABLED_<P>, senão o kill switch). Mesma regra
+            // de SettingsService.getChipAiEnabledMap (toggles da tela).
+            const tenantFlag =
+              convTenantId && isAiChipPurpose(chipPurpose)
+                ? await this.prisma.tenantSetting
+                    .findUnique({
+                      where: { tenant_id_key: { tenant_id: convTenantId, key: aiEnabledKey(chipPurpose) } },
+                      select: { value: true },
+                    })
+                    .catch(() => null)
+                : null;
+            if (tenantFlag) {
+              aiEnabled = tenantFlag.value !== 'false';
+            } else {
+              const flag = await this.prisma.globalSetting.findUnique({
+                where: { key: `AI_ENABLED_${chipPurpose}` },
+              });
+              aiEnabled = flag?.value != null ? flag.value !== 'false' : master;
+            }
           }
         }
         if (!aiEnabled) {
@@ -664,11 +686,31 @@ export class EvolutionService implements OnApplicationBootstrap {
           );
         } else {
         try {
-          const cooldownRaw = await this.prisma.globalSetting.findUnique({
-            where: { key: 'AI_COOLDOWN_SECONDS' },
-          });
-          const cooldownSeconds = cooldownRaw?.value ? parseInt(cooldownRaw.value, 10) : 8;
-          const debounceMs = (isNaN(cooldownSeconds) ? 8 : Math.max(0, cooldownSeconds)) * 1000;
+          // Tempo de resposta (debounce) do CHIP na clínica: perfil da IA
+          // (TenantSetting AI_PROFILE_<P>.responseDelaySec). null = padrão global
+          // (GlobalSetting AI_COOLDOWN_SECONDS, padrão 8s) — regra antiga.
+          // Chip sem função (legado, 1 chip só) usa o perfil COMERCIAL — mesma regra do worker.
+          let profileDelaySec: number | null = null;
+          const profilePurpose = isAiChipPurpose(chipPurpose) ? chipPurpose : 'COMERCIAL';
+          if (convTenantId) {
+            const profRow = await this.prisma.tenantSetting
+              .findUnique({
+                where: { tenant_id_key: { tenant_id: convTenantId, key: aiProfileKey(profilePurpose) } },
+                select: { value: true },
+              })
+              .catch(() => null);
+            profileDelaySec = normalizeAiChipProfile(profRow?.value ?? null).responseDelaySec;
+          }
+          let debounceMs: number;
+          if (profileDelaySec !== null) {
+            debounceMs = profileDelaySec * 1000;
+          } else {
+            const cooldownRaw = await this.prisma.globalSetting.findUnique({
+              where: { key: 'AI_COOLDOWN_SECONDS' },
+            });
+            const cooldownSeconds = cooldownRaw?.value ? parseInt(cooldownRaw.value, 10) : 8;
+            debounceMs = (isNaN(cooldownSeconds) ? 8 : Math.max(0, cooldownSeconds)) * 1000;
+          }
           const jobId = `ai-debounce-${conv.id}`;
 
           if (debounceMs > 0) {

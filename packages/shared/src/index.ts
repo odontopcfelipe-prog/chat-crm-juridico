@@ -21,3 +21,5 @@ export * from './address.util';
 export * from './cobranca';
 // Agenda do Comercial — disparos de agendamento pro LEAD (chip COMERCIAL)
 export * from './comercial-agenda';
+// Perfil da IA por clínica/chip (nome da assistente, tamanho, tempo de resposta, horários)
+export * from './ai-profile';

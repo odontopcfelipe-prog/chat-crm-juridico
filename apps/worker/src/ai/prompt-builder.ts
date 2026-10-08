@@ -217,7 +217,7 @@ export class PromptBuilder {
             reply: {
               type: 'string',
               description:
-                'Texto a enviar ao cliente via WhatsApp. Mensagens curtas: separe cada ideia com UMA LINHA EM BRANCO (cada bloco vira um balão separado, no máx. 3). Ex.: "Bom dia!\\n\\nAqui é a Sophia, da recepção.\\n\\nEm que posso te ajudar?"',
+                'Texto a enviar ao cliente via WhatsApp. Mensagens curtas: separe cada ideia com UMA LINHA EM BRANCO (cada bloco vira um balão separado, no máx. 3). Ex.: "Bom dia!\\n\\nAqui é a [seu nome], da recepção.\\n\\nEm que posso te ajudar?"',
             },
             updates: {
               type: 'object',

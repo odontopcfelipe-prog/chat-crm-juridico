@@ -4,6 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { loadClinicAiContext } from '../ai/clinic-ai-context';
 import axios from 'axios';
 
 interface StaleConfig {
@@ -106,8 +107,12 @@ export class FollowupCronService {
     if (!apiUrl) return;
     const instanceName = convo.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
     const msg = template.replace(/\{\{name\}\}/g, lead.name || 'cliente');
+    // Assinatura pelo perfil COMERCIAL da clínica DO LEAD (follow-up é de lead, não
+    // de paciente). Sem tenant no lead → perfil padrão ("*Sophia:*", como antes).
+    const { profile } = await loadClinicAiContext(this.prisma, lead?.tenant_id || null, 'COMERCIAL');
+    const signature = profile.signature ? `*${profile.assistantName}:* ` : '';
     try {
-      await axios.post(`${apiUrl}/message/sendText/${instanceName}`, { number: lead.phone, text: `*Sophia:* ${msg}` }, { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 });
+      await axios.post(`${apiUrl}/message/sendText/${instanceName}`, { number: lead.phone, text: `${signature}${msg}` }, { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 });
     } catch (e: any) {
       // Registra a falha no DispatchLog (paridade com o motor de sequência) e
       // repropaga pro chamador NÃO contar como enviado.

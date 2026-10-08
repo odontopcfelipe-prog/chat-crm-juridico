@@ -6,20 +6,48 @@ import api from '@/lib/api';
 import { OPENAI_MODELS, ANTHROPIC_MODELS } from './ai-models';
 
 type Msg = { from: 'patient' | 'ai'; text: string; model?: string };
-type Meta = { skill: string | null; model: string; tools: string[]; handoff: boolean; scheduling: string | null; style: string | null };
+type Meta = {
+  skill: string | null;
+  model: string;
+  tools: string[];
+  handoff: boolean;
+  scheduling: string | null;
+  style: string | null;
+  // Perfil da IA do chip testado (Ajustes › IA › gaveta do chip) — vem em data.profile.
+  assistantName: string | null;
+  replyLength: string | null;
+  effectiveStyle: string | null;
+};
 
 const CHIPS = [
   { id: 'COMERCIAL', label: 'Comercial (lead novo)' },
   { id: 'CLINICA', label: 'Clínica' },
+  { id: 'FINANCEIRO', label: 'Financeiro' },
 ] as const;
+type ChipId = (typeof CHIPS)[number]['id'];
+
+// Rótulo do tamanho das respostas (perfil do chip) e do estilo que valeu nesta resposta.
+const LENGTH_LABEL: Record<string, string> = {
+  auto: 'automático',
+  curta: 'curtas',
+  media: 'médias',
+  longa: 'longas',
+  curto: 'curtas',
+  medio: 'médias',
+  longo: 'longas',
+  equilibrado: 'médias',
+  normal: 'médias',
+};
+const lengthLabel = (v: string | null) => (v ? LENGTH_LABEL[v] || v : '');
 
 /**
  * Chat de teste da Sophia. Usa o mesmo cérebro do WhatsApp (skills do chip, guia
  * de conversa, valores e horários reais da agenda), mas NADA é enviado nem gravado:
  * agendamento e mudança de etapa são só simulados.
  */
-export function AiTestChatCard() {
-  const [chip, setChip] = useState<'COMERCIAL' | 'CLINICA'>('COMERCIAL');
+/** chipNames: nome da assistente de cada chip (perfil salvo) — usado antes da 1ª resposta. */
+export function AiTestChatCard({ chipNames }: { chipNames?: Partial<Record<string, string>> } = {}) {
+  const [chip, setChip] = useState<ChipId>('COMERCIAL');
   const [isClient, setIsClient] = useState(false);
   // '' = usa o modelo configurado na skill (o mesmo do WhatsApp)
   const [model, setModel] = useState('');
@@ -77,6 +105,9 @@ export function AiTestChatCard() {
         tools: data?.tools || [],
         handoff: !!data?.handoff,
         style: data?.patientStyle || null,
+        assistantName: data?.profile?.assistantName || null,
+        replyLength: data?.profile?.replyLength || null,
+        effectiveStyle: data?.profile?.effectiveStyle || null,
         scheduling: data?.scheduling_action?.action
           ? `${data.scheduling_action.action}${data.scheduling_action.date ? ` ${data.scheduling_action.date} ${data.scheduling_action.time || ''}` : ''}`
           : null,
@@ -96,7 +127,7 @@ export function AiTestChatCard() {
             <MessageCircle size={16} />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-foreground">Testar a Sophia</h4>
+            <h4 className="text-sm font-bold text-foreground">Testar a IA</h4>
             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
               Converse como se fosse um paciente. É a mesma IA do WhatsApp, mas nada é enviado nem gravado.
             </p>
@@ -105,7 +136,7 @@ export function AiTestChatCard() {
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={chip}
-            onChange={(e) => { setChip(e.target.value as any); reset(); }}
+            onChange={(e) => { setChip(e.target.value as ChipId); reset(); }}
             className="text-xs rounded-lg border border-border bg-background px-2 py-1.5 text-foreground"
           >
             {CHIPS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -163,7 +194,7 @@ export function AiTestChatCard() {
         {busy && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md bg-card border border-border px-3.5 py-2 text-xs text-muted-foreground">
-              Sophia está digitando…
+              {meta?.assistantName || chipNames?.[chip] || 'Sophia'} está digitando…
             </div>
           </div>
         )}
@@ -174,6 +205,20 @@ export function AiTestChatCard() {
         <div className="px-4 py-2 border-t border-border text-[11px] text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
           <span>Skill: <b className="text-foreground">{meta.skill || 'nenhuma'}</b></span>
           <span>Modelo: <b className="text-foreground">{meta.model}</b></span>
+          {(meta.assistantName || meta.replyLength) && (
+            <span>
+              {meta.assistantName && <>Assistente: <b className="text-foreground">{meta.assistantName}</b></>}
+              {meta.assistantName && meta.replyLength && ' · '}
+              {meta.replyLength && (
+                <>
+                  Respostas: <b className="text-foreground">{lengthLabel(meta.replyLength)}</b>
+                  {meta.replyLength === 'auto' && meta.effectiveStyle && meta.effectiveStyle !== 'auto' && (
+                    <> (agora: {lengthLabel(meta.effectiveStyle)})</>
+                  )}
+                </>
+              )}
+            </span>
+          )}
           {meta.tools.length > 0 && <span>Ferramentas: {meta.tools.join(', ')}</span>}
           {meta.scheduling && <span>Agendaria (simulado): {meta.scheduling}</span>}
           {meta.style && (

@@ -12,11 +12,12 @@ import { ToolExecutor } from './tool-executor';
 import { PromptBuilder } from './prompt-builder';
 import { buildHandlerMap } from './tool-handlers';
 import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
-import { computeBusinessHoursInfo } from '@crm/shared';
+import { computeBusinessHoursInfo, clinicStatusNow } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
-import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply, detectPatientStyle, PATIENT_STYLE_HINT } from './conversation-guide';
+import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply, resolveReplyStyle, detectPatientStyle } from './conversation-guide';
+import { loadClinicAiContext, type ClinicAiContext } from './clinic-ai-context';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
 
@@ -95,12 +96,15 @@ export class AiProcessor extends WorkerHost {
       `[AI][NÃO-PACIENTE] Conv ${convo.id} classificada como ${category} (${reason}) — encaminhando ao responsável + pausando IA + alertando ADMs.`,
     );
 
-    // (a) Resposta educada de encerramento (com a assinatura padrão da Sophia).
+    // (a) Resposta educada de encerramento, assinada com o perfil COMERCIAL DESTA
+    // clínica (nome da assistente + assinatura liga/desliga em Ajustes › IA).
+    const { profile } = await loadClinicAiContext(this.prisma, tenantId, 'COMERCIAL');
     const handoffMsg =
       'Olá! Muito obrigada pelo contato. 😊 Aqui é o canal de atendimento aos pacientes, ' +
       'mas já vou encaminhar sua mensagem para o responsável, combinado? Qualquer retorno ' +
       'será por aqui. Tenha um ótimo dia!';
-    await this.sendPlainWhatsApp(convo.lead?.phone, `*Sophia:* ${handoffMsg}`, convo.instance_name);
+    const signature = profile.signature ? `*${profile.assistantName}:* ` : '';
+    await this.sendPlainWhatsApp(convo.lead?.phone, `${signature}${handoffMsg}`, convo.instance_name);
 
     // Salva a mensagem de saída (best-effort — não bloqueia o handoff).
     try {
@@ -132,7 +136,7 @@ export class AiProcessor extends WorkerHost {
     });
 
     // (c) Alerta pros ADMs (número fixo), best-effort.
-    await this.alertAdminsNonPatient(tenantId, category, convo).catch((e: any) =>
+    await this.alertAdminsNonPatient(tenantId, category, convo, profile.assistantName).catch((e: any) =>
       this.logger.warn(`[AI][NÃO-PACIENTE] alerta admin falhou: ${e?.message}`),
     );
 
@@ -140,7 +144,12 @@ export class AiProcessor extends WorkerHost {
   }
 
   /** Alerta interno pros ADMs no número fixo (mesmo do "Venda feita / Resumo diário"). */
-  private async alertAdminsNonPatient(tenantId: string, category: string, convo: any): Promise<void> {
+  private async alertAdminsNonPatient(
+    tenantId: string,
+    category: string,
+    convo: any,
+    assistantName: string,
+  ): Promise<void> {
     const [vf, ds] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
@@ -164,7 +173,7 @@ export class AiProcessor extends WorkerHost {
     const lastIn = (convo.messages || []).find((m: any) => m.direction === 'in');
     const trecho = (lastIn?.text || '').slice(0, 160);
     const msg =
-      `🔔 *Contato não-paciente na Sophia (Comercial)*\n\n` +
+      `🔔 *Contato não-paciente na ${assistantName} (Comercial)*\n\n` +
       `Tipo: *${label[category] || category}*\n` +
       `Contato: *${nome}*${tel ? ` (${tel})` : ''}\n` +
       (trecho ? `Mensagem: "${trecho}"\n` : '') +
@@ -1308,18 +1317,54 @@ export class AiProcessor extends WorkerHost {
         if (parts.length) leadMemory = parts.join('\n');
       }
 
-      // 7. Montar histórico com rótulos (Cliente / Sophia / Operador)
+      // 6b. Função do CHIP da conversa (Comercial/Clínica/Financeiro) — define as
+      // skills elegíveis (8.0) e o PERFIL da IA (nome, assinatura, tamanho). Erro ao
+      // resolver = sem função (usa todas as skills e o perfil padrão), não silêncio.
+      let chipPurpose: string | null = null;
+      let chipTenantId: string | null = null;
+      try {
+        if (convo.instance_name) {
+          const inst = await this.prisma.instance.findFirst({
+            where: { name: convo.instance_name },
+            select: { purpose: true, tenant_id: true },
+          });
+          chipPurpose = inst?.purpose || null;
+          chipTenantId = inst?.tenant_id || null;
+        }
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao resolver a função do chip: ${e.message} — usando todas as skills`);
+      }
+
+      // 6c. Contexto da CLÍNICA desta conversa (carregado UMA vez): perfil do chip
+      // (AI_PROFILE_<PURPOSE>), nome/telefone/endereço do tenant e horário de
+      // atendimento. No chat de teste sem chip daquela função, vale a função
+      // escolhida na tela (job.data.purpose).
+      const rawTenantId: string | null = (convo as any).tenant_id || null;
+      // Conversa legada sem clínica: cai pra clínica do lead e, por fim, pra dona do
+      // chip (mesma regra do webhook, que aplica o tempo de resposta dessa clínica).
+      const profileTenantId: string | null = rawTenantId || (convo as any).lead?.tenant_id || chipTenantId || null;
+      // Chip sem função (legado, 1 chip só) usa o perfil COMERCIAL — mesma regra do
+      // webhook, do encerramento de não-paciente e do follow-up.
+      const profilePurpose: string =
+        chipPurpose ?? (dryRun && typeof job.data?.purpose === 'string' ? job.data.purpose : null) ?? 'COMERCIAL';
+      const clinicCtx: ClinicAiContext = await loadClinicAiContext(this.prisma, profileTenantId, profilePurpose);
+      const aiProfile = clinicCtx.profile;
+      const assistantName = aiProfile.assistantName;
+
+      // 7. Montar histórico com rótulos (Cliente / <assistente> / Operador)
       // Invertemos o array (que veio desc) para ordem cronológica correta
       const chronological = [...convo.messages].reverse();
-      // Jeito do paciente escrever (mensagens curtas x textão) — a Sophia espelha.
-      const patientStyle = detectPatientStyle(chronological as any[]);
+      // Tamanho das respostas: 'auto' = espelha o jeito do paciente (mensagens curtas
+      // x textão); 'curta'/'media'/'longa' = escolha da clínica no perfil do chip.
+      const replyStyle = resolveReplyStyle(aiProfile.replyLength, chronological as any[]);
+      const patientStyle = replyStyle.style;
       const historyText = chronological
         .map((m: any) => {
           const sender =
             m.direction === 'in'
               ? 'Cliente'
               : m.external_message_id?.startsWith('sys_')
-                ? 'Sophia'
+                ? assistantName
                 : 'Operador';
           // Indica tipo de mídia quando não há texto
           const content =
@@ -1343,17 +1388,10 @@ export class AiProcessor extends WorkerHost {
       // Geral), a IA fica em SILÊNCIO — não empresta skills de outro chip. Chip
       // SEM função definida (legado/1-chip) continua usando todas (não some do
       // radar). Erro ao resolver = fallback seguro (usa todas), não silêncio.
+      // (chipPurpose resolvido em 6b)
       let activeSkills = allActiveSkills;
       let silentNoSkill = false;
-      let chipPurpose: string | null = null;
       try {
-        if (convo.instance_name) {
-          const inst = await this.prisma.instance.findFirst({
-            where: { name: convo.instance_name },
-            select: { purpose: true },
-          });
-          chipPurpose = inst?.purpose || null;
-        }
         if (chipPurpose) {
           const filtered = allActiveSkills.filter(
             (s: any) => !s.purpose || s.purpose === chipPurpose,
@@ -1452,7 +1490,7 @@ export class AiProcessor extends WorkerHost {
           if (routerApiKey) {
             // Últimas 5 mensagens para contexto do router
             const lastMsgs = chronological.slice(-5).map((m: any) => {
-              const sender = m.direction === 'in' ? 'Cliente' : 'Sophia';
+              const sender = m.direction === 'in' ? 'Cliente' : assistantName;
               return `${sender}: ${(m.text || '[mídia]').slice(0, 200)}`;
             });
 
@@ -1773,8 +1811,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // Vazio se dentro do expediente; multi-linha (inclui motivo + próximo
       // horário útil) se fora. A skill decide como usar via {{business_hours_info}}.
       // Passa null quando tenant_id é string vazia/UUID dummy — evita filtrar
-      // holidays por tenant inexistente.
-      const rawTenantId = (convo as any).tenant_id;
+      // holidays por tenant inexistente. (rawTenantId vem de 6c.)
       const tenantIdForBH =
         rawTenantId && rawTenantId !== '00000000-0000-0000-0000-000000000000'
           ? rawTenantId
@@ -1789,19 +1826,29 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       this.logger.log(
         `[AI] business_hours_info len=${businessHoursInfo.length} tenant="${tenantIdForBH}" preview="${businessHoursInfo.slice(0, 120).replace(/\n/g, '\\n')}"`,
       );
+      // Clínica com grade própria (Ajustes › IA): o "aberta/fechada agora" segue ELA,
+      // não o horário global (AFTER_HOURS_*, igual pra todas as clínicas). Feriado
+      // cadastrado continua mandando. Hora local de Maceió em naive-UTC.
+      const isHolidayToday = /FERIADO/i.test(businessHoursInfo);
+      const clinicStatus = clinicStatusNow(clinicCtx.hours, new Date(Date.now() - 3 * 60 * 60 * 1000));
+      const effectiveBusinessHoursInfo =
+        clinicStatus && !isHolidayToday ? (clinicStatus.open ? '' : clinicStatus.text) : businessHoursInfo;
+      // "Situação agora" que SEMPRE vai pro prompt: feriado vence a grade da semana.
+      const clinicNowText = isHolidayToday
+        ? 'Hoje é FERIADO: a clínica está FECHADA. Pode responder e agendar normalmente; só não prometa atendimento presencial hoje.'
+        : clinicStatus?.text ||
+          (clinicCtx.hoursText ? 'Sem grade de horário no sistema: use o horário de atendimento informado acima.' : '(horário não cadastrado no sistema)');
 
       // Dados da CLÍNICA desta conversa (nunca fixos no código — antes "Instituto
-      // Odonto Passos" e "Dra. Suellen" valiam pra todos os tenants): nome do tenant,
-      // dentista avaliador(a) (orçamentista resolvido acima) e a tabela de valores que
-      // a IA pode falar (TenantSetting AI_PRICE_TABLE, editável em Ajustes › IA).
-      let firmName = 'nossa clínica';
+      // Odonto Passos" e "Dra. Suellen" valiam pra todos os tenants): nome do tenant
+      // (clinicCtx, 6c), dentista avaliador(a) (orçamentista resolvido acima) e a
+      // tabela de valores que a IA pode falar (TenantSetting AI_PRICE_TABLE, editável
+      // em Ajustes › IA).
+      const firmName = clinicCtx.firmName || 'nossa clínica';
       let doctorName = 'a dentista avaliadora';
       let priceTable = NO_PRICE_TABLE;
       try {
-        const [tenantRow, doctorRow, priceRow, pricesOnRow] = await Promise.all([
-          rawTenantId
-            ? (this.prisma as any).tenant.findUnique({ where: { id: rawTenantId }, select: { name: true } })
-            : null,
+        const [doctorRow, priceRow, pricesOnRow] = await Promise.all([
           assignedDentistId
             ? this.prisma.user.findUnique({ where: { id: assignedDentistId }, select: { name: true } })
             : null,
@@ -1816,7 +1863,6 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
               })
             : null,
         ]);
-        if (tenantRow?.name) firmName = tenantRow.name;
         if (doctorRow?.name) doctorName = doctorRow.name;
         // AI_PRICES_ENABLED='false' = clínica desligou "passar valores" (mantém o texto salvo).
         if (priceRow?.value?.trim() && pricesOnRow?.value !== 'false') priceTable = priceRow.value.trim();
@@ -1824,11 +1870,19 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         this.logger.warn(`[AI] Falha ao carregar dados da clínica pro prompt: ${e.message}`);
       }
 
+      // Campo da clínica não cadastrado: a IA não pode inventar endereço/telefone/horário.
+      const NOT_REGISTERED = '(não cadastrado — não invente; diga que vai confirmar com a equipe)';
       const vars: Record<string, string> = {
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
         specialty: specialty || 'a ser identificada',
         firm_name: firmName,
+        // Perfil do chip desta clínica (Ajustes › IA) + dados de contato do tenant.
+        assistant_name: assistantName,
+        clinic_phone: clinicCtx.phone || NOT_REGISTERED,
+        clinic_address: clinicCtx.address || NOT_REGISTERED,
+        clinic_hours: clinicCtx.hoursText || NOT_REGISTERED,
+        chip_instructions: aiProfile.instructions || '(nenhuma)',
         doctor_name: doctorName,
         price_table: priceTable,
         lead_memory: leadMemory,
@@ -1851,8 +1905,9 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         operator_notes: operatorNotesBlock,
         ai_notes: aiNotesBlock,
         active_cases_info: activeCasesInfoBlock,
-        business_hours_info: businessHoursInfo,
-        patient_style: PATIENT_STYLE_HINT[patientStyle],
+        business_hours_info: effectiveBusinessHoursInfo,
+        clinic_now: clinicNowText,
+        patient_style: replyStyle.hint,
       };
 
       // Cabeçalho fixo de capacidades — injetado antes de qualquer skill prompt
@@ -1916,19 +1971,23 @@ STATUS DA FICHA:
       let recentEpisodesStr = '';
       try {
         const leadIdForMem = convo.lead_id || convo.lead?.id || null;
-        if (tenantIdForBH && leadIdForMem) {
+        // Tenant REAL da conversa (rawTenantId), não o tenantIdForBH: aquele vira
+        // null pro '00000000-…' — que é o Instituto, clínica real — e o Instituto
+        // ficava sem o resumo da clínica (OrganizationProfile) e sem memórias.
+        const tenantIdForMem: string | null = rawTenantId;
+        if (tenantIdForMem && leadIdForMem) {
           const [orgProfile, orgMems, profile, recentEpisodes] = await Promise.all([
             // OrganizationProfile consolidado (prosa) — fonte principal
             this.prisma.organizationProfile.findUnique({
-              where: { tenant_id: tenantIdForBH },
+              where: { tenant_id: tenantIdForMem },
               select: { summary: true },
             }),
             // Memorias org cruas — fallback se perfil nao existir ainda
             this.prisma.memory.findMany({
               where: {
-                tenant_id: tenantIdForBH,
+                tenant_id: tenantIdForMem,
                 scope: 'organization',
-                scope_id: tenantIdForBH,
+                scope_id: tenantIdForMem,
                 status: 'active',
               },
               orderBy: [{ subcategory: 'asc' }, { confidence: 'desc' }],
@@ -1940,7 +1999,7 @@ STATUS DA FICHA:
             }),
             this.prisma.memory.findMany({
               where: {
-                tenant_id: tenantIdForBH,
+                tenant_id: tenantIdForMem,
                 scope: 'lead',
                 scope_id: leadIdForMem,
                 status: 'active',
@@ -2030,7 +2089,7 @@ STATUS DA FICHA:
           `[AI] Usando skill: "${skill.name}" (area=${skill.area}, model=${model})`,
         );
       } else {
-        const fallbackSkillPrompt = `Você é Sophia, assistente de pré-atendimento da clínica odontológica.
+        const fallbackSkillPrompt = `Você é ${assistantName}, assistente de pré-atendimento da clínica odontológica.
 Seu objetivo PRINCIPAL é AGENDAR uma avaliação inicial do paciente — sem isso a clínica perde a venda.
 
 ROTEIRO (siga na ordem, UMA pergunta por vez):
@@ -2089,6 +2148,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           '[AI] Nenhuma skill ativa encontrada — usando prompt fallback',
         );
       }
+
+      // Clínica escolheu respostas LONGAS no perfil do chip: garante tokens pra
+      // mensagem completa (skill com max_tokens baixo cortaria no meio).
+      if (aiProfile.replyLength === 'longa') maxTokens = Math.max(maxTokens, 1500);
 
       // Chat de teste: permite trocar o modelo pra comparar (só no teste — o
       // WhatsApp real continua usando o modelo da skill). O provider (OpenAI x
@@ -2176,8 +2239,16 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // visionImages não é mais necessário — imagens já estão inline nos turns acima
       const visionImages: { type: 'image_url'; image_url: { url: string } }[] = [];
 
-      // Instrução final para a IA (não aparece no chat do cliente)
-      const instruction = `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. Mensagens curtas, balões separados por linha em branco. Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
+      // Instrução final para a IA (não aparece no chat do cliente). O trecho de
+      // tamanho segue o estilo EFETIVO (perfil do chip ou espelho do paciente) —
+      // antes era "mensagens curtas" fixo e brigava com a escolha de respostas longas.
+      const lengthInstruction =
+        patientStyle === 'longo'
+          ? 'Responda numa mensagem só, mais completa (sem picotar em balões).'
+          : replyStyle.explicit && patientStyle === 'normal'
+            ? 'Respostas de tamanho médio, objetivas; separe balões por linha em branco só quando houver ideias diferentes.'
+            : 'Mensagens curtas, balões separados por linha em branco.';
+      const instruction = `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. ${lengthInstruction} Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
 
       // Montar array final de mensagens para a OpenAI (multi-turn real)
       const openAiMessages: any[] = [
@@ -2435,7 +2506,14 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         return {
           dryRun: true,
           bubbles: splitIntoBubbles(reply, 3, patientStyle),
-          patientStyle,
+          // Jeito DETECTADO do paciente (a escolha da clínica vai em profile.effectiveStyle).
+          patientStyle: detectPatientStyle(chronological as any[]),
+          // Perfil aplicado (Ajustes › IA) — a tela mostra nome/tamanho usados no teste.
+          profile: {
+            assistantName,
+            replyLength: aiProfile.replyLength,
+            effectiveStyle: patientStyle,
+          },
           skill: skill?.name || null,
           model,
           handoff: willHandoff,
@@ -2856,9 +2934,11 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
       finalText = tidyReply(finalText);
 
-      // Assinatura "Sophia:" em negrito no WhatsApp (salva sem assinatura no DB).
+      // Assinatura "*<Nome>:*" em negrito no WhatsApp (salva sem assinatura no DB).
+      // Nome e liga/desliga vêm do perfil do chip desta clínica (Ajustes › IA).
       // textToSend = resposta inteira (usada no fallback do TTS).
-      const textToSend = `*Sophia:* ${finalText}`;
+      const signaturePrefix = aiProfile.signature ? `*${assistantName}:* ` : '';
+      const textToSend = `${signaturePrefix}${finalText}`;
 
       // Pré-calcular se vai enviar áudio (para pular texto nesse caso)
       // Buscar a última mensagem inbound (mais recente = primeiro do array desc)
@@ -2875,7 +2955,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Onda 19.x — resposta em BALÕES, como a recepção escreve (uma ideia por
       // mensagem). O guia manda separar balões com linha em branco; cada balão
       // vira uma mensagem no WhatsApp com seu próprio "digitando..." proporcional
-      // ao tamanho (~pessoa digitando, piso 1,5s / teto 7s). Só o 1º leva "Sophia:".
+      // ao tamanho (~pessoa digitando, piso 1,5s / teto 7s). Só o 1º leva a assinatura.
       // Cada balão é gravado com o ID real da Evolution (dedup do echo do webhook).
       const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText, 3, patientStyle);
       const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
@@ -2908,7 +2988,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             // agendamento já vêm formatados no texto pela IA.
             const sendResult = await axios.post(
               `${apiUrl}/message/sendText/${instanceName}`,
-              { number: convo.lead.phone, text: i === 0 ? `*Sophia:* ${bubble}` : bubble },
+              { number: convo.lead.phone, text: i === 0 ? `${signaturePrefix}${bubble}` : bubble },
               { headers: evoHeaders, timeout: 30000 },
             );
             evolutionMsgId = sendResult.data?.key?.id || evolutionMsgId;

@@ -1,4 +1,18 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  AI_CHIP_PURPOSES,
+  AI_CLINIC_HOURS_KEY,
+  aiEnabledKey,
+  aiProfileKey,
+  formatClinicHours,
+  formatTenantAddress,
+  isAiChipPurpose,
+  normalizeAiChipProfile,
+  normalizeClinicHours,
+  type AiChipProfile,
+  type AiChipPurpose,
+  type ClinicHours,
+} from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/crypto.util';
 import {
@@ -1874,7 +1888,12 @@ export class SettingsService {
     });
   }
 
-  async getAiConfig() {
+  /**
+   * `tenantId` (opcional) = clínica de quem está na tela: o liga/desliga por chip
+   * (aiChip) passa a ser O DA CLÍNICA. Chamadores internos sem tenant (worker de
+   * lembretes, transcrição) só usam modelo/chaves e seguem na regra antiga.
+   */
+  async getAiConfig(tenantId?: string | null) {
     const apiKey = await this.get('OPENAI_API_KEY');
     const adminKey = await this.get('OPENAI_ADMIN_KEY');
     const anthropicKey = await this.get('ANTHROPIC_API_KEY');
@@ -1888,18 +1907,9 @@ export class SettingsService {
     const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
     // Onda 18.21 — liberação de IA por chip. Migração suave: chip não setado
     // HERDA o global antigo (whatsappAiEnabled) — quem tinha a IA desligada
-    // continua desligada até ligar chip a chip.
-    const [aiComercialRaw, aiClinicaRaw, aiFinanceiroRaw] = await Promise.all([
-      this.get('AI_ENABLED_COMERCIAL'),
-      this.get('AI_ENABLED_CLINICA'),
-      this.get('AI_ENABLED_FINANCEIRO'),
-    ]);
-    const chipVal = (raw: string | null) => (raw != null ? raw !== 'false' : whatsappAiEnabled);
-    const aiChip = {
-      COMERCIAL: chipVal(aiComercialRaw),
-      CLINICA: chipVal(aiClinicaRaw),
-      FINANCEIRO: chipVal(aiFinanceiroRaw),
-    };
+    // continua desligada até ligar chip a chip. Agora POR CLÍNICA: a chave da
+    // clínica (TenantSetting) vence; sem ela, cai na regra antiga.
+    const aiChip = await this.getChipAiEnabledMap(tenantId, whatsappAiEnabled);
     const cooldownRaw = await this.get('AI_COOLDOWN_SECONDS');
     const cooldownSeconds = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
     return {
@@ -1983,13 +1993,258 @@ export class SettingsService {
     await this.set('WHATSAPP_AI_ENABLED', enabled ? 'true' : 'false');
   }
 
-  /** Onda 18.20 — liberação de IA por chip (Comercial/Clínica/Financeiro). */
-  async setChipAiEnabled(purpose: string, enabled: boolean): Promise<void> {
+  /**
+   * Onda 18.20 — liberação de IA por chip (Comercial/Clínica/Financeiro).
+   * POR CLÍNICA: com tenant grava TenantSetting AI_ENABLED_<P> SÓ daquela clínica
+   * (antes gravava GlobalSetting e ligava/desligava o chip de TODAS as clínicas).
+   * Sem tenant no JWT (legado/SUPER_ADMIN) mantém o comportamento antigo (global).
+   */
+  async setChipAiEnabled(purpose: string, enabled: boolean, tenantId?: string | null): Promise<void> {
     const p = String(purpose || '').toUpperCase();
-    if (!['COMERCIAL', 'CLINICA', 'FINANCEIRO'].includes(p)) {
+    if (!isAiChipPurpose(p)) {
       throw new BadRequestException(`chip inválido: ${purpose}`);
     }
-    await this.set(`AI_ENABLED_${p}`, enabled ? 'true' : 'false');
+    if (tenantId) {
+      await this.upsertTenantSetting(tenantId, aiEnabledKey(p), enabled ? 'true' : 'false');
+      return;
+    }
+    await this.set(aiEnabledKey(p), enabled ? 'true' : 'false');
+  }
+
+  /**
+   * Liga/desliga da IA de cada chip NA CLÍNICA. Ordem:
+   *   1. TenantSetting AI_ENABLED_<P> da clínica (se existir);
+   *   2. GlobalSetting AI_ENABLED_<P> (regra antiga, de antes de ser por clínica);
+   *   3. kill switch global WHATSAPP_AI_ENABLED (`master`).
+   * Mesma regra do webhook (evolution.service) — manter as duas iguais.
+   */
+  private async getChipAiEnabledMap(
+    tenantId: string | null | undefined,
+    master: boolean,
+  ): Promise<Record<AiChipPurpose, boolean>> {
+    const tenantRows = tenantId
+      ? await this.prisma.tenantSetting
+          .findMany({
+            where: { tenant_id: tenantId, key: { in: AI_CHIP_PURPOSES.map(aiEnabledKey) } },
+            select: { key: true, value: true },
+          })
+          .catch(() => [] as { key: string; value: string }[])
+      : [];
+    const out = {} as Record<AiChipPurpose, boolean>;
+    for (const p of AI_CHIP_PURPOSES) {
+      const row = tenantRows.find((r) => r.key === aiEnabledKey(p));
+      const raw = row ? row.value : await this.get(aiEnabledKey(p));
+      out[p] = raw != null ? raw !== 'false' : master;
+    }
+    return out;
+  }
+
+  // ─── Perfil da IA por clínica (Ajustes › IA) ─────────────────────
+  // Contrato em @crm/shared (ai-profile.ts). Tudo POR CLÍNICA: nome/telefone/
+  // endereço no Tenant, horários e perfil de cada chip em TenantSetting, resumo
+  // no OrganizationProfile. Nunca lê nem grava de outra clínica.
+
+  async getAiProfile(tenantId: string) {
+    return this.buildAiProfile(tenantId);
+  }
+
+  /**
+   * Salva os dados da clínica que a IA usa (nome, telefone, endereço, horários)
+   * e, se vier, o resumo da clínica. Só mexe nos campos presentes no body.
+   */
+  async saveAiProfileClinic(
+    tenantId: string,
+    body: {
+      name?: string | null;
+      phone?: string | null;
+      zip_code?: string | null;
+      address?: string | null;
+      address_number?: string | null;
+      address_complement?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      state?: string | null;
+      hours?: ClinicHours | null;
+      summary?: string | null;
+    },
+  ) {
+    const b: Record<string, any> = body && typeof body === 'object' ? body : {};
+    // trim; string vazia vira null (limpa o campo)
+    const clean = (v: unknown): string | null => {
+      const s = v == null ? '' : String(v).trim();
+      return s || null;
+    };
+    // Estado atual — só grava o que MUDOU (salvar o endereço não pode reescrever o
+    // telefone formatado, a grade de horários nem "congelar" o resumo).
+    const [current, savedHoursRow, currentOrg] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { phone: true } }),
+      this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: AI_CLINIC_HOURS_KEY } },
+        select: { value: true },
+      }),
+      this.prisma.organizationProfile.findUnique({ where: { tenant_id: tenantId }, select: { summary: true } }),
+    ]);
+    if (!current) throw new NotFoundException('Clínica não encontrada');
+
+    // ── 1. Valida TUDO antes de gravar (nada pela metade) ──
+    const tenantData: Record<string, string | null> = {};
+    if (b.name !== undefined) {
+      const name = clean(b.name);
+      if (!name) throw new BadRequestException('O nome da clínica não pode ficar vazio.');
+      tenantData.name = name;
+    }
+    if (b.phone !== undefined) {
+      const digits = String(b.phone ?? '').replace(/\D/g, '');
+      const currentDigits = String(current.phone ?? '').replace(/\D/g, '');
+      // Mesmo número = não mexe (mantém a máscara gravada pelo onboarding/Identidade).
+      if (digits !== currentDigits) tenantData.phone = digits || null;
+    }
+    if (b.state !== undefined) {
+      const uf = clean(b.state)?.toUpperCase() ?? null;
+      if (uf && !/^[A-Z]{2}$/.test(uf)) {
+        throw new BadRequestException('Estado (UF) deve ter 2 letras, ex.: AL.');
+      }
+      tenantData.state = uf;
+    }
+    for (const f of ['zip_code', 'address', 'address_number', 'address_complement', 'neighborhood', 'city'] as const) {
+      if (b[f] !== undefined) tenantData[f] = clean(b[f]);
+    }
+
+    let hours: ClinicHours | null | undefined;
+    if (b.hours !== undefined) {
+      const next = normalizeClinicHours(b.hours);
+      if (b.hours !== null && next === null) {
+        throw new BadRequestException('Horários de atendimento inválidos.');
+      }
+      // Grade igual à salva = não mexe (nem no texto livre business_hours do cadastro).
+      const saved = normalizeClinicHours(savedHoursRow?.value ?? null);
+      const asKey = (h: ClinicHours | null) => (h && Object.values(h.days).some(Boolean) ? JSON.stringify(h) : 'null');
+      if (asKey(next) !== asKey(saved)) {
+        hours = next;
+        // Texto do cadastro acompanha a grade (recibos/contratos leem business_hours).
+        tenantData.business_hours = formatClinicHours(hours) || null;
+      }
+    }
+
+    let summary: string | null = null;
+    if (b.summary !== undefined && b.summary !== null) {
+      summary = String(b.summary).trim() || null; // vazio = não mexe no resumo
+      if (summary && summary.length > 10000) {
+        throw new BadRequestException('Resumo muito longo (máx. 10.000 caracteres).');
+      }
+      // Texto igual ao atual = não marca "editado à mão" (senão o cron noturno
+      // para de atualizar o resumo só porque o admin salvou o endereço).
+      if (summary && summary === (currentOrg?.summary ?? '').trim()) summary = null;
+    }
+
+    // ── 2. Grava (mesma transação) ──
+    await this.prisma.$transaction(async (tx) => {
+      if (Object.keys(tenantData).length) {
+        await tx.tenant.update({ where: { id: tenantId }, data: tenantData });
+      }
+      if (hours !== undefined) {
+        const value = JSON.stringify(hours);
+        await tx.tenantSetting.upsert({
+          where: { tenant_id_key: { tenant_id: tenantId, key: AI_CLINIC_HOURS_KEY } },
+          create: { tenant_id: tenantId, key: AI_CLINIC_HOURS_KEY, value },
+          update: { value },
+        });
+      }
+      if (summary) {
+        // manually_edited_at protege a edição do admin contra o cron das 02h.
+        await tx.organizationProfile.upsert({
+          where: { tenant_id: tenantId },
+          create: { tenant_id: tenantId, summary, manually_edited_at: new Date() },
+          update: { summary, manually_edited_at: new Date() },
+        });
+      }
+    });
+
+    return this.buildAiProfile(tenantId);
+  }
+
+  /** Salva o perfil da IA de UM chip da clínica (+ liga/desliga, se vier). */
+  async saveAiChipProfile(
+    tenantId: string,
+    purpose: string,
+    body: Partial<AiChipProfile> & { enabled?: boolean },
+  ): Promise<AiChipProfile & { enabled: boolean }> {
+    const p = String(purpose || '').toUpperCase();
+    if (!isAiChipPurpose(p)) {
+      throw new BadRequestException(`chip inválido: ${purpose}`);
+    }
+    // Mescla com o perfil salvo: body parcial (ex.: só { enabled }) não zera o resto.
+    const savedRow = await this.prisma.tenantSetting.findUnique({
+      where: { tenant_id_key: { tenant_id: tenantId, key: aiProfileKey(p) } },
+      select: { value: true },
+    });
+    const { enabled: _enabled, ...fields } = body ?? {};
+    const profile = normalizeAiChipProfile({ ...normalizeAiChipProfile(savedRow?.value ?? null), ...fields });
+    await this.upsertTenantSetting(tenantId, aiProfileKey(p), JSON.stringify(profile));
+    if (typeof body?.enabled === 'boolean') {
+      await this.setChipAiEnabled(p, body.enabled, tenantId);
+    }
+    const enabledMap = await this.getChipAiEnabledMap(tenantId, await this.getWhatsappAiEnabled());
+    return { ...profile, enabled: enabledMap[p] };
+  }
+
+  /** Monta a resposta de GET /settings/ai-profile (e dos PUTs) — só da clínica `tenantId`. */
+  private async buildAiProfile(tenantId: string) {
+    const [tenant, orgProfile, rows, master, cooldownRaw] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          name: true,
+          phone: true,
+          email: true,
+          zip_code: true,
+          address: true,
+          address_number: true,
+          address_complement: true,
+          neighborhood: true,
+          city: true,
+          state: true,
+          business_hours: true,
+        },
+      }),
+      this.prisma.organizationProfile.findUnique({
+        where: { tenant_id: tenantId },
+        select: { summary: true, manually_edited_at: true },
+      }),
+      this.prisma.tenantSetting.findMany({
+        where: {
+          tenant_id: tenantId,
+          key: { in: [AI_CLINIC_HOURS_KEY, ...AI_CHIP_PURPOSES.map(aiProfileKey)] },
+        },
+        select: { key: true, value: true },
+      }),
+      this.getWhatsappAiEnabled(),
+      this.get('AI_COOLDOWN_SECONDS'),
+    ]);
+    if (!tenant) throw new NotFoundException('Clínica não encontrada');
+
+    const settingOf = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
+    const enabledMap = await this.getChipAiEnabledMap(tenantId, master);
+    const chips = {} as Record<AiChipPurpose, AiChipProfile & { enabled: boolean }>;
+    for (const p of AI_CHIP_PURPOSES) {
+      chips[p] = { ...normalizeAiChipProfile(settingOf(aiProfileKey(p))), enabled: enabledMap[p] };
+    }
+    const cooldown = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
+
+    return {
+      clinic: {
+        ...tenant,
+        hours: normalizeClinicHours(settingOf(AI_CLINIC_HOURS_KEY)),
+        formattedAddress: formatTenantAddress(tenant),
+      },
+      summary: {
+        text: orgProfile?.summary ?? '',
+        exists: !!orgProfile,
+        manuallyEdited: !!orgProfile?.manually_edited_at,
+      },
+      chips,
+      defaults: { cooldownSeconds: isNaN(cooldown) ? 8 : cooldown },
+    };
   }
 
   /** Chip default de uma skill (Onda 18.21). As skills padrão atuais são todas do

@@ -8,7 +8,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateSkillDto, UpdateSkillDto, CreateSkillToolDto, UpdateSkillToolDto } from './dto/settings.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeBusinessHoursInfo } from '@crm/shared';
+import { computeBusinessHoursInfo, type AiChipProfile, type ClinicHours } from '@crm/shared';
 import { AiTestChatService } from './ai-test-chat.service';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
@@ -245,8 +245,9 @@ export class SettingsController {
 
   @Get('ai-config')
   @Roles('ADMIN')
-  async getAiConfig() {
-    const config = await this.settingsService.getAiConfig();
+  async getAiConfig(@Request() req: any) {
+    // Liga/desliga por chip (aiChip) é DA CLÍNICA de quem está logado.
+    const config = await this.settingsService.getAiConfig(req.user?.tenant_id ?? null);
     return { ...config, apiKey: maskApiKey(config.apiKey) };
   }
 
@@ -328,11 +329,62 @@ export class SettingsController {
   }
 
   // Onda 18.20 — liga/desliga a IA de UM chip (Comercial/Clínica/Financeiro).
+  // POR CLÍNICA: grava só na clínica do JWT (sem tenant = global, legado).
   @Post('ai-chip-toggle')
   @Roles('ADMIN')
-  async setAiChipToggle(@Body() body: { purpose: string; enabled: boolean }) {
-    await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled);
+  async setAiChipToggle(@Request() req: any, @Body() body: { purpose: string; enabled: boolean }) {
+    await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled, req.user?.tenant_id ?? null);
     return { ok: true, purpose: body?.purpose, enabled: !!body?.enabled };
+  }
+
+  // ─── Perfil da IA por clínica (Ajustes › IA) ─────────────────
+  // Dados da clínica que a IA usa + perfil de cada chip (nome da assistente,
+  // assinatura, tamanho da resposta, tempo de resposta, instruções). Sempre a
+  // clínica de quem está logado — nunca outra. Bodies são tipos inline (não
+  // classe DTO) porque o ValidationPipe tem forbidNonWhitelisted.
+
+  @Get('ai-profile')
+  @Roles('ADMIN')
+  async getAiProfile(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    return this.settingsService.getAiProfile(tenantId);
+  }
+
+  @Put('ai-profile/clinic')
+  @Roles('ADMIN')
+  async saveAiProfileClinic(
+    @Request() req: any,
+    @Body()
+    body: {
+      name?: string | null;
+      phone?: string | null;
+      zip_code?: string | null;
+      address?: string | null;
+      address_number?: string | null;
+      address_complement?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      state?: string | null;
+      hours?: ClinicHours | null;
+      summary?: string | null;
+    },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    return this.settingsService.saveAiProfileClinic(tenantId, body);
+  }
+
+  @Put('ai-profile/chip/:purpose')
+  @Roles('ADMIN')
+  async saveAiProfileChip(
+    @Request() req: any,
+    @Param('purpose') purpose: string,
+    @Body() body: Partial<AiChipProfile> & { enabled?: boolean },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    return this.settingsService.saveAiChipProfile(tenantId, purpose, body ?? {});
   }
 
   @Get('skills')
