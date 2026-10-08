@@ -36,7 +36,10 @@ export class CheckAvailabilityHandler implements ToolHandler {
 
     // Garante que a conversa está atribuída a um Orçamentista (faz lock-in
     // pra próximas chamadas como confirm_slot usarem o mesmo dentista).
-    const userId = await ensureOrcamentistaAssigned(prisma, context.conversationId);
+    const userId = await ensureOrcamentistaAssigned(prisma, context.conversationId, {
+      tenantId: context.tenantId,
+      readOnly: context.dryRun,
+    });
     if (!userId) {
       return {
         available: false,

@@ -36,11 +36,15 @@ export const ORCAMENTISTA_SPECIALTY = 'Orçamentista';
 export async function ensureOrcamentistaAssigned(
   prisma: any,
   conversationId: string,
+  // Modo teste (chat de teste da IA): conversa não existe no banco → usa o tenant
+  // informado e NÃO grava o lock-in.
+  opts?: { tenantId?: string; readOnly?: boolean },
 ): Promise<string | null> {
-  const convo = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    select: { assigned_dentist_id: true, tenant_id: true },
-  });
+  const convo =
+    (await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { assigned_dentist_id: true, tenant_id: true },
+    })) ?? (opts?.tenantId ? { assigned_dentist_id: null, tenant_id: opts.tenantId } : null);
   if (!convo) return null;
 
   // Atalho: se já tem dentista, validar se é orçamentista
@@ -79,10 +83,12 @@ export async function ensureOrcamentistaAssigned(
 
   // "Lock in": atualiza a conversa pra próximas chamadas (check_availability,
   // confirm_slot) usarem o mesmo Orçamentista — evita race condition.
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { assigned_dentist_id: chosenId },
-  });
+  if (!opts?.readOnly) {
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { assigned_dentist_id: chosenId },
+    });
+  }
 
   return chosenId;
 }

@@ -16,6 +16,7 @@ import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
+import { CONVERSATION_GUIDE, SCHEDULING_RULES, NO_PRICE_TABLE, splitIntoBubbles, tidyReply } from './conversation-guide';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
 
@@ -208,6 +209,57 @@ export class AiProcessor extends WorkerHost {
   }
 
   /** Envio WhatsApp cru via Evolution com checagem de entrega REAL (estilo wasSent). */
+  /**
+   * Conversa EM MEMÓRIA pro chat de teste (Ajustes › IA). Mesmo formato do
+   * findUnique do process() (mensagens em ordem DESC). O chip (instance_name) é o
+   * da função escolhida no teste, pra IA usar as skills daquele chip.
+   */
+  private async buildTestConversation(data: {
+    tenantId: string;
+    purpose?: string | null;
+    isClient?: boolean;
+    leadName?: string | null;
+    history: { from: 'patient' | 'ai'; text: string }[];
+  }): Promise<any> {
+    const TEST_ID = '__ai_test__';
+    const inst = data.purpose
+      ? await this.prisma.instance.findFirst({
+          where: { tenant_id: data.tenantId, type: 'whatsapp', purpose: data.purpose },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        })
+      : null;
+    const now = Date.now();
+    const history = (data.history || []).slice(-40);
+    const messages = history
+      .map((m, i) => ({
+        id: `${TEST_ID}_${i}`,
+        conversation_id: TEST_ID,
+        direction: m.from === 'patient' ? 'in' : 'out',
+        type: 'text',
+        text: String(m.text || '').slice(0, 2000),
+        // 'sys_' = mensagem da própria IA (não é rotulada como operador humano)
+        external_message_id: m.from === 'patient' ? `${TEST_ID}_in_${i}` : `sys_ai_test_${i}`,
+        created_at: new Date(now - (history.length - i) * 60_000),
+        media: null,
+      }))
+      .reverse();
+    return {
+      id: TEST_ID,
+      tenant_id: data.tenantId,
+      lead_id: TEST_ID,
+      lead: { id: TEST_ID, name: data.leadName || 'Paciente Teste', phone: '5582900000000', is_client: !!data.isClient },
+      messages,
+      ai_mode: true,
+      instance_name: inst?.name || null,
+      specialty: null,
+      next_step: null,
+      ai_notes: null,
+      reminder_context: null,
+      assigned_dentist_id: null,
+    };
+  }
+
   private async sendPlainWhatsApp(
     phone: string | null | undefined,
     text: string,
@@ -1077,10 +1129,14 @@ export class AiProcessor extends WorkerHost {
       return;
     }
 
+    // Chat de teste (Ajustes › IA): roda o MESMO cérebro numa conversa em memória —
+    // nada é enviado pro WhatsApp nem gravado (mensagem, lead, agenda, custo).
+    const dryRun = job.data?.dryRun === true;
+
     try {
       // 2. Buscar conversa + lead + últimas 20 mensagens com mídia incluída
       // orderBy desc para pegar as mais RECENTES; invertemos abaixo para ordem cronológica
-      const convo = await this.prisma.conversation.findUnique({
+      const convo: any = dryRun ? await this.buildTestConversation(job.data) : await this.prisma.conversation.findUnique({
         where: { id: conversation_id },
         include: {
           lead: true,
@@ -1329,7 +1385,7 @@ export class AiProcessor extends WorkerHost {
           where: { id: convo.lead_id },
           select: { is_client: true, stage: true },
         });
-        if (lead?.is_client) {
+        if (lead?.is_client || (dryRun && convo.lead.is_client)) {
           isActiveClient = true;
           try {
             activeCases = await (this.prisma as any).legalCase.findMany({
@@ -1353,7 +1409,7 @@ export class AiProcessor extends WorkerHost {
       // religar) e avisa os ADMs. Só no chip COMERCIAL (ou sem função definida) e só
       // quando NÃO é cliente já cadastrado. Opt-in por tenant (default OFF). Best-effort:
       // qualquer dúvida/erro → trata como PACIENTE e segue o fluxo normal de venda.
-      if (!isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
+      if (!dryRun && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
         try {
           const handled = await this.maybeHandleNonPatient(convo, chronological);
           if (handled) return;
@@ -1497,7 +1553,10 @@ export class AiProcessor extends WorkerHost {
       // Suellen era recusada (conflito/turno). Resolve o Orçamentista aqui, igual o check_availability.
       let assignedDentistId: string | null = null;
       try {
-        assignedDentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
+        assignedDentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id, {
+          tenantId: convo.tenant_id || undefined,
+          readOnly: dryRun,
+        });
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao resolver Orçamentista pros slots (conv ${convo.id}): ${e?.message}`);
       }
@@ -1729,11 +1788,41 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         `[AI] business_hours_info len=${businessHoursInfo.length} tenant="${tenantIdForBH}" preview="${businessHoursInfo.slice(0, 120).replace(/\n/g, '\\n')}"`,
       );
 
+      // Dados da CLÍNICA desta conversa (nunca fixos no código — antes "Instituto
+      // Odonto Passos" e "Dra. Suellen" valiam pra todos os tenants): nome do tenant,
+      // dentista avaliador(a) (orçamentista resolvido acima) e a tabela de valores que
+      // a IA pode falar (TenantSetting AI_PRICE_TABLE, editável em Ajustes › IA).
+      let firmName = 'nossa clínica';
+      let doctorName = 'a dentista avaliadora';
+      let priceTable = NO_PRICE_TABLE;
+      try {
+        const [tenantRow, doctorRow, priceRow] = await Promise.all([
+          rawTenantId
+            ? (this.prisma as any).tenant.findUnique({ where: { id: rawTenantId }, select: { name: true } })
+            : null,
+          assignedDentistId
+            ? this.prisma.user.findUnique({ where: { id: assignedDentistId }, select: { name: true } })
+            : null,
+          rawTenantId
+            ? (this.prisma as any).tenantSetting.findUnique({
+                where: { tenant_id_key: { tenant_id: rawTenantId, key: 'AI_PRICE_TABLE' } },
+              })
+            : null,
+        ]);
+        if (tenantRow?.name) firmName = tenantRow.name;
+        if (doctorRow?.name) doctorName = doctorRow.name;
+        if (priceRow?.value?.trim()) priceTable = priceRow.value.trim();
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao carregar dados da clínica pro prompt: ${e.message}`);
+      }
+
       const vars: Record<string, string> = {
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
         specialty: specialty || 'a ser identificada',
-        firm_name: 'Instituto Odonto Passos',
+        firm_name: firmName,
+        doctor_name: doctorName,
+        price_table: priceTable,
         lead_memory: leadMemory,
         lead_summary: memory?.summary || '',
         conversation_id: convo.id,
@@ -1765,36 +1854,19 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
 
 `;
 
-      // CORE_RULES: regras técnicas imutáveis injetadas em TODO prompt.
-      // O conteúdo de personalidade, roteiro e comportamento está no skill.system_prompt (editável no admin).
+      // CORE_RULES: regras técnicas injetadas em TODO prompt (identidade, memória,
+      // horários). Tom e jeito de conversar vêm do CONVERSATION_GUIDE (conversation-guide.ts).
+      // O roteiro de cada especialidade está no skill.system_prompt (editável no admin).
       const CORE_RULES = `DATA E HORA ATUAL: {{data_hoje}} (fuso horário de Maceió/AL).
-
-🚨🚨🚨 REGRAS PRIORITÁRIAS DE AGENDAMENTO (LEIA TAMBÉM AS REGRAS DETALHADAS NO FINAL DESTE PROMPT) 🚨🚨🚨
-
-Ao tratar agendamento de consulta, OBRIGATORIAMENTE:
-1. SEMPRE proponha os horários da PROPOSTA SUGERIDA (2-3, espalhados em até 2 dias, o mais
-   cedo como ENCAIXE — NUNCA 3 do mesmo dia) quando o lead demonstrar interesse em marcar.
-2. Se o lead disser "não vou poder", "não consigo", "preciso remarcar", "tenho imprevisto",
-   "não conseguirei", trate como REMARCAÇÃO e proponha imediatamente os horários da PROPOSTA
-   SUGERIDA (2-3, espalhados em até 2 dias, o mais cedo como ENCAIXE).
-   NUNCA aceite passivamente ("ok, te aviso") — perdemos paciente assim.
-3. Se você FALAR que cancelou ("cancelei", "removi da agenda"), OBRIGATÓRIO emitir
-   scheduling_action: { "action": "cancel_appointment" } no JSON. Sem isso, fica
-   inconsistente: paciente acha que cancelou mas o evento permanece na agenda.
-4. PROIBIDO falar "alguém entrará em contato", "aguarde retorno", "vou passar pra
-   atendente" — perdemos lead a cada vez. SEMPRE oferte os horários da PROPOSTA SUGERIDA
-   de {{available_slots}} (nunca a AGENDA COMPLETA nem 3 do mesmo dia).
-
-A versão DETALHADA dessas regras está no FINAL deste prompt sob "🚨 REGRAS INVIOLÁVEIS DE
-AGENDAMENTO". Aquelas têm prioridade sobre QUALQUER outra instrução acima.
 
 ═══════════════════════════════════════════════════
 IDENTIDADE DO CONTATO ATUAL (NUNCA pergunte de qual número ou com quem está falando — esta é a verdade):
 - Nome: {{lead_name}}
 - Telefone WhatsApp: {{lead_phone}}
 - Conversa ID: {{conversation_id}}
+Se o paciente perguntar os próprios dados (nome, telefone), confirme usando este bloco.
 ═══════════════════════════════════════════════════
-MEMÓRIA DO LEAD (tudo que já foi coletado sobre este cliente):
+MEMÓRIA DO LEAD (tudo que já foi coletado sobre este cliente — não pergunte de novo o que já está aqui):
 {{lead_memory}}
 ═══════════════════════════════════════════════════
 {{operator_notes}}
@@ -1802,227 +1874,17 @@ MEMÓRIA DO LEAD (tudo que já foi coletado sobre este cliente):
 {{reminder_context}}
 {{upcoming_events}}
 {{active_cases_info}}
-REGRAS DE TOM E FORMATO (INVIOLÁVEIS):
-- MÁXIMO 2 frases curtas por mensagem. Se passar disso, CORTE.
-- NUNCA pular linha na mensagem. Tudo em bloco só.
-- NUNCA usar: "Opa", "Beleza", "Caramba", "Show", "Top", "Legal", "Massa", "Dahora"
-- NUNCA usar: "Ótima pergunta", "Boa pergunta", "Excelente pergunta"
-- NUNCA usar: "Entendi.", "Ok.", "Certo.", "Vou anotar", "Anotei"
-- NUNCA comentar o que o lead disse: nada de "isso é sério", "é pesado mesmo", "complicado"
-- NUNCA ser MAIS informal que o lead. O lead define o tom. Se ele escreve formal, responda formal.
-- Vá DIRETO para a próxima pergunta. Sem preâmbulos.
-
-PROIBIDO REPETIR PERGUNTAS E INFORMAÇÕES JÁ DADAS:
-- O histórico COMPLETO da conversa está nos turns acima (user/assistant). LEIA TUDO.
-- A MEMÓRIA DO LEAD contém TODOS os fatos já extraídos.
-- ANTES de perguntar algo, verifique SE a informação já foi dita no histórico OU na memória.
-- NÃO REPITA informação que você já deu nesta conversa. Em especial o VALOR DA CONSULTA
-  (R$150): se já informou o preço antes, NÃO repita — vá direto pro próximo passo
-  (propor o encaixe). Ficar repetindo o valor soa robótico e trava a conversão.
-- Se perceber que repetiu, reconheça e avance.
-
-PROIBIDO CONFUNDIR A IDENTIDADE DO CONTATO:
-- O telefone do cliente que está conversando agora é {{lead_phone}}. Isso é fato.
-- Se o lead mencionar um número diferente na conversa (ex: "meu fixo é X"), é info ADICIONAL — NUNCA pergunte "você está falando daquele número?" ou "qual número você está usando?".
-- Se uma mensagem chega, ELA VEIO de {{lead_phone}}. Nunca questione.
-- Se precisar confirmar qual é o contato principal, use o {{lead_phone}} já exibido acima.
-
-RESPONDER A PERGUNTA DO CLIENTE VEM SEMPRE PRIMEIRO (CRÍTICO):
-- Se o cliente fez uma PERGUNTA direta, RESPONDA essa pergunta ANTES de qualquer outra ação.
-- NUNCA ignore a pergunta pra seguir seu roteiro. Responda primeiro, depois continue com o que precisar.
-- Se a pergunta for sobre OS PRÓPRIOS DADOS dele (nome, telefone, email, CPF), CONFIRME usando o bloco "IDENTIDADE DO CONTATO ATUAL" acima. Exemplos:
-  * "qual meu número?" → "Seu número é {{lead_phone}}."
-  * "qual meu nome cadastrado?" → "Temos {{lead_name}} aqui."
-  * "qual o telefone que aparece pra vocês?" → "Aparece {{lead_phone}}."
-- Se a pergunta for sobre o ESCRITÓRIO (endereço, horário, equipe, honorários), RESPONDA com base nas informações de "Sobre nosso escritório" (se sua skill tem essa seção) ou diga que precisa confirmar com a equipe.
-- NUNCA responda "não tenho essa informação" pra dados que estão claramente no contexto acima.
-
-HORÁRIOS DISPONÍVEIS DO DENTISTA (use SOMENTE estes — NUNCA invente datas ou horários):
+${CONVERSATION_GUIDE}
+HORÁRIOS DISPONÍVEIS (use SOMENTE estes — NUNCA invente datas ou horários):
 {{available_slots}}
-
-REGRAS DE AGENDAMENTO (CRÍTICAS — viole isso e perdemos pacientes):
-
-1. RESPEITE OS HORÁRIOS LISTADOS ACIMA. Se aparecer "Sábado 12/05 (...)" na lista,
-   o dentista ATENDE no sábado — pode oferecer sem hesitar. NUNCA diga
-   "não atendemos no sábado" ou "fim de semana não temos vaga" se o sábado
-   estiver listado em {{available_slots}}. Apenas domingo é fechado por padrão
-   (a menos que esteja listado também).
-
-2. SEMPRE PROPONHA AGENDAMENTO QUANDO O LEAD DEMONSTRAR INTERESSE.
-   Sinais de interesse: "quero agendar", "qual horário", "tem vaga", "marca pra mim",
-   "posso ir tal dia?", "consigo um horário?", "quanto tempo demora pra atender", e
-   variações. Reaja SEMPRE oferecendo os horários da PROPOSTA SUGERIDA (2-3,
-   espalhados em até 2 dias, o mais cedo primeiro — NUNCA 3 do mesmo dia).
-
-3. PROIBIDAS estas respostas (perdemos paciente cada vez que falamos isso):
-   ❌ "Alguém da equipe vai entrar em contato"
-   ❌ "Vou passar pra atendente"
-   ❌ "A equipe vai te retornar"
-   ❌ "Aguarde nosso retorno"
-   ❌ "Vamos analisar e respondemos depois"
-   ❌ "Não temos vaga no sábado" (se sábado estiver na lista)
-   ✅ Em vez disso, OFERECA os horários da PROPOSTA SUGERIDA (2-3, espalhados
-      em até 2 dias, o mais cedo primeiro; enquadre o 1º como ENCAIXE) e pergunte
-      qual prefere.
-
-4. SE A LISTA DE HORÁRIOS ESTIVER VAZIA ou disser "Sem horários disponíveis":
-   ✅ Diga: "Olha, nossa agenda dos próximos dias está cheia. Quer que eu te
-      coloque na lista de espera pra avisar assim que abrir?" — NUNCA diga
-      "alguém entrará em contato".
-
-5. CONFIRMAÇÃO DO HORÁRIO: quando o lead aceitar um horário específico,
-   responda confirmando ("Perfeito! Agendei pra você dia X às Y") e use a
-   ferramenta scheduling_action pra registrar — sem isso o agendamento NÃO
-   fica salvo no sistema.
-
-6. Use {{data_hoje}} para calcular dias da semana corretamente quando o lead
-   disser "amanhã", "próxima quinta", etc.
 
 STATUS DA FICHA:
 {{ficha_status}}
 `;
 
-      // ─── AGENDAMENTO_OVERRIDES (Onda 5e v16, Fase 25) ─────────────────
-      // Bloco INVIOLAVEL injetado POR ULTIMO no prompt — depois do skill.system_prompt,
-      // pipelines, memoria e references. Razao: skills custom criadas pelo admin
-      // podem ter prompts mal escritos que contradizem regras de agendamento (ex:
-      // 'amanha nao temos vaga' em vez de propor proximo disponivel). Como LLM
-      // pesa mais o que vem por ultimo, esse bloco vence qualquer instrucao de skill.
-      //
-      // Caso real do user (03/05/2026): skill "convite_avaliacao" do funil
-      // Lentes de Porcelana respondeu "amanha nao temos horarios disponiveis para
-      // avaliacao. Quer escolher outro dia ou prefere que eu te avise quando abrir vaga?"
-      // — em vez de propor o proximo dia disponivel. Esse override impede isso.
-      const AGENDAMENTO_OVERRIDES = `
-═══════════════════════════════════════════════════════════════
-🚨🚨🚨 REGRAS INVIOLÁVEIS DE AGENDAMENTO 🚨🚨🚨
-ATENÇÃO: AS REGRAS ABAIXO TÊM PRIORIDADE SOBRE TODA E QUALQUER
-INSTRUÇÃO ANTERIOR — INCLUSIVE PROMPTS DE SKILLS CUSTOMIZADAS,
-MEMÓRIA, REFERENCIAS OU PIPELINE BLOCKS. SE QUALQUER REGRA ACIMA
-CONFLITAR COM ESTA SEÇÃO, VOCÊ DEVE OBEDECER ESTA SEÇÃO.
-═══════════════════════════════════════════════════════════════
-
-Você está numa CLÍNICA ODONTOLÓGICA. Cada lead que pede pra agendar e não
-recebe horário concreto = paciente PERDIDO. Por isso:
-
-REGRA 1 — SE O LEAD QUER MARCAR, OFEREÇA A "PROPOSTA SUGERIDA" (não a agenda inteira).
-  Sinais de querer marcar: "agendar", "marcar", "tem vaga", "qual horário",
-  "amanhã", "tal dia", "consigo ir", "próxima semana", etc.
-  Reação OBRIGATÓRIA: ofereça SOMENTE os horários da "PROPOSTA SUGERIDA" do
-  bloco {{available_slots}} (no máx 3, espalhados em até 2 dias, o mais cedo primeiro).
-  ⛔ NUNCA jogue a AGENDA COMPLETA nem 3 horários do MESMO dia — isso passa
-     impressão de agenda vazia/cheia de buracos e reduz o comparecimento.
-  ✅ Enquadre o horário mais próximo como um ENCAIXE que AGREGA VALOR (não só
-     "garantir um encaixe pra consulta"): deixe claro que é uma consulta com a
-     Dra. Suellen, onde ELA AVALIA como está o sorriso do paciente. Formato:
-    "Quer que eu veja um encaixe pra uma consulta com a Dra. Suellen, onde ela
-     avalia como está o seu sorriso? Consigo:
-     • [ENCAIXE mais próximo] às HH:MM
-     • [outro horário] às HH:MM
-     Qual fica melhor pra você?"
-  Se só houver vaga em 1 dia, ofereça no máximo 2 horários desse dia (NUNCA 3).
-  A AGENDA COMPLETA só entra se o lead recusar as sugeridas ou pedir um
-  dia/horário específico.
-  ⛔ Se o VALOR da consulta (R$150) JÁ foi informado antes nesta conversa, NÃO
-     repita ao propor o horário — vá direto pro encaixe. Repetir preço já dito
-     soa robótico.
-
-REGRA 2 — DIA PEDIDO INDISPONÍVEL ≠ EMPURRAR DECISÃO PRO LEAD.
-  Se o lead pediu "amanhã" mas amanhã não está em {{available_slots}}
-  (porque é fim de semana sem expediente, dia cheio ou feriado), NUNCA
-  responda "amanhã não temos horários, quer escolher outro dia?". Errado.
-  Em vez disso, RESPONDA ASSIM:
-    "Amanhã nossa agenda já está fechada [opcionalmente: por ser sábado/domingo/
-     feriado]. Mas consegui te encaixar bem pertinho:
-     • [ENCAIXE mais próximo da PROPOSTA SUGERIDA] às HH:MM
-     • [outro dia da PROPOSTA SUGERIDA] às HH:MM
-     Alguma dessas serve?"
-  Sempre ofereça as opções da PROPOSTA SUGERIDA (2 a 3, espalhados em até 2 dias, a
-  mais cedo primeiro — NUNCA 3 do mesmo dia). Nunca pergunte "quer escolher
-  outro dia?" sem antes oferecer alternativas concretas.
-
-REGRA 3 — FIM DE SEMANA SE NÃO ESTIVER EM {{available_slots}}.
-  Se sábado/domingo NÃO aparecer na lista {{available_slots}}, voce pode
-  informar que "atendemos de segunda a sexta" — MAS sempre seguido de
-  proposta de horários da próxima janela disponível (regra 2).
-  Se sábado APARECER na lista, então o dentista atende sábado — NUNCA diga
-  "não atendemos sábado".
-
-REGRA 4 — JAMAIS RESPONDA ESTAS FRASES (perdemos paciente toda vez):
-  ❌ "Alguém da equipe vai entrar em contato"
-  ❌ "A recepção te liga"
-  ❌ "Vou passar pra atendente"
-  ❌ "Aguarde nosso retorno"
-  ❌ "Quer escolher outro dia?" (sem oferecer opções concretas antes)
-  ❌ "Quer que eu te avise quando abrir vaga?" (a menos que a lista esteja
-       100% vazia — ai sim, lista de espera vira fallback)
-
-REGRA 5 — LISTA TOTALMENTE VAZIA ("Sem horários disponíveis nos próximos dias").
-  Só nesse caso extremo, responda:
-    "Olha, nossa agenda dos próximos [N] dias está cheia. Quer que eu te
-     coloque na nossa lista de espera pra avisar assim que abrir uma vaga?"
-
-REGRA 6 — CONFIRMAÇÃO DO HORÁRIO ESCOLHIDO.
-  Quando o paciente escolher um horário, CONFIRME ("Perfeito! Agendei
-  pra você dia X às Y") e use scheduling_action no JSON de retorno —
-  sem isso o agendamento NÃO fica salvo.
-
-REGRA 7 — RESPOSTA AO LEMBRETE DE 1 DIA ANTES (Onda 5e v18, Fase B).
-  Quando o reminder_context indica awaiting_confirmation=true, significa
-  que enviamos lembrete 24h antes pedindo pro paciente confirmar.
-  Detecte a resposta NATURALMENTE (não use "responda 1 ou 2"):
-
-  CONFIRMAÇÃO (paciente vai comparecer):
-    Sinais: "ok", "sim", "confirmado", "estarei lá", "pode contar comigo",
-    "vou sim", "tô confirmado", "beleza", "perfeito", "👍", "✅", "tudo certo",
-    "sem problema", "tranquilo", "valeu", "obrigado(a)" (nesse contexto), etc.
-    → AÇÃO: responda de forma calorosa ("Perfeito! Te aguardamos amanhã 😊")
-       e emita scheduling_action: {"action": "confirm_appointment"}.
-
-  PEDIDO DE REMARCAÇÃO (paciente quer trocar de dia/hora) — DEFAULT:
-    Sinais (TODOS estes devem virar REMARCAÇÃO, NÃO cancelamento):
-      "não vou poder", "não vou conseguir", "não consigo ir", "não dá",
-      "preciso remarcar", "tem outro dia?", "consigo trocar?", "outra data",
-      "não consigo nesse horario", "preciso desmarcar pra outro",
-      "pode ser depois?", "manda outras opções", "imprevisto", "vai ter
-      reunião", "esqueci que tenho compromisso", "estou viajando", etc.
-    → AÇÃO ESTRATÉGICA DE VENDA (CRITICA — perdemos paciente se errar):
-      1. NÃO aceite passivamente. Cada paciente que cancela e nao remarca
-         imediatamente = ~70% chance de NUNCA voltar.
-      2. Resposta empática + PROPOSTA ATIVA de remarcacao (enquadre como ENCAIXE):
-         "Tranquilo, [nome]! Consegui te encaixar bem pertinho:
-          • [ENCAIXE mais próximo da PROPOSTA SUGERIDA] às HH:MM
-          • [outro dia da PROPOSTA SUGERIDA] às HH:MM
-          Algum desses serve melhor?"
-      3. Emita scheduling_action: {"action": "reschedule_appointment"}.
-      4. Use SEMPRE os horários da PROPOSTA SUGERIDA de {{available_slots}} (2-3, espalhados
-         em até 2 dias, o mais cedo como ENCAIXE; NUNCA 3 do mesmo dia).
-
-  CANCELAMENTO DEFINITIVO (apenas casos EXPLÍCITOS — NUNCA por default):
-    Sinais EXPLÍCITOS exigidos (precisa de pelo menos UM destes):
-      "desisti totalmente", "não tenho mais interesse", "não quero mais",
-      "remova de vez", "cancela tudo", "esquece", "perdi o interesse",
-      "vou em outro lugar", "achei outro dentista"
-    NAO use cancelamento se o paciente apenas disse "não vou" ou
-    "não posso" — isso é REMARCAÇÃO, ofereca outras datas.
-    → AÇÃO: responda compreensivo + tenta UMA recuperação:
-       "Tudo bem, [nome]. Posso te ajudar a encontrar um horario melhor
-        em outra semana, ou prefere que eu te avise se abrir alguma
-        promoção/horario diferente no futuro?"
-       Se confirmar desistencia, emita {"action": "cancel_appointment"}.
-       Se topar voltar, ofereça lista de espera ou novos slots.
-
-  AMBIGUIDADE: se a resposta não for clara (ex: "vou ver", "depois te falo"),
-  pergunte de forma humanizada ("Quer que eu mantenha o horário ou prefere
-  outro dia?") sem chumbar resposta de número.
-
-REGRA 8 — JAMAIS DIZER "CANCELEI" SEM EMITIR scheduling_action.
-  Se a resposta da IA contiver "cancelei", "cancelado", "removi", "desmarquei"
-  ou similar, OBRIGATORIAMENTE deve vir junto com scheduling_action no JSON.
-  Sem isso, o evento permanece na agenda (bug grave) e o paciente fica
-  com expectativa errada.
-═══════════════════════════════════════════════════════════════
-`;
+      // Regras de agendamento — entram POR ÚLTIMO no prompt (o modelo pesa mais o
+      // final), valendo sobre skills custom mal escritas. Ver conversation-guide.ts.
+      const AGENDAMENTO_OVERRIDES = SCHEDULING_RULES;
 
 
       // ─── Sistema de memoria (3 camadas) ──────────────────────────────
@@ -2299,7 +2161,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       const visionImages: { type: 'image_url'; image_url: { url: string } }[] = [];
 
       // Instrução final para a IA (não aparece no chat do cliente)
-      const instruction = `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas já respondidas. Avance o roteiro para o próximo ponto que ainda não foi coberto. Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
+      const instruction = `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. Mensagens curtas, balões separados por linha em branco. Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
 
       // Montar array final de mensagens para a OpenAI (multi-turn real)
       const openAiMessages: any[] = [
@@ -2347,6 +2209,21 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         toolDefs.push(this.promptBuilder.buildRespondToClientTool());
 
         const handlerMap = buildHandlerMap(skillTools);
+        // Chat de teste: só ferramentas de CONSULTA rodam de verdade; as que gravam
+        // (agendar, atualizar lead, escalar…) devolvem um "ok simulado".
+        if (dryRun) {
+          const READ_ONLY_TOOLS = new Set([
+            'check_availability', 'get_procedures', 'get_esthetic_procedures',
+            'search_references', 'search_memory', 'check_esthetic_revisit_due',
+          ]);
+          for (const [name, h] of handlerMap) {
+            if (READ_ONLY_TOOLS.has((h as any).name)) continue;
+            handlerMap.set(name, {
+              name: (h as any).name,
+              execute: async () => ({ ok: true, simulated: true, note: 'Modo teste: nada foi gravado.' }),
+            } as any);
+          }
+        }
 
         // Converter chatTurns para LLMMessage format
         const llmMessages = chatTurns.map((t: any) => ({
@@ -2387,7 +2264,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             skillAssets: skill.assets || [],
             reminderQueue: this.reminderQueue,
             memoryRetrieval: this.memoryRetrieval,
-            tenantId: tenantIdForBH || undefined,
+            // (teste: o tenant "zero" do Instituto vira null em tenantIdForBH; o
+            // check_availability precisa dele pra achar a agenda sem conversa real)
+            tenantId: tenantIdForBH || (dryRun ? convo.tenant_id : undefined) || undefined,
+            dryRun,
           },
         });
 
@@ -2427,7 +2307,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         // Save usage (Onda 2.2 — passa tenant_id obrigatorio)
         await this.saveUsage({
           tenant_id: (convo as any)?.tenant_id ?? null,
-          conversation_id,
+          conversation_id: dryRun ? null : conversation_id,
           skill_id: skill?.id ?? null,
           model,
           call_type: 'chat',
@@ -2483,7 +2363,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         // Salvar usage com dados reais (Onda 2.2 — tenant_id obrigatorio)
         await this.saveUsage({
           tenant_id: (convo as any)?.tenant_id ?? null,
-          conversation_id,
+          conversation_id: dryRun ? null : conversation_id,
           skill_id: skill?.id ?? null,
           model,
           call_type: 'chat',
@@ -2527,6 +2407,23 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           if (!updates.next_step && sanitized.updates?.next_step) updates.next_step = sanitized.updates.next_step;
           if (!updates.notes && sanitized.updates?.notes) updates.notes = sanitized.updates.notes;
         }
+      }
+
+      // Chat de teste: devolve a resposta (já em balões) e PARA aqui — nada abaixo
+      // (salvaguardas de agenda, updates do lead, envio, gravação) roda no teste.
+      if (dryRun) {
+        const handoff = skill?.handoff_signal;
+        const willHandoff = !!handoff && aiText.includes(handoff);
+        const reply = tidyReply(willHandoff ? aiText.split(handoff).join('') : aiText);
+        return {
+          dryRun: true,
+          bubbles: splitIntoBubbles(reply),
+          skill: skill?.name || null,
+          model,
+          handoff: willHandoff,
+          scheduling_action: scheduling_action || null,
+          tools: toolCallLogs.map((l: any) => l.name).filter((n: string) => n !== 'respond_to_client'),
+        };
       }
 
       // 14. Verificar sinal de escalada (handoff para humano)
@@ -2939,42 +2836,12 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // clínica não quer esse traço no WhatsApp. Troca por vírgula (leitura natural em
       // pt-BR) e limpa pontuação/espaço dobrados. NÃO mexe no hífen comum "-" (bem-estar,
       // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
-      finalText = finalText
-        .replace(/\s*[—–]\s*/g, ', ')
-        .replace(/\s+,/g, ',')
-        .replace(/,\s*,/g, ',')
-        .replace(/,\s*([.!?])/g, '$1')
-        .replace(/[ \t]{2,}/g, ' ')
-        .trim();
+      finalText = tidyReply(finalText);
 
-      // Assinatura "Sophia:" em negrito no WhatsApp (salva sem assinatura no DB)
+      // Assinatura "Sophia:" em negrito no WhatsApp (salva sem assinatura no DB).
+      // textToSend = resposta inteira (usada no fallback do TTS).
       const textToSend = `*Sophia:* ${finalText}`;
 
-      // Exibe "digitando..." antes de enviar. Onda 18.x — a resposta chegava muito
-      // rápida (robótica). Agora o tempo de digitação é PROPORCIONAL ao tamanho da
-      // mensagem (~pessoa digitando), com piso e teto — mensagem curta ~2,5s, longa
-      // até ~9s. Some-se ao cooldown (AI_COOLDOWN_SECONDS, Configurações › IA) que já
-      // segura a IA antes de começar a responder.
-      const TYPING_DELAY_MS = Math.min(Math.max(finalText.length * 28, 2500), 9000);
-      // Formato flat (sem wrapper "options") — conforme comportamento real da API
-      axios
-        .post(
-          `${apiUrl}/chat/sendPresence/${instanceName}`,
-          {
-            number: convo.lead.phone,
-            delay: TYPING_DELAY_MS,
-            presence: 'composing',
-          },
-          { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 10000 },
-        )
-        .catch((e) =>
-          this.logger.warn(`[AI] sendPresence falhou (não-fatal): ${e.message}`),
-        );
-      await new Promise((resolve) => setTimeout(resolve, TYPING_DELAY_MS));
-
-      // Captura o ID real da mensagem retornado pela Evolution API
-      // para que o webhook echo seja corretamente deduplicado e não gere registro duplicado.
-      let evolutionMsgId = `sys_ai_${Date.now()}`;
       // Pré-calcular se vai enviar áudio (para pular texto nesse caso)
       // Buscar a última mensagem inbound (mais recente = primeiro do array desc)
       const _lastIn = convo.messages.find((m: any) => m.direction === 'in');
@@ -2987,75 +2854,87 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         this.logger.log('[AI] Lead enviou áudio — resposta será apenas por voz (sem texto)');
       }
 
-      // sendFailed/sendErrorDetail ficam fora do try/catch para o passo 17
-      // saber se houve falha e marcar a Message com status correto. Antes
-      // este bloco silenciava o erro e gravava como 'enviado' mesmo quando
-      // o WhatsApp nunca recebia.
+      // Onda 19.x — resposta em BALÕES, como a recepção escreve (uma ideia por
+      // mensagem). O guia manda separar balões com linha em branco; cada balão
+      // vira uma mensagem no WhatsApp com seu próprio "digitando..." proporcional
+      // ao tamanho (~pessoa digitando, piso 1,5s / teto 7s). Só o 1º leva "Sophia:".
+      // Cada balão é gravado com o ID real da Evolution (dedup do echo do webhook).
+      const bubbles = _willAudio ? [finalText] : splitIntoBubbles(finalText);
+      const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
+      const savedMsgs: any[] = [];
       let sendFailed = false;
       let sendErrorDetail: string | null = null;
-      try {
-        let sendResult: any;
-        const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
+      let evolutionMsgId = `sys_ai_${Date.now()}`;
 
-        // Se vai enviar áudio, pula o texto
-        if (_willAudio) {
-          // Não envia texto — será enviado apenas áudio no passo 18 (TTS)
-        } else {
-          // sendList (listas interativas) não funciona via Baileys —
-          // WhatsApp deprecou para conexões não-oficiais (só Cloud API).
-          // Slots de agendamento já vêm formatados no finalText pela IA.
-          sendResult = await axios.post(
-            `${apiUrl}/message/sendText/${instanceName}`,
-            { number: convo.lead.phone, text: textToSend },
-            { headers: evoHeaders, timeout: 30000 },
-          );
+      for (let i = 0; i < bubbles.length; i++) {
+        const bubble = bubbles[i];
+        evolutionMsgId = `sys_ai_${Date.now()}_${i}`;
+        let bubbleFailed = false;
+
+        if (!_willAudio) {
+          const typingMs = Math.min(Math.max(bubble.length * 28, 1500), 7000);
+          // Formato flat (sem wrapper "options") — conforme comportamento real da API
+          axios
+            .post(
+              `${apiUrl}/chat/sendPresence/${instanceName}`,
+              { number: convo.lead.phone, delay: typingMs, presence: 'composing' },
+              { headers: evoHeaders, timeout: 10000 },
+            )
+            .catch((e) => this.logger.warn(`[AI] sendPresence falhou (não-fatal): ${e.message}`));
+          await new Promise((resolve) => setTimeout(resolve, typingMs));
+
+          // sendFailed/sendErrorDetail marcam a Message com o status REAL do envio
+          // (antes o erro era silenciado e gravava 'enviado' sem chegar no WhatsApp).
+          try {
+            // sendList (listas interativas) não funciona via Baileys — slots de
+            // agendamento já vêm formatados no texto pela IA.
+            const sendResult = await axios.post(
+              `${apiUrl}/message/sendText/${instanceName}`,
+              { number: convo.lead.phone, text: i === 0 ? `*Sophia:* ${bubble}` : bubble },
+              { headers: evoHeaders, timeout: 30000 },
+            );
+            evolutionMsgId = sendResult.data?.key?.id || evolutionMsgId;
+          } catch (sendErr: any) {
+            bubbleFailed = true;
+            sendFailed = true;
+            const status = sendErr.response?.status || sendErr.code || sendErr.message;
+            sendErrorDetail = `${status}: ${JSON.stringify(sendErr.response?.data || {}).slice(0, 160)}`;
+            this.logger.error(`[AI] Falha ao enviar balão ${i + 1}/${bubbles.length} via Evolution (${status}): ${sendErrorDetail}`);
+          }
         }
-        if (sendResult) evolutionMsgId = sendResult.data?.key?.id || evolutionMsgId;
-      } catch (sendErr: any) {
-        sendFailed = true;
-        const status = sendErr.response?.status || sendErr.code || sendErr.message;
-        sendErrorDetail = `${status}: ${JSON.stringify(sendErr.response?.data || {}).slice(0, 160)}`;
-        this.logger.error(`[AI] Falha ao enviar via Evolution (${status}): ${sendErrorDetail}`);
-      }
+        // (áudio: não envia texto — será enviado apenas áudio no passo 18 (TTS))
 
-      // 17. Salvar mensagem no banco com skill_id (texto limpo, sem assinatura)
-      // Usa o ID real da Evolution para que o echo do webhook seja deduplicado.
-      // Race condition: o echo da Evolution pode chegar antes do worker salvar,
-      // criando a mensagem sem skill_id. Nesse caso, capturamos P2002 e atualizamos.
-      //
-      // status reflete o RESULTADO REAL do envio:
-      //   - 'enviado': axios.post retornou 2xx (ou era resposta áudio-only)
-      //   - 'falhou':  axios.post lançou exceção (DNS, 4xx, 5xx, timeout, etc)
-      let savedMsg: any;
-      try {
-        savedMsg = await this.prisma.message.create({
-          data: {
-            conversation_id: convo.id,
-            direction: 'out',
-            type: 'text',
-            text: finalText,
-            external_message_id: evolutionMsgId,
-            status: sendFailed ? 'falhou' : 'enviado',
-            skill_id: skill?.id || null,
-          },
-        });
-      } catch (createErr: any) {
-        if (createErr.code === 'P2002' && evolutionMsgId && !evolutionMsgId.startsWith('sys_ai_')) {
-          // Echo criou a mensagem primeiro — encontra e atualiza o skill_id
-          this.logger.warn(`[AI] P2002 em message.create — echo chegou antes do save. Atualizando skill_id em ${evolutionMsgId}`);
-          const existing = await this.prisma.message.findUnique({ where: { external_message_id: evolutionMsgId } });
-          if (existing) {
-            savedMsg = await this.prisma.message.update({
+        // 17. Salvar o balão no banco com skill_id (texto limpo, sem assinatura).
+        // Race condition: o echo da Evolution pode chegar antes do worker salvar,
+        // criando a mensagem sem skill_id. Nesse caso, capturamos P2002 e atualizamos.
+        try {
+          savedMsgs.push(await this.prisma.message.create({
+            data: {
+              conversation_id: convo.id,
+              direction: 'out',
+              type: 'text',
+              text: bubble,
+              external_message_id: evolutionMsgId,
+              status: bubbleFailed ? 'falhou' : 'enviado',
+              skill_id: skill?.id || null,
+            },
+          }));
+        } catch (createErr: any) {
+          if (createErr.code === 'P2002' && evolutionMsgId && !evolutionMsgId.startsWith('sys_ai_')) {
+            this.logger.warn(`[AI] P2002 em message.create — echo chegou antes do save. Atualizando skill_id em ${evolutionMsgId}`);
+            const existing = await this.prisma.message.findUnique({ where: { external_message_id: evolutionMsgId } });
+            if (!existing) throw createErr;
+            savedMsgs.push(await this.prisma.message.update({
               where: { id: existing.id },
               data: { skill_id: skill?.id || null },
-            });
+            }));
           } else {
             throw createErr;
           }
-        } else {
-          throw createErr;
         }
+        if (bubbleFailed) break; // não manda o resto se um balão falhou (ordem quebrada)
       }
+      const savedMsg = savedMsgs[savedMsgs.length - 1];
 
       // 18. Atualizar last_message_at
       await this.prisma.conversation.update({
@@ -3207,7 +3086,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // leads legacy sem tenant_id que nao puderam ser migrados em massa.
 
       // 20. Retorna IDs para o AiEventsService da API emitir WebSocket em tempo real
-      return { conversationId: convo.id, messageId: savedMsg.id };
+      // messageIds: todos os balões (a API emite cada um no WebSocket).
+      return { conversationId: convo.id, messageId: savedMsg.id, messageIds: savedMsgs.map((m: any) => m.id) };
     } catch (e: any) {
       this.logger.error(`Erro no processamento da IA: ${e.message}`);
       throw e;

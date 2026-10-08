@@ -9,6 +9,7 @@ import { S3Service } from '../s3/s3.service';
 import { CreateSkillDto, UpdateSkillDto, CreateSkillToolDto, UpdateSkillToolDto } from './dto/settings.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeBusinessHoursInfo } from '@crm/shared';
+import { AiTestChatService } from './ai-test-chat.service';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
@@ -27,6 +28,7 @@ export class SettingsController {
     private readonly whatsappService: WhatsappService,
     private readonly s3Service: S3Service,
     private readonly prisma: PrismaService,
+    private readonly aiTestChatService: AiTestChatService,
   ) {}
 
   // ─── Generic Settings ─────────────────────────────────
@@ -262,6 +264,54 @@ export class SettingsController {
     if (data.whatsappAiEnabled !== undefined) await this.settingsService.setWhatsappAiEnabled(data.whatsappAiEnabled);
     if (data.cooldownSeconds !== undefined) await this.settingsService.setCooldownSeconds(Number(data.cooldownSeconds));
     return { message: 'Configurações de IA salvas com sucesso' };
+  }
+
+  // Valores que a IA pode falar no WhatsApp — POR CLÍNICA (TenantSetting
+  // AI_PRICE_TABLE). Texto livre, uma linha por item (ex.: "Limpeza — R$ 350:
+  // polimento, flúor e remoção de tártaro"). Vazio = a IA não informa preço nenhum.
+  @Get('ai-price-table')
+  @Roles('ADMIN')
+  async getAiPriceTable(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) return { value: '' };
+    const row = await this.prisma.tenantSetting.findUnique({
+      where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
+    });
+    return { value: row?.value || '' };
+  }
+
+  @Put('ai-price-table')
+  @Roles('ADMIN')
+  async setAiPriceTable(@Request() req: any, @Body() body: { value?: string }) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    const value = String(body?.value ?? '').slice(0, 4000);
+    await this.prisma.tenantSetting.upsert({
+      where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
+      create: { tenant_id: tenantId, key: 'AI_PRICE_TABLE', value },
+      update: { value },
+    });
+    return { ok: true };
+  }
+
+  // Chat de teste da IA: roda a Sophia de verdade (skills + guia + agenda real)
+  // sem enviar WhatsApp nem gravar nada. Sempre na clínica de quem está logado.
+  @Post('ai-test-chat')
+  @Roles('ADMIN')
+  async aiTestChat(
+    @Request() req: any,
+    @Body() body: { purpose?: string; isClient?: boolean; leadName?: string; history?: { from: 'patient' | 'ai'; text: string }[] },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    const p = String(body?.purpose || '').toUpperCase();
+    return this.aiTestChatService.run({
+      tenantId,
+      purpose: p === 'COMERCIAL' || p === 'CLINICA' || p === 'FINANCEIRO' ? (p as any) : null,
+      isClient: !!body?.isClient,
+      leadName: body?.leadName ? String(body.leadName).slice(0, 80) : null,
+      history: Array.isArray(body?.history) ? body!.history : [],
+    });
   }
 
   // Onda 18.20 — liga/desliga a IA de UM chip (Comercial/Clínica/Financeiro).

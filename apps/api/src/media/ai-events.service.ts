@@ -45,29 +45,34 @@ export class AiEventsService implements OnModuleInit, OnModuleDestroy {
           return; // job completou sem retorno (cooldown/skip)
         }
 
-        const { conversationId, messageId } = result ?? {};
+        const { conversationId, messageId, messageIds } = result ?? {};
         if (!conversationId || !messageId) return;
 
-        // Busca a mensagem salva com dados completos
-        const message = await this.prisma.message.findUnique({
-          where: { id: messageId },
-          include: { media: true, skill: { select: { id: true, name: true, area: true } } },
-        });
+        // A resposta pode vir em vários balões (messageIds, em ordem); jobs antigos
+        // só mandam messageId.
+        const ids: string[] = Array.isArray(messageIds) && messageIds.length ? messageIds : [messageId];
+        for (const id of ids) {
+          // Busca a mensagem salva com dados completos
+          const message = await this.prisma.message.findUnique({
+            where: { id },
+            include: { media: true, skill: { select: { id: true, name: true, area: true } } },
+          });
 
-        if (!message) {
-          this.logger.warn(`[WS-AI] Mensagem ${messageId} não encontrada`);
-          return;
+          if (!message) {
+            this.logger.warn(`[WS-AI] Mensagem ${id} não encontrada`);
+            continue;
+          }
+
+          // Emite para todos os clientes conectados na sala da conversa.
+          // emitNewMessage: adiciona mensagem se ainda não está no estado.
+          // emitMessageUpdate: atualiza a mensagem caso o echo da Evolution já a
+          //   tenha adicionado sem skill (race condition), garantindo que o badge apareça.
+          this.chatGateway.emitNewMessage(conversationId, message);
+          this.chatGateway.emitMessageUpdate(conversationId, message);
         }
-
-        // Emite para todos os clientes conectados na sala da conversa.
-        // emitNewMessage: adiciona mensagem se ainda não está no estado.
-        // emitMessageUpdate: atualiza a mensagem caso o echo da Evolution já a
-        //   tenha adicionado sem skill (race condition), garantindo que o badge apareça.
-        this.chatGateway.emitNewMessage(conversationId, message);
-        this.chatGateway.emitMessageUpdate(conversationId, message);
         this.chatGateway.emitConversationsUpdate(null);
         this.logger.log(
-          `[WS-AI] newMessage+messageUpdate emitidos: msg=${messageId} conv=${conversationId} skill=${(message as any).skill?.name || 'null'}`,
+          `[WS-AI] newMessage+messageUpdate emitidos: ${ids.length} balão(ões) conv=${conversationId}`,
         );
       } catch (e: any) {
         this.logger.error(`Erro no AiEventsService: ${e.message}`);

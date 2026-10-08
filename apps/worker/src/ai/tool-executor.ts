@@ -14,6 +14,7 @@ export interface ToolContext {
   reminderQueue?: any; // Bull queue for WhatsApp reminders (optional)
   memoryRetrieval?: any; // MemoryRetrievalService (para tool search_memory)
   tenantId?: string; // Tenant atual (para search_memory escopar por tenant)
+  dryRun?: boolean; // chat de teste da IA: nada é gravado/enviado
 }
 
 export interface ToolHandler {

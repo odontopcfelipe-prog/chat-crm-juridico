@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power } from 'lucide-react';
 import api from '@/lib/api';
+import { AiTestChatCard } from './AiTestChatCard';
+import { AiPriceTableCard } from './AiPriceTableCard';
 
 interface SkillTool {
   id: string;
@@ -706,6 +708,10 @@ export default function AiSettingsPage() {
             </div>
           )}
         </div>
+
+        {/* ── Chat de teste + valores que a IA pode falar (por clínica) ── */}
+        <AiTestChatCard />
+        <AiPriceTableCard />
 
         {/* ── Config Global ── */}
         <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
