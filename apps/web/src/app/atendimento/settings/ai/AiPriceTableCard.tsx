@@ -1,23 +1,50 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Tag, CheckCircle2, RefreshCw } from 'lucide-react';
 import api from '@/lib/api';
 
-const EXAMPLE = `Valores que podemos passar:
-- Avaliação: R$ 150.
-- Limpeza: R$ 350 (remoção de tártaro, polimento e aplicação de flúor).
-- Manutenção de aparelho: R$ 150.
+type Mode = 'template' | 'free';
+type Form = { doctor: string; avaliacao: string; limpeza: string; manutencao: string };
 
-Os demais valores só conseguimos passar após a consulta completa, onde fazemos: anamnese (sua história de saúde), fotografias da face e do sorriso, escaneamento intraoral (o mapeamento dos dentes) e, por último, a doutora avalia tudo e te ouve para entender sua dor e sua necessidade. Assim montamos o seu plano de tratamento com o que for indicado para você.`;
+const DEFAULT_FORM: Form = { doctor: '', avaliacao: '150', limpeza: '350', manutencao: '150' };
+
+const money = (v: string) => {
+  const n = v.replace(/[^\d,.]/g, '').trim();
+  return n ? `R$ ${n}` : '';
+};
 
 /**
- * Orientação de valores da Sophia — por clínica. Texto livre (como você explicaria
- * pra uma recepcionista nova) + chave pra liberar ou não a IA a passar valores.
- * Desligada: a IA não fala preço de nada, mas o texto fica guardado.
+ * Texto padrão de orientação de valores — revisado a partir da explicação da
+ * recepção. Só muda o nome de quem avalia e os valores; linha com valor vazio some.
+ */
+export function buildPriceGuide(f: Form): string {
+  const doctor = f.doctor.trim() || 'a doutora';
+  const lines = [
+    money(f.avaliacao) && `• Consulta de avaliação: ${money(f.avaliacao)}`,
+    money(f.limpeza) && `• Limpeza: ${money(f.limpeza)} (remoção de tártaro, polimento e aplicação de flúor)`,
+    money(f.manutencao) && `• Manutenção de aparelho: ${money(f.manutencao)}`,
+  ].filter(Boolean);
+  return [
+    lines.length ? `Valores que podemos informar:\n${lines.join('\n')}` : 'Nenhum valor pode ser informado antes da consulta.',
+    '',
+    'Demais tratamentos: o valor só é passado depois da consulta completa de avaliação, porque cada plano de tratamento é feito sob medida. Na consulta fazemos:',
+    '1. Anamnese: uma conversa sobre a sua saúde e o seu histórico;',
+    '2. Fotografias da face e do sorriso;',
+    '3. Escaneamento intraoral: o mapeamento digital dos seus dentes;',
+    `4. Avaliação com ${doctor}, que analisa tudo e ouve você para entender a sua queixa e o que você deseja.`,
+    'Com isso montamos o seu plano de tratamento com o que é realmente indicado para você.',
+  ].join('\n');
+}
+
+/**
+ * Orientação de valores da Sophia — por clínica. "Modelo pronto" (só troca nome e
+ * valores) ou texto livre, + chave pra liberar ou não a IA a passar valores.
  */
 export function AiPriceTableCard() {
-  const [value, setValue] = useState('');
+  const [mode, setMode] = useState<Mode>('template');
+  const [form, setForm] = useState<Form>(DEFAULT_FORM);
+  const [freeText, setFreeText] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,18 +54,31 @@ export function AiPriceTableCard() {
   useEffect(() => {
     api.get('/settings/ai-price-table')
       .then((r) => {
-        setValue(r.data?.value || '');
-        setEnabled(r.data?.enabled !== false);
+        const d = r.data || {};
+        setEnabled(d.enabled !== false);
+        if (d.form?.mode === 'free' || (!d.form && d.value)) {
+          setMode('free');
+          setFreeText(d.value || '');
+        } else if (d.form) {
+          setForm({ ...DEFAULT_FORM, ...d.form });
+        }
       })
       .catch(() => setError('Não consegui carregar a orientação de valores.'))
       .finally(() => setLoading(false));
   }, []);
 
+  const preview = useMemo(() => buildPriceGuide(form), [form]);
+  const finalText = mode === 'template' ? preview : freeText;
+
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      await api.put('/settings/ai-price-table', { value, enabled });
+      await api.put('/settings/ai-price-table', {
+        value: finalText,
+        enabled,
+        form: mode === 'template' ? { mode, ...form } : { mode },
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
@@ -47,6 +87,21 @@ export function AiPriceTableCard() {
       setSaving(false);
     }
   };
+
+  const field = (key: keyof Form, label: string, placeholder: string, prefix?: string) => (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-muted-foreground">{label}</span>
+      <div className="flex items-center rounded-xl border border-border bg-background focus-within:border-primary/60">
+        {prefix && <span className="pl-3 text-sm text-muted-foreground">{prefix}</span>}
+        <input
+          value={form[key]}
+          onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+          placeholder={placeholder}
+          className="w-full bg-transparent px-3 py-2 text-sm text-foreground outline-none"
+        />
+      </div>
+    </label>
+  );
 
   return (
     <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -58,8 +113,7 @@ export function AiPriceTableCard() {
           <div>
             <h4 className="text-sm font-bold text-foreground">Valores: o que a IA pode falar</h4>
             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-xl">
-              Escreva como explicaria pra uma recepcionista nova: quais valores pode passar e como explicar o resto.
-              Só desta clínica. A Sophia diz o que está incluso antes do valor, uma vez só.
+              Só desta clínica. A Sophia explica o que está incluso antes do valor, uma vez só, e usa o resto pra explicar a consulta.
             </p>
           </div>
         </div>
@@ -76,32 +130,60 @@ export function AiPriceTableCard() {
           </button>
         </label>
       </div>
-      <div className="p-5 space-y-3">
+
+      <div className="p-5 space-y-4">
         {loading ? (
           <div className="flex justify-center py-4"><RefreshCw className="animate-spin text-muted-foreground" size={18} /></div>
         ) : (
           <>
             {!enabled && (
               <p className="text-xs rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 px-3 py-2">
-                Desligado: a Sophia não informa nenhum valor. Diz que depende da avaliação e convida pra consulta. O texto abaixo fica guardado.
+                Desligado: a Sophia não informa nenhum valor. Diz que depende da avaliação e convida pra consulta. O texto fica guardado.
               </p>
             )}
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={EXAMPLE}
-              rows={9}
-              className={`w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary/60 resize-y ${!enabled ? 'opacity-60' : ''}`}
-            />
-            {!value.trim() && (
-              <button
-                type="button"
-                onClick={() => setValue(EXAMPLE)}
-                className="text-xs font-semibold text-primary hover:underline"
-              >
-                Usar este modelo (avaliação 150, limpeza 350, manutenção 150 + explicação da consulta)
-              </button>
+
+            <div className="inline-flex rounded-xl border border-border p-0.5 text-xs font-semibold">
+              {([['template', 'Modelo pronto'], ['free', 'Escrever do meu jeito']] as const).map(([m, label]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    if (m === 'free' && !freeText.trim()) setFreeText(preview);
+                    setMode(m);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition-colors ${mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {mode === 'template' ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {field('doctor', 'Quem faz a avaliação', 'Ex.: a Dra. Suellen')}
+                  {field('avaliacao', 'Consulta de avaliação', '150', 'R$')}
+                  {field('limpeza', 'Limpeza', '350', 'R$')}
+                  {field('manutencao', 'Manutenção de aparelho', '150', 'R$')}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Deixe um valor em branco para a IA não informar aquele item.</p>
+                <div>
+                  <p className="text-[11px] font-semibold text-muted-foreground mb-1">O que a Sophia vai seguir:</p>
+                  <pre className={`whitespace-pre-wrap rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-sm text-foreground font-sans ${!enabled ? 'opacity-60' : ''}`}>
+                    {preview}
+                  </pre>
+                </div>
+              </>
+            ) : (
+              <textarea
+                value={freeText}
+                onChange={(e) => setFreeText(e.target.value)}
+                rows={10}
+                placeholder="Escreva como explicaria pra uma recepcionista nova: quais valores pode passar e como explicar o resto."
+                className={`w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary/60 resize-y ${!enabled ? 'opacity-60' : ''}`}
+              />
             )}
+
             {error && <p className="text-xs text-red-500">{error}</p>}
             <div className="flex justify-end">
               <button

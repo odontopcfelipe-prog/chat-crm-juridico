@@ -273,21 +273,18 @@ export class SettingsController {
   @Roles('ADMIN')
   async getAiPriceTable(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    if (!tenantId) return { value: '', enabled: true };
-    const [row, on] = await Promise.all([
-      this.prisma.tenantSetting.findUnique({
-        where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICE_TABLE' } },
-      }),
-      this.prisma.tenantSetting.findUnique({
-        where: { tenant_id_key: { tenant_id: tenantId, key: 'AI_PRICES_ENABLED' } },
-      }),
-    ]);
-    return { value: row?.value || '', enabled: on?.value !== 'false' };
+    if (!tenantId) return { value: '', enabled: true, form: null };
+    const get = (key: string) =>
+      this.prisma.tenantSetting.findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key } } });
+    const [row, on, form] = await Promise.all([get('AI_PRICE_TABLE'), get('AI_PRICES_ENABLED'), get('AI_PRICE_FORM')]);
+    let formJson: any = null;
+    try { formJson = form?.value ? JSON.parse(form.value) : null; } catch { formJson = null; }
+    return { value: row?.value || '', enabled: on?.value !== 'false', form: formJson };
   }
 
   @Put('ai-price-table')
   @Roles('ADMIN')
-  async setAiPriceTable(@Request() req: any, @Body() body: { value?: string; enabled?: boolean }) {
+  async setAiPriceTable(@Request() req: any, @Body() body: { value?: string; enabled?: boolean; form?: Record<string, any> | null }) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
     const upsert = (key: string, value: string) =>
@@ -299,6 +296,9 @@ export class SettingsController {
     if (body?.value !== undefined) await upsert('AI_PRICE_TABLE', String(body.value).slice(0, 4000));
     // Chave "a IA pode passar valores" — desligada guarda o texto, só não usa.
     if (body?.enabled !== undefined) await upsert('AI_PRICES_ENABLED', body.enabled ? 'true' : 'false');
+    // Campos do "modelo pronto" (nome da doutora, valores) — só pra tela reabrir
+    // preenchida; a IA lê o texto final (AI_PRICE_TABLE).
+    if (body?.form !== undefined) await upsert('AI_PRICE_FORM', JSON.stringify(body.form ?? null).slice(0, 2000));
     return { ok: true };
   }
 
