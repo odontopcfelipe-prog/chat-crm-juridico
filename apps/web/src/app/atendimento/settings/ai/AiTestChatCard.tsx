@@ -24,6 +24,8 @@ type Meta = {
   assistantName: string | null;
   replyLength: string | null;
   effectiveStyle: string | null;
+  // Funil/etapa do CRC em que ela lançaria o contato (simulado, nada é gravado).
+  funnel: { pipeline: string | null; stage: string | null } | null;
 };
 
 const CHIPS = [
@@ -174,6 +176,7 @@ export function AiTestChatCard({
         assistantName: data?.profile?.assistantName || null,
         replyLength: data?.profile?.replyLength || null,
         effectiveStyle: data?.profile?.effectiveStyle || null,
+        funnel: data?.funnel && (data.funnel.pipeline || data.funnel.stage) ? data.funnel : null,
         scheduling: data?.scheduling_action?.action
           ? `${data.scheduling_action.action}${data.scheduling_action.date ? ` ${data.scheduling_action.date} ${data.scheduling_action.time || ''}` : ''}`
           : null,
@@ -310,6 +313,15 @@ export function AiTestChatCard({
           )}
           {meta.tools.length > 0 && <span>Ferramentas: {meta.tools.join(', ')}</span>}
           {meta.scheduling && <span>Agendaria (simulado): {meta.scheduling}</span>}
+          {meta.funnel && (
+            <span>
+              Lançaria no CRC:{' '}
+              <b className="text-foreground">
+                {meta.funnel.pipeline ? `funil ${meta.funnel.pipeline}` : 'mesmo funil'}
+                {meta.funnel.stage ? ` · etapa ${meta.funnel.stage}` : ''}
+              </b>
+            </span>
+          )}
           {meta.style && (
             <span>
               Paciente escreve: <b className="text-foreground">{meta.style === 'curto' ? 'curto e separado' : meta.style === 'longo' ? 'textos grandes' : 'equilibrado'}</b>

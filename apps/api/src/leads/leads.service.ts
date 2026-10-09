@@ -181,7 +181,11 @@ export class LeadsService {
         select: { conversations: true },
       },
       current_stage: {
-        select: { id: true, slug: true, name: true, color: true, emoji: true, is_initial: true, is_won: true, is_lost: true, position: true, pipeline_id: true },
+        select: { id: true, slug: true, name: true, color: true, emoji: true, is_initial: true, is_won: true, is_lost: true, is_hidden_from_kanban: true, position: true, pipeline_id: true },
+      },
+      // Nome/cor do funil no card do CRC (selo) e no "Funil geral".
+      pipeline: {
+        select: { id: true, name: true, slug: true, color: true },
       },
       conversations: {
         where: inbox_id ? { inbox_id } : undefined,

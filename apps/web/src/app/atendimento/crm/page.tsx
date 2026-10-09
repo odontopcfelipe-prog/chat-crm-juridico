@@ -9,6 +9,14 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 import { formatPhone } from '@/lib/utils';
 import { CRM_STAGES, normalizeStage, findStage } from '@/lib/crmStages';
 import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
+import {
+  GENERAL_STAGES,
+  equivalentStageIn,
+  nearestStageIn,
+  generalStageFromLegacy,
+  generalStageOf,
+  type GeneralStageKey,
+} from '@/lib/pipeline-general';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 5e v31 (Fase 25) — sub-categoria pos-avaliacao
 import { PostAvaliacaoView } from './PostAvaliacaoView';
@@ -39,9 +47,12 @@ interface CrmLead {
     is_initial: boolean;
     is_won: boolean;
     is_lost: boolean;
+    is_hidden_from_kanban?: boolean;
     position: number;
     pipeline_id: string;
   } | null;
+  // Funil do lead (selo no card) — a IA lança o contato no funil da necessidade.
+  pipeline?: { id: string; name: string; slug: string; color: string | null } | null;
   conversations: Array<{
     id: string;
     specialty: string | null;
@@ -85,6 +96,9 @@ interface PipelineLite {
   is_active: boolean;
   stages: PipelineStageLite[];
 }
+
+/** Valor do seletor de funil pro "Funil geral" (todos os funis juntos). */
+const ALL_PIPELINES = '__all__';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -232,8 +246,10 @@ function LeadCard({
   isSelected,
   onToggleSelect,
   selectionMode,
+  funnel,
 }: {
   lead: CrmLead;
+  funnel?: { name: string; color: string | null } | null;
   isDragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -379,9 +395,21 @@ function LeadCard({
             NOVO
           </span>
         )}
+        {funnel && (() => {
+          const c = funnel.color && /^#[0-9a-f]{6}$/i.test(funnel.color) ? funnel.color : '#64748b';
+          return (
+            <span
+              className="inline-block max-w-[160px] truncate align-middle px-1.5 py-0.5 rounded-full text-[9px] font-bold border"
+              style={{ backgroundColor: `${c}18`, color: c, borderColor: `${c}40` }}
+              title={`Funil: ${funnel.name}`}
+            >
+              📁 {funnel.name}
+            </span>
+          );
+        })()}
         {specialty && (
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/12 text-violet-400 text-[9px] font-bold border border-violet-500/20">
-            ⚖️ {specialty}
+            🦷 {specialty}
           </span>
         )}
         {dentistName && (
@@ -1216,6 +1244,23 @@ export default function CrmPage() {
     return window.localStorage.getItem('crm_selected_pipeline_id');
   });
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId) ?? null;
+  // "Funil geral": todos os funis numa visão só, com colunas comuns (pipeline-general.ts).
+  const isGeneralView = selectedPipelineId === ALL_PIPELINES;
+  const stagesById = new Map<string, { stage: PipelineStageLite; pipeline: PipelineLite }>();
+  for (const p of pipelines) for (const s of p.stages) stagesById.set(s.id, { stage: s, pipeline: p });
+
+  // Coluna do Funil geral em que o lead cai.
+  const leadGeneralKey = (l: CrmLead): GeneralStageKey => {
+    const hit = l.stage_id ? stagesById.get(l.stage_id) : undefined;
+    if (hit) return generalStageOf(hit.stage, hit.pipeline.stages);
+    if (l.current_stage) return generalStageOf(l.current_stage);
+    return generalStageFromLegacy(l.stage);
+  };
+  const leadFunnel = (l: CrmLead): { name: string; color: string | null } | null => {
+    const p = l.pipeline ?? pipelines.find(x => x.id === l.pipeline_id) ?? null;
+    if (p) return { name: p.name, color: p.color ?? null };
+    return isGeneralView ? { name: 'Sem funil', color: null } : null;
+  };
 
   // Alertas de leads estagnados
   const [dismissedStagnation, setDismissedStagnation] = useState(false);
@@ -1233,6 +1278,8 @@ export default function CrmPage() {
 
   // Leads cujo PATCH ainda está em voo — fetchLeads silencioso não os sobrescreve
   const movingLeads = useRef<Set<string>>(new Set());
+  // Número da última busca de leads (descarta resposta atrasada de busca antiga)
+  const fetchSeq = useRef(0);
 
   // Pan horizontal do board com clique+arraste do mouse
   const boardRef = useRef<HTMLDivElement>(null);
@@ -1289,9 +1336,16 @@ export default function CrmPage() {
   const fetchLeads = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
+    // Só a resposta da ÚLTIMA busca vale: trocar de funil (ou o Funil geral) com
+    // uma busca antiga em voo punha os leads do funil errado no quadro.
+    const seq = ++fetchSeq.current;
     try {
-      const params = selectedPipelineId ? { params: { pipeline_id: selectedPipelineId } } : undefined;
+      // Funil geral: sem pipeline_id a API devolve os leads de todos os funis.
+      const params = selectedPipelineId && selectedPipelineId !== ALL_PIPELINES
+        ? { params: { pipeline_id: selectedPipelineId } }
+        : undefined;
       const res = await api.get('/leads', params);
+      if (seq !== fetchSeq.current) return;
       const fresh: CrmLead[] = res.data || [];
       setLeads(prev => {
         // No refresh silencioso, preserva o estado otimista de leads em trânsito
@@ -1305,11 +1359,14 @@ export default function CrmPage() {
       });
       setLoadError(false);
     } catch {
+      if (seq !== fetchSeq.current) return;
       if (!silent) setLoadError(true);
       showError('Não foi possível carregar os leads. Tente novamente.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (seq === fetchSeq.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [selectedPipelineId]);
 
@@ -1321,6 +1378,7 @@ export default function CrmPage() {
         setPipelines(list);
         setSelectedPipelineId(prev => {
           if (prev && list.some(p => p.id === prev)) return prev;
+          if (prev === ALL_PIPELINES && list.length > 0) return prev;
           const def = list.find(p => p.is_default) ?? list[0];
           return def?.id ?? null;
         });
@@ -1498,6 +1556,33 @@ export default function CrmPage() {
     }
   };
 
+  // Drop numa coluna do Funil geral: vai pra etapa equivalente DO FUNIL DO PRÓPRIO
+  // lead (cada funil tem as suas etapas). Lead sem funil cai no fluxo legado.
+  const moveLeadToGeneralStage = async (leadId: string, key: GeneralStageKey) => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead || leadGeneralKey(lead) === key) return;
+    const label = GENERAL_STAGES.find(g => g.key === key)?.label ?? key;
+    const pipe = pipelines.find(p => p.id === lead.pipeline_id);
+    if (!pipe) {
+      const legacy: Partial<Record<GeneralStageKey, string>> = {
+        novo: 'INICIAL', conversa: 'QUALIFICANDO',
+        agendado: 'REUNIAO_AGENDADA', orcamento: 'AGUARDANDO_PROC',
+      };
+      const legacyTarget = legacy[key];
+      if (!legacyTarget) {
+        showError(`Contato sem funil: não dá pra mover para "${label}". Abra um funil e mova por lá.`);
+        return;
+      }
+      return moveLeadToStage(leadId, legacyTarget);
+    }
+    const target = equivalentStageIn(pipe.stages, key, { workOnly: true });
+    if (!target) {
+      showError(`O funil "${pipe.name}" não tem a etapa "${label}".`);
+      return;
+    }
+    return moveLeadToStageId(leadId, target);
+  };
+
   const confirmLoss = async () => {
     if (!lossModal || !lossReason.trim()) return;
     const { leadId } = lossModal;
@@ -1663,21 +1748,47 @@ export default function CrmPage() {
     }
   };
 
-  // No modo dinâmico (pipeline selecionado), a chave é UUID da PipelineStage.
-  // No modo legado (sem pipeline), continua sendo o id textual do CRM_STAGES.
-  const getStageLeads = (stageKey: string, stageSlug?: string) =>
+  // Coluna (stage.id) do funil selecionado em que o lead cai. UMA por lead, pra
+  // nunca aparecer em duas colunas nem sumir de todas.
+  const selectedWorkStages = selectedPipeline
+    ? selectedPipeline.stages
+        .filter(s => !s.is_won && !s.is_lost && !s.is_hidden_from_kanban)
+        .slice()
+        .sort((a, b) => a.position - b.position)
+    : [];
+  const pipelineColumnOf = (l: CrmLead): string | null => {
+    if (!selectedPipeline) return null;
+    // Só leads DESTE funil (a API filtra; isto protege contra resposta atrasada
+    // do Funil geral/outro funil ainda em voo na troca do seletor).
+    if (l.pipeline_id !== selectedPipeline.id) return null;
+    if (l.stage_id) {
+      if (selectedWorkStages.some(s => s.id === l.stage_id)) return l.stage_id;
+      // Ganho/perdido/oculta do próprio funil: fora do kanban (como sempre).
+      if (selectedPipeline.stages.some(s => s.id === l.stage_id)) return null;
+    }
+    const key = leadGeneralKey(l);
+    if (key === 'ganho' || key === 'perdido' || key === 'fechamento') return null;
+    if (!l.stage_id) {
+      // Lead ainda não migrado (stage_id NULL): casa pelo stage legado.
+      const legacy = normalizeStage(l.stage);
+      const bySlug = selectedWorkStages.find(s => slugToLegacyStage(s.slug) === legacy);
+      if (bySlug) return bySlug.id;
+    }
+    // Etapa de OUTRO funil (lead trocado de funil sem etapa) ou legado sem par:
+    // etapa equivalente deste funil, senão a inicial — antes o card sumia.
+    const eq = nearestStageIn(selectedWorkStages, key)
+      ?? selectedWorkStages.find(s => s.is_initial)
+      ?? selectedWorkStages[0];
+    return eq?.id ?? null;
+  };
+
+  // Funil geral: chave = GeneralStageKey. Funil selecionado: UUID da PipelineStage.
+  // Modo legado (sem funis): id textual do CRM_STAGES.
+  const getStageLeads = (stageKey: string) =>
     filteredLeads
       .filter(l => {
-        if (selectedPipeline) {
-          // Primário: casa pelo stage_id do lead
-          if (l.stage_id === stageKey) return true;
-          // Fallback para leads ainda não migrados (stage_id NULL)
-          if (!l.stage_id && stageSlug) {
-            const legacy = slugToLegacyStage(stageSlug);
-            if (legacy && normalizeStage(l.stage) === legacy) return true;
-          }
-          return false;
-        }
+        if (isGeneralView) return leadGeneralKey(l) === stageKey;
+        if (selectedPipeline) return pipelineColumnOf(l) === stageKey;
         return normalizeStage(l.stage) === stageKey;
       })
       .sort((a, b) => {
@@ -1725,6 +1836,7 @@ export default function CrmPage() {
                     className="appearance-none pl-3 pr-8 py-1.5 text-[13px] font-semibold bg-primary/10 text-primary border border-primary/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
                     title="Funil ativo"
                   >
+                    <option value={ALL_PIPELINES}>Funil geral (todos)</option>
                     {pipelines.map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
@@ -1999,17 +2111,26 @@ export default function CrmPage() {
                 key: string; slug: string; label: string; color: string; emoji: string;
                 dynamicStage?: PipelineStageLite;
                 legacyId?: string;
+                generalKey?: GeneralStageKey;
               };
               // Esconde stages won/lost do Kanban — ficam acessíveis em
               // relatórios e no badge da conversa. O Kanban mostra só as etapas
               // ATIVAS do funil (operador trabalha aqui).
               // is_hidden_from_kanban: stages do Funil 2 ("Em Fechamento")
               // tambem somem — leads la vivem em /atendimento/fechamentos.
-              const cols: Col[] = selectedPipeline
-                ? selectedPipeline.stages
-                    .filter(s => !s.is_won && !s.is_lost && !s.is_hidden_from_kanban)
-                    .slice()
-                    .sort((a, b) => a.position - b.position)
+              const cols: Col[] = isGeneralView
+                ? GENERAL_STAGES
+                    .filter(g => g.visible)
+                    .map(g => ({
+                      key: g.key,
+                      slug: g.key,
+                      label: g.label,
+                      color: g.color,
+                      emoji: g.emoji,
+                      generalKey: g.key,
+                    }))
+                : selectedPipeline
+                ? selectedWorkStages
                     .map(s => ({
                       key: s.id,
                       slug: s.slug,
@@ -2032,7 +2153,7 @@ export default function CrmPage() {
               return (
                 <div className="flex h-full gap-4" style={{ minWidth: `${cols.length * 272}px` }}>
                   {cols.map(col => {
-                    const stageLeads = getStageLeads(col.key, col.slug);
+                    const stageLeads = getStageLeads(col.key);
                     const isDragTarget = dragOverStage === col.key;
                     const agingCount = stageLeads.filter(l => daysInStage(l.stage_entered_at) > 5).length;
 
@@ -2055,7 +2176,8 @@ export default function CrmPage() {
                           setDragOverStage(null);
                           setDraggingId(null);
                           if (!id) return;
-                          if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
+                          if (col.generalKey) moveLeadToGeneralStage(id, col.generalKey);
+                          else if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
                           else if (col.legacyId) moveLeadToStage(id, col.legacyId);
                         }}
                       >
@@ -2094,6 +2216,7 @@ export default function CrmPage() {
                             <LeadCard
                               key={lead.id}
                               lead={lead}
+                              funnel={leadFunnel(lead)}
                               isDragging={draggingId === lead.id}
                               onDragStart={() => setDraggingId(lead.id)}
                               onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}

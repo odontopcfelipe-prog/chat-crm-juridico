@@ -14,7 +14,13 @@ import { buildHandlerMap } from './tool-handlers';
 import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
 import { computeBusinessHoursInfo, clinicStatusNow } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
-import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
+import {
+  loadPipelinesForTenant,
+  buildPipelinesPromptBlock,
+  resolveStageUpdate,
+  describeFunnelChoice,
+  type LeadPipelinePosition,
+} from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
 import {
   CONVERSATION_GUIDE,
@@ -1005,14 +1011,17 @@ export class AiProcessor extends WorkerHost {
           stage_slug: updates.stage_slug,
           pipeline_slug: updates.pipeline_slug,
         });
-        if (pipeUpdate) {
-          await (this.prisma as any).lead.update({ where: { id: leadId }, data: pipeUpdate });
-          this.logger.log(
-            `[AI] CRM dinâmico aplicado ao lead ${leadId}: ${JSON.stringify(pipeUpdate)}`,
-          );
-        } else {
+        if (pipeUpdate.warnings.length) {
           this.logger.warn(
-            `[AI] Slug de pipeline/stage inválido — stage_slug=${updates.stage_slug}, pipeline_slug=${updates.pipeline_slug}. Lead não atualizado.`,
+            `[AI] CRM dinâmico lead ${leadId} (stage_slug=${updates.stage_slug}, pipeline_slug=${updates.pipeline_slug}): ${pipeUpdate.warnings.join('; ')}`,
+          );
+        }
+        if (pipeUpdate.data) {
+          await (this.prisma as any).lead.update({ where: { id: leadId }, data: pipeUpdate.data });
+          this.logger.log(
+            `[AI] CRM dinâmico aplicado ao lead ${leadId}: ${JSON.stringify(pipeUpdate.data)}` +
+              (pipeUpdate.pipelineName ? ` — lançado no funil "${pipeUpdate.pipelineName}"` : '') +
+              (pipeUpdate.stageName ? ` / etapa "${pipeUpdate.stageName}"` : ''),
           );
         }
       } catch (e: any) {
@@ -2253,7 +2262,31 @@ STATUS DA FICHA:
       try {
         const tenantIdForPipelines = (convo as any)?.tenant_id ?? null;
         const pipelines = await loadPipelinesForTenant(this.prisma as any, tenantIdForPipelines);
-        pipelinesBlock = buildPipelinesPromptBlock(pipelines);
+        // Onde o contato está hoje no CRC — sem isso a IA não sabia se já tinha
+        // classificado e reenviava/ignorava o funil. No teste: contato novo no padrão.
+        let position: LeadPipelinePosition | null = null;
+        if (dryRun) {
+          const def = pipelines.find(p => p.is_default) ?? pipelines[0];
+          const init = def?.stages.find(s => s.is_initial) ?? def?.stages[0];
+          if (def) {
+            position = { pipelineSlug: def.slug, pipelineName: def.name, stageSlug: init?.slug ?? null, stageName: init?.name ?? null };
+          }
+        } else if (convo.lead_id) {
+          const lp = await (this.prisma as any).lead.findUnique({
+            where: { id: convo.lead_id },
+            select: {
+              pipeline: { select: { slug: true, name: true } },
+              current_stage: { select: { slug: true, name: true } },
+            },
+          });
+          position = {
+            pipelineSlug: lp?.pipeline?.slug ?? null,
+            pipelineName: lp?.pipeline?.name ?? null,
+            stageSlug: lp?.current_stage?.slug ?? null,
+            stageName: lp?.current_stage?.name ?? null,
+          };
+        }
+        pipelinesBlock = buildPipelinesPromptBlock(pipelines, position);
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao carregar pipelines do tenant: ${e.message}`);
       }
@@ -2774,8 +2807,17 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         const handoff = skill?.handoff_signal;
         const willHandoff = !!handoff && aiText.includes(handoff);
         const reply = tidyReply(willHandoff ? aiText.split(handoff).join('') : aiText);
+        // Funil/etapa em que ela lançaria o contato no CRC (nada é gravado no teste).
+        let funnel: { pipeline: string | null; stage: string | null } | null = null;
+        try {
+          const testPipelines = await loadPipelinesForTenant(this.prisma as any, convo.tenant_id ?? null);
+          funnel = describeFunnelChoice(testPipelines, updates);
+        } catch {
+          // o teste segue sem o funil
+        }
         return {
           dryRun: true,
+          funnel,
           bubbles: splitIntoBubbles(reply, maxBubbles, patientStyle),
           // 2ª tentativa de agendamento: esta resposta marcaria a tentativa (modelo ou
           // rede de segurança, e o perfil permite)? E em quantos minutos. Com

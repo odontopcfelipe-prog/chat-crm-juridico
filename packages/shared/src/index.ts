@@ -27,3 +27,5 @@ export * from './ai-profile';
 export * from './memory-categories';
 // Instruções da memória (extração, perfil do paciente, resumo da clínica) + peneira da extração
 export * from './memory-prompts';
+// Funil geral do CRC: colunas comuns a todos os funis + etapa equivalente entre funis
+export * from './pipeline-general';

@@ -58,9 +58,11 @@ export class FollowupCronService {
    * Legacy: follow-up básico para stages hardcoded (fallback sem sequência configurada)
    */
   private async legacyStageFollowup() {
+    // AGUARDANDO_DOCS / AGUARDANDO_PROC saíram: o texto era do escritório jurídico
+    // ("documentos", "procuração") e esses valores hoje são as etapas "Avaliação
+    // feita" / "Orçamento enviado" do funil odonto (arrastar do kanban e IA gravam
+    // assim) — o paciente parado 3 dias recebia "a procuração ainda não foi assinada".
     const staleConfigs: StaleConfig[] = [
-      { stage: 'AGUARDANDO_DOCS', days: 3, msg: 'Olá {{name}}, tudo bem? Estamos aguardando os documentos para dar continuidade ao seu caso. Precisa de ajuda com isso?' },
-      { stage: 'AGUARDANDO_PROC', days: 3, msg: 'Olá {{name}}, a procuração ainda não foi assinada. Precisa de alguma orientação para finalizar?' },
       { stage: 'AGUARDANDO_FORM', days: 2, msg: 'Olá {{name}}, você ainda não concluiu o formulário. Precisa de ajuda para preencher?' },
       { stage: 'QUALIFICANDO', days: 5, msg: 'Olá {{name}}, estamos à disposição para continuar o atendimento do seu caso. Podemos prosseguir?' },
     ];
