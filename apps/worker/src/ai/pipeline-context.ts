@@ -290,6 +290,7 @@ export async function resolveStageUpdate(
     where: { id: leadId },
     select: {
       tenant_id: true,
+      is_client: true,
       pipeline_id: true,
       stage_id: true,
       stage: true,
@@ -302,6 +303,9 @@ export async function resolveStageUpdate(
     },
   });
   if (!lead) return { data: null, warnings: ['lead não encontrado'] };
+  // Já é PACIENTE (compareceu ou pagou): saiu do Comercial — o funil do CRC é só
+  // de quem ainda é lead. A IA não mexe no funil/etapa de paciente.
+  if (lead.is_client) return { data: null, warnings: ['contato já é paciente — a IA não move no funil'] };
 
   // Contato já em fechamento (orçamento criado) ou ganho (tratamento/paciente
   // graduado): saiu do CRC pela mão da equipe/sistema — a IA não puxa de volta

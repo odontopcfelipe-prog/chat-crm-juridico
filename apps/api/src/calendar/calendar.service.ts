@@ -13,6 +13,8 @@ import { EmailAutomationService } from '../email-automation/email-automation.ser
 // Type-only import pra evitar circular runtime dep CalendarModule <-> LeadsModule.
 // Resolvido via moduleRef.get em runtime.
 import type { LeadsService } from '../leads/leads.service';
+// Regra lead × paciente (pura, sem DI): compareceu → vira paciente.
+import { ATTENDED_STATUSES, promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
@@ -86,6 +88,36 @@ export class CalendarService {
     } catch (e: any) {
       // Swallow — patient creation falhou mas validacao do evento ja foi
       this.logger.warn(`[AUTO_PATIENT] Falhou pra evento ${eventId}: ${e?.message}`);
+    }
+  }
+
+  /**
+   * Regra da clínica: COMPARECEU / EM_ATENDIMENTO / CONCLUIDO numa consulta →
+   * o lead vira PACIENTE (aba Clientes, conversa pro setor Clínica, sai do CRC).
+   * Antes só criava a ficha e o contato seguia "lead" até alguém mover na mão.
+   * Best-effort em segundo plano — nunca atrasa nem derruba a agenda.
+   */
+  private async autoPromoteFromAttendance(eventId: string): Promise<void> {
+    try {
+      const event = await this.prisma.calendarEvent.findUnique({
+        where: { id: eventId },
+        select: { lead_id: true, patient_id: true, tenant_id: true, type: true, status: true },
+      });
+      if (!event || !this.isClinicalEvent(event.type)) return;
+      if (!ATTENDED_STATUSES.includes(event.status)) return;
+      let leadId = event.lead_id;
+      let tenantId = event.tenant_id;
+      if ((!leadId || !tenantId) && event.patient_id) {
+        const p = await this.prisma.patient.findUnique({
+          where: { id: event.patient_id },
+          select: { lead_id: true, tenant_id: true },
+        });
+        leadId = leadId || p?.lead_id || null;
+        tenantId = tenantId || p?.tenant_id || null;
+      }
+      promoteLeadInBackground(this.moduleRef, this.logger, leadId, tenantId, `agenda ${event.status} (evento ${eventId})`);
+    } catch (e: any) {
+      this.logger.warn(`[LEAD→PACIENTE] agenda: falhou p/ evento ${eventId}: ${e?.message}`);
     }
   }
 
@@ -473,6 +505,12 @@ export class CalendarService {
       await this.updatePatientVisitDates(resolvedPatientId, event.start_at).catch(() => {});
     }
 
+    // Criado JÁ como Compareceu / Em atendimento / Concluído (encaixe na hora) →
+    // vira paciente (regra da clínica). Mesma chamada do update/updateStatus.
+    if (ATTENDED_STATUSES.includes(event.status)) {
+      await this.autoPromoteFromAttendance(event.id);
+    }
+
     // Notificar advogado atribuido via socket
     if (event.assigned_user_id) {
       try {
@@ -833,6 +871,11 @@ export class CalendarService {
       void this.sendAppointmentEventEmail(event, event.patient_id, event.lead_id, before.tenant_id, 'agendamento_remarcado');
     }
 
+    // Compareceu (status editado pelo modal do evento) → vira paciente (regra da clínica).
+    if (data.status && ATTENDED_STATUSES.includes(data.status)) {
+      await this.autoPromoteFromAttendance(event.id);
+    }
+
     // Lista de espera (Fase 19): se status virou CANCELADO/ADIADO numa CONSULTA,
     // dispara matching pra notificar candidatos. Não bloqueia.
     const newlyCancelled =
@@ -911,6 +954,11 @@ export class CalendarService {
     // cria automaticamente. Idempotente.
     if (status === 'CONCLUIDO' && this.isClinicalEvent(event.type)) {
       await this.autoEnsurePatientFromEvent(id);
+    }
+
+    // Compareceu → vira paciente (regra da clínica).
+    if (ATTENDED_STATUSES.includes(status)) {
+      await this.autoPromoteFromAttendance(id);
     }
 
     // Lista de espera (Fase 19): se cancelou/adiou uma CONSULTA com dentista atribuído,
@@ -3675,6 +3723,8 @@ export class CalendarService {
     // automaticamente (idempotente).
     if (this.isClinicalEvent(validated.type)) {
       await this.autoEnsurePatientFromEvent(eventId);
+      // Atendimento validado (CONCLUIDO) → vira paciente (regra da clínica).
+      await this.autoPromoteFromAttendance(eventId);
     }
 
     // Notifica via socket pra refresh em tempo real

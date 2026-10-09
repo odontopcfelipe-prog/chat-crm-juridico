@@ -13,6 +13,7 @@ import { AdminBotService } from '../admin-bot/admin-bot.service';
 import { MediaDownloadService } from '../media/media-download.service';
 import { PostCareService } from '../post-care/post-care.service';
 import { aiEnabledKey, aiProfileKey, isAiChipPurpose, normalizeAiChipProfile } from '@crm/shared';
+import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 
 interface EvolutionWebhookPayload {
   event: string;
@@ -268,7 +269,17 @@ export class EvolutionService implements OnApplicationBootstrap {
       // clínica ANTES de comparecer. No modelo da clínica, o lead só vira paciente no
       // 1º atendimento (evento CONCLUÍDO), nunca por uma mensagem nossa.
       const isClinicaChip = (inbox as any)?.purpose === 'CLINICA';
-      if (!isFromMe && isClinicaChip && !lead.is_client) {
+      // Regra da clínica: lead que o Comercial AGENDOU só vira paciente depois de
+      // comparecer ou pagar — escrever no número da Clínica (ex.: respondeu uma
+      // mensagem que saiu por lá) não basta. Sem consulta marcada segue a regra do
+      // número privado (paciente antigo, de antes do sistema).
+      const clinicaBlocked = !isFromMe && isClinicaChip && !lead.is_client
+        ? await clinicTransferBlockReason(this.prisma, lead.id).catch(() => null)
+        : null;
+      if (clinicaBlocked) {
+        this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) escreveu no chip CLINICA mas segue LEAD: agendado sem comparecimento/pagamento`);
+      }
+      if (!isFromMe && isClinicaChip && !lead.is_client && !clinicaBlocked) {
         await this.prisma.lead.update({
           where: { id: lead.id },
           data: { is_client: true, became_client_at: (lead as any).became_client_at ?? new Date() },

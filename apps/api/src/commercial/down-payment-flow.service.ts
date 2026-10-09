@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
+import { leadIdForCharge, promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 
@@ -875,6 +876,12 @@ export class DownPaymentFlowService {
     });
 
     this.logger.log(`[DOWN-PMT] Charge ${chargeId} marcada como recebida em especie por user ${userId}`);
+
+    // Regra da clínica: pagou (espécie no balcão) → o lead vira paciente. Antes do
+    // handleChargePaid pra um erro lá não pular a promoção.
+    leadIdForCharge(this.prisma, chargeId)
+      .then((leadId) => promoteLeadInBackground(this.moduleRef, this.logger, leadId, tenantId, 'sinal/entrada em espécie'))
+      .catch((e: any) => this.logger.warn(`[DOWN-PMT→PACIENTE] ${chargeId}: ${e?.message}`));
 
     // Dispara trigger (mesmo fluxo do webhook)
     await this.handleChargePaid(chargeId);

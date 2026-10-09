@@ -1059,15 +1059,11 @@ export class QuotesService {
         }
       }
 
-      // Onda 17.32.55 — Promove Lead -> Cliente assim que encaminha pro
-      // financeiro (antes era so quando 1a parcela pagava via webhook).
-      // Best-effort: nao bloqueia o approveAndBill se falhar. Cascade
-      // automatico em graduateLeadToClient:
-      //   - is_client=true, became_client_at=now()
-      //   - conversa migra pra aba "Clientes" no WhatsApp em tempo real
-      //   - IA muda pra modo "Pos-Venda" (skill 'Acompanhamento')
-      //   - stage do lead vira FINALIZADO (best-effort, pode falhar)
-      // Idempotente: se ja for cliente, retorna alreadyClient=true sem efeito.
+      // Promove Lead -> Paciente SÓ se já compareceu ou pagou (regra da clínica);
+      // gerar a cobrança sozinho não basta — o pagamento promove depois (webhook/
+      // caixa). Best-effort: nao bloqueia o approveAndBill se falhar. Cascade em
+      // promoteToPatientIfEligible: is_client, aba "Clientes", IA pós-venda,
+      // stage FINALIZADO e conversa pro setor Clínica. Idempotente.
       this.tryGraduateLeadToClientByQuote(quoteId, tenantId, userId);
 
       return { quote_id: quoteId, ...result };
@@ -1207,15 +1203,18 @@ export class QuotesService {
   ): void {
     this.prisma.quote.findUnique({
       where: { id: quoteId },
-      select: { patient_id: true },
+      select: { patient_id: true, patient: { select: { lead_id: true } } },
     })
       .then((q) => {
-        if (!q?.patient_id) return;
+        if (!q?.patient_id || !q.patient?.lead_id) return;
         try {
           const leadsService = this.moduleRef.get(LeadsService, { strict: false });
           if (!leadsService) return;
+          // Regra da clínica: aprovar e GERAR a cobrança não faz paciente — só
+          // comparecer ou pagar. Quem já compareceu na avaliação vira aqui (se ainda
+          // não virou); quem não, vira quando o pagamento cair (webhook/caixa).
           leadsService
-            .graduateLeadToClient(q.patient_id, tenantId, userId)
+            .promoteToPatientIfEligible(q.patient.lead_id, tenantId, `aprovar e cobrar (orçamento ${quoteId})`, userId)
             .then((res) => {
               if (res?.ok && !res.alreadyClient) {
                 this.logger.log(

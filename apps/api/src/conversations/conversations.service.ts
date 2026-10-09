@@ -5,7 +5,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Prisma, Conversation } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
-import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
+import { clinicTransferBlockReason, workStageAfterDemotion } from '../leads/clinic-transfer-guard';
 import { isChipAiEnabled } from '../settings/chip-ai-enabled.util';
 
 @Injectable()
@@ -572,7 +572,7 @@ export class ConversationsService {
       where: { id },
       select: {
         id: true, tenant_id: true, lead_id: true,
-        lead: { select: { is_client: true, became_client_at: true, stage: true } },
+        lead: { select: { is_client: true, became_client_at: true, stage: true, pipeline_id: true, stage_id: true } },
       },
     });
     if (!conv) throw new NotFoundException('Conversa não encontrada');
@@ -626,6 +626,8 @@ export class ConversationsService {
             ...(conv.lead?.stage === 'FINALIZADO'
               ? { stage: 'NEGOCIACAO', stage_entered_at: new Date() }
               : {}),
+            // Etapa do funil sai do "ganho" → o card volta a aparecer no CRC.
+            ...(conv.lead ? await workStageAfterDemotion(this.prisma, conv.lead) : {}),
           };
       await this.prisma.lead.update({ where: { id: conv.lead_id }, data: leadData })
         .catch((e: any) => this.logger.warn(`[CONV-MOVE] Falha ao reclassificar lead: ${e?.message}`));

@@ -1,7 +1,9 @@
 import {
   Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
+import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import { Prisma } from '@crm/shared';
 import {
   CreateInstallmentDto, GenerateFromQuoteDto, PayInstallmentDto,
@@ -12,7 +14,11 @@ import {
 export class InstallmentsService {
   private readonly logger = new Logger(InstallmentsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Resolve o LeadsService em runtime (regra lead × paciente) sem ciclo de módulos.
+    private moduleRef: ModuleRef,
+  ) {}
 
   async create(tenantId: string, dto: CreateInstallmentDto) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
@@ -193,7 +199,7 @@ export class InstallmentsService {
     const totalDue = Number(inst.amount) - Number(inst.discount_value) + Number(inst.fee_value);
     const isFullPaid = newAmountPaid >= totalDue;
 
-    return this.prisma.installment.update({
+    const paid = await this.prisma.installment.update({
       where: { id },
       data: {
         amount_paid: new Prisma.Decimal(newAmountPaid),
@@ -203,6 +209,15 @@ export class InstallmentsService {
         notes: dto.notes,
       },
     });
+
+    // Regra da clínica: pagou (parcela, mesmo parcial) → o lead vira paciente.
+    // Em segundo plano: a baixa já foi gravada — falha aqui nunca vira erro 500
+    // (o operador repetiria e a parcela parcial contaria 2×).
+    this.prisma.patient
+      .findUnique({ where: { id: paid.patient_id }, select: { lead_id: true } })
+      .then((owner) => promoteLeadInBackground(this.moduleRef, this.logger, owner?.lead_id, tenantId, 'parcela paga (baixa manual)'))
+      .catch((e: any) => this.logger.warn(`[PARCELA→PACIENTE] ${id}: ${e?.message}`));
+    return paid;
   }
 
   async cancel(tenantId: string, id: string, reason?: string) {

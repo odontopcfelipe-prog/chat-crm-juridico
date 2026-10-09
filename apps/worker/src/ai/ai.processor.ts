@@ -766,8 +766,19 @@ export class AiProcessor extends WorkerHost {
     }
 
     // b. Status → Lead.stage
+    // FINALIZADO vindo da IA ("encerrado") num contato que ainda é LEAD: ignora.
+    // Só vira paciente quem compareceu ou pagou (a API promove) — FINALIZADO com
+    // is_client=false sumia com a conversa das abas Leads E Clientes.
+    let blockFinalizado = false;
+    if (updates.status === 'FINALIZADO' || (!updates.status && updates.next_step === 'encerrado')) {
+      const who = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { is_client: true } });
+      if (!who?.is_client) {
+        blockFinalizado = true;
+        this.logger.log(`[AI] Lead ${leadId}: IA pediu FINALIZADO mas o contato ainda é lead — stage mantido`);
+      }
+    }
     let resolvedStage: string | null = null;
-    if (updates.status && updates.status !== 'null') {
+    if (updates.status && updates.status !== 'null' && !(blockFinalizado && updates.status === 'FINALIZADO')) {
       const stageData: Record<string, any> = { stage: updates.status, stage_entered_at: new Date() };
       // Se for PERDIDO, salvar loss_reason junto
       if (updates.status === 'PERDIDO' && updates.loss_reason) {
@@ -788,7 +799,7 @@ export class AiProcessor extends WorkerHost {
         perdido:           'PERDIDO',
       };
       const inferred = inferMap[updates.next_step];
-      if (inferred) {
+      if (inferred && !(blockFinalizado && inferred === 'FINALIZADO')) {
         const stageData: Record<string, any> = { stage: inferred, stage_entered_at: new Date() };
         // Quando lead é perdido, salvar motivo se fornecido
         if (inferred === 'PERDIDO' && updates.loss_reason) {
@@ -2286,7 +2297,8 @@ STATUS DA FICHA:
             stageName: lp?.current_stage?.name ?? null,
           };
         }
-        pipelinesBlock = buildPipelinesPromptBlock(pipelines, position);
+        // Paciente (compareceu ou pagou) não está no funil do CRC — só lead tem funil.
+        pipelinesBlock = isActiveClient ? '' : buildPipelinesPromptBlock(pipelines, position);
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao carregar pipelines do tenant: ${e.message}`);
       }

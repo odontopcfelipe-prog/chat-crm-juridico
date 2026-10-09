@@ -6,7 +6,9 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
+import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
 /**
@@ -42,7 +44,17 @@ const DEFAULT_CATEGORIES = [
 export class FinanceiroService {
   private readonly logger = new Logger(FinanceiroService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Resolve o LeadsService em runtime (regra lead × paciente) sem ciclo de módulos.
+    private moduleRef: ModuleRef,
+  ) {}
+
+  /** Regra da clínica: RECEITA paga de um contato (lead) → ele vira paciente. */
+  private promoteLeadIfPaidReceita(tx: { type?: string | null; status?: string | null; lead_id?: string | null; tenant_id?: string | null }, source: string) {
+    if (tx.type !== 'RECEITA' || tx.status !== 'PAGO' || !tx.lead_id || !tx.tenant_id) return;
+    promoteLeadInBackground(this.moduleRef, this.logger, tx.lead_id, tx.tenant_id, source);
+  }
 
   // ─── Audit Log ──────────────────────────────────────────
 
@@ -353,6 +365,7 @@ export class FinanceiroService {
       dentist_id: data.dentist_id,
     });
 
+    this.promoteLeadIfPaidReceita(tx as any, 'receita paga (Financeiro)');
     return tx;
   }
 
@@ -466,6 +479,7 @@ export class FinanceiroService {
       metodo: updated.payment_method, dentist_id: (updated as any).dentist_id,
     });
 
+    if (isPago) this.promoteLeadIfPaidReceita(updated as any, 'receita marcada como paga (Financeiro)');
     return updated;
   }
 
@@ -528,6 +542,7 @@ export class FinanceiroService {
       dentist_id: (original as any).dentist_id,
     });
 
+    this.promoteLeadIfPaidReceita(partialTx as any, 'recebimento parcial (Financeiro)');
     return { partial: partialTx, remaining };
   }
 

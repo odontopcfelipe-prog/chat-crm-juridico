@@ -5,7 +5,9 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
+import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import {
   CreateAccountDto,
   UpdateAccountDto,
@@ -45,7 +47,11 @@ export class CaixaService {
     validated_by: { select: { id: true, name: true } },
   };
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Resolve o LeadsService em runtime (regra lead × paciente) sem ciclo de módulos.
+    private moduleRef: ModuleRef,
+  ) {}
 
   // ─── Fuso America/Maceio (UTC-3, sem horário de verão) ──────────
   private windowFor(cashDate: Date) {
@@ -246,6 +252,10 @@ export class CaixaService {
     await this.logAction(userId, dto.direction === 'SAIDA' ? 'CAIXA_SAIDA' : 'CAIXA_ENTRADA', tx.id, {
       valor: r2(dto.amount), forma: dto.method, conta: acc.name, origem: source,
     });
+    // Regra da clínica: entrada no caixa de um contato (pagou) → ele vira paciente.
+    if (type === 'RECEITA' && leadId) {
+      promoteLeadInBackground(this.moduleRef, this.logger, leadId, tenantId, 'entrada no caixa');
+    }
     return tx;
   }
 

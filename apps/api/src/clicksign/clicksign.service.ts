@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { patientEvidence } from '../leads/clinic-transfer-guard';
 import { MediaS3Service } from '../media/s3.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ChatGateway } from '../gateway/chat.gateway';
@@ -868,6 +869,14 @@ export class ClicksignService {
     // Já é cliente? Nada a fazer (idempotência).
     if (lead.is_client) {
       this.logger.log(`[POS-VENDA→LEAD] Lead ${leadId} já é cliente — skip`);
+      return;
+    }
+
+    // Regra da clínica: só vira paciente quem compareceu ou pagou. Contrato
+    // assinado sem nenhum dos dois não promove (o pagamento promove depois).
+    const ev = await patientEvidence(this.prisma, leadId);
+    if (!ev.attended && !ev.paid) {
+      this.logger.log(`[POS-VENDA→LEAD] Lead ${leadId} assinou mas segue LEAD — sem comparecimento nem pagamento`);
       return;
     }
 

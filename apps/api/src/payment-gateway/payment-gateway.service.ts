@@ -18,6 +18,7 @@ import { EmailAutomationService } from '../email-automation/email-automation.ser
 // Onda 14.53 — Resolvido via ModuleRef (strict:false) — LeadsService eh
 // global no AppModule. Mesmo padrao de quotes.service.ts tryGraduateLead.
 import { LeadsService } from '../leads/leads.service';
+import { leadIdForCharge, patientEvidence, promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 // Onda 18.x — CaixaService resolvido via ModuleRef (strict:false), sem dep de módulo
 // (o caixa NÃO importa payment-gateway → sem ciclo). Usado só p/ garantir as contas
 // padrão do caixa antes de amarrar a receita do split à conta CARTAO.
@@ -86,7 +87,7 @@ export class PaymentGatewayService {
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
-      select: { id: true, status: true, received_at: true, received_by_user_id: true, paid_at: true },
+      select: { id: true, status: true, received_at: true, received_by_user_id: true, paid_at: true, tenant_id: true },
     });
     if (!charge) {
       this.logger.warn(`[clinic-receipt] cobrança local não encontrada p/ external ${externalId}`);
@@ -106,6 +107,9 @@ export class PaymentGatewayService {
         paid_at: charge.paid_at ?? now,
       },
     });
+
+    // Pagou na clínica (dinheiro / maquineta / PIX da clínica) → o lead vira paciente.
+    this.promoteLeadFromCharge(charge.id, charge.tenant_id ?? null, 'pagamento na clínica');
 
     // 2. Lança no caixa (RECEITA). Split (2 cartões na maquineta) => UMA receita
     // por forma; senão, o fluxo normal com o valor cheio numa forma só.
@@ -1782,11 +1786,22 @@ export class PaymentGatewayService {
           // loga warning. Cascateia automaticamente:
           //  - WhatsApp move conversa pra aba "Clientes"
           //  - IA passa a usar skill 'Acompanhamento' (pos-venda)
-          this.tryGraduateLeadToClient(inst.patient_id, charge.tenant_id);
+          this.promoteLeadFromCharge(charge.id, charge.tenant_id, 'parcela paga (Asaas)');
         }
       } catch (e: any) {
         this.logger.error(`[WEBHOOK] Erro ao marcar Installment como PAGA: ${e.message}`);
       }
+    }
+
+    // Regra da clínica: QUALQUER pagamento confirmado (entrada, plano, avulsa) → o
+    // lead vira paciente. Antes só a parcela promovia. Só evento RECENTE: reentrega
+    // em massa de pagamento antigo não mexe em quem a equipe já reclassificou.
+    if (
+      (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') &&
+      eventIsRecent &&
+      !charge.installment_id
+    ) {
+      this.promoteLeadFromCharge(charge.id, charge.tenant_id, 'pagamento confirmado (Asaas)');
     }
 
     // Se pagamento RECEIVED/CONFIRMED e tem transaction_id, dar baixa na FinancialTransaction
@@ -3047,21 +3062,13 @@ export class PaymentGatewayService {
    * webhook de pagamento — financeiro nao pode quebrar por causa de hook
    * paralelo de IA/WhatsApp.
    */
-  private tryGraduateLeadToClient(patientId: string, tenantId: string | null): void {
+  private promoteLeadFromCharge(chargeId: string, tenantId: string | null, source: string): void {
     if (!tenantId) return;
-    try {
-      const leadsService = this.moduleRef.get(LeadsService, { strict: false });
-      if (!leadsService) return;
-      leadsService
-        .graduateLeadToClient(patientId, tenantId)
-        .catch((err: any) =>
-          this.logger.warn(
-            `[INSTALLMENT→CLIENT] Hook falhou pra patient ${patientId}: ${err?.message}`,
-          ),
-        );
-    } catch {
-      // LeadsService pode nao estar carregado em testes — ignorar silenciosamente
-    }
+    // Regra da clínica (pagou → paciente), via promoteToPatientIfEligible: confere
+    // no banco que há pagamento de fato antes de promover. Nunca derruba o webhook.
+    leadIdForCharge(this.prisma, chargeId)
+      .then((leadId) => promoteLeadInBackground(this.moduleRef, this.logger, leadId, tenantId, source))
+      .catch((err: any) => this.logger.warn(`[PAGAMENTO→PACIENTE] Hook falhou pra cobrança ${chargeId}: ${err?.message}`));
   }
 
   /**
@@ -3103,6 +3110,15 @@ export class PaymentGatewayService {
           select: { lead_id: true },
         });
         if (!customer?.lead_id) return;
+        // Regra da clínica: quem COMPARECEU é paciente — cobrança cancelada/
+        // estornada não o devolve ao Comercial. (Pagamento não entra aqui: o
+        // estorno é justamente o pagamento sendo desfeito, e a receita/parcela
+        // antiga ainda pareceria "pagou".)
+        const ev = await patientEvidence(this.prisma, customer.lead_id);
+        if (ev.attended) {
+          this.logger.log(`[DEMOTE-CHECK] Lead ${customer.lead_id} segue paciente (compareceu) — cobranças canceladas não rebaixam`);
+          return;
+        }
         const patient = await this.prisma.patient.findFirst({
           where: { lead_id: customer.lead_id, tenant_id: tenantId },
           select: { id: true },

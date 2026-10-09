@@ -32,6 +32,8 @@ interface CrmLead {
   stage: string;
   stage_entered_at: string;
   loss_reason: string | null;
+  // true = já é paciente (compareceu ou pagou) → não aparece no CRC (Comercial).
+  is_client?: boolean;
   profile_picture_url: string | null;
   tags: string[];
   created_at: string;
@@ -1705,6 +1707,10 @@ export default function CrmPage() {
 
   // Filtrar leads
   const filteredLeads = leads.filter(lead => {
+    // CRC = Comercial (quem AINDA é lead). Paciente (compareceu ou pagou) é da
+    // Clínica (Pacientes Clínica / CRC Fechamentos) e não vira card aqui. O painel
+    // de análise segue com a lista inteira (a conversão conta quem virou paciente).
+    if (lead.is_client) return false;
     const q = searchQuery.toLowerCase().trim();
     if (q) {
       const name = (lead.name || '').toLowerCase();
@@ -2041,6 +2047,7 @@ export default function CrmPage() {
         {/* Alerta de leads estagnados */}
         {!dismissedStagnation && !loading && (() => {
           const stagnant = leads.filter(l => {
+            if (l.is_client) return false; // paciente não é lead parado do Comercial
             const stage = normalizeStage(l.stage);
             if (stage === 'PERDIDO' || stage === 'FINALIZADO') return false;
             const lastMsg = l.conversations?.[0]?.last_message_at;

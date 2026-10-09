@@ -9,7 +9,7 @@ import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
 import { brazilPhoneMatchVariants, normalizeBrazilianPhone } from '../common/utils/phone';
-import { clinicTransferBlockReason } from './clinic-transfer-guard';
+import { clinicTransferBlockReason, patientEvidence, workStageAfterDemotion } from './clinic-transfer-guard';
 import OpenAI from 'openai';
 
 /**
@@ -1108,11 +1108,110 @@ export class LeadsService {
       return { ok: false, leadId: lead.id, blocked };
     }
 
+    return this.promoteLeadCore(lead, tenantId, userId, `manual/patient ${patientId}`);
+  }
+
+  /**
+   * Regra da clínica (gatilhos AUTOMÁTICOS): vira PACIENTE quem COMPARECEU
+   * (agenda COMPARECEU / EM_ATENDIMENTO / CONCLUIDO) ou EFETUOU ALGUM PAGAMENTO
+   * (Asaas, caixa, Financeiro). Até lá continua LEAD — agendar, receber boleto ou
+   * aprovar orçamento NÃO bastam. Idempotente (quem já é paciente: no-op).
+   * Chamado via promoteLeadInBackground (clinic-transfer-guard.ts).
+   */
+  async promoteToPatientIfEligible(
+    leadId: string,
+    tenantId: string,
+    source: string,
+    userId?: string,
+  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean; notYet?: boolean; stageFinalized?: boolean }> {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, is_client: true, stage: true, tenant_id: true },
+    });
+    if (!lead) return { ok: false };
+    if (lead.tenant_id && lead.tenant_id !== tenantId) return { ok: false };
+    if (lead.is_client) return { ok: true, leadId: lead.id, alreadyClient: true };
+
+    const ev = await patientEvidence(this.prisma, lead.id);
+    if (!ev.attended && !ev.paid) {
+      this.logger.log(`[LEAD→PACIENTE] Lead ${lead.id} segue LEAD (${source}): sem comparecimento nem pagamento`);
+      return { ok: false, leadId: lead.id, notYet: true };
+    }
+    return this.promoteLeadCore(lead, tenantId, userId, `${source} (${ev.attended ? 'compareceu' : 'pagou'})`);
+  }
+
+  /**
+   * Virou paciente → a conversa do setor COMERCIAL vai pro setor CLÍNICA (e o
+   * inverso quando volta a ser lead): inbox + chip do setor, desatribuída pro time
+   * do setor assumir. Sem a trava (quem chama já validou). NÃO mexe na IA
+   * (ai_mode/ai_mode_source): a graduação religa em POS_VENDA e o rebaixamento só
+   * religa o que era POS_VENDA — conversa que a equipe pôs em MANUAL fica assim.
+   * Se já há conversa ativa no setor de destino, não move (índice único
+   * lead+inbox) — as mensagens já saem pelo número certo (is_client). A conversa
+   * do Financeiro nunca é tocada. Best-effort: devolve quantas moveu.
+   */
+  private async moveLeadConversationToSector(
+    leadId: string,
+    tenantId: string,
+    target: 'CLINICA' | 'COMERCIAL',
+  ): Promise<number> {
+    const from = target === 'CLINICA' ? 'COMERCIAL' : 'CLINICA';
+    const chip = await this.prisma.instance.findFirst({
+      where: { tenant_id: tenantId, type: 'whatsapp', purpose: target },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, inbox_id: true },
+    });
+    if (!chip?.inbox_id) return 0;
+
+    const alreadyThere = await this.prisma.conversation.findFirst({
+      where: { lead_id: leadId, inbox_id: chip.inbox_id, status: { not: 'ENCERRADO' } },
+      select: { id: true },
+    });
+    if (alreadyThere) return 0;
+
+    // Só a mais recente: o índice único (lead, inbox) não deixa 2 ativas no destino.
+    const conv = await this.prisma.conversation.findFirst({
+      where: { lead_id: leadId, tenant_id: tenantId, status: { not: 'ENCERRADO' }, inbox: { purpose: from } },
+      orderBy: { last_message_at: 'desc' },
+      select: { id: true },
+    });
+    if (!conv) return 0;
+
+    try {
+      await this.prisma.conversation.update({
+        where: { id: conv.id },
+        data: {
+          inbox_id: chip.inbox_id,
+          instance_name: chip.name,
+          assigned_user_id: null, // o time do setor assume
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[LEAD↔PACIENTE] Conversa ${conv.id} não foi pro setor ${target}: ${e?.message}`);
+      return 0;
+    }
+    this.chatGateway.emitConversationsUpdate(tenantId);
+    return 1;
+  }
+
+  /**
+   * Promove o lead a PACIENTE (is_client) — núcleo comum da ação manual
+   * (graduateLeadToClient, já passou pela trava) e dos gatilhos automáticos
+   * (promoteToPatientIfEligible, já checou comparecimento/pagamento).
+   */
+  private async promoteLeadCore(
+    lead: { id: string; stage: string | null },
+    tenantId: string,
+    userId: string | undefined,
+    source: string,
+  ): Promise<{ ok: boolean; leadId?: string; stageFinalized?: boolean; movedConversations?: number }> {
     // PASSO 1: Sempre seta is_client=true imediatamente (garantido).
     // Mesmo se PASSO 2 falhar, o paciente ja eh tratado como cliente nas
     // demais visualizacoes (WhatsApp, IA).
-    await this.prisma.lead.update({
-      where: { id: lead.id },
+    // ATÔMICO (where is_client=false): dois gatilhos juntos (PIX manda CONFIRMED e
+    // RECEIVED quase ao mesmo tempo) — só o primeiro segue pros passos 2 e 3.
+    const claimed = await this.prisma.lead.updateMany({
+      where: { id: lead.id, is_client: false },
       data: {
         is_client: true,
         became_client_at: new Date(),
@@ -1121,8 +1220,9 @@ export class LeadsService {
         ...(userId ? { cs_user_id: userId } : {}),
       },
     });
+    if (claimed.count === 0) return { ok: true, leadId: lead.id };
     this.logger.log(
-      `[LEAD→CLIENT] Lead ${lead.id} (patient ${patientId}) promovido a cliente (is_client=true)`,
+      `[LEAD→CLIENT] Lead ${lead.id} promovido a paciente (is_client=true) — ${source}`,
     );
 
     // Onda 17.64 — virou paciente → cancela follow-ups de LEAD em andamento (não
@@ -1183,7 +1283,18 @@ export class LeadsService {
       }
     }
 
-    return { ok: true, leadId: lead.id, stageFinalized };
+    // PASSO 3: a conversa do Comercial vai pro setor Clínica (best-effort).
+    let movedConversations = 0;
+    try {
+      movedConversations = await this.moveLeadConversationToSector(lead.id, tenantId, 'CLINICA');
+      if (movedConversations) {
+        this.logger.log(`[LEAD→CLIENT] Lead ${lead.id}: conversa movida pro setor Clínica`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[LEAD→CLIENT] Falha ao mover conversa pra Clínica: ${e?.message}`);
+    }
+
+    return { ok: true, leadId: lead.id, stageFinalized, movedConversations };
   }
 
   /**
@@ -1226,7 +1337,7 @@ export class LeadsService {
   ): Promise<{ ok: boolean; leadId?: string; alreadyLead?: boolean; error?: string }> {
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
-      select: { id: true, is_client: true, stage: true, tenant_id: true },
+      select: { id: true, is_client: true, stage: true, tenant_id: true, pipeline_id: true, stage_id: true },
     });
     if (!lead) return { ok: false, error: 'Contato não encontrado' };
     if (lead.tenant_id && lead.tenant_id !== tenantId) return { ok: false, error: 'Acesso negado' };
@@ -1246,11 +1357,21 @@ export class LeadsService {
           stage: 'NEGOCIACAO',
           stage_entered_at: new Date(),
         } : {}),
+        // Etapa do funil: sai da "ganho" (graduação) pra uma etapa ativa — senão o
+        // card voltava pro Comercial mas sumia do CRC (stage_id ainda em "ganho").
+        ...(await workStageAfterDemotion(this.prisma, lead)),
       },
     });
 
     this.logger.log(
       `[CLIENT→LEAD] Lead ${lead.id} demovido a lead (is_client=false)`,
+    );
+
+    // Voltou a ser lead → a conversa volta pro setor Comercial (espelho da
+    // promoção). Senão ela ficava no número da Clínica e a próxima mensagem do
+    // contato ali o promovia de novo. Best-effort.
+    await this.moveLeadConversationToSector(lead.id, tenantId, 'COMERCIAL').catch((e: any) =>
+      this.logger.warn(`[CLIENT→LEAD] Conversa não voltou pro Comercial: ${e?.message}`),
     );
 
     // Religa IA em modo COMERCIAL se estava em POS_VENDA (volta pra
