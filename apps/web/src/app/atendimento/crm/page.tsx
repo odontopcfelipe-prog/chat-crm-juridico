@@ -99,8 +99,13 @@ interface PipelineLite {
   stages: PipelineStageLite[];
 }
 
-/** Valor do seletor de funil pro "Funil geral" (todos os funis juntos). */
+/** Seletor: "Geral — Leads" = todos os funis juntos, só quem AINDA é lead (Comercial).
+ *  Mantém o valor antigo '__all__' (quem já usava o Funil geral cai aqui). */
 const ALL_PIPELINES = '__all__';
+/** Seletor: "Geral — Clínica" = quem já é paciente (compareceu ou pagou). */
+const ALL_CLINIC = '__all_clinic__';
+/** Cards renderizados por coluna antes do "Mostrar mais" (a Clínica junta milhares). */
+const COLUMN_PAGE = 100;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -249,9 +254,13 @@ function LeadCard({
   onToggleSelect,
   selectionMode,
   funnel,
+  lockStage = false,
 }: {
   lead: CrmLead;
   funnel?: { name: string; color: string | null } | null;
+  // Geral — Clínica: paciente não se arrasta nem muda de etapa por aqui (sem
+  // "Perdido"/"Finalizado" por engano — a etapa dele é automática).
+  lockStage?: boolean;
   isDragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -296,12 +305,12 @@ function LeadCard({
 
   return (
     <div
-      draggable={!selectionMode}
-      onDragStart={(e) => { if (selectionMode) { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+      draggable={!selectionMode && !lockStage}
+      onDragStart={(e) => { if (selectionMode || lockStage) { e.preventDefault(); return; } e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
       onDragEnd={onDragEnd}
       onClick={() => { if (selectionMode) onToggleSelect(); else onOpenDetail(); }}
       className={`group p-3.5 bg-card border rounded-xl select-none transition-all ${
-        selectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
+        selectionMode || lockStage ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       } ${
         isSelected
           ? 'border-primary/60 ring-2 ring-primary/20 bg-primary/5'
@@ -365,6 +374,7 @@ function LeadCard({
                 <MessageSquare size={12} />
                 <span>Enviar mensagem</span>
               </button>
+              {!lockStage && (
               <button
                 onClick={(e) => { e.stopPropagation(); onStageChange('REUNIAO_AGENDADA'); setShowMenu(false); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2 text-muted-foreground"
@@ -372,9 +382,10 @@ function LeadCard({
                 <Calendar size={12} />
                 <span>Agendar reunião</span>
               </button>
-              <div className="border-t border-border my-1" />
-              <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mover para etapa</p>
-              {CRM_STAGES.map(s => (
+              )}
+              {!lockStage && <div className="border-t border-border my-1" />}
+              {!lockStage && <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mover para etapa</p>}
+              {!lockStage && CRM_STAGES.map(s => (
                 <button
                   key={s.id}
                   onClick={(e) => { e.stopPropagation(); onStageChange(s.id); setShowMenu(false); }}
@@ -498,7 +509,7 @@ function LeadCard({
         </button>
 
         {/* Reunião rápida */}
-        {normalizedStage !== 'REUNIAO_AGENDADA' && normalizedStage !== 'FINALIZADO' && normalizedStage !== 'PERDIDO' && (
+        {!lockStage && normalizedStage !== 'REUNIAO_AGENDADA' && normalizedStage !== 'FINALIZADO' && normalizedStage !== 'PERDIDO' && (
           <button
             onClick={(e) => { e.stopPropagation(); onStageChange('REUNIAO_AGENDADA'); }}
             title="Agendar reunião"
@@ -532,7 +543,7 @@ function LeadCard({
         </button>
 
         {/* Avançar etapa */}
-        {nextStageInfo && normalizedStage !== 'FINALIZADO' && (
+        {!lockStage && nextStageInfo && normalizedStage !== 'FINALIZADO' && (
           <button
             onClick={(e) => { e.stopPropagation(); onStageChange(nextStageInfo.id); }}
             title={`Avançar para: ${nextStageInfo.label}`}
@@ -1247,7 +1258,13 @@ export default function CrmPage() {
   });
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId) ?? null;
   // "Funil geral": todos os funis numa visão só, com colunas comuns (pipeline-general.ts).
-  const isGeneralView = selectedPipelineId === ALL_PIPELINES;
+  const isClinicView = selectedPipelineId === ALL_CLINIC;
+  const isGeneralView = selectedPipelineId === ALL_PIPELINES || isClinicView;
+  // Cards visíveis por coluna ("Mostrar mais"); zera ao trocar de funil.
+  const [columnLimit, setColumnLimit] = useState<Record<string, number>>({});
+  // Trocou de funil/visão → zera o "Mostrar mais" e a seleção (senão o "Mover" em
+  // massa agia em cards que não estão na tela).
+  useEffect(() => { setColumnLimit({}); setSelectedLeads(new Set()); }, [selectedPipelineId]);
   const stagesById = new Map<string, { stage: PipelineStageLite; pipeline: PipelineLite }>();
   for (const p of pipelines) for (const s of p.stages) stagesById.set(s.id, { stage: s, pipeline: p });
 
@@ -1335,6 +1352,12 @@ export default function CrmPage() {
     }
   };
 
+  // pipeline_id da busca: os dois "Geral" (Leads e Clínica) usam a mesma lista —
+  // trocar entre eles só refiltra na tela, sem baixar tudo de novo.
+  const pipelineParam = selectedPipelineId && selectedPipelineId !== ALL_PIPELINES && selectedPipelineId !== ALL_CLINIC
+    ? selectedPipelineId
+    : null;
+
   const fetchLeads = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
@@ -1343,9 +1366,7 @@ export default function CrmPage() {
     const seq = ++fetchSeq.current;
     try {
       // Funil geral: sem pipeline_id a API devolve os leads de todos os funis.
-      const params = selectedPipelineId && selectedPipelineId !== ALL_PIPELINES
-        ? { params: { pipeline_id: selectedPipelineId } }
-        : undefined;
+      const params = pipelineParam ? { params: { pipeline_id: pipelineParam } } : undefined;
       const res = await api.get('/leads', params);
       if (seq !== fetchSeq.current) return;
       const fresh: CrmLead[] = res.data || [];
@@ -1370,7 +1391,7 @@ export default function CrmPage() {
         setRefreshing(false);
       }
     }
-  }, [selectedPipelineId]);
+  }, [pipelineParam]);
 
   // Carrega os funis configurados e garante um selectedPipelineId válido.
   useEffect(() => {
@@ -1380,7 +1401,7 @@ export default function CrmPage() {
         setPipelines(list);
         setSelectedPipelineId(prev => {
           if (prev && list.some(p => p.id === prev)) return prev;
-          if (prev === ALL_PIPELINES && list.length > 0) return prev;
+          if ((prev === ALL_PIPELINES || prev === ALL_CLINIC) && list.length > 0) return prev;
           const def = list.find(p => p.is_default) ?? list[0];
           return def?.id ?? null;
         });
@@ -1707,10 +1728,11 @@ export default function CrmPage() {
 
   // Filtrar leads
   const filteredLeads = leads.filter(lead => {
-    // CRC = Comercial (quem AINDA é lead). Paciente (compareceu ou pagou) é da
-    // Clínica (Pacientes Clínica / CRC Fechamentos) e não vira card aqui. O painel
-    // de análise segue com a lista inteira (a conversão conta quem virou paciente).
-    if (lead.is_client) return false;
+    // Comercial × Clínica (Lead.is_client — a mesma marca das abas Leads/Clientes):
+    // "Geral — Clínica" mostra SÓ paciente (compareceu ou pagou); o resto do CRC
+    // (Geral — Leads e cada funil) SÓ quem ainda é lead. O painel de análise segue
+    // com a lista inteira (a conversão conta quem virou paciente).
+    if (isClinicView ? !lead.is_client : !!lead.is_client) return false;
     const q = searchQuery.toLowerCase().trim();
     if (q) {
       const name = (lead.name || '').toLowerCase();
@@ -1842,7 +1864,8 @@ export default function CrmPage() {
                     className="appearance-none pl-3 pr-8 py-1.5 text-[13px] font-semibold bg-primary/10 text-primary border border-primary/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
                     title="Funil ativo"
                   >
-                    <option value={ALL_PIPELINES}>Funil geral (todos)</option>
+                    <option value={ALL_PIPELINES}>Geral — Leads (Comercial)</option>
+                    <option value={ALL_CLINIC}>Geral — Clínica (pacientes)</option>
                     {pipelines.map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
@@ -1852,7 +1875,10 @@ export default function CrmPage() {
               )}
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              {filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead{filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''} {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
+              {isClinicView
+                ? `${filteredLeads.length} paciente${filteredLeads.length !== 1 ? 's' : ''}`
+                : `${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''}`}{' '}
+              {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
               {activeFilterCount > 0 && (
                 <button
                   onClick={() => { setAreaFilter(''); setDentistFilter(''); setTagFilter(''); setAgingFilter(''); }}
@@ -2045,7 +2071,7 @@ export default function CrmPage() {
         </header>
 
         {/* Alerta de leads estagnados */}
-        {!dismissedStagnation && !loading && (() => {
+        {!dismissedStagnation && !loading && !isClinicView && (() => {
           const stagnant = leads.filter(l => {
             if (l.is_client) return false; // paciente não é lead parado do Comercial
             const stage = normalizeStage(l.stage);
@@ -2127,11 +2153,13 @@ export default function CrmPage() {
               // tambem somem — leads la vivem em /atendimento/fechamentos.
               const cols: Col[] = isGeneralView
                 ? GENERAL_STAGES
-                    .filter(g => g.visible)
+                    // Geral — Clínica: paciente quase sempre já está em "fechamento" ou
+                    // "ganho" (a promoção move pra lá) — sem essas colunas sumiria.
+                    .filter(g => g.visible || (isClinicView && (g.key === 'fechamento' || g.key === 'ganho')))
                     .map(g => ({
                       key: g.key,
                       slug: g.key,
-                      label: g.label,
+                      label: isClinicView && g.key === 'ganho' ? 'Virou paciente' : g.label,
                       color: g.color,
                       emoji: g.emoji,
                       generalKey: g.key,
@@ -2183,7 +2211,9 @@ export default function CrmPage() {
                           setDragOverStage(null);
                           setDraggingId(null);
                           if (!id) return;
-                          if (col.generalKey) moveLeadToGeneralStage(id, col.generalKey);
+                          if (col.generalKey === 'fechamento' || col.generalKey === 'ganho') {
+                            showError('Essa etapa é automática (orçamento criado / compareceu ou pagou).');
+                          } else if (col.generalKey) moveLeadToGeneralStage(id, col.generalKey);
                           else if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
                           else if (col.legacyId) moveLeadToStage(id, col.legacyId);
                         }}
@@ -2219,11 +2249,12 @@ export default function CrmPage() {
 
                         {/* Cards */}
                         <div className="flex-1 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
-                          {stageLeads.map(lead => (
+                          {stageLeads.slice(0, columnLimit[col.key] ?? COLUMN_PAGE).map(lead => (
                             <LeadCard
                               key={lead.id}
                               lead={lead}
                               funnel={leadFunnel(lead)}
+                              lockStage={isClinicView}
                               isDragging={draggingId === lead.id}
                               onDragStart={() => setDraggingId(lead.id)}
                               onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
@@ -2237,6 +2268,16 @@ export default function CrmPage() {
                               selectionMode={selectedLeads.size > 0}
                             />
                           ))}
+
+                          {stageLeads.length > (columnLimit[col.key] ?? COLUMN_PAGE) && (
+                            <button
+                              type="button"
+                              onClick={() => setColumnLimit(m => ({ ...m, [col.key]: (m[col.key] ?? COLUMN_PAGE) + COLUMN_PAGE }))}
+                              className="w-full py-2 text-[11px] font-semibold text-primary hover:underline"
+                            >
+                              Mostrar mais ({stageLeads.length - (columnLimit[col.key] ?? COLUMN_PAGE)} restantes)
+                            </button>
+                          )}
 
                           {stageLeads.length === 0 && (
                             <div

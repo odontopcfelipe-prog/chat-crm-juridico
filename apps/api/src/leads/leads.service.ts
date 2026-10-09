@@ -1262,7 +1262,9 @@ export class LeadsService {
     // Se ja esta em FINALIZADO/PERDIDO, skip. Se falhar (ex: gate de
     // specialty), apenas loga — is_client ja garantiu o essencial.
     let stageFinalized = false;
-    if (lead.stage !== 'FINALIZADO' && lead.stage !== 'PERDIDO') {
+    // Lead PERDIDO que compareceu ou pagou deixa de ser perdido — também vira
+    // FINALIZADO (senão ficava escondido: a lista do CRC/Clínica exclui PERDIDO).
+    if (lead.stage !== 'FINALIZADO') {
       try {
         await this.updateStatus(
           lead.id,
