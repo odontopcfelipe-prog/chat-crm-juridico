@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Users, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, DollarSign } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2 } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
@@ -1963,39 +1963,11 @@ export default function CrmPage() {
             </p>
           </div>
 
-          {/* Onda 14.41 — Botao "CRM Fechamentos" centralizado no header.
-              Onda 14.49 — Botao "Pos-Avaliacao" foi removido do header.
-              Onda 14.50 — Adicionado botao "Pacientes Clinica" (azul/sky)
-              ao lado de "CRM Fechamentos", abrindo o PacientesClinicaKanban
-              (funil por procedimento pos-fechamento).
-              ViewMode 'pos-avaliacao' + componente PostAvaliacaoView
+          {/* Botões "Pacientes Clínica" e "CRC Fechamentos" removidos do header
+              (out/2026 — o funil "Geral — Clínica" cobre os pacientes). Os viewModes
+              'fechamento' / 'pacientes-clinica' / 'pos-avaliacao' e os componentes
               continuam no codigo sem acesso pelo UI (retrocompat). */}
-          <div className="flex-1 flex justify-center items-center gap-2">
-            <button
-              onClick={() => setViewMode(viewMode === 'pacientes-clinica' ? 'kanban' : 'pacientes-clinica')}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
-                viewMode === 'pacientes-clinica'
-                  ? 'bg-sky-500 text-white border-sky-600 shadow-sky-500/30'
-                  : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:shadow-md dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
-              }`}
-              title="Pacientes Clinica — funil por procedimento (pos-fechamento)"
-            >
-              <Users size={16} strokeWidth={2.5} />
-              <span>Pacientes Clínica</span>
-            </button>
-            <button
-              onClick={() => setViewMode(viewMode === 'fechamento' ? 'kanban' : 'fechamento')}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
-                viewMode === 'fechamento'
-                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-emerald-500/30'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-              }`}
-              title="CRC Fechamentos — orcamentos pos-avaliacao aguardando fechamento"
-            >
-              <DollarSign size={16} strokeWidth={2.5} />
-              <span>CRC Fechamentos</span>
-            </button>
-          </div>
+          <div className="flex-1" />
 
           {/* Filtros */}
           <div className="flex items-center gap-2 flex-wrap">
