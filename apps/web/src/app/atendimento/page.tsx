@@ -2606,7 +2606,7 @@ export default function Dashboard() {
 
       {/* MAIN CHAT PANEL */}
       <main
-        className={`flex-1 flex flex-col bg-background relative ${isMobile && !selectedId && splitMode === 1 ? 'hidden' : ''}`}
+        className={`flex-1 min-w-0 flex flex-col bg-background relative ${isMobile && !selectedId && splitMode === 1 ? 'hidden' : ''}`}
         onDragEnter={splitMode === 1 ? handleDragEnter : undefined}
         onDragLeave={splitMode === 1 ? handleDragLeave : undefined}
         onDragOver={splitMode === 1 ? handleDragOver : undefined}

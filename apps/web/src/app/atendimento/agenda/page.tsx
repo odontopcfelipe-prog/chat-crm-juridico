@@ -2294,6 +2294,15 @@ export default function AgendaPage() {
             <Filter size={13} />
           </button>
           <div className="flex-1" />
+          {/* Novo Evento no celular — o botão do topo é `hidden sm:flex`. */}
+          {role.canCreateAgendaEvent && (
+            <button
+              onClick={() => openCreateModal()}
+              className="sm:hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-bold"
+            >
+              <Plus size={12} /> Novo
+            </button>
+          )}
           {/* Toggle Todos/Meus — so pra quem pode ver agenda alheia */}
           {role.canViewAllAgenda && (
             <button

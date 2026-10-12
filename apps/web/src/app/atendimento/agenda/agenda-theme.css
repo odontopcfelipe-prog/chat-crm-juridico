@@ -387,6 +387,16 @@
   transform-origin: left center;
 }
 
+/* Celular — no modo "small" o schedule-x esconde setas e "Hoje" e depende do
+   date-input (escondido acima). Sem isto não há como trocar de dia. */
+.sx-react-calendar-wrapper .sx__is-calendar-small .sx__forward-backward-navigation {
+  display: flex !important;
+  align-items: center;
+}
+.sx-react-calendar-wrapper .sx__is-calendar-small .sx__today-button {
+  display: inline-flex !important;
+}
+
 /* Onda 5d v8 (Fase 25) — Eventos com 3 linhas (dentista / procedimento / horario).
    Title agora vem com \n entre dentista e procedimento; precisa preservar
    quebras de linha. Reduz font pra caber em slot de 30min sem cortar texto.
