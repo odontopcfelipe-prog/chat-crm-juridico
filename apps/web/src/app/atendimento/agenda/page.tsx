@@ -674,26 +674,48 @@ export default function AgendaPage() {
   const avatarInflightRef = useRef<Set<string>>(new Set());
   // pids já carregados (REF, não state) — dedupe SEM re-disparar o effect.
   const avatarLoadedRef = useRef<Record<string, string>>({});
+  // Fila de fotos: antes disparava UMA requisição por paciente do mês inteiro de
+  // uma vez (centenas) e re-setava o calendário a CADA foto → no celular a agenda
+  // travava ("não abre") e a cota do throttle (100/min) estourava pra clínica toda.
+  // Agora: no máx. 3 em voo, falha não é re-tentada, e o state é publicado em lote.
+  const avatarQueueRef = useRef<string[]>([]);
+  const avatarFailedRef = useRef<Set<string>>(new Set());
+  const avatarFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     // BUGFIX (Onda 18.x) "fotos aparecem quando querem": o effect tinha
     // `avatarBlobs` nas deps + flag `cancelled`. Cada foto que carregava
     // RE-rodava o effect e CANCELAVA as outras em voo (descartadas e re-buscadas)
     // → thrash → carregamento inconsistente. Agora roda só quando `events` muda,
     // deduplica por ref e NÃO cancela nada em voo: cada foto carrega 1x e fica.
+    const queue = avatarQueueRef.current;
     for (const e of events) {
       const pid = e.patient?.id;
       if (!pid || !e.patient?.avatar_url) continue;
       if (avatarLoadedRef.current[pid] || avatarInflightRef.current.has(pid)) continue;
-      avatarInflightRef.current.add(pid);
-      api.get(`/patients/${pid}/avatar`, { responseType: 'blob', ...({ _silent401: true } as any) })
-        .then((res) => {
-          const url = URL.createObjectURL(res.data as Blob);
-          avatarLoadedRef.current[pid] = url;
-          setAvatarBlobs((prev) => (prev[pid] ? prev : { ...prev, [pid]: url }));
-        })
-        .catch(() => { /* sem foto / 404 → cai nas iniciais */ })
-        .finally(() => { avatarInflightRef.current.delete(pid); });
+      if (avatarFailedRef.current.has(pid) || queue.includes(pid)) continue;
+      queue.push(pid);
     }
+    const flush = () => {
+      if (avatarFlushRef.current) return;
+      avatarFlushRef.current = setTimeout(() => {
+        avatarFlushRef.current = null;
+        setAvatarBlobs({ ...avatarLoadedRef.current });
+      }, 400);
+    };
+    const pump = () => {
+      while (avatarInflightRef.current.size < 3 && queue.length) {
+        const pid = queue.shift()!;
+        avatarInflightRef.current.add(pid);
+        api.get(`/patients/${pid}/avatar`, { responseType: 'blob', ...({ _silent401: true } as any) })
+          .then((res) => {
+            avatarLoadedRef.current[pid] = URL.createObjectURL(res.data as Blob);
+            flush();
+          })
+          .catch(() => { avatarFailedRef.current.add(pid); /* sem foto / 404 → iniciais */ })
+          .finally(() => { avatarInflightRef.current.delete(pid); pump(); });
+      }
+    };
+    pump();
   }, [events]);
   // Revoga os blobs no unmount. Usa a REF (mapa real); o state num closure de
   // deps [] estaria vazio e não revogaria nada.

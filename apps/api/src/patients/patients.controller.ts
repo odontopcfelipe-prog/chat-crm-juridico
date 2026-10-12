@@ -19,6 +19,7 @@ import {
 import type { Response } from 'express';
 import { createHash } from 'crypto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PatientsService } from './patients.service';
 import { LeadsService } from '../leads/leads.service';
 import { AffiliateService } from './affiliate.service';
@@ -521,6 +522,10 @@ export class PatientsController {
   }
 
   /** Servir a foto: GET /patients/:id/avatar */
+  // Fora do throttle global (100/min por IP): a agenda/listas pedem uma foto por
+  // paciente e a clínica inteira sai pelo mesmo IP — as fotos esgotavam a cota e
+  // o resto do sistema (eventos, chat) tomava 429.
+  @SkipThrottle()
   @Get(':id/avatar')
   async getAvatar(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
     // Onda 17.34 — valida tenant: sem isso, qualquer usuario autenticado de
