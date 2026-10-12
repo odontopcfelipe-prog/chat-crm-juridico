@@ -29,3 +29,5 @@ export * from './memory-categories';
 export * from './memory-prompts';
 // Funil geral do CRC: colunas comuns a todos os funis + etapa equivalente entre funis
 export * from './pipeline-general';
+// Régua de reativação de leads (follow-up do chip Comercial)
+export * from './reativacao-leads';

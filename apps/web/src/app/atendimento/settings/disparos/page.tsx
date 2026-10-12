@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
-  Briefcase, Wallet, Users,
+  Briefcase, Wallet, Users, RotateCcw,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -28,11 +28,14 @@ import { AniversarioEditor } from './AniversarioEditor';
 import { SemAgendamentoEditor } from './SemAgendamentoEditor';
 import { ResumoDiarioEditor } from './ResumoDiarioEditor';
 import { VendaFeitaEditor } from './VendaFeitaEditor';
+import { ReativacaoConfigEditor } from './ReativacaoConfigEditor';
+import { ReativacaoColunaEditor } from './ReativacaoColunaEditor';
 import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
   agendamento_comercial: Briefcase,
+  reativacao_leads: RotateCcw,
   financeiro: Receipt,
   pos_consulta: Heart,
   datas: Cake,
@@ -99,6 +102,14 @@ interface OperacionalData {
   pacientes_sem_agendamento_orto?: { enabled: boolean };
   // REGRA da clínica: ortodontia por ordem de chegada (default OFF = hora marcada)
   orto_ordem_chegada?: { enabled: boolean };
+  // Régua de reativação de leads (chip Comercial) — tudo default OFF.
+  // reativacao_leads = ENVIO de verdade; cada coluna = entra nos Previstos do CRC.
+  reativacao_leads?: { enabled: boolean };
+  reativacao_novo?: { enabled: boolean };
+  reativacao_conversa?: { enabled: boolean };
+  reativacao_convite?: { enabled: boolean };
+  reativacao_agendado?: { enabled: boolean };
+  reativacao_orcamento?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }
@@ -568,9 +579,21 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'sem_agendamento_orto' && <SemAgendamentoEditor kind="orto" />}
         {openItem.editor === 'resumo_diario' && <ResumoDiarioEditor />}
         {openItem.editor === 'venda_feita' && <VendaFeitaEditor />}
+        {openItem.editor === 'reativacao' && <ReativacaoConfigEditor />}
+        {openItem.editor === 'reativacao_coluna' && openItem.reativacaoColuna && (
+          <ReativacaoColunaEditor
+            key={openItem.id}
+            coluna={openItem.reativacaoColuna}
+            nome={openItem.nome}
+            envioOn={!!op?.reativacao_leads?.enabled}
+            colunaOn={enabledOf(openItem)}
+          />
+        )}
         {/* Resumo interno / config (sem_agendamento, resumo_diario, venda_feita) têm
-            sua própria UI — pula o TesteEnvio genérico (texto de template ao paciente). */}
-        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && <TesteEnvio disparo={openItem.id} text={liveText} />}
+            sua própria UI — pula o TesteEnvio genérico (texto de template ao paciente).
+            Reativação também pula: o texto é MODELO que a IA reescreve por contato, e o
+            teste genérico sairia pelo chip da Clínica — a régua só sai pelo Comercial. */}
+        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && openItem.editor !== 'reativacao' && openItem.editor !== 'reativacao_coluna' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }
@@ -581,6 +604,13 @@ export default function CentralDisparosPage() {
   const ortoFluxoOn = !!(op as any)?.orto_ordem_chegada?.enabled;
   const semEfeito = (d: DisparoItem) => !!d.requerOrtoFluxo && !ortoFluxoOn;
   const ativos = configuraveis.filter((d) => enabledOf(d) && !semEfeito(d)).length;
+
+  // Régua de reativação: coluna ligada com o Envio desligado só aparece nos Previstos
+  // (nada sai) — o card avisa. E a régua NUNCA cai pro chip da Clínica: sem chip
+  // Comercial o card geral avisa que não envia (a nota do setor fala em fallback).
+  const reativEnvioOn = !!op?.reativacao_leads?.enabled;
+  const reativAlgumaColuna = DISPAROS.some((d) => !!d.reativacaoColuna && enabledOf(d));
+  const semChipComercial = !!chips && !chips.some((c) => c.purpose === 'COMERCIAL');
 
   // Semáforo: status do chip de cada setor (purpose ↔ setor). null = sem chip próprio.
   const chipStatusOf = (setorId: Setor): 'open' | 'down' | 'unknown' | null => {
@@ -735,6 +765,30 @@ export default function CentralDisparosPage() {
                                 title="Só vale com a regra Ortodontia por ordem de chegada ligada. Sua clínica atende ortodontia por horário marcado — a ortô recebe os disparos normais."
                               >
                                 Sem efeito · ortô por horário marcado
+                              </span>
+                            )}
+                            {d.reativacaoColuna && !reativEnvioOn && (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                title="Com o Envio da reativação desligado, esta coluna só aparece nos Previstos (CRC › Disparos) — nada é enviado."
+                              >
+                                Só nos Previstos · Envio desligado
+                              </span>
+                            )}
+                            {d.operacionalKey === 'reativacao_leads' && semChipComercial && (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400"
+                                title="A reativação só sai pelo chip Comercial (nunca pelo da Clínica). Conecte um chip com a função Comercial em Configurações › WhatsApp."
+                              >
+                                Sem chip Comercial · não envia
+                              </span>
+                            )}
+                            {d.operacionalKey === 'reativacao_leads' && on && !reativAlgumaColuna && (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                title="O Envio está ligado, mas nenhuma coluna está — ninguém entra na régua. Ligue as colunas nos cards abaixo."
+                              >
+                                Nenhuma coluna ligada
                               </span>
                             )}
                           </div>

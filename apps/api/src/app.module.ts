@@ -43,6 +43,7 @@ import { S3Module } from './s3/s3.module';
 import { McpModule } from './mcp/mcp.module';
 import { AutomationsModule } from './automations/automations.module';
 import { FollowupModule } from './followup/followup.module';
+import { ReactivationModule } from './reactivation/reactivation.module';
 import { GoogleDriveModule } from './google-drive/google-drive.module';
 import { InternModule } from './intern/intern.module';
 import { AdminBotModule } from './admin-bot/admin-bot.module';
@@ -138,6 +139,8 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
     McpModule,
     AutomationsModule,
     FollowupModule,
+    // Régua de reativação de leads (painel + config; envio é do worker). Só Prisma.
+    ReactivationModule,
     InternModule,
     AdminBotModule,
     FinanceiroModule,

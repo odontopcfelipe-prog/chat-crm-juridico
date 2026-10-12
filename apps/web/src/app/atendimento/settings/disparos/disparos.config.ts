@@ -4,15 +4,22 @@
 // editor precisam. Os que já têm backend apontam pra um editor real e pro on/off
 // do painel Operacional; o resto entra como catálogo "Em breve" (Fase 2 liga de
 // verdade: Prisma Disparo/DisparoLog + BullMQ/DLQ + HSM + anti-spam + opt-out).
+import {
+  REATIVACAO_COLUNAS, REATIVACAO_COLUNA_LABEL, REATIVACAO_MIN_DIAS_PARADO, reativacaoToquesResumo,
+  type ReativacaoColuna,
+} from '@/lib/reativacao';
 
 export type DisparoCategoria =
-  | 'agendamento' | 'agendamento_comercial' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
+  | 'agendamento' | 'agendamento_comercial' | 'reativacao_leads' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
 
 export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[] = [
   { id: 'agendamento',  label: 'Agendamento',            color: '#7C5CF0' },
   // Agenda do COMERCIAL — versão dos disparos de agendamento pro LEAD (contato que
   // ainda não é cliente): sai pelo chip Comercial, com texto próprio. Opt-in.
   { id: 'agendamento_comercial', label: 'Agendamento do lead', color: '#F26C1B' },
+  // Régua de REATIVAÇÃO de leads — follow-up do chip Comercial pra quem parou de
+  // responder em cada coluna do "Geral — Leads". Tudo começa DESLIGADO.
+  { id: 'reativacao_leads', label: 'Reativação de leads (follow-up Comercial)', color: '#DB2777' },
   { id: 'financeiro',   label: 'Financeiro (cobrança)',  color: '#10B981' },
   { id: 'pos_consulta', label: 'Pós-consulta',           color: '#14A38B' },
   { id: 'datas',        label: 'Datas e relacionamento', color: '#E8902B' },
@@ -29,7 +36,9 @@ export type Setor = 'comercial' | 'clinica' | 'financeiro' | 'equipe';
 
 export const SETORES: { id: Setor; label: string; chip: string; color: string; nota: string; principal?: boolean }[] = [
   { id: 'comercial',  label: 'Comercial', chip: 'Comercial', color: '#F26C1B',
-    nota: 'Sai pelo chip Comercial. Se ele não estiver conectado, usa o chip principal (Clínica).' },
+    // A régua de reativação é a exceção: lead frio saindo pelo chip da Clínica
+    // arriscaria o chip principal — sem chip Comercial ela NÃO envia.
+    nota: 'Sai pelo chip Comercial. Se ele não estiver conectado, usa o chip principal (Clínica) — menos a Reativação de leads, que só sai pelo Comercial.' },
   { id: 'clinica',    label: 'Clínica',   chip: 'Clínica',   color: '#2D7FF9', principal: true,
     nota: 'Chip principal da clínica — o padrão de tudo que fala com o paciente.' },
   { id: 'financeiro', label: 'Financeiro', chip: 'Financeiro', color: '#10B981',
@@ -41,6 +50,7 @@ export const SETORES: { id: Setor; label: string; chip: string; color: string; n
 export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
   agendamento:  'clinica',
   agendamento_comercial: 'comercial',
+  reativacao_leads: 'comercial',
   pos_consulta: 'clinica',
   datas:        'clinica',
   clinico:      'clinica',
@@ -50,7 +60,9 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'sem_agendamento_orto' | 'resumo_diario' | 'venda_feita' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'sem_agendamento_orto' | 'resumo_diario' | 'venda_feita'
+  // Régua de reativação: card geral (teto/freios) e cards de coluna (textos por toque).
+  | 'reativacao' | 'reativacao_coluna' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -97,7 +109,11 @@ export type OperacionalKey =
   // POLÍTICA (não é disparo) — bloquear agendamento de paciente com boleto atrasado.
   | 'block_sched_on_overdue'
   // Triagem não-paciente (IA): fornecedor/currículo/parceria/spam → encaminha e encerra.
-  | 'nao_paciente_triage';
+  | 'nao_paciente_triage'
+  // Régua de reativação de leads (chip Comercial) — ids = REATIVACAO_TOGGLE_IDS do
+  // shared. 'reativacao_leads' = ENVIO de verdade; cada coluna = entra nos Previstos.
+  | 'reativacao_leads'
+  | 'reativacao_novo' | 'reativacao_conversa' | 'reativacao_convite' | 'reativacao_agendado' | 'reativacao_orcamento';
 
 export interface DisparoItem {
   id: string;
@@ -122,8 +138,32 @@ export interface DisparoItem {
   /** Disparo de ortô em FLUXO: só tem efeito com a regra da clínica "Ortodontia por
    *  ordem de chegada" ligada — sem ela o card aparece apagado ("sem efeito"). */
   requerOrtoFluxo?: boolean;
+  /** Card de COLUNA da régua de reativação (abre o editor de textos por toque). */
+  reativacaoColuna?: ReativacaoColuna;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
+
+// Régua de reativação — complemento do nome e "quem entra" de cada card de coluna.
+// Os números (dias parado, toques) vêm do catálogo (lib/reativacao = cópia do shared),
+// pra o card nunca prometer uma régua diferente da que o worker roda.
+const REATIVACAO_COLUNA_NOME_SUFIXO: Record<ReativacaoColuna, string> = {
+  novo: 'parou de responder',
+  conversa: 'conversa parada',
+  convite: 'não marcou a avaliação',
+  agendado: 'remarcar',
+  orcamento: 'não fechou',
+};
+const diasParado = (c: ReativacaoColuna) => {
+  const n = REATIVACAO_MIN_DIAS_PARADO[c];
+  return `${n}+ dia${n === 1 ? '' : 's'} sem responder`;
+};
+const REATIVACAO_COLUNA_GATILHO: Record<ReativacaoColuna, string> = {
+  novo: `Lead novo que parou (${diasParado('novo')})`,
+  conversa: `Conversa parada (${diasParado('conversa')})`,
+  convite: `Recebeu o convite e não marcou (${diasParado('convite')})`,
+  agendado: 'Faltou na avaliação e não remarcou · entra no dia seguinte à falta',
+  orcamento: `Fez a avaliação e não fechou (${diasParado('orcamento')})`,
+};
 
 export const DISPAROS: DisparoItem[] = [
   // ── Agendamento ──
@@ -187,6 +227,26 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'comercial_reagendamento', nome: 'Aviso de re-agendamento · lead', categoria: 'agendamento_comercial',
     gatilho: 'Quando o horário muda · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
     editor: 'comercial_agenda', operacionalKey: 'comercial_reagendamento' },
+
+  // ── Reativação de leads (follow-up do chip Comercial) ──
+  // 1 chave geral (ENVIO) + 1 por coluna do "Geral — Leads". Coluna ligada = o
+  // planejador põe na régua quem está PARADO nela e mostra nos Previstos (CRC ›
+  // Disparos) com o texto que sairia; Envio ligado = sai de verdade. Só pelo chip
+  // COMERCIAL (sem ele não envia). Tudo começa DESLIGADO (opt-in por clínica).
+  { id: 'reativacao_leads', nome: 'Envio da reativação', categoria: 'reativacao_leads',
+    gatilho: 'Chave geral · ligada = os toques saem de verdade · seg–sáb 8h–19h · 3–7 min entre envios · só chip Comercial (sem ele não envia)', canal: 'WhatsApp', tags: ['Anti-bloqueio'],
+    editor: 'reativacao', operacionalKey: 'reativacao_leads' },
+  ...REATIVACAO_COLUNAS.map((c): DisparoItem => ({
+    id: `reativacao_${c}`,
+    nome: `${REATIVACAO_COLUNA_LABEL[c]} · ${REATIVACAO_COLUNA_NOME_SUFIXO[c]}`,
+    categoria: 'reativacao_leads',
+    gatilho: `${REATIVACAO_COLUNA_GATILHO[c]} · ${reativacaoToquesResumo(c)}`,
+    canal: 'WhatsApp',
+    tags: ['IA', 'Modelo'],
+    editor: 'reativacao_coluna',
+    operacionalKey: `reativacao_${c}`,
+    reativacaoColuna: c,
+  })),
 
   // ── Financeiro (cobrança) — Onda 18.16 ──
   // Envia pelo chip FINANCEIRO. O cron varre as cobranças em aberto, vê em que
@@ -295,8 +355,8 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'followup_lead', nome: 'Follow-up de leads parados', categoria: 'recuperacao',
     gatilho: 'Nutrição automática de leads que esfriaram · controle por sequência', canal: 'WhatsApp', tags: ['Métrica'],
     soMetrica: true },
-  { id: 'orcamento_parado', nome: 'Orçamento parado', categoria: 'recuperacao',
-    gatilho: '3 dias sem fechar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
+  // "Orçamento parado" (era Em breve) virou a coluna Avaliação / orçamento da régua
+  // de reativação (categoria Reativação de leads, logo acima).
   // Recall de revisão — o MOTOR JÁ RODA (maintenance-recall-cron, paced 3-7min):
   // quando a revisão do procedimento (default_revisit_months) está a até 7 dias,
   // convida o paciente a agendar. Antes o card dizia "Em breve" — mentira útil zero.

@@ -20,6 +20,7 @@ import { AutomationModule } from './automation/automation.module';
 import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
 import { PostCareModule } from './post-care/post-care.module';
 import { InfluencerMessagesModule } from './influencer-messages/influencer-messages.module';
+import { ReativacaoLeadsModule } from './reativacao/reativacao.module';
 
 @Module({
   imports: [
@@ -55,6 +56,8 @@ import { InfluencerMessagesModule } from './influencer-messages/influencer-messa
     PostCareModule,
     // Marketing — mensagens automaticas pra influenciadores
     InfluencerMessagesModule,
+    // Régua de reativação de leads (follow-up do chip Comercial) — liga na Central de Disparos
+    ReativacaoLeadsModule,
   ],
 })
 export class AppModule {}

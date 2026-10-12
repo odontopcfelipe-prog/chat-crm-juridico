@@ -32,6 +32,10 @@ export interface MensagemEditorProps {
    *  copiável. O PREVIEW simula isso (tira a linha do {link}, garante o {codigo}) pra
    *  mostrar o que o paciente REALMENTE recebe — mesmo que o texto salvo tenha {link}. */
   simulateBoleto?: boolean;
+  /** Título do quadro de preview. Padrão "Preview (como o paciente vai receber)".
+   *  A régua de reativação usa outro: lá o texto é MODELO e a IA reescreve pra cada
+   *  contato — dizer "como vai receber" seria mentira. */
+  previewLabel?: string;
 }
 
 function applyPreview(t: string, vars: Record<string, string>, local: string): string {
@@ -51,7 +55,7 @@ function simulaBoletoTpl(t: string): string {
   return r;
 }
 
-export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText, simulateBoleto }: MensagemEditorProps) {
+export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText, simulateBoleto, previewLabel }: MensagemEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
@@ -155,7 +159,7 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
 
         <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
           <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-1.5 flex items-center gap-1">
-            <Eye size={11} /> Preview (como o paciente vai receber)
+            <Eye size={11} /> {previewLabel || 'Preview (como o paciente vai receber)'}
           </div>
           <div className="text-xs text-foreground whitespace-pre-wrap">
             {applyPreview(simulateBoleto ? simulaBoletoTpl(template) : template, preview, clinicAddress) || <em className="text-muted-foreground">(mensagem vazia)</em>}

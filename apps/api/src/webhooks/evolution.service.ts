@@ -12,7 +12,15 @@ import { FollowupService } from '../followup/followup.service';
 import { AdminBotService } from '../admin-bot/admin-bot.service';
 import { MediaDownloadService } from '../media/media-download.service';
 import { PostCareService } from '../post-care/post-care.service';
-import { aiEnabledKey, aiProfileKey, isAiChipPurpose, normalizeAiChipProfile } from '@crm/shared';
+import {
+  aiEnabledKey,
+  aiProfileKey,
+  isAiChipPurpose,
+  normalizeAiChipProfile,
+  REATIVACAO_OPT_OUT_RE,
+  ehRecusaDoLead,
+  brazilPhoneMatchVariants,
+} from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 
 interface EvolutionWebhookPayload {
@@ -174,6 +182,12 @@ export class EvolutionService implements OnApplicationBootstrap {
               messageId: targetMsg.id,
               reactions: allReactions,
             });
+            // Régua de reativação: reação ADICIONADA pelo CONTATO (não a nossa, não a
+            // remoção) conta como resposta. Fora do chip Financeiro. Fire-and-forget.
+            const chipFinanceiro = (inbox as any)?.purpose === 'FINANCEIRO' && !!inboxId;
+            if (key.fromMe !== true && emoji !== '' && !chipFinanceiro && targetMsg.conversation_id) {
+              this.checkReactivationReaction(targetMsg.conversation_id, effectiveTenantId).catch(() => undefined);
+            }
           }
         }
         continue;
@@ -630,6 +644,18 @@ export class EvolutionService implements OnApplicationBootstrap {
           lead.is_client,
         );
 
+        // ─── Régua de reativação: o contato respondeu → para a régua dele ───
+        // Fora do filtro de tamanho (áudio/imagem/"ok" também são resposta) e NUNCA
+        // pelo chip Financeiro (resposta de cobrança não é resposta à reativação).
+        // Fire-and-forget com catch: jamais pode atrasar/quebrar o recebimento.
+        if (!isFinanceiroChip) {
+          this.checkReactivationResponse(lead.id, lead.tenant_id ?? effectiveTenantId ?? null, messageContent, {
+            phone: lead.phone,
+          }).catch((e) =>
+            this.logger.warn(`[REGUA-REATIV] falha ao parar a régua do lead ${lead.id}: ${e?.message}`),
+          );
+        }
+
         // ─── Response Listener: verifica se é resposta a um follow-up ─────
         if (messageContent && messageContent.length >= 3) {
           this.checkFollowupResponse(lead.id, messageContent).catch(e =>
@@ -785,6 +811,178 @@ export class EvolutionService implements OnApplicationBootstrap {
           { jobId: memJobId, delay: 15_000, removeOnComplete: true, removeOnFail: false },
         );
       }
+    }
+  }
+
+  // ─── Régua de reativação de leads: parar na 1ª resposta + opt-out ─────────
+  //
+  // Prisma DIRETO (sem injetar serviço novo — ciclo de DI já derrubou a API) e
+  // best-effort: qualquer erro só loga. A fonte da verdade continua sendo o
+  // despachante do worker, que re-checa "o lead escreveu?" antes de cada envio
+  // (o webhook pode falhar num deploy). Aqui é o freio IMEDIATO.
+  //
+  // Só age se existir ciclo ATIVA ou toque ENVIADO recente (consulta barata).
+  //
+  // O NÚMERO é a identidade, não o lead_id: o mesmo telefone pode estar em 2+ leads
+  // da clínica (gêmeos 12×13 dígitos que o merge não fundiu). Resposta em qualquer
+  // um para a régua de TODOS — senão o gêmeo seguia mandando toque depois da
+  // resposta, pelo mesmo chip, pra mesma pessoa.
+  //
+  // Opt-out por texto ("pare", "sem interesse"…) é PERMANENTE e não tem tela pra
+  // desfazer, então só vale quando é a 1ª resposta a um toque que de fato SAIU
+  // (ENVIADO ou ENVIANDO, sem replied_at) e a mensagem inteira é o pedido (regex
+  // ESTRITA do shared). "Cancelar a consulta de amanhã" dias depois de já ter
+  // respondido, um "pare" com o ciclo só em prévia (Envio desligado) ou recusa só
+  // pela regra ampla encerram como RESPONDEU. Reação (👍/❤️) nunca é opt-out.
+  private static readonly REATIV_RESPOSTA_JANELA_MS = 14 * 86400000;
+
+  private async checkReactivationResponse(
+    leadId: string,
+    tenantId: string | null,
+    text: string,
+    opts: { phone?: string | null; reacao?: boolean } = {},
+  ): Promise<void> {
+    try {
+      if (!tenantId) return; // a régua só existe com clínica — lead órfão nunca entrou
+      const now = new Date();
+
+      // Variantes do número (com/sem 9, com/sem 55) — helper ÚNICO do shared.
+      let phone = opts.phone ?? null;
+      if (!phone) {
+        const l = await this.prisma.lead.findFirst({
+          where: { id: leadId, tenant_id: tenantId },
+          select: { phone: true },
+        });
+        phone = l?.phone ?? null;
+      }
+      const variantes = brazilPhoneMatchVariants(phone);
+      // Filtro "este lead OU qualquer lead da clínica com o mesmo número" — via
+      // relação, pra o caminho comum (sem régua) continuar com 2 consultas só.
+      const doNumero: any = variantes.length
+        ? { OR: [{ lead_id: leadId }, { lead: { tenant_id: tenantId, phone: { in: variantes } } }] }
+        : { lead_id: leadId };
+
+      // Toque que SAIU: ENVIADO na janela, ou ENVIANDO agora (o despachante só vira
+      // ENVIADO depois do último balão — 10-35 s; o lead que lê o 1º e responde "pare"
+      // nesse meio perdia o opt-out e o "respondeu ✓"). 15 min = ENVIANDO_PRESO_MS do
+      // worker. AND (não spread): doNumero já tem OR na raiz e seria sobrescrito.
+      const [ativas, ultimoEnviado] = await Promise.all([
+        this.prisma.leadReactivation.count({
+          where: { tenant_id: tenantId, status: 'ATIVA', ...doNumero },
+        }),
+        this.prisma.leadDispatch.findFirst({
+          where: {
+            tenant_id: tenantId,
+            AND: [
+              doNumero,
+              {
+                OR: [
+                  {
+                    status: 'ENVIADO',
+                    sent_at: { gte: new Date(now.getTime() - EvolutionService.REATIV_RESPOSTA_JANELA_MS) },
+                  },
+                  { status: 'ENVIANDO', claimed_at: { gte: new Date(now.getTime() - 15 * 60000) } },
+                ],
+              },
+            ],
+          },
+          // ENVIANDO não tem sent_at → nulls first (o que está saindo agora vem antes).
+          orderBy: { sent_at: { sort: 'desc', nulls: 'first' } },
+          select: { id: true, replied_at: true },
+        }),
+      ]);
+      if (!ativas && !ultimoEnviado) return;
+
+      // Irmãos (ids) — só resolvidos quando há régua de fato.
+      const irmaos = new Set<string>([leadId]);
+      if (variantes.length) {
+        const rows = await this.prisma.lead.findMany({
+          where: { tenant_id: tenantId, phone: { in: variantes } },
+          select: { id: true },
+        });
+        for (const r of rows) irmaos.add(r.id);
+      }
+      const leadIds = [...irmaos];
+
+      const curto = opts.reacao ? '' : (text || '').trim();
+      const primeiraRespostaAoToque = !!ultimoEnviado && !ultimoEnviado.replied_at;
+      // Opt-out PERMANENTE só pela regra ESTRITA + 1ª resposta. Recusa só pela ampla
+      // ("pode parar de mandar mensagem", "me tira dessa lista") encerra como
+      // RESPONDEU, sem trancar o contato.
+      const optOut =
+        !opts.reacao &&
+        primeiraRespostaAoToque &&
+        curto.length > 0 &&
+        curto.length <= 60 &&
+        REATIVACAO_OPT_OUT_RE.test(curto);
+      const recusa = !opts.reacao && !optOut && ehRecusaDoLead(curto);
+      const motivo = optOut
+        ? 'pediu pra parar'
+        : recusa
+          ? 'respondeu (recusa)'
+          : opts.reacao
+            ? 'respondeu (reação)'
+            : 'respondeu';
+
+      const [toques, ciclos] = await Promise.all([
+        this.prisma.leadDispatch.updateMany({
+          where: { tenant_id: tenantId, lead_id: { in: leadIds }, status: 'AGENDADO' },
+          data: { status: 'CANCELADO', motivo },
+        }),
+        this.prisma.leadReactivation.updateMany({
+          where: { tenant_id: tenantId, lead_id: { in: leadIds }, status: 'ATIVA' },
+          data: { status: optOut ? 'OPT_OUT' : 'RESPONDEU', motivo_fim: motivo, ended_at: now },
+        }),
+      ]);
+      // "Respondeu ✓" no painel: marca o ÚLTIMO toque enviado (só a 1ª resposta —
+      // não sobrescreve o horário se ele já respondeu antes).
+      if (primeiraRespostaAoToque) {
+        await this.prisma.leadDispatch.updateMany({
+          where: { id: ultimoEnviado!.id, tenant_id: tenantId, replied_at: null },
+          data: { replied_at: now },
+        });
+      }
+      if (optOut) {
+        // Nunca mais entra na régua — em TODOS os leads do número (senão o gêmeo
+        // reentrava no próximo ciclo). Não sobrescreve um opt-out anterior.
+        await this.prisma.lead.updateMany({
+          where: { id: { in: leadIds }, tenant_id: tenantId, contact_opt_out_at: null },
+          data: { contact_opt_out_at: now, contact_opt_out_reason: curto.slice(0, 200) },
+        });
+      }
+      this.logger.log(
+        `[REGUA-REATIV] lead ${leadId}${leadIds.length > 1 ? ` (+${leadIds.length - 1} do mesmo número)` : ''} ` +
+          `${optOut ? 'pediu pra parar (opt-out)' : recusa ? 'recusou (sem opt-out)' : opts.reacao ? 'reagiu' : 'respondeu'} — ` +
+          `${toques.count} toque(s) cancelado(s), ${ciclos.count} ciclo(s) encerrado(s)`,
+      );
+    } catch (e: any) {
+      this.logger.warn(`[REGUA-REATIV] checkReactivationResponse falhou (lead ${leadId}): ${e?.message}`);
+    }
+  }
+
+  /**
+   * Reação (👍/❤️) do CONTATO numa mensagem da conversa = resposta: para a régua
+   * (RESPONDEU, nunca opt-out). Reação não vira Message, então sem isto o toque
+   * seguinte saía como se ele não tivesse respondido. Nunca pelo Financeiro
+   * (nem o chip nem a conversa — reação a cobrança não é resposta à reativação).
+   * Best-effort: só loga.
+   */
+  private async checkReactivationReaction(conversationId: string, fallbackTenantId: string | null): Promise<void> {
+    try {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: {
+          lead_id: true,
+          tenant_id: true,
+          inbox: { select: { purpose: true } },
+          lead: { select: { tenant_id: true, phone: true } },
+        },
+      });
+      if (!conv?.lead_id || (conv.inbox as any)?.purpose === 'FINANCEIRO') return;
+      const tenantId = conv.lead?.tenant_id ?? conv.tenant_id ?? fallbackTenantId ?? null;
+      await this.checkReactivationResponse(conv.lead_id, tenantId, '', { phone: conv.lead?.phone ?? null, reacao: true });
+    } catch (e: any) {
+      this.logger.warn(`[REGUA-REATIV] reação: falha ao parar a régua (conv ${conversationId}): ${e?.message}`);
     }
   }
 

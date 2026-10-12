@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -181,6 +181,16 @@ export class FollowupService {
     const naoPacienteSetting = await this.prisma.globalSetting.findUnique({
       where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
     });
+
+    // Régua de reativação de leads (follow-up do chip COMERCIAL): Envio + 5 colunas
+    // numa query só, FORA do Promise.all posicional (não desalinha os de cima).
+    // Default DESLIGADO (só 'true' liga). O worker lê exatamente estas keys.
+    const reativacaoSettings = await this.prisma.globalSetting
+      .findMany({
+        where: { key: { in: REATIVACAO_TOGGLE_IDS.map((id) => reativacaoToggleKey(id, tenantId)) } },
+        select: { key: true, value: true },
+      })
+      .catch(() => [] as { key: string; value: string }[]);
 
     // Defaults: confirmacao/lembrete/pos LIGADOS por default; dentista DESLIGADO.
     const confEnabled = (confSetting?.value ?? 'true') !== 'false';
@@ -379,6 +389,14 @@ export class FollowupService {
           },
         ]),
       ),
+      // Régua de reativação de leads — reativacao_leads (Envio de verdade) +
+      // reativacao_<coluna> (planeja e mostra nos Previstos). Default OFF.
+      ...Object.fromEntries(
+        REATIVACAO_TOGGLE_IDS.map((id) => [
+          id,
+          { enabled: reativacaoSettings.find((r) => r.key === reativacaoToggleKey(id, tenantId))?.value === 'true' },
+        ]),
+      ),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
       // Onda 18.x — à vista: toggle próprio; sem valor salvo, HERDA o de cima.
@@ -428,6 +446,8 @@ export class FollowupService {
       agendamento_criado: 'Consulta agendada',
       agendamento_remarcado: 'Consulta remarcada',
       orto_reminder: 'Lembrete de ortodontia (portões)',
+      // Régua de reativação de leads (worker grava 1 DispatchLog por toque).
+      reativacao_lead: 'Reativação de leads',
     };
 
     const rows: DisparoRow[] = [];
@@ -576,6 +596,9 @@ export class FollowupService {
       task_alerts: ['task_alert'],
       followup_lead: ['followup_lead'],
       nao_paciente_triage: ['nao_paciente_handoff'],
+      // Régua de reativação — card geral (Envio). Os cards de COLUNA leem o
+      // LeadDispatch (ramo abaixo): o DispatchLog não guarda a coluna.
+      reativacao_leads: ['reativacao_lead'],
     };
 
     // Lembretes clínicos → faixa de antecedência no EventReminder.
@@ -655,6 +678,35 @@ export class FollowupService {
         status: r.sent_at ? 'SENT' : 'A_ENVIAR',
         erro: null,
         extra: r.responded_at ? `respondeu${r.score != null ? ` (nota ${r.score})` : ''}` : null,
+      }));
+    } else if (isReativacaoToggleId(disparoId)) {
+      // Régua de reativação — card de UMA coluna: toques do LeadDispatch (agendados =
+      // "a enviar", enviados/falhos da janela). Cancelados/pulados não entram.
+      fonte = 'reativacao';
+      const coluna = disparoId.replace('reativacao_', '');
+      const rows = await this.prisma.leadDispatch.findMany({
+        where: {
+          tenant_id: tenantId,
+          coluna,
+          OR: [
+            { status: { in: ['AGENDADO', 'ENVIANDO'] } },
+            { status: { in: ['ENVIADO', 'FALHOU'] }, updated_at: { gte: since } },
+          ],
+        },
+        orderBy: [{ sent_at: 'desc' }, { agendado_para: 'asc' }],
+        take: LIMIT,
+        select: {
+          status: true, motivo: true, toque: true, sent_at: true, updated_at: true, replied_at: true,
+          lead: { select: { name: true, phone: true } },
+        },
+      });
+      envios = rows.map((r) => ({
+        quando: r.sent_at ?? (r.status === 'FALHOU' ? r.updated_at : null),
+        nome: r.lead?.name || null,
+        telefone: r.lead?.phone || null,
+        status: r.status === 'ENVIADO' ? 'SENT' : r.status === 'FALHOU' ? 'FAILED' : 'A_ENVIAR',
+        erro: r.status === 'FALHOU' ? r.motivo : null,
+        extra: `toque ${r.toque}${r.replied_at ? ' · respondeu' : ''}`,
       }));
     }
 
@@ -902,6 +954,14 @@ export class FollowupService {
         // Agenda do Comercial — 6 toggles (ids = próprios nomes dos disparos).
         if (isComercialAgendaId(which)) {
           const key = comercialAgendaEnabledKey(which, tenantId);
+          const value = String(enabled);
+          await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+          break;
+        }
+        // Régua de reativação de leads — reativacao_leads (Envio) e reativacao_<coluna>.
+        // Mesma key que o worker (planejador/despachante) lê; só 'true' liga.
+        if (isReativacaoToggleId(which)) {
+          const key = reativacaoToggleKey(which, tenantId);
           const value = String(enabled);
           await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
           break;

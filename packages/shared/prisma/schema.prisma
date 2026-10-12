@@ -340,6 +340,13 @@ model Lead {
   lead_honorarios           LeadHonorario[]
   cpf_cnpj                  String? // CPF ou CNPJ — facilita match com Asaas
 
+  // Régua de reativação (follow-up do chip Comercial — packages/shared/src/reativacao-leads.ts)
+  contact_opt_out_at      DateTime? // pediu pra parar: nunca mais entra na régua
+  contact_opt_out_reason  String?
+  whatsapp_invalid_at     DateTime? // número sem WhatsApp (exists:false): sai da régua
+  reactivations           LeadReactivation[]
+  reactivation_dispatches LeadDispatch[]
+
   // Unicidade POR TENANT (Postgres: tenant_id null nao colide — leads orfaos
   // legados convivem; o codigo resolve orfaos por escopo explicito).
   @@unique([tenant_id, phone])
@@ -4517,4 +4524,64 @@ model WaitlistEntry {
   @@index([tenant_id, status, created_at]) // Listagem filtrada por status (FIFO)
   @@index([lead_id, status]) // "tem entrada ativa pra esse lead?"
   @@index([dentist_id, status, preferred_date]) // Match quando vagar slot do dentista
+}
+
+// ─── Régua de reativação de leads (follow-up do chip COMERCIAL) ─────────────
+// Um ciclo por lead+coluna do "Geral — Leads" (novo|conversa|convite|agendado|orcamento),
+// com os toques (LeadDispatch) D0/D+3/D+7/D+14. Ver packages/shared/src/reativacao-leads.ts.
+model LeadReactivation {
+  id           String    @id @default(uuid())
+  tenant_id    String
+  lead_id      String
+  coluna       String
+  // ATIVA|CONCLUIDA|RESPONDEU|AGENDOU|VIROU_PACIENTE|OPT_OUT|SEM_WHATSAPP|MUDOU_ETAPA|HUMANO|CANCELADA
+  status       String    @default("ATIVA")
+  motivo_fim   String?
+  ref_event_id String? // coluna agendado: o NO_SHOW que originou
+  created_at   DateTime  @default(now())
+  ended_at     DateTime?
+
+  lead       Lead           @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  dispatches LeadDispatch[]
+
+  @@index([tenant_id, status])
+  @@index([lead_id, coluna, created_at])
+}
+
+model LeadDispatch {
+  id                   String    @id @default(uuid())
+  tenant_id            String
+  lead_id              String
+  reactivation_id      String
+  coluna               String
+  toque                Int // 1..N (D0, D+3, D+7, D+14)
+  agendado_para        DateTime // instante REAL (UTC), não o naive da agenda
+  // AGENDADO|ENVIANDO|ENVIADO|CANCELADO|PULADO|FALHOU
+  status               String    @default("AGENDADO")
+  motivo               String?
+  texto                String?   @db.Text // escrito pela IA (null = ainda não escrito)
+  texto_gerado_em      DateTime?
+  base_msg_at          DateTime? // última msg real da conversa quando o texto foi escrito
+  dentista_id          String? // orçamentista citada no texto/horários (gravada na conversa ao enviar)
+  instance_name        String?
+  external_message_ids String[]  @default([])
+  claimed_at           DateTime?
+  sent_at              DateTime?
+  replied_at           DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  reactivation LeadReactivation @relation(fields: [reactivation_id], references: [id], onDelete: Cascade)
+  lead         Lead             @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+
+  @@unique([reactivation_id, toque])
+  @@index([tenant_id, status, agendado_para])
+  @@index([lead_id, status])
+}
+
+// Marca-passo POR CHIP (anti-bloqueio), compartilhado entre réplicas do worker.
+model WhatsappChipPacer {
+  instance_name   String   @id
+  next_allowed_at DateTime
+  updated_at      DateTime @updatedAt
 }

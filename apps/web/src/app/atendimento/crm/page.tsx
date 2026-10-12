@@ -23,6 +23,7 @@ import { PostAvaliacaoView } from './PostAvaliacaoView';
 // Onda 5e v33 (Fase 25) — CRM de Fechamento (Kanban pos-consulta)
 import { ClosingKanban } from './ClosingKanban';
 import { PacientesClinicaKanban } from './PacientesClinicaKanban';
+import { ReativacaoPanel } from './ReativacaoPanel';
 
 interface CrmLead {
   id: string;
@@ -1273,6 +1274,8 @@ export default function CrmPage() {
 
   // Analytics panel
   const [showAnalytics, setShowAnalytics] = useState(false);
+  // Gaveta da régua de reativação de leads (Previstos / Enviados ✓)
+  const [showReativacao, setShowReativacao] = useState(false);
 
   // CRM dinâmico (Fase 5) — funis/etapas configuráveis por tenant
   const [pipelines, setPipelines] = useState<PipelineLite[]>([]);
@@ -1932,6 +1935,17 @@ export default function CrmPage() {
                   <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-primary pointer-events-none" />
                 </div>
               )}
+              {/* Régua de reativação (follow-up do chip Comercial) — só pra LEAD:
+                  some na visão "Geral — Clínica" (paciente não entra na régua). */}
+              {!isClinicView && (
+                <button
+                  onClick={() => setShowReativacao(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-accent/50 text-foreground hover:bg-accent transition-colors"
+                  title="Disparos de reativação: previstos e enviados (follow-up do chip Comercial)"
+                >
+                  <Send size={13} /> Disparos
+                </button>
+              )}
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {isClinicView
@@ -2567,6 +2581,11 @@ export default function CrmPage() {
       {/* Analytics panel */}
       {showAnalytics && (
         <CrmAnalyticsPanel leads={leads} onClose={() => setShowAnalytics(false)} />
+      )}
+
+      {/* Régua de reativação de leads (Previstos / Enviados ✓) */}
+      {showReativacao && (
+        <ReativacaoPanel onClose={() => setShowReativacao(false)} />
       )}
 
     </div>
