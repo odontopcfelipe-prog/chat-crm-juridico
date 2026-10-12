@@ -255,12 +255,17 @@ function LeadCard({
   selectionMode,
   funnel,
   lockStage = false,
+  funnels = [],
+  onChangeFunnel,
 }: {
   lead: CrmLead;
   funnel?: { name: string; color: string | null } | null;
   // Geral — Clínica: paciente não se arrasta nem muda de etapa por aqui (sem
   // "Perdido"/"Finalizado" por engano — a etapa dele é automática).
   lockStage?: boolean;
+  // "Mudar de funil" manual (menu ⋮): funis da clínica + ação.
+  funnels?: { id: string; name: string; color: string | null }[];
+  onChangeFunnel?: (pipelineId: string) => void;
   isDragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -365,7 +370,7 @@ function LeadCard({
             <MoreVertical size={13} />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-xl w-48 py-1 text-[12px]">
+            <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-xl w-52 py-1 text-[12px] max-h-[70vh] overflow-y-auto">
               {/* Ações rápidas */}
               <button
                 onClick={(e) => { e.stopPropagation(); onOpen(); setShowMenu(false); }}
@@ -382,6 +387,25 @@ function LeadCard({
                 <Calendar size={12} />
                 <span>Agendar reunião</span>
               </button>
+              )}
+              {!lockStage && onChangeFunnel && funnels.some(f => f.id !== lead.pipeline_id) && (
+                <>
+                  <div className="border-t border-border my-1" />
+                  <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mudar de funil</p>
+                  {funnels.filter(f => f.id !== lead.pipeline_id).map(f => {
+                    const c = f.color && /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#64748b';
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={(e) => { e.stopPropagation(); onChangeFunnel(f.id); setShowMenu(false); }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2"
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                    );
+                  })}
+                </>
               )}
               {!lockStage && <div className="border-t border-border my-1" />}
               {!lockStage && <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mover para etapa</p>}
@@ -1366,8 +1390,11 @@ export default function CrmPage() {
     const seq = ++fetchSeq.current;
     try {
       // Funil geral: sem pipeline_id a API devolve os leads de todos os funis.
-      const params = pipelineParam ? { params: { pipeline_id: pipelineParam } } : undefined;
-      const res = await api.get('/leads', params);
+      // crc=1: a mesma separação das abas do WhatsApp — Leads (Geral — Leads e cada
+      // funil) e Clientes (Geral — Clínica). Contato só do Financeiro não entra.
+      const params: Record<string, string> = { crc: '1' };
+      if (pipelineParam) params.pipeline_id = pipelineParam;
+      const res = await api.get('/leads', { params });
       if (seq !== fetchSeq.current) return;
       const fresh: CrmLead[] = res.data || [];
       setLeads(prev => {
@@ -1581,6 +1608,38 @@ export default function CrmPage() {
 
   // Drop numa coluna do Funil geral: vai pra etapa equivalente DO FUNIL DO PRÓPRIO
   // lead (cada funil tem as suas etapas). Lead sem funil cai no fluxo legado.
+  // "Mudar de funil" (menu do card): o contato vai pra etapa EQUIVALENTE à atual no
+  // funil escolhido (senão a inicial) — o PATCH por stage_id já troca o pipeline.
+  const moveLeadToPipeline = async (leadId: string, pipelineId: string) => {
+    const lead = leads.find(l => l.id === leadId);
+    const pipe = pipelines.find(p => p.id === pipelineId);
+    if (!lead || !pipe) return;
+    const work = pipe.stages
+      .filter(s => !s.is_won && !s.is_lost && !s.is_hidden_from_kanban)
+      .slice()
+      .sort((a, b) => a.position - b.position);
+    const key = leadGeneralKey(lead);
+    const workKey = key === 'ganho' || key === 'perdido' || key === 'fechamento' ? 'novo' : key;
+    const target = nearestStageIn(work, workKey) ?? work.find(s => s.is_initial) ?? work[0];
+    if (!target) { showError(`O funil "${pipe.name}" não tem etapas.`); return; }
+
+    const prev = { stage_id: lead.stage_id ?? null, pipeline_id: lead.pipeline_id ?? null, pipeline: lead.pipeline ?? null };
+    movingLeads.current.add(leadId);
+    setLeads(cur => cur.map(l => l.id === leadId
+      ? { ...l, stage_id: target.id, pipeline_id: pipe.id, pipeline: { id: pipe.id, name: pipe.name, slug: pipe.slug, color: pipe.color }, stage_entered_at: new Date().toISOString() }
+      : l));
+    try {
+      const res = await api.patch(`/leads/${leadId}/stage`, { stage_id: target.id });
+      if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data, pipeline: { id: pipe.id, name: pipe.name, slug: pipe.slug, color: pipe.color } } : l));
+      showSuccess(`Movido para o funil ${pipe.name} (${target.name}).`);
+    } catch {
+      setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...prev } : l));
+      showError('Não foi possível mudar o funil. Tente de novo.');
+    } finally {
+      movingLeads.current.delete(leadId);
+    }
+  };
+
   const moveLeadToGeneralStage = async (leadId: string, key: GeneralStageKey) => {
     const lead = leads.find(l => l.id === leadId);
     if (!lead || leadGeneralKey(lead) === key) return;
@@ -2255,6 +2314,8 @@ export default function CrmPage() {
                               lead={lead}
                               funnel={leadFunnel(lead)}
                               lockStage={isClinicView}
+                              funnels={pipelines.map(p => ({ id: p.id, name: p.name, color: p.color ?? null }))}
+                              onChangeFunnel={(pid) => moveLeadToPipeline(lead.id, pid)}
                               isDragging={draggingId === lead.id}
                               onDragStart={() => setDraggingId(lead.id)}
                               onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}

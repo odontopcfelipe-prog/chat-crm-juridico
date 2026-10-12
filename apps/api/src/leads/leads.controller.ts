@@ -34,10 +34,15 @@ export class LeadsController {
     @Query('search') search?: string,
     @Query('stage') stage?: string,
     @Query('pipeline_id') pipelineId?: string,
+    // CRC: mesma separação das abas Leads/Clientes (sem contato só do Financeiro).
+    @Query('crc') crc?: string,
   ) {
     const p = page ? parseInt(page, 10) : undefined;
     const l = limit ? parseInt(limit, 10) : undefined;
-    return this.leadsService.findAll(req.user?.tenant_id, inboxId, p, l, search, stage, req.user?.id, pipelineId);
+    return this.leadsService.findAll(
+      req.user?.tenant_id, inboxId, p, l, search, stage, req.user?.id, pipelineId,
+      crc === '1' || crc === 'true',
+    );
   }
 
   @Get('check-phone')

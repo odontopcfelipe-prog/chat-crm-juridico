@@ -92,7 +92,7 @@ export class LeadsService {
     ).catch(err => this.logger.warn(`[notifyNewLead] ${lead.id}: ${err}`));
   }
 
-  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string) {
+  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string, crc = false) {
     const baseWhere: any = tenant_id
       ? { OR: [{ tenant_id }, { tenant_id: null }] }
       : {};
@@ -125,6 +125,22 @@ export class LeadsService {
             { email: { contains: s, mode: 'insensitive' } },
           ],
         },
+      ];
+    }
+
+    // CRC (crc=1): mesma separação das abas do WhatsApp — Leads/Clientes não mostram
+    // a conversa do Financeiro. Contato que só tem conversa no FINANCEIRO (cobrança)
+    // não entra em funil nenhum; quem não tem conversa (lead manual) continua.
+    if (crc) {
+      const notOnlyFinanceiro = {
+        OR: [
+          { conversations: { none: {} } },
+          { conversations: { some: { NOT: { inbox: { purpose: 'FINANCEIRO' } } } } },
+        ],
+      };
+      baseWhere.AND = [
+        ...(Array.isArray(baseWhere.AND) ? baseWhere.AND : baseWhere.AND ? [baseWhere.AND] : []),
+        notOnlyFinanceiro,
       ];
     }
 
@@ -188,7 +204,9 @@ export class LeadsService {
         select: { id: true, name: true, slug: true, color: true },
       },
       conversations: {
-        where: inbox_id ? { inbox_id } : undefined,
+        // No CRC o card mostra/abre a conversa do Comercial/Clínica (nunca a do Financeiro
+        // nem o resíduo vazio ENCERRADO do dedup — igual às abas do WhatsApp).
+        where: inbox_id ? { inbox_id } : crc ? { status: { not: 'ENCERRADO' }, NOT: { inbox: { purpose: 'FINANCEIRO' } } } : undefined,
         orderBy: { last_message_at: 'desc' as const },
         take: 1,
         include: {
