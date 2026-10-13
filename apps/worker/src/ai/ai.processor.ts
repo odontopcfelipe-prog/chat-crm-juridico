@@ -40,6 +40,15 @@ import {
 import { loadClinicAiContext, isChipAiEnabledForClinic, type ClinicAiContext } from './clinic-ai-context';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
+import {
+  NO_AUTOMATION_SIGNALS,
+  chatTurnPrefix,
+  classifyHistorySender,
+  historyTextLabel,
+  loadAutomationSignals,
+  stripHistoryLabels,
+  type AutomationSignals,
+} from './history-sender';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -1551,21 +1560,30 @@ export class AiProcessor extends WorkerHost {
         this.logger.log(`[AI-RETRY] conv ${conversation_id}: rodando a 2ª tentativa de agendamento`);
       }
 
-      // 7. Montar histórico com rótulos (Cliente / <assistente> / Operador)
+      // 7. Montar histórico com rótulos (Cliente / <assistente> / Mensagem automática / Operador)
       // Invertemos o array (que veio desc) para ordem cronológica correta
       const chronological = [...convo.messages].reverse();
       // Tamanho das respostas: 'auto' = espelha o jeito do paciente (mensagens curtas
       // x textão); 'curta'/'media'/'longa' = escolha da clínica no perfil do chip.
       const replyStyle = resolveReplyStyle(aiProfile.replyLength, chronological as any[]);
       const patientStyle = replyStyle.style;
+      // Quem escreveu cada 'out' (IA / disparo automático / operador humano) — ver
+      // history-sender.ts. Falhou a consulta = tudo que não é da IA fica "Operador".
+      let automationSignals: AutomationSignals = NO_AUTOMATION_SIGNALS;
+      if (!dryRun) {
+        try {
+          automationSignals = await loadAutomationSignals(this.prisma, {
+            tenantId: profileTenantId,
+            lead: convo.lead ? { id: convo.lead.id, phone: convo.lead.phone } : null,
+            messages: chronological as any[],
+          });
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao carregar envios automáticos da conversa ${convo.id}: ${e.message}`);
+        }
+      }
       const historyText = chronological
         .map((m: any) => {
-          const sender =
-            m.direction === 'in'
-              ? 'Cliente'
-              : m.external_message_id?.startsWith('sys_')
-                ? assistantName
-                : 'Operador';
+          const sender = historyTextLabel(classifyHistorySender(m, automationSignals), assistantName);
           // Indica tipo de mídia quando não há texto
           const content =
             m.text ||
@@ -2471,8 +2489,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               : (m as any).type === 'document'
                 ? '[documento enviado]'
                 : '[mídia]');
-        const isOperator = !isClient && !(m as any).external_message_id?.startsWith('sys_');
-        const finalContent = isOperator ? `[Operador Humano]: ${content}` : content;
+        // Resposta da própria IA vai sem rótulo; operador humano e disparo automático
+        // vão rotulados (history-sender.ts).
+        const finalContent = chatTurnPrefix(classifyHistorySender(m as any, automationSignals)) + content;
         // Mesclar mensagens de texto consecutivas do mesmo remetente
         const last = chatTurns[chatTurns.length - 1];
         if (last && last.role === role && typeof last.content === 'string') {
@@ -2818,7 +2837,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       if (dryRun) {
         const handoff = skill?.handoff_signal;
         const willHandoff = !!handoff && aiText.includes(handoff);
-        const reply = tidyReply(willHandoff ? aiText.split(handoff).join('') : aiText);
+        const reply = tidyReply(stripHistoryLabels(willHandoff ? aiText.split(handoff).join('') : aiText));
         // Funil/etapa em que ela lançaria o contato no CRC (nada é gravado no teste).
         let funnel: { pipeline: string | null; stage: string | null } | null = null;
         try {
@@ -3265,7 +3284,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // clínica não quer esse traço no WhatsApp. Troca por vírgula (leitura natural em
       // pt-BR) e limpa pontuação/espaço dobrados. NÃO mexe no hífen comum "-" (bem-estar,
       // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
-      finalText = tidyReply(finalText);
+      // Também tira rótulo de turno copiado do histórico ("[Operador Humano]: …").
+      finalText = tidyReply(stripHistoryLabels(finalText));
 
       // Assinatura "*<Nome>:*" em negrito no WhatsApp (salva sem assinatura no DB).
       // Nome e liga/desliga vêm do perfil do chip desta clínica (Ajustes › IA).
