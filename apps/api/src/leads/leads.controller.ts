@@ -36,12 +36,15 @@ export class LeadsController {
     @Query('pipeline_id') pipelineId?: string,
     // CRC: mesma separação das abas Leads/Clientes (sem contato só do Financeiro).
     @Query('crc') crc?: string,
+    // CRC, coluna "Perdidos": só os leads perdidos (is_client=false), mais recentes primeiro.
+    @Query('lost') lost?: string,
   ) {
     const p = page ? parseInt(page, 10) : undefined;
     const l = limit ? parseInt(limit, 10) : undefined;
     return this.leadsService.findAll(
       req.user?.tenant_id, inboxId, p, l, search, stage, req.user?.id, pipelineId,
       crc === '1' || crc === 'true',
+      lost === '1' || lost === 'true',
     );
   }
 

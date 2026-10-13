@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { Prisma, Lead } from '@crm/shared';
+import { Prisma, Lead, generalStageFromLegacy, nearestStageIn } from '@crm/shared';
 import { AutomationsService } from '../automations/automations.service';
 import { FollowupService } from '../followup/followup.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
@@ -92,7 +92,7 @@ export class LeadsService {
     ).catch(err => this.logger.warn(`[notifyNewLead] ${lead.id}: ${err}`));
   }
 
-  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string, crc = false) {
+  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string, crc = false, lost = false) {
     const baseWhere: any = tenant_id
       ? { OR: [{ tenant_id }, { tenant_id: null }] }
       : {};
@@ -108,7 +108,12 @@ export class LeadsService {
     //  - stage=PERDIDO  → busca arquivados
     //  - stage=<outro>  → filtra pelo stage específico
     //  - sem stage      → exclui PERDIDO (visão ativa, paginação correta)
-    if (stage) {
+    //  - lost=1         → coluna "Perdidos" do CRC: só PERDIDO de quem ainda é lead
+    //                     (a lista ativa continua sem eles; o front busca à parte, paginado)
+    if (lost) {
+      baseWhere.stage = 'PERDIDO';
+      baseWhere.is_client = false;
+    } else if (stage) {
       baseWhere.stage = stage;
     } else {
       baseWhere.stage = { not: 'PERDIDO' };
@@ -226,12 +231,18 @@ export class LeadsService {
       },
     };
 
+    // Perdidos: os perdidos mais RECENTES primeiro (stage_entered_at = quando foi
+    // marcado perdido) — a coluna pagina por aí ("Mostrar mais").
+    const orderBy: Prisma.LeadOrderByWithRelationInput[] = lost
+      ? [{ stage_entered_at: 'desc' }, { id: 'desc' }]
+      : [{ created_at: 'desc' }];
+
     if (page && limit) {
       const [data, total] = await this.prisma.$transaction([
         this.prisma.lead.findMany({
           where,
           include: includeOpts,
-          orderBy: { created_at: 'desc' },
+          orderBy,
           skip: (page - 1) * limit,
           take: limit,
         }),
@@ -243,7 +254,7 @@ export class LeadsService {
     return this.prisma.lead.findMany({
       where,
       include: includeOpts,
-      orderBy: { created_at: 'desc' },
+      orderBy,
     }) as any;
   }
 
@@ -760,6 +771,27 @@ export class LeadsService {
     return st?.id;
   }
 
+  /**
+   * Etapa de trabalho do funil equivalente ao stage legado, quando o lead está na
+   * etapa [perdido] e o legado não tem par direto (resolveStageIdFromLegacy falhou).
+   * undefined = não mexe (não está em [perdido], ou o legado não é de trabalho).
+   */
+  private async workStageLeavingLost(pipelineId: string, currentStageId: string, legacy: string): Promise<string | undefined> {
+    const stages = await this.prisma.pipelineStage.findMany({
+      where: { pipeline_id: pipelineId },
+      orderBy: { position: 'asc' },
+    });
+    const current = stages.find(s => s.id === currentStageId);
+    if (!current?.is_lost) return undefined;
+    const key = generalStageFromLegacy(legacy);
+    if (key === 'ganho' || key === 'perdido' || key === 'fechamento') return undefined;
+    const target =
+      nearestStageIn(stages, key, { workOnly: true }) ??
+      stages.find(s => s.is_initial) ??
+      null;
+    return target?.id;
+  }
+
   async updateStatus(
     id: string,
     stageArg: string | undefined,
@@ -800,10 +832,16 @@ export class LeadsService {
       // tenta achar o stage_id correspondente a essa string legada.
       const leadPipe = await this.prisma.lead.findUnique({
         where: { id },
-        select: { pipeline_id: true },
+        select: { pipeline_id: true, stage_id: true },
       });
       if (leadPipe?.pipeline_id) {
         stageId = await this.resolveStageIdFromLegacy(leadPipe.pipeline_id, stage);
+        // Reativando um PERDIDO por um stage legado sem par no funil (ex.: "Qualificando"
+        // num funil sem a etapa 'qualificando'): o stage_id ficava na etapa [perdido] e
+        // o funil/IA seguiam vendo o lead como perdido. Vai pra etapa de trabalho equivalente.
+        if (!stageId && leadPipe.stage_id && stage.toUpperCase() !== 'PERDIDO') {
+          stageId = await this.workStageLeavingLost(leadPipe.pipeline_id, leadPipe.stage_id, stage);
+        }
         if (stageId) {
           const st = await (this.prisma as any).pipelineStage.findUnique({
             where: { id: stageId },
@@ -859,6 +897,9 @@ export class LeadsService {
         ...(stageId ? { stage_id: stageId } : {}),
         ...(resolvedPipelineId ? { pipeline_id: resolvedPipelineId } : {}),
         ...(stage === 'PERDIDO' && lossReason ? { loss_reason: lossReason } : {}),
+        // Saiu de PERDIDO (reativado no CRC): o motivo antigo não vale mais — fica só
+        // no histórico (LeadStageHistory). Mesmo que o webhook faz quando o lead volta a falar.
+        ...(stage !== 'PERDIDO' && current?.stage === 'PERDIDO' ? { loss_reason: null } : {}),
         // Marcar como cliente ao FINALIZAR
         ...(stage === 'FINALIZADO' ? {
           is_client: true,

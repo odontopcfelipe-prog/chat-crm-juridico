@@ -32,6 +32,7 @@ interface CrmLead {
   email: string | null;
   stage: string;
   stage_entered_at: string;
+  updated_at?: string;
   loss_reason: string | null;
   // true = já é paciente (compareceu ou pagou) → não aparece no CRC (Comercial).
   is_client?: boolean;
@@ -107,6 +108,19 @@ const ALL_PIPELINES = '__all__';
 const ALL_CLINIC = '__all_clinic__';
 /** Cards renderizados por coluna antes do "Mostrar mais" (a Clínica junta milhares). */
 const COLUMN_PAGE = 100;
+/** Coluna "Perdidos" (a última) — Geral — Leads e cada funil; nunca no Geral — Clínica. */
+const LOST_COLUMN = '__perdidos__';
+const LOST_COLOR = '#ef4444';
+
+/**
+ * Lead perdido = `Lead.stage` legado PERDIDO. A API, a IA e o arrastar gravam o
+ * legado junto com a etapa [perdido] do funil. Etapa [perdido] com legado de
+ * trabalho = lead reativado só pelo legado (voltou a falar no WhatsApp, "Mover
+ * para etapa" sem par no funil) → NÃO é perdido; vale o legado.
+ */
+function isLostLead(l: { stage: string | null | undefined }): boolean {
+  return normalizeStage(l.stage) === 'PERDIDO';
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -389,7 +403,9 @@ function LeadCard({
                 <span>Agendar reunião</span>
               </button>
               )}
-              {!lockStage && onChangeFunnel && funnels.some(f => f.id !== lead.pipeline_id) && (
+              {/* Perdido não troca de funil pelo menu: isso o reativaria (etapa inicial do
+                  funil novo) e apagaria o motivo — pra reativar, arraste pra uma coluna. */}
+              {!lockStage && onChangeFunnel && normalizedStage !== 'PERDIDO' && funnels.some(f => f.id !== lead.pipeline_id) && (
                 <>
                   <div className="border-t border-border my-1" />
                   <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mudar de funil</p>
@@ -510,7 +526,17 @@ function LeadCard({
               {score}
             </span>
           )}
-          {days > 0 && (
+          {normalizedStage === 'PERDIDO' ? (
+            // Coluna Perdidos: há quanto tempo foi perdido (stage_entered_at = quando virou PERDIDO).
+            lead.stage_entered_at && (
+              <span
+                className="text-[10px] font-semibold text-red-400"
+                title={`Perdido em ${new Date(lead.stage_entered_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}`}
+              >
+                perdido {timeAgo(lead.stage_entered_at)}
+              </span>
+            )
+          ) : days > 0 && (
             <span className={`text-[10px] font-bold ${agingColor(days)}`} title={`${days} dia(s) neste estágio`}>
               {days}d
             </span>
@@ -1244,7 +1270,9 @@ export default function CrmPage() {
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [dragOverPerdido, setDragOverPerdido] = useState(false);
   const [dragOverFinalizado, setDragOverFinalizado] = useState(false);
-  const [previousStageMap, setPreviousStageMap] = useState<Record<string, string>>({});
+  // Rollback usa o stage capturado no próprio move (o mapa no closure era velho e
+  // devolvia 'INICIAL' — um perdido barrado ia parar em "Novo contato").
+  const [, setPreviousStageMap] = useState<Record<string, string>>({});
   const [attendingLeadId, setAttendingLeadId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -1287,17 +1315,38 @@ export default function CrmPage() {
   // "Funil geral": todos os funis numa visão só, com colunas comuns (pipeline-general.ts).
   const isClinicView = selectedPipelineId === ALL_CLINIC;
   const isGeneralView = selectedPipelineId === ALL_PIPELINES || isClinicView;
+  // Coluna "Perdidos": não aparece no Geral — Clínica (paciente não é lead perdido).
+  const showLostColumn = !isClinicView;
   // Cards visíveis por coluna ("Mostrar mais"); zera ao trocar de funil.
   const [columnLimit, setColumnLimit] = useState<Record<string, number>>({});
+
+  // Perdidos vêm de uma busca À PARTE (a lista principal da API exclui PERDIDO):
+  // paginada no servidor, mais recentes primeiro — centenas/milhares de perdidos não
+  // pesam no quadro nem empurram lead ativo pra fora. O quadro = ativos ∪ perdidos.
+  const activeRef = useRef<CrmLead[]>([]);
+  const lostRef = useRef<CrmLead[]>([]);
+  const lostQuery = useRef<{ limit: number; search: string }>({ limit: COLUMN_PAGE, search: '' });
+  const lostSeq = useRef(0);
+  const [lostMeta, setLostMeta] = useState<{ total: number; loaded: number }>({ total: 0, loaded: 0 });
+  const [lostLoadingMore, setLostLoadingMore] = useState(false);
+
   // Trocou de funil/visão → zera o "Mostrar mais" e a seleção (senão o "Mover" em
   // massa agia em cards que não estão na tela).
-  useEffect(() => { setColumnLimit({}); setSelectedLeads(new Set()); }, [selectedPipelineId]);
+  useEffect(() => {
+    setColumnLimit({});
+    setSelectedLeads(new Set());
+    lostQuery.current = { ...lostQuery.current, limit: COLUMN_PAGE };
+  }, [selectedPipelineId]);
   const stagesById = new Map<string, { stage: PipelineStageLite; pipeline: PipelineLite }>();
   for (const p of pipelines) for (const s of p.stages) stagesById.set(s.id, { stage: s, pipeline: p });
 
   // Coluna do Funil geral em que o lead cai.
   const leadGeneralKey = (l: CrmLead): GeneralStageKey => {
     const hit = l.stage_id ? stagesById.get(l.stage_id) : undefined;
+    // Etapa [perdido] sem o lead estar perdido (reativado só pelo legado — ver
+    // isLostLead): vale o stage legado, senão o card reativado sumia do quadro.
+    const stage = hit?.stage ?? l.current_stage ?? null;
+    if (stage?.is_lost && !isLostLead(l)) return generalStageFromLegacy(l.stage);
     if (hit) return generalStageOf(hit.stage, hit.pipeline.stages);
     if (l.current_stage) return generalStageOf(l.current_stage);
     return generalStageFromLegacy(l.stage);
@@ -1385,6 +1434,76 @@ export default function CrmPage() {
     ? selectedPipelineId
     : null;
 
+  // Quadro = ativos ∪ perdidos (o ativo vence se vier nos dois). Preserva o estado
+  // otimista de leads em trânsito (race entre o PATCH e o auto-refresh) — inclusive
+  // o que acabou de mudar de lado (perdido ↔ ativo) e ainda não veio em nenhuma busca.
+  const publishLeads = useCallback(() => {
+    setLeads(prev => {
+      const active = activeRef.current;
+      const activeIds = new Set(active.map(l => l.id));
+      const merged = [...active, ...lostRef.current.filter(l => !activeIds.has(l.id))];
+      if (movingLeads.current.size === 0) return merged;
+      const out = merged.map(l =>
+        movingLeads.current.has(l.id) ? (prev.find(p => p.id === l.id) ?? l) : l
+      );
+      for (const id of movingLeads.current) {
+        if (out.some(l => l.id === id)) continue;
+        const p = prev.find(x => x.id === id);
+        if (p) out.push(p);
+      }
+      return out;
+    });
+  }, []);
+
+  // Perdidos (coluna "Perdidos"): página 1 até `limit`, mais recentes primeiro; a
+  // busca por nome/telefone vai pro servidor (acha perdido antigo fora da página).
+  // Não publica — quem chama publica. false = resposta velha/erro (nada mudou).
+  const fetchLost = useCallback(async (): Promise<boolean> => {
+    const seq = ++lostSeq.current;
+    // Geral — Clínica não tem coluna Perdidos: nem busca (1 query + count a cada refresh).
+    if (!showLostColumn) {
+      lostRef.current = [];
+      setLostMeta({ total: 0, loaded: 0 });
+      return true;
+    }
+    const { limit, search } = lostQuery.current;
+    const params: Record<string, string> = { crc: '1', lost: '1', page: '1', limit: String(limit) };
+    if (pipelineParam) params.pipeline_id = pipelineParam;
+    if (search) params.search = search;
+    try {
+      const res = await api.get('/leads', { params });
+      if (seq !== lostSeq.current) return false;
+      const body = res.data ?? {};
+      const rows: CrmLead[] = (Array.isArray(body) ? body : body.data ?? []).filter(isLostLead);
+      lostRef.current = rows;
+      setLostMeta({ total: typeof body.total === 'number' ? body.total : rows.length, loaded: rows.length });
+      return true;
+    } catch {
+      // A coluna Perdidos é extra: falha aqui não derruba o quadro (tenta no próximo refresh).
+      return false;
+    }
+  }, [pipelineParam, showLostColumn]);
+
+  const refreshLost = useCallback(async () => {
+    if (await fetchLost()) publishLeads();
+  }, [fetchLost, publishLeads]);
+
+  // Depois de um PATCH de etapa: o lead vai pro "retrato" certo (ativos × perdidos).
+  // Sem isso, uma busca de um lado só (ex.: "Mostrar mais" dos perdidos) fazia o card
+  // recém-perdido/reativado sumir até a busca do outro lado.
+  const settleLead = useCallback((lead: CrmLead) => {
+    const wasLost = lostRef.current.some(l => l.id === lead.id);
+    activeRef.current = activeRef.current.filter(l => l.id !== lead.id);
+    lostRef.current = lostRef.current.filter(l => l.id !== lead.id);
+    if (isLostLead(lead)) {
+      lostRef.current = [lead, ...lostRef.current];
+      if (!wasLost && !lead.is_client) setLostMeta(m => ({ total: m.total + 1, loaded: lostRef.current.length }));
+    } else {
+      activeRef.current = [lead, ...activeRef.current];
+      if (wasLost) setLostMeta(m => ({ total: Math.max(0, m.total - 1), loaded: lostRef.current.length }));
+    }
+  }, []);
+
   const fetchLeads = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
@@ -1397,19 +1516,11 @@ export default function CrmPage() {
       // funil) e Clientes (Geral — Clínica). Contato só do Financeiro não entra.
       const params: Record<string, string> = { crc: '1' };
       if (pipelineParam) params.pipeline_id = pipelineParam;
-      const res = await api.get('/leads', { params });
+      // Ativos (lista inteira, como sempre) + perdidos (paginado) em paralelo.
+      const [res] = await Promise.all([api.get('/leads', { params }), fetchLost()]);
       if (seq !== fetchSeq.current) return;
-      const fresh: CrmLead[] = res.data || [];
-      setLeads(prev => {
-        // No refresh silencioso, preserva o estado otimista de leads em trânsito
-        // para evitar race condition entre o PATCH e o auto-refresh
-        if (silent && movingLeads.current.size > 0) {
-          return fresh.map(l =>
-            movingLeads.current.has(l.id) ? (prev.find(p => p.id === l.id) ?? l) : l
-          );
-        }
-        return fresh;
-      });
+      activeRef.current = res.data || [];
+      publishLeads();
       setLoadError(false);
     } catch {
       if (seq !== fetchSeq.current) return;
@@ -1421,7 +1532,7 @@ export default function CrmPage() {
         setRefreshing(false);
       }
     }
-  }, [pipelineParam]);
+  }, [pipelineParam, fetchLost, publishLeads]);
 
   // Carrega os funis configurados e garante um selectedPipelineId válido.
   useEffect(() => {
@@ -1466,6 +1577,29 @@ export default function CrmPage() {
       window.removeEventListener('auth:logout', onLogout);
     };
   }, [router, fetchLeads]);
+
+  // Busca por nome/telefone também nos perdidos do SERVIDOR (os carregados são só a
+  // 1ª página) — com debounce, sem recarregar a lista de ativos.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q === lostQuery.current.search) return;
+    const t = setTimeout(() => {
+      lostQuery.current = { ...lostQuery.current, search: q };
+      refreshLost();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchQuery, refreshLost]);
+
+  // "Mostrar mais" da coluna Perdidos: mostra a próxima página e, se o servidor tem
+  // mais do que o carregado, busca mais (page 1 até o novo limite — sem buraco).
+  const showMoreLost = async () => {
+    const next = (columnLimit[LOST_COLUMN] ?? COLUMN_PAGE) + COLUMN_PAGE;
+    setColumnLimit(m => ({ ...m, [LOST_COLUMN]: next }));
+    if (lostMeta.total <= lostMeta.loaded) return;
+    lostQuery.current = { ...lostQuery.current, limit: Math.max(lostQuery.current.limit, next) };
+    setLostLoadingMore(true);
+    try { await refreshLost(); } finally { setLostLoadingMore(false); }
+  };
 
   // Socket: atualiza o CRM em tempo real quando há novos leads/mensagens
   useEffect(() => {
@@ -1545,8 +1679,10 @@ export default function CrmPage() {
       return;
     }
 
-    // Se for PERDIDO, abrir modal de motivo
+    // Se for PERDIDO, abrir modal de motivo (coluna Perdidos e a zona flutuante caem
+    // aqui). Já perdido → nada (soltar de novo em Perdidos não pede motivo outra vez).
     if (newStage === 'PERDIDO') {
+      if (isLostLead(lead)) return;
       setLossModal({ leadId, leadName: lead.name || 'Sem nome' });
       setLossReason('');
       return;
@@ -1563,17 +1699,20 @@ export default function CrmPage() {
     // Marca como em trânsito para proteger do auto-refresh
     movingLeads.current.add(leadId);
     // Atualização otimista imediata
-    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: newStage, stage_entered_at: new Date().toISOString() } : l));
+    const optimistic = { ...lead, stage: newStage, stage_entered_at: new Date().toISOString() };
+    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: optimistic.stage, stage_entered_at: optimistic.stage_entered_at } : l));
     try {
       const res = await api.patch(`/leads/${leadId}/stage`, { stage: newStage });
       // Confirma com dados autoritativos do servidor
       if (res.data) {
         setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data } : l));
       }
+      // Saiu de Perdidos (reativado) → vai pro retrato dos ativos.
+      settleLead({ ...optimistic, ...(res.data ?? {}) });
     } catch {
-      // Rollback
+      // Rollback (volta pro stage de antes — um perdido reativado volta pra Perdidos)
       setLeads(cur => cur.map(l =>
-        l.id === leadId ? { ...l, stage: previousStageMap[leadId] ?? 'INICIAL' } : l
+        l.id === leadId ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead.stage_entered_at } : l
       ));
       showError('Erro ao mover lead. Tente novamente.');
     } finally {
@@ -1594,15 +1733,26 @@ export default function CrmPage() {
     const prevStage = lead.stage;
     setPreviousStageMap(m => ({ ...m, [leadId]: prevStage ?? 'INICIAL' }));
     movingLeads.current.add(leadId);
+    // Perdido arrastado pra uma etapa = reativado: o legado deixa de ser PERDIDO já no
+    // otimista (a API grava o legado da etapa — INICIAL/QUALIFICANDO/...).
+    const optimistic = {
+      ...lead,
+      stage_id: pipelineStage.id,
+      stage: isLostLead(lead) ? (pipelineStage.is_initial ? 'INICIAL' : 'QUALIFICANDO') : lead.stage,
+      stage_entered_at: new Date().toISOString(),
+    };
     setLeads(cur => cur.map(l => l.id === leadId
-      ? { ...l, stage_id: pipelineStage.id, stage_entered_at: new Date().toISOString() }
+      ? { ...l, stage_id: optimistic.stage_id, stage: optimistic.stage, stage_entered_at: optimistic.stage_entered_at }
       : l,
     ));
     try {
       const res = await api.patch(`/leads/${leadId}/stage`, { stage_id: pipelineStage.id });
       if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data } : l));
+      settleLead({ ...optimistic, ...(res.data ?? {}) });
     } catch {
-      setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage_id: prevStageId } : l));
+      setLeads(cur => cur.map(l => l.id === leadId
+        ? { ...l, stage_id: prevStageId, stage: prevStage, stage_entered_at: lead.stage_entered_at }
+        : l));
       showError('Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
@@ -1621,19 +1771,30 @@ export default function CrmPage() {
       .filter(s => !s.is_won && !s.is_lost && !s.is_hidden_from_kanban)
       .slice()
       .sort((a, b) => a.position - b.position);
-    const key = leadGeneralKey(lead);
+    // Perdido mudado de funil = reativado na etapa inicial do funil novo.
+    const key = isLostLead(lead) ? 'perdido' : leadGeneralKey(lead);
     const workKey = key === 'ganho' || key === 'perdido' || key === 'fechamento' ? 'novo' : key;
     const target = nearestStageIn(work, workKey) ?? work.find(s => s.is_initial) ?? work[0];
     if (!target) { showError(`O funil "${pipe.name}" não tem etapas.`); return; }
 
-    const prev = { stage_id: lead.stage_id ?? null, pipeline_id: lead.pipeline_id ?? null, pipeline: lead.pipeline ?? null };
+    const prev = { stage_id: lead.stage_id ?? null, pipeline_id: lead.pipeline_id ?? null, pipeline: lead.pipeline ?? null, stage: lead.stage, stage_entered_at: lead.stage_entered_at };
+    const pipeInfo = { id: pipe.id, name: pipe.name, slug: pipe.slug, color: pipe.color };
+    const optimistic = {
+      ...lead,
+      stage_id: target.id,
+      pipeline_id: pipe.id,
+      pipeline: pipeInfo,
+      stage: isLostLead(lead) ? (target.is_initial ? 'INICIAL' : 'QUALIFICANDO') : lead.stage,
+      stage_entered_at: new Date().toISOString(),
+    };
     movingLeads.current.add(leadId);
     setLeads(cur => cur.map(l => l.id === leadId
-      ? { ...l, stage_id: target.id, pipeline_id: pipe.id, pipeline: { id: pipe.id, name: pipe.name, slug: pipe.slug, color: pipe.color }, stage_entered_at: new Date().toISOString() }
+      ? { ...l, stage_id: optimistic.stage_id, pipeline_id: optimistic.pipeline_id, pipeline: pipeInfo, stage: optimistic.stage, stage_entered_at: optimistic.stage_entered_at }
       : l));
     try {
       const res = await api.patch(`/leads/${leadId}/stage`, { stage_id: target.id });
-      if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data, pipeline: { id: pipe.id, name: pipe.name, slug: pipe.slug, color: pipe.color } } : l));
+      if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data, pipeline: pipeInfo } : l));
+      settleLead({ ...optimistic, ...(res.data ?? {}), pipeline: pipeInfo });
       showSuccess(`Movido para o funil ${pipe.name} (${target.name}).`);
     } catch {
       setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...prev } : l));
@@ -1645,7 +1806,8 @@ export default function CrmPage() {
 
   const moveLeadToGeneralStage = async (leadId: string, key: GeneralStageKey) => {
     const lead = leads.find(l => l.id === leadId);
-    if (!lead || leadGeneralKey(lead) === key) return;
+    // Perdido solto em qualquer coluna = reativar, mesmo que o stage_id já "caia" nela.
+    if (!lead || (!isLostLead(lead) && leadGeneralKey(lead) === key)) return;
     const label = GENERAL_STAGES.find(g => g.key === key)?.label ?? key;
     const pipe = pipelines.find(p => p.id === lead.pipeline_id);
     if (!pipe) {
@@ -1673,18 +1835,24 @@ export default function CrmPage() {
     const { leadId } = lossModal;
     const lead = leads.find(l => l.id === leadId);
     const prev = lead?.stage;
+    const reason = lossReason.trim();
+    const lostAt = new Date().toISOString();
     setPreviousStageMap(m => ({ ...m, [leadId]: prev ?? 'INICIAL' }));
     movingLeads.current.add(leadId);
-    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: 'PERDIDO', stage_entered_at: new Date().toISOString() } : l));
+    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: 'PERDIDO', stage_entered_at: lostAt, loss_reason: reason } : l));
     setLossModal(null);
     try {
-      const res = await api.patch(`/leads/${leadId}/stage`, { stage: 'PERDIDO', loss_reason: lossReason.trim() });
+      const res = await api.patch(`/leads/${leadId}/stage`, { stage: 'PERDIDO', loss_reason: reason });
       if (res.data) {
         setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data } : l));
       }
+      // Vai pro retrato dos perdidos (a próxima busca de ativos já não traz ele).
+      if (lead) settleLead({ ...lead, stage: 'PERDIDO', stage_entered_at: lostAt, loss_reason: reason, ...(res.data ?? {}) });
     } catch {
       setLeads(cur => cur.map(l =>
-        l.id === leadId ? { ...l, stage: previousStageMap[leadId] ?? 'INICIAL' } : l
+        l.id === leadId
+          ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead?.stage_entered_at ?? l.stage_entered_at, loss_reason: lead?.loss_reason ?? null }
+          : l
       ));
       showError('Erro ao mover lead. Tente novamente.');
     } finally {
@@ -1703,12 +1871,15 @@ export default function CrmPage() {
     const prev = lead.stage;
     setPreviousStageMap(m => ({ ...m, [leadId]: prev ?? 'INICIAL' }));
     movingLeads.current.add(leadId);
-    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: 'FINALIZADO', stage_entered_at: new Date().toISOString() } : l));
+    const finalizedAt = new Date().toISOString();
+    setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: 'FINALIZADO', stage_entered_at: finalizedAt } : l));
     try {
       const res = await api.patch(`/leads/${leadId}/stage`, { stage: 'FINALIZADO' });
       if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data } : l));
+      settleLead({ ...lead, stage: 'FINALIZADO', stage_entered_at: finalizedAt, ...(res.data ?? {}) });
     } catch {
-      setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: previousStageMap[leadId] ?? 'INICIAL' } : l));
+      // Volta pro stage de antes (perdido barrado pelo guard volta pra Perdidos, não pra "Novo").
+      setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead.stage_entered_at } : l));
       showError('Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
@@ -1746,6 +1917,9 @@ export default function CrmPage() {
       await Promise.all(ids.map(id => api.patch(`/leads/${id}/stage`, { stage: bulkTargetStage })));
       showSuccess(`${ids.length} lead(s) movidos para ${findStage(bulkTargetStage)?.label ?? bulkTargetStage}.`);
       clearSelection();
+      // Rebusca sempre: o quadro é remontado de activeRef/lostRef (busca/"Mostrar mais"
+      // dos perdidos) — sem isso os cards movidos voltavam pra coluna antiga.
+      fetchLeads(true);
     } catch {
       // Rollback parcial — rebusca do servidor
       fetchLeads(true);
@@ -1772,18 +1946,20 @@ export default function CrmPage() {
     router.push('/atendimento');
   };
 
-  // Coletar valores únicos para filtros
+  // Coletar valores únicos para filtros — só dos ATIVOS (opção que só existe em
+  // perdido deixaria as colunas de trabalho vazias ao ser escolhida).
+  const filterSource = leads.filter(l => !isLostLead(l));
   const allAreas = [...new Set(
-    leads.flatMap(l => l.conversations?.map(c => c.specialty).filter(Boolean) ?? [])
+    filterSource.flatMap(l => l.conversations?.map(c => c.specialty).filter(Boolean) ?? [])
   )].sort() as string[];
 
   const allDentists = [...new Map(
-    leads.flatMap(l => l.conversations?.map(c => c.assigned_dentist).filter(Boolean) ?? [])
+    filterSource.flatMap(l => l.conversations?.map(c => c.assigned_dentist).filter(Boolean) ?? [])
       .map(dentist => [dentist!.id, dentist!])
   ).values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const allTags = [...new Set(
-    leads.flatMap(l => l.tags ?? [])
+    filterSource.flatMap(l => l.tags ?? [])
   )].sort();
 
   const activeFilterCount = [areaFilter, dentistFilter, tagFilter, agingFilter].filter(Boolean).length;
@@ -1851,14 +2027,19 @@ export default function CrmPage() {
     // Só leads DESTE funil (a API filtra; isto protege contra resposta atrasada
     // do Funil geral/outro funil ainda em voo na troca do seletor).
     if (l.pipeline_id !== selectedPipeline.id) return null;
-    if (l.stage_id) {
+    // Perdido de verdade (legado PERDIDO) já foi pra coluna Perdidos (columnOf). Aqui a
+    // etapa [perdido] do funil só aparece "velha" — lead reativado só pelo legado — e
+    // aí vale o legado (senão o card reativado sumia do quadro).
+    const ownStage = l.stage_id ? selectedPipeline.stages.find(s => s.id === l.stage_id) : undefined;
+    const staleLost = !!ownStage?.is_lost;
+    if (l.stage_id && !staleLost) {
       if (selectedWorkStages.some(s => s.id === l.stage_id)) return l.stage_id;
-      // Ganho/perdido/oculta do próprio funil: fora do kanban (como sempre).
-      if (selectedPipeline.stages.some(s => s.id === l.stage_id)) return null;
+      // Ganho/oculta do próprio funil: fora do kanban (como sempre).
+      if (ownStage) return null;
     }
     const key = leadGeneralKey(l);
     if (key === 'ganho' || key === 'perdido' || key === 'fechamento') return null;
-    if (!l.stage_id) {
+    if (!l.stage_id || staleLost) {
       // Lead ainda não migrado (stage_id NULL): casa pelo stage legado.
       const legacy = normalizeStage(l.stage);
       const bySlug = selectedWorkStages.find(s => slugToLegacyStage(s.slug) === legacy);
@@ -1872,16 +2053,28 @@ export default function CrmPage() {
     return eq?.id ?? null;
   };
 
-  // Funil geral: chave = GeneralStageKey. Funil selecionado: UUID da PipelineStage.
-  // Modo legado (sem funis): id textual do CRM_STAGES.
+  // Coluna do lead no quadro. Funil geral: chave = GeneralStageKey. Funil selecionado:
+  // UUID da PipelineStage. Modo legado (sem funis): id textual do CRM_STAGES.
+  // Perdido → LOST_COLUMN (no funil, só os perdidos DESTE funil); nunca em outra coluna.
+  const columnOf = (l: CrmLead): string | null => {
+    if (isLostLead(l)) {
+      if (!showLostColumn) return null;
+      if (!isGeneralView && selectedPipeline && l.pipeline_id !== selectedPipeline.id) return null;
+      return LOST_COLUMN;
+    }
+    if (isGeneralView) return leadGeneralKey(l);
+    if (selectedPipeline) return pipelineColumnOf(l);
+    return normalizeStage(l.stage);
+  };
+
+  const lostTime = (l: CrmLead) => new Date(l.stage_entered_at || l.updated_at || 0).getTime() || 0;
+
   const getStageLeads = (stageKey: string) =>
     filteredLeads
-      .filter(l => {
-        if (isGeneralView) return leadGeneralKey(l) === stageKey;
-        if (selectedPipeline) return pipelineColumnOf(l) === stageKey;
-        return normalizeStage(l.stage) === stageKey;
-      })
+      .filter(l => columnOf(l) === stageKey)
       .sort((a, b) => {
+        // Perdidos: os perdidos mais RECENTES primeiro (mesma ordem da paginação da API).
+        if (stageKey === LOST_COLUMN) return lostTime(b) - lostTime(a);
         if (sortBy === 'score') return computeLeadScore(b) - computeLeadScore(a);
         if (sortBy === 'message') {
           // Padrão: ordem do chat — mensagem mais recente primeiro.
@@ -1905,6 +2098,14 @@ export default function CrmPage() {
         const tb = b.stage_entered_at ? new Date(b.stage_entered_at).getTime() : now;
         return ta - tb;
       });
+
+  // Perdidos: contagem do servidor (funil + busca) quando não há filtro só-de-tela;
+  // com filtro (área/dentista/tag/tempo), o que está carregado e casa ("+" = há mais).
+  const lostColumnLeads = showLostColumn ? getStageLeads(LOST_COLUMN) : [];
+  const lostHasMore = lostMeta.total > lostMeta.loaded;
+  const lostCountLabel = activeFilterCount > 0
+    ? `${lostColumnLeads.length}${lostHasMore ? '+' : ''}`
+    : String(Math.max(lostMeta.total, lostColumnLeads.length));
 
   return (
     <div className="flex h-screen bg-background font-sans antialiased text-foreground overflow-hidden">
@@ -1952,6 +2153,11 @@ export default function CrmPage() {
                 ? `${filteredLeads.length} paciente${filteredLeads.length !== 1 ? 's' : ''}`
                 : `${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''}`}{' '}
               {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
+              {showLostColumn && lostCountLabel !== '0' && (
+                <span className="text-red-400/80" title="Leads marcados como perdidos (coluna Perdidos) — fora do total">
+                  {' '}· {lostCountLabel} perdido{lostCountLabel === '1' ? '' : 's'}
+                </span>
+              )}
               {activeFilterCount > 0 && (
                 <button
                   onClick={() => { setAreaFilter(''); setDentistFilter(''); setTagFilter(''); setAgingFilter(''); }}
@@ -2166,7 +2372,8 @@ export default function CrmPage() {
           <PacientesClinicaKanban />
         ) : viewMode === 'list' ? (
           <LeadListView
-            leads={filteredLeads}
+            // Lista segue só com os ativos (os perdidos vivem na coluna Perdidos do kanban).
+            leads={filteredLeads.filter(l => !isLostLead(l))}
             onOpenDetail={openDetail}
             onOpenChat={openInChat}
             onStageChange={(id, stage) => moveLeadToStage(id, stage)}
@@ -2190,13 +2397,14 @@ export default function CrmPage() {
                 dynamicStage?: PipelineStageLite;
                 legacyId?: string;
                 generalKey?: GeneralStageKey;
+                lost?: boolean;
               };
               // Esconde stages won/lost do Kanban — ficam acessíveis em
               // relatórios e no badge da conversa. O Kanban mostra só as etapas
               // ATIVAS do funil (operador trabalha aqui).
               // is_hidden_from_kanban: stages do Funil 2 ("Em Fechamento")
               // tambem somem — leads la vivem em /atendimento/fechamentos.
-              const cols: Col[] = isGeneralView
+              const baseCols: Col[] = isGeneralView
                 ? GENERAL_STAGES
                     // Geral — Clínica: paciente quase sempre já está em "fechamento" ou
                     // "ganho" (a promoção move pra lá) — sem essas colunas sumiria.
@@ -2229,13 +2437,25 @@ export default function CrmPage() {
                       emoji: s.emoji,
                       legacyId: s.id,
                     }));
+              // Perdidos: SEMPRE a última coluna (Geral — Leads, cada funil e o modo
+              // legado). No funil ela faz o papel da etapa [perdido] dele; funil sem essa
+              // etapa mostra os perdidos pelo stage legado PERDIDO. Soltar aqui = modal de
+              // motivo (mesmo caminho da zona flutuante "Arraste aqui → Perdido").
+              const cols: Col[] = showLostColumn
+                ? [...baseCols, { key: LOST_COLUMN, slug: 'perdido', label: 'Perdidos', color: LOST_COLOR, emoji: '❌', lost: true }]
+                : baseCols;
 
               return (
                 <div className="flex h-full gap-4" style={{ minWidth: `${cols.length * 272}px` }}>
                   {cols.map(col => {
-                    const stageLeads = getStageLeads(col.key);
+                    const stageLeads = col.lost ? lostColumnLeads : getStageLeads(col.key);
                     const isDragTarget = dragOverStage === col.key;
-                    const agingCount = stageLeads.filter(l => daysInStage(l.stage_entered_at) > 5).length;
+                    // Perdido não está "parado": o contador de +5 dias não vale lá.
+                    const agingCount = col.lost ? 0 : stageLeads.filter(l => daysInStage(l.stage_entered_at) > 5).length;
+                    const shownLimit = columnLimit[col.key] ?? COLUMN_PAGE;
+                    // Perdidos: "Mostrar mais" também quando o servidor tem mais que o carregado.
+                    const remaining = Math.max(0, stageLeads.length - shownLimit)
+                      + (col.lost && lostHasMore ? lostMeta.total - lostMeta.loaded : 0);
 
                     return (
                       <div
@@ -2256,7 +2476,8 @@ export default function CrmPage() {
                           setDragOverStage(null);
                           setDraggingId(null);
                           if (!id) return;
-                          if (col.generalKey === 'fechamento' || col.generalKey === 'ganho') {
+                          if (col.lost) moveLeadToStage(id, 'PERDIDO'); // modal de motivo (já perdido = nada)
+                          else if (col.generalKey === 'fechamento' || col.generalKey === 'ganho') {
                             showError('Essa etapa é automática (orçamento criado / compareceu ou pagou).');
                           } else if (col.generalKey) moveLeadToGeneralStage(id, col.generalKey);
                           else if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
@@ -2284,17 +2505,18 @@ export default function CrmPage() {
                               </span>
                             )}
                             <span
-                              className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold"
+                              className={`h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold ${col.lost ? 'min-w-[22px] px-1.5' : 'w-[22px]'}`}
                               style={{ backgroundColor: `${col.color}20`, color: col.color }}
+                              title={col.lost ? 'Perdidos — os mais recentes primeiro' : undefined}
                             >
-                              {stageLeads.length}
+                              {col.lost ? lostCountLabel : stageLeads.length}
                             </span>
                           </div>
                         </div>
 
                         {/* Cards */}
                         <div className="flex-1 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
-                          {stageLeads.slice(0, columnLimit[col.key] ?? COLUMN_PAGE).map(lead => (
+                          {stageLeads.slice(0, shownLimit).map(lead => (
                             <LeadCard
                               key={lead.id}
                               lead={lead}
@@ -2316,13 +2538,16 @@ export default function CrmPage() {
                             />
                           ))}
 
-                          {stageLeads.length > (columnLimit[col.key] ?? COLUMN_PAGE) && (
+                          {remaining > 0 && (
                             <button
                               type="button"
-                              onClick={() => setColumnLimit(m => ({ ...m, [col.key]: (m[col.key] ?? COLUMN_PAGE) + COLUMN_PAGE }))}
-                              className="w-full py-2 text-[11px] font-semibold text-primary hover:underline"
+                              disabled={col.lost && lostLoadingMore}
+                              onClick={() => col.lost
+                                ? showMoreLost()
+                                : setColumnLimit(m => ({ ...m, [col.key]: (m[col.key] ?? COLUMN_PAGE) + COLUMN_PAGE }))}
+                              className="w-full py-2 text-[11px] font-semibold text-primary hover:underline disabled:opacity-50 disabled:no-underline"
                             >
-                              Mostrar mais ({stageLeads.length - (columnLimit[col.key] ?? COLUMN_PAGE)} restantes)
+                              {col.lost && lostLoadingMore ? 'Carregando…' : `Mostrar mais (${remaining} restantes)`}
                             </button>
                           )}
 
@@ -2336,10 +2561,17 @@ export default function CrmPage() {
                               {isDragTarget ? (
                                 <p className="text-[12px] font-semibold">Soltar aqui</p>
                               ) : (
-                                <>
-                                  <p className="text-[11px] font-medium">Nenhum lead aqui</p>
-                                  <p className="text-[10px] mt-1 opacity-70">Arraste cards ou use o menu ⋮</p>
-                                </>
+                                col.lost ? (
+                                  <>
+                                    <p className="text-[11px] font-medium">Nenhum lead perdido</p>
+                                    <p className="text-[10px] mt-1 opacity-70">Arraste um card aqui pra marcar como perdido (pede o motivo)</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-[11px] font-medium">Nenhum lead aqui</p>
+                                    <p className="text-[10px] mt-1 opacity-70">Arraste cards ou use o menu ⋮</p>
+                                  </>
+                                )
                               )}
                             </div>
                           )}
@@ -2552,7 +2784,8 @@ export default function CrmPage() {
 
       {/* Analytics panel */}
       {showAnalytics && (
-        <CrmAnalyticsPanel leads={leads} onClose={() => setShowAnalytics(false)} />
+        // Perdidos da coluna (busca à parte) NÃO entram no analytics — mesma base de antes (ativos).
+        <CrmAnalyticsPanel leads={leads.filter(l => !isLostLead(l))} onClose={() => setShowAnalytics(false)} />
       )}
 
       {/* Régua de reativação de leads (Previstos / Enviados ✓) */}
