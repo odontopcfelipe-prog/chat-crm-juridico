@@ -1,0 +1,110 @@
+import { Logger } from '@nestjs/common';
+import { SCHEDULING_RULES, isClosingWithoutScheduling, replyProposesSlots } from './conversation-guide';
+import { PromptBuilder } from './prompt-builder';
+
+describe('isClosingWithoutScheduling', () => {
+  it('encerramento curto sem contexto continua encerramento (comportamento antigo)', () => {
+    for (const t of ['ok', 'Ok!', 'beleza', 'tá bom', 'obrigada', 'vou pensar', '👍']) {
+      expect(isClosingWithoutScheduling(t)).toBe(true);
+    }
+  });
+
+  it('intenção aberta / recusa / saudação não é encerramento', () => {
+    for (const t of ['ok, tem amanhã?', 'sim', 'pode ser', 'não, obrigado', 'oi, tudo bem']) {
+      expect(isClosingWithoutScheduling(t)).toBe(false);
+    }
+  });
+
+  describe('ack logo depois da NOSSA proposta de horário = confirmação, não encerramento', () => {
+    const umHorario = 'Felipe, vamos deixar terça às 17h que já fica certo?';
+    const olharAgenda = 'Tudo isso fica apenas R$ 350. Posso dar uma olhada na agenda e ver se consigo pra essa semana?';
+
+    it.each(['ok', 'Ok!', '👍', 'beleza', 'pode ser', 'fechado', 'combinado', 'tá bom', 'ok 👍'])(
+      '%p depois de "vamos deixar terça às 17h?"',
+      (ack) => {
+        expect(isClosingWithoutScheduling(ack, umHorario)).toBe(false);
+      },
+    );
+
+    it('"beleza" depois de "posso olhar a agenda?" também é um sim', () => {
+      expect(isClosingWithoutScheduling('beleza', olharAgenda)).toBe(false);
+    });
+
+    it('hesitação depois da proposta continua encerramento ("vou pensar", "obrigada")', () => {
+      expect(isClosingWithoutScheduling('vou pensar', umHorario)).toBe(true);
+      expect(isClosingWithoutScheduling('obrigada', umHorario)).toBe(true);
+    });
+
+    it('"ok" depois de mensagem SEM proposta continua encerramento', () => {
+      expect(isClosingWithoutScheduling('ok', 'Imagina, Felipe!')).toBe(true);
+      expect(isClosingWithoutScheduling('ok', null)).toBe(true);
+    });
+  });
+
+  it('replyProposesSlots reconhece a proposta de um horário', () => {
+    expect(replyProposesSlots('vamos deixar terça às 17h?')).toBe(true);
+    expect(replyProposesSlots('Imagina, Felipe!')).toBe(false);
+  });
+});
+
+describe('SCHEDULING_RULES — contrato de saída', () => {
+  it('termina com o contrato do JSON (scheduling_action no topo + exemplo)', () => {
+    const tail = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('FORMATO DA RESPOSTA'));
+    expect(tail).toContain('"scheduling_action"');
+    expect(tail).toContain('NUNCA vai dentro de "updates"');
+    expect(tail).toContain('{"action":"confirm_slot","date":"AAAA-MM-DD","time":"HH:MM"}');
+    expect(tail).not.toMatch(/20dd-dd-dd/); // molde sem data real (o modelo copiava)
+    expect(tail).toContain('vale para PROCEDIMENTO');
+  });
+
+  it('regra 9 tem a exceção do "ok" depois de proposta de UM horário', () => {
+    expect(SCHEDULING_RULES).toContain('EXCEÇÃO — RESPOSTA À SUA PROPOSTA');
+  });
+
+  it('"nao_paciente" no topo do contrato (null = paciente) e no molde, antes do scheduling_action', () => {
+    const tail = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('FORMATO DA RESPOSTA'));
+    expect(tail).toContain('a chave "nao_paciente"');
+    expect(tail).toContain('{"categoria":"CURRICULO|FORNECEDOR|PARCERIA|NEGOCIO|OUTRO","resumo":"<o que a pessoa quer, 1 frase>"}');
+    expect(tail).toMatch(/Nesse caso "scheduling_action" é null, sem horário nenhum/);
+    // Molde: nao_paciente null ANTES do scheduling_action (o prompt continua terminando no confirm_slot).
+    expect(tail).toContain('"nao_paciente":null,"scheduling_action":{"action":"confirm_slot"');
+  });
+
+  it('NÃO É CONSULTA sempre ligado: nas correções + exceção na regra 4 (repassar ao responsável)', () => {
+    const corr = SCHEDULING_RULES.slice(
+      SCHEDULING_RULES.indexOf('CORREÇÕES DAS INSTRUÇÕES ANTIGAS'),
+      SCHEDULING_RULES.indexOf('JEITO DE ESCREVER'),
+    );
+    expect(corr).toContain('9. NÃO É CONSULTA');
+    for (const t of ['EMPREGO', 'CURRÍCULO', 'ENTREVISTA', 'fornecedor', 'NEGOCIAÇÃO', 'CONTRATO comercial', 'REUNIÃO', 'PARCERIA', 'IMPRENSA']) {
+      expect(corr).toContain(t);
+    }
+    expect(corr).toContain('Nunca ofereça horário, nunca emita confirm_slot');
+    expect(corr).toContain('vai repassar ao responsável');
+    // Paciente falando do contrato/pagamento do próprio tratamento continua paciente.
+    expect(corr).toMatch(/CONTRATO, PAGAMENTO, BOLETO, PARCELA ou NEGOCIAÇÃO do PRÓPRIO tratamento É paciente/);
+    expect(corr).toContain('Na dúvida, é paciente.');
+    const regra4 = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('4. NÃO empurre'), SCHEDULING_RULES.indexOf('5. CONFIRMOU'));
+    expect(regra4).toContain('Única exceção: quem NÃO é paciente');
+  });
+});
+
+describe('contrato entra por ÚLTIMO no prompt (com skill, sem skill e no chat de teste)', () => {
+  // ai.processor usa o MESMO buildSystemPrompt(finalRules: SCHEDULING_RULES) nos 3 caminhos.
+  it('vem depois da seção "Saída" da skill', () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const skill = 'Você é a SDR. NÃO agenda consulta.\n# Saída\nRetorne SOMENTE JSON: {"reply":"...","updates":{}}';
+    const prompt: string = new PromptBuilder().buildSystemPrompt({
+      mediaCapabilities: 'MEDIA',
+      behaviorRules: 'CORE',
+      skillPrompt: skill,
+      references: [],
+      maxContextTokens: 4000,
+      vars: { assistant_name: 'Sophia', firm_name: 'Clínica', available_slots: 'X' },
+      finalRules: SCHEDULING_RULES,
+    });
+    expect(prompt.indexOf('FORMATO DA RESPOSTA')).toBeGreaterThan(prompt.indexOf('# Saída'));
+    expect(prompt.trimEnd().endsWith('"time":"HH:MM"}}')).toBe(true);
+  });
+});

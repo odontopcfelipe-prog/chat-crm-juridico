@@ -7,6 +7,34 @@ import { isAiAutobookEnabled } from '../auto-book-gate';
 import { isPastNaive, reminderDelayMs, REMINDER_MIN_DELAY_MS } from '../scheduling-safety';
 
 /**
+ * Evento ativo do dentista que se sobrepõe a [startAt, endAt) — a MESMA regra de
+ * conflito da guarda abaixo. Exportada pra o ai.processor conferir os horários
+ * alternativos antes de oferecê-los (o computeDaySlots não enxerga evento que
+ * começou noutro dia / cruza a meia-noite — a guarda enxerga).
+ */
+export async function findDentistConflict(
+  prisma: any,
+  userId: string,
+  startAt: Date,
+  endAt: Date,
+  ignoreEventIds: string[] = [],
+): Promise<{ id: string; title: string; start_at: Date } | null> {
+  return prisma.calendarEvent.findFirst({
+    where: {
+      ...(ignoreEventIds.length ? { id: { notIn: ignoreEventIds } } : {}),
+      assigned_user_id: userId,
+      status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+      start_at: { lt: endAt },
+      OR: [
+        { end_at: { gt: startAt } },
+        { end_at: null, start_at: { gte: startAt } },
+      ],
+    },
+    select: { id: true, title: true, start_at: true },
+  });
+}
+
+/**
  * Agenda uma reunião/consulta para o lead.
  *
  * Efeitos:
@@ -82,25 +110,19 @@ export class BookAppointmentHandler implements ToolHandler {
     const startAt = new Date(Date.UTC(y, mo - 1, d, h, mi, 0, 0));
     const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
 
-    // startAt é naive (Maceió) → compara com o "agora" de Maceió. Contra Date.now()
-    // (UTC real) um horário das próximas ~3h era recusado como "já passou".
+    // "Já passou" no MESMO referencial da agenda (naive = hora de Maceió como UTC).
+    // Antes comparava com Date.now() REAL e recusava um horário de hoje 3h antes da hora.
     if (isPastNaive(startAt)) {
       return { success: false, error: 'Data/hora já passou. Ofereça outro horário.' };
     }
 
+    // Remarcação pela IA: as consultas antigas DESTA conversa (que serão canceladas
+    // só depois do sucesso) não contam como conflito nem como "já tem agendamento".
+    const ignoreIds: string[] = Array.isArray(context.ignoreEventIds) ? context.ignoreEventIds.filter(Boolean) : [];
+    const notIgnored = ignoreIds.length ? { id: { notIn: ignoreIds } } : {};
+
     // Conflito com evento existente do dentista
-    const conflict = await prisma.calendarEvent.findFirst({
-      where: {
-        assigned_user_id: assignedUserId,
-        status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
-        start_at: { lt: endAt },
-        OR: [
-          { end_at: { gt: startAt } },
-          { end_at: null, start_at: { gte: startAt } },
-        ],
-      },
-      select: { id: true, title: true, start_at: true },
-    });
+    const conflict = await findDentistConflict(prisma, assignedUserId, startAt, endAt, ignoreIds);
 
     if (conflict) {
       return {
@@ -239,6 +261,7 @@ export class BookAppointmentHandler implements ToolHandler {
     if (dupOwner.length) {
       const existing = await prisma.calendarEvent.findFirst({
         where: {
+          ...notIgnored,
           type: 'CONSULTA',
           status: { in: ['AGENDADO', 'CONFIRMADO'] },
           tenant_id: convo.tenant_id || undefined,
@@ -326,8 +349,8 @@ export class BookAppointmentHandler implements ToolHandler {
         created_by_ai: true,
         tenant_id: convo.tenant_id || undefined,
         // Onda 5e v26: alinhado com defaults da UI [1d, 1h, 15min antes].
-        // Filtra pelo tempo restante (nao cria reminder cuja antecedencia ja passou).
-        // Mesma conta/piso da API (enqueueReminders): instante real = naive + 3h.
+        // Filtra pelo tempo restante (nao cria reminder cuja antecedencia ja passou) —
+        // no instante REAL (naive + 3h), mesma conta da API.
         reminders: {
           create: [1440, 60, 15]
             .filter((m) => reminderDelayMs(startAt, m) >= REMINDER_MIN_DELAY_MS)
@@ -344,8 +367,9 @@ export class BookAppointmentHandler implements ToolHandler {
     // Enfileira cada lembrete com delay correspondente
     if (context.reminderQueue) {
       for (const r of event.reminders) {
-        // start_at é naive (Maceió): instante real = naive + 3h (igual à API) — sem
-        // isso o lembrete saía 3h adiantado. < 1 min de antecedência pula.
+        // start_at é naive (hora de Maceió gravada como UTC): o disparo REAL é naive + 3h
+        // (mesma conta do calendar.service.enqueueReminders da API). Antes usava o naive
+        // direto e o lembrete saía 3h ADIANTADO ("1h antes" chegava 4h antes).
         const delay = reminderDelayMs(event.start_at, r.minutes_before);
         if (delay < REMINDER_MIN_DELAY_MS) continue; // não tem tempo para disparar antes
         try {
@@ -385,7 +409,7 @@ export class BookAppointmentHandler implements ToolHandler {
     // do WhatsApp pra consultar depois.
     // skipPatientNotify: quando chamado pelo confirm_slot da IA, a confirmação ao paciente
     // é o próprio finalText da IA — sem isto o paciente recebe 2 mensagens de confirmação.
-    if (!(context as any).skipPatientNotify) {
+    if (!context.skipPatientNotify) {
       try {
         await this.notifyPatient(event, prisma);
       } catch (e: any) {

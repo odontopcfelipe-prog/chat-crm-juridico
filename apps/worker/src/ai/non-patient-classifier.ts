@@ -1,19 +1,45 @@
 import { Logger } from '@nestjs/common';
+import type { NonPatientCategory as SharedNonPatientCategory } from '@crm/shared';
 import { createLLMClient, type LLMProvider } from './llm-client';
 
-export type NonPatientCategory =
-  | 'PACIENTE'
-  | 'FORNECEDOR'
-  | 'CURRICULO'
-  | 'PARCERIA'
-  | 'SPAM';
+/** PACIENTE ou uma categoria de não-paciente do shared (OUTRO fica só pro campo do modelo). */
+export type NonPatientCategory = 'PACIENTE' | Exclude<SharedNonPatientCategory, 'OUTRO'>;
+
+export const CLASSIFIER_CATEGORIES: NonPatientCategory[] = [
+  'PACIENTE',
+  'FORNECEDOR',
+  'CURRICULO',
+  'PARCERIA',
+  'NEGOCIO',
+  'SPAM',
+];
+
+/** Prompt do classificador (exportado pro teste conferir as regras). */
+export const NON_PATIENT_CLASSIFIER_PROMPT = `Você classifica QUEM está escrevendo para uma clínica odontológica no WhatsApp. Leia SÓ as mensagens do contato e diga em qual categoria ele se encaixa:
+
+- PACIENTE: alguém interessado em TRATAMENTO/consulta/preço/dor/orçamento/agendamento, ou um paciente atual. QUALQUER dúvida sobre serviços odontológicos, valores, horários, localização, convênio = PACIENTE. Paciente falando do CONTRATO, PAGAMENTO, BOLETO, PARCELA, DESCONTO ou NEGOCIAÇÃO do PRÓPRIO tratamento também é PACIENTE.
+- FORNECEDOR: alguém VENDENDO ou OFERECENDO um produto/serviço PARA a clínica (marketing, Google, tráfego, software, materiais, sistema, consultoria, etc.).
+- CURRICULO: alguém procurando EMPREGO/vaga de trabalho, enviando currículo, pedindo ENTREVISTA ou ESTÁGIO, se candidatando a trabalhar na clínica.
+- PARCERIA: proposta de parceria/permuta/indicação comercial entre empresas.
+- NEGOCIO: quer REUNIÃO de negociação, CONTRATO comercial ou proposta de NEGÓCIO com a clínica (não sobre o próprio tratamento), vendedor/representante pedindo reunião com o dono/gestor, IMPRENSA/jornalista, EVENTO ou patrocínio.
+- SPAM: propaganda em massa, corrente, golpe, link suspeito, nada a ver com a clínica.
+
+REGRA DE OURO: na menor DÚVIDA, responda PACIENTE — é sempre mais seguro atender. Só classifique como não-PACIENTE quando estiver CLARO que a pessoa NÃO quer tratamento e sim vender/oferecer algo para a clínica, negociar um contrato/reunião comercial com ela ou se candidatar a emprego. "Tem vaga amanhã?" é HORÁRIO de consulta (PACIENTE).
+
+Retorne APENAS JSON válido: { "categoria": "PACIENTE|FORNECEDOR|CURRICULO|PARCERIA|NEGOCIO|SPAM", "motivo": "<curto>" }`;
+
+/** Categoria devolvida pelo LLM → válida, senão PACIENTE (nunca bloqueia paciente real). */
+export function parseClassifierCategory(raw: unknown): NonPatientCategory {
+  const c = String(raw ?? '').trim().toUpperCase();
+  return (CLASSIFIER_CATEGORIES as string[]).includes(c) ? (c as NonPatientCategory) : 'PACIENTE';
+}
 
 /**
  * Classificador barato "paciente vs não-paciente" — 1 chamada LLM curta (JSON mode,
  * temperatura 0), no MOLDE do SkillRouter. Roda ANTES do LLM de venda pra detectar
  * quando quem escreve NÃO é paciente/lead (fornecedor oferecendo serviço, currículo,
- * parceria, propaganda) — nesses casos a IA encaminha ao responsável e encerra, em vez
- * de "tentar vender dente".
+ * parceria, negociação/contrato/reunião comercial, propaganda) — nesses casos a IA
+ * encaminha ao responsável e encerra, em vez de "tentar vender dente".
  *
  * PRINCÍPIO DE SEGURANÇA: na dúvida, retorna PACIENTE (nunca bloqueia paciente real).
  * Qualquer erro/timeout cai em PACIENTE → o fluxo de venda segue normal.
@@ -30,18 +56,6 @@ export class NonPatientClassifier {
   }): Promise<{ category: NonPatientCategory; reason: string }> {
     const { inboundMessages, model, provider, apiKey } = params;
 
-    const systemPrompt = `Você classifica QUEM está escrevendo para uma clínica odontológica no WhatsApp. Leia SÓ as mensagens do contato e diga em qual categoria ele se encaixa:
-
-- PACIENTE: alguém interessado em TRATAMENTO/consulta/preço/dor/orçamento/agendamento, ou um paciente atual. QUALQUER dúvida sobre serviços odontológicos, valores, horários, localização, convênio = PACIENTE.
-- FORNECEDOR: alguém VENDENDO ou OFERECENDO um produto/serviço PARA a clínica (marketing, Google, tráfego, software, materiais, sistema, consultoria, etc.).
-- CURRICULO: alguém procurando EMPREGO/vaga, enviando currículo, se candidatando a trabalhar na clínica.
-- PARCERIA: proposta de parceria/permuta/indicação comercial entre empresas.
-- SPAM: propaganda em massa, corrente, golpe, link suspeito, nada a ver com a clínica.
-
-REGRA DE OURO: na menor DÚVIDA, responda PACIENTE — é sempre mais seguro atender. Só classifique como não-PACIENTE quando estiver CLARO que a pessoa NÃO quer tratamento e sim vender/oferecer algo para a clínica ou se candidatar a emprego.
-
-Retorne APENAS JSON válido: { "categoria": "PACIENTE|FORNECEDOR|CURRICULO|PARCERIA|SPAM", "motivo": "<curto>" }`;
-
     const userContent = [
       'Mensagens do contato:',
       ...inboundMessages.slice(-6).map((m) => `- ${m}`),
@@ -51,7 +65,7 @@ Retorne APENAS JSON válido: { "categoria": "PACIENTE|FORNECEDOR|CURRICULO|PARCE
       const client = createLLMClient(provider, apiKey);
       const response = await client.chat({
         model,
-        systemPrompt,
+        systemPrompt: NON_PATIENT_CLASSIFIER_PROMPT,
         messages: [{ role: 'user', content: userContent }],
         maxTokens: 80,
         temperature: 0,
@@ -59,9 +73,7 @@ Retorne APENAS JSON válido: { "categoria": "PACIENTE|FORNECEDOR|CURRICULO|PARCE
       });
 
       const parsed = JSON.parse(response.content || '{}');
-      const raw = String(parsed.categoria || '').trim().toUpperCase();
-      const valid: NonPatientCategory[] = ['PACIENTE', 'FORNECEDOR', 'CURRICULO', 'PARCERIA', 'SPAM'];
-      const category = (valid.includes(raw as NonPatientCategory) ? raw : 'PACIENTE') as NonPatientCategory;
+      const category = parseClassifierCategory(parsed.categoria);
       return { category, reason: String(parsed.motivo || '').slice(0, 120) };
     } catch (err: any) {
       // Fail-safe: qualquer erro → PACIENTE (segue o atendimento normal).

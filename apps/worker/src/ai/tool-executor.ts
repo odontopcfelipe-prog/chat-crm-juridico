@@ -15,6 +15,8 @@ export interface ToolContext {
   memoryRetrieval?: any; // MemoryRetrievalService (para tool search_memory)
   tenantId?: string; // Tenant atual (para search_memory escopar por tenant)
   dryRun?: boolean; // chat de teste da IA: nada é gravado/enviado
+  skipPatientNotify?: boolean; // book_appointment pelo confirm_slot: a confirmação ao paciente é a resposta da IA
+  ignoreEventIds?: string[]; // book_appointment: consultas antigas da conversa (remarcação) fora do conflito/dedup
 }
 
 export interface ToolHandler {

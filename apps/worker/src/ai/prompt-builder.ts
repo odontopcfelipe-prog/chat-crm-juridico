@@ -262,12 +262,30 @@ export class PromptBuilder {
             },
             scheduling_action: {
               type: 'object',
-              description: 'Use para confirmar agendamento de reunião. Preencha quando o lead CONFIRMAR o horário.',
+              description:
+                'Ação de agenda. confirm_slot (com date e time) quando o paciente ACEITOU um dos HORÁRIOS DISPONÍVEIS — sem isso a consulta NÃO é criada; nunca diga "agendei" sem ela. confirm_appointment / reschedule_appointment / cancel_appointment só na resposta a lembrete (regra 6). Omita quando não se aplica.',
               properties: {
-                action: { type: 'string', enum: ['confirm_slot'] },
+                action: {
+                  type: 'string',
+                  enum: ['confirm_slot', 'confirm_appointment', 'reschedule_appointment', 'cancel_appointment'],
+                },
                 date: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
                 time: { type: 'string', description: 'Horário no formato HH:MM' },
               },
+            },
+            nao_paciente: {
+              type: 'object',
+              description:
+                'Preencha SÓ quando quem escreve NÃO é paciente (emprego/currículo/entrevista, fornecedor vendendo pra clínica, negociação/contrato/reunião comercial, parceria, imprensa): aí não ofereça horário nem emita confirm_slot e responda que vai repassar ao responsável. Omita (ou null) quando é paciente/lead — inclusive quem fala do contrato/pagamento do próprio tratamento.',
+              properties: {
+                categoria: {
+                  type: 'string',
+                  enum: ['CURRICULO', 'FORNECEDOR', 'PARCERIA', 'NEGOCIO', 'OUTRO'],
+                },
+                resumo: { type: 'string', description: 'O que o NÃO-paciente quer, em 1 frase (nunca preencha pra paciente)' },
+              },
+              // Sem categoria não vale (o worker trata como paciente): o modelo não manda só o resumo.
+              required: ['categoria'],
             },
             slots_to_offer: {
               type: 'array',

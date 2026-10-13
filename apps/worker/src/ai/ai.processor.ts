@@ -12,7 +12,29 @@ import { ToolExecutor } from './tool-executor';
 import { PromptBuilder } from './prompt-builder';
 import { buildHandlerMap } from './tool-handlers';
 import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
-import { computeBusinessHoursInfo, clinicStatusNow } from '@crm/shared';
+import {
+  computeBusinessHoursInfo,
+  clinicStatusNow,
+  brazilPhoneMatchVariants,
+  isNonPatientCategory,
+  naoPacienteTriageKey,
+  nonPatientCategoryLabel,
+} from '@crm/shared';
+import { sendAdminAlert } from '../admin-alerts/admin-alert';
+import {
+  NON_PATIENT_HANDOFF_TEXT,
+  buildNonPatientAdminText,
+  buildNonPatientAttachmentCaption,
+  buildNonPatientTeamNote,
+  chooseNonPatientReply,
+  contradictsNonPatient,
+  decideNonPatientBlock,
+  extractNaoPacienteFromRaw,
+  nonPatientAttachmentMeta,
+  normalizeNaoPaciente,
+  type NaoPacienteFlag,
+} from './non-patient-rules';
+import { aiTeamNoteExternalId, aiTeamNoteKey, hasRecentSameSubjectNote } from './team-note';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import {
   loadPipelinesForTenant,
@@ -39,7 +61,38 @@ import {
 } from './conversation-guide';
 import { loadClinicAiContext, isChipAiEnabledForClinic, type ClinicAiContext } from './clinic-ai-context';
 import { computeDaySlots } from './tool-handlers/check-availability';
+import { findDentistConflict } from './tool-handlers/book-appointment';
 import { isAiAutobookEnabled } from './auto-book-gate';
+import {
+  alternativeCandidates,
+  assessBookingClaim,
+  buildBookingFixText,
+  buildHonestPreferenceText,
+  buildSlotTakenText,
+  compactDayTimes,
+  existingAppointmentFilter,
+  findBookingClaims,
+  formatSlotLabel,
+  hasRecentAiTeamNote,
+  isAiTeamNote,
+  isSlotSpecificRefusal,
+  isValidConfirmSlot,
+  lastOutTurnText,
+  maceioNowNaive,
+  maceioTodayStr,
+  modelEmittedNoAction,
+  normalizeSchedulingAction,
+  pickAlternativeSlots,
+  pickSuggestedSlots,
+  REMINDER_MIN_DELAY_MS,
+  reminderDelayMs,
+  sortSlots,
+  stripCancellationClaims,
+  withoutRefused,
+  type FreeSlotDay,
+  type NormalizedSchedulingAction,
+  type SlotRef,
+} from './scheduling-safety';
 import {
   NO_AUTOMATION_SIGNALS,
   chatTurnPrefix,
@@ -49,7 +102,6 @@ import {
   stripHistoryLabels,
   type AutomationSignals,
 } from './history-sender';
-import { maceioNowNaive, reminderDelayMs, REMINDER_MIN_DELAY_MS } from './scheduling-safety';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -128,6 +180,212 @@ export class AiProcessor extends WorkerHost {
   }
 
   /**
+   * Inícios (naive) das consultas que o lead/paciente JÁ tem (mesma identificação do
+   * hasFutureClinicalAppointment): as ativas de HOJE em diante — inclusive a de hoje
+   * que já começou (atrasado, chegando, em atendimento) — e as atendidas nas últimas
+   * 12h (existingAppointmentFilter). Usado pela rede de segurança do "deixei
+   * agendado": "sua consulta está marcada pra hoje às 9h" sobre uma consulta que JÁ
+   * existe não é marcação nova. Mais próximas primeiro (série recorrente longa não
+   * esconde a de amanhã). Erro = [] (não esconde a correção de uma confirmação falsa).
+   */
+  private async futureClinicalStarts(convo: any): Promise<Date[]> {
+    try {
+      const leadId: string | null = convo.lead_id || convo.lead?.id || null;
+      const patient = leadId
+        ? await (this.prisma as any).patient
+            .findUnique({ where: { lead_id: leadId }, select: { id: true } })
+            .catch(() => null)
+        : null;
+      const or: any[] = [{ conversation_id: convo.id }];
+      if (leadId) or.push({ lead_id: leadId });
+      if (patient?.id) or.push({ patient_id: patient.id });
+      // Lead duplicado por formato de número (55/9º dígito): a consulta pode estar no outro.
+      const phones = brazilPhoneMatchVariants(convo.lead?.phone);
+      const tenantId: string | null = convo.tenant_id || convo.lead?.tenant_id || null;
+      if (phones.length) or.push({ lead: { phone: { in: phones }, ...(tenantId ? { tenant_id: tenantId } : {}) } });
+      const evs = await (this.prisma as any).calendarEvent.findMany({
+        where: {
+          AND: [{ OR: or }, { OR: existingAppointmentFilter() }],
+          type: { in: AiProcessor.CLINICAL_EVENT_TYPES },
+        },
+        select: { start_at: true },
+        orderBy: { start_at: 'asc' },
+        take: 20,
+      });
+      return (evs || []).map((e: any) => new Date(e.start_at));
+    } catch (e: any) {
+      this.logger.warn(`[AI] Falha ao buscar consultas futuras (conv ${convo?.id}): ${e?.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Até 2 horários pra oferecer no lugar de um que a guarda recusou: mesma fonte
+   * do prompt (computeDaySlots do Orçamentista), o mais cedo primeiro, em dias
+   * diferentes quando houver — cada um conferido com a MESMA regra de conflito da
+   * guarda (evento que começou noutro dia não aparece no computeDaySlots e faria a
+   * recusa se repetir). Até 8 tentativas; erro na checagem = aceita o candidato.
+   */
+  private async pickVerifiedAlternatives(
+    freeDays: FreeSlotDay[],
+    exclude: SlotRef | null,
+    dentistId: string,
+    ignoreEventIds: string[],
+    max = 2,
+  ): Promise<SlotRef[]> {
+    const ok: SlotRef[] = [];
+    for (const c of alternativeCandidates(freeDays, exclude).slice(0, 8)) {
+      if (ok.length >= max) break;
+      const [y, mo, d] = c.date.split('-').map(Number);
+      const [h, mi] = c.time.split(':').map(Number);
+      const start = new Date(Date.UTC(y, mo - 1, d, h, mi, 0, 0));
+      const end = new Date(start.getTime() + 60 * 60_000);
+      try {
+        if (!(await findDentistConflict(this.prisma, dentistId, start, end, ignoreEventIds))) ok.push(c);
+      } catch {
+        ok.push(c);
+      }
+    }
+    return sortSlots(ok);
+  }
+
+  /**
+   * ALERTA interno pra equipe — mecanismos que já existem:
+   *  - nota interna na conversa (Message type 'internal_note', igual à do chat), com o
+   *    ASSUNTO no external_message_id (team-note.ts);
+   *  - sininho (Notification) pro atendente da conversa + ADMINs da clínica (clique
+   *    abre a conversa).
+   * Trava: pula só se já há nota da IA do MESMO assunto nos últimos 30 min (outro
+   * horário / outro assunto gera nota nova). Best-effort: erro só loga.
+   * Devolve o id da nota (a API emite no WebSocket junto com os balões).
+   */
+  private async alertTeam(
+    convo: any,
+    n: {
+      key: string;
+      text: string;
+      title: string;
+      body: string;
+      notificationType: string;
+      data: Record<string, unknown>;
+      /** Nota antiga (sem assunto no id) que conta como o mesmo assunto. */
+      legacySame?: (text: string) => boolean;
+      logLabel: string;
+    },
+  ): Promise<string | null> {
+    try {
+      if (hasRecentSameSubjectNote(convo.messages || [], n.key, { legacySame: n.legacySame })) {
+        this.logger.log(`[AI] Alerta "${n.key}" já enviado há pouco (conv ${convo.id}) — não repete`);
+        return null;
+      }
+      const note = await this.prisma.message.create({
+        data: {
+          conversation_id: convo.id,
+          direction: 'out',
+          type: 'internal_note',
+          text: n.text,
+          external_message_id: aiTeamNoteExternalId(n.key),
+          status: 'enviado',
+        },
+      });
+      // Em memória também: outro alerta neste mesmo job enxerga a nota (trava por assunto).
+      if (Array.isArray(convo.messages)) convo.messages.unshift(note);
+
+      const tenantId: string | null = convo.tenant_id || convo.lead?.tenant_id || null;
+      const userIds = new Set<string>();
+      if (convo.assigned_user_id) userIds.add(convo.assigned_user_id);
+      if (tenantId) {
+        const admins = await (this.prisma as any).user.findMany({
+          where: { tenant_id: tenantId, roles: { has: 'ADMIN' } },
+          select: { id: true },
+          take: 5,
+        });
+        for (const a of admins || []) userIds.add(a.id);
+      }
+      for (const uid of userIds) {
+        await (this.prisma as any).notification
+          .create({
+            data: {
+              user_id: uid,
+              tenant_id: tenantId,
+              notification_type: n.notificationType,
+              title: n.title,
+              body: n.body.slice(0, 300),
+              data: { conversationId: convo.id, lead_id: convo.lead_id || convo.lead?.id || null, ...n.data },
+            },
+          })
+          .catch(() => {});
+      }
+      this.logger.warn(
+        `[AI] ALERTA pra equipe — ${n.logLabel} (conv ${convo.id}). Nota interna + ${userIds.size} notificação(ões).`,
+      );
+      return note?.id || null;
+    } catch (e: any) {
+      this.logger.warn(`[AI] Falha ao alertar a equipe (conv ${convo?.id}): ${e?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * ALERTA quando a IA NÃO conseguiu marcar (freio desligado, sem Orçamentista, guarda
+   * recusou sem alternativa, erro, "disse que agendou" sem horário identificável).
+   * Assunto = o horário: o mesmo horário não repete em 30 min; horário diferente gera nota nova.
+   */
+  private async alertTeamBookingIssue(
+    convo: any,
+    info: { slot?: SlotRef | null; reason: string; detail?: string | null },
+  ): Promise<string | null> {
+    const leadName = convo.lead?.name || 'Paciente';
+    const label = info.slot ? formatSlotLabel(info.slot.date, info.slot.time) : null;
+    const text =
+      `⚠️ IA: ${label ? `o paciente aceitou ${label}, mas ` : ''}a consulta NÃO foi criada na agenda (${info.reason}). ` +
+      `A IA avisou o paciente que a recepção vai falar com ele: falem com o paciente e agendem manualmente.` +
+      (info.detail ? `\nÚltima mensagem do paciente: "${info.detail.slice(0, 200)}"` : '');
+    return this.alertTeam(convo, {
+      key: aiTeamNoteKey({ slot: info.slot }),
+      text,
+      title: 'IA não conseguiu agendar — confirmar com o paciente',
+      body: `${leadName}${label ? ` pediu ${label}` : ''}. Motivo: ${info.reason}`,
+      notificationType: 'calendar_reminder',
+      data: { date: info.slot?.date || null, time: info.slot?.time || null, reason: info.reason },
+      // Nota de antes do assunto no id: mesmo assunto se cita o mesmo horário (ou ambas sem horário).
+      legacySame: (t) => (label ? t.includes(label) : /a consulta NÃO foi criada/.test(t) && !/o paciente aceitou/.test(t)),
+      logLabel: `agendamento não criado (${label || 'horário não identificado'}): ${info.reason}`,
+    });
+  }
+
+  /**
+   * ALERTA interno de contato NÃO-paciente (sem pausar a IA): a equipe dá o retorno.
+   * `alreadyMarked`: lead marcado pela triagem e a resposta com horário foi trocada —
+   * a nota diz como desfazer a marca (assunto próprio).
+   */
+  private async alertTeamNonPatient(
+    convo: any,
+    flag: { categoria: string; resumo: string },
+    detail: string | null,
+    opts: { alreadyMarked?: boolean } = {},
+  ): Promise<string | null> {
+    const nome = convo.lead?.name || 'Contato';
+    const label = nonPatientCategoryLabel(flag.categoria);
+    return this.alertTeam(convo, {
+      key: aiTeamNoteKey({ topic: opts.alreadyMarked ? 'np_marcado' : `np_${flag.categoria}` }),
+      text: buildNonPatientTeamNote({
+        categoria: flag.categoria,
+        resumo: flag.resumo,
+        trecho: detail,
+        alreadyMarked: opts.alreadyMarked,
+      }),
+      title: opts.alreadyMarked
+        ? 'Contato marcado como não-paciente — resposta com horário trocada'
+        : 'Contato não-paciente — repassar ao responsável',
+      body: `${nome}: ${label}${flag.resumo ? `. ${flag.resumo}` : ''}`,
+      notificationType: 'nao_paciente',
+      data: { categoria: flag.categoria, reason: 'nao_paciente' },
+      logLabel: `contato não-paciente (${flag.categoria}${flag.resumo ? `: ${flag.resumo.slice(0, 80)}` : ''})`,
+    });
+  }
+
+  /**
    * Agenda a 2ª tentativa (job 'ai-scheduling-retry' na fila ai-jobs). jobId fixo
    * por conversa + dia de Maceió: se já existe um job PENDENTE (delayed/waiting),
    * troca pelo novo (timer e marco reiniciam); se já RODOU hoje (completed/failed,
@@ -199,36 +457,53 @@ export class AiProcessor extends WorkerHost {
   }
 
   // ─── TRIAGEM NÃO-PACIENTE ────────────────────────────────────────────────
-  /**
-   * Detecta fornecedor/currículo/parceria/propaganda e, se for o caso: (a) responde
-   * educado que vai encaminhar ao responsável e encerra; (b) pausa a IA nesta conversa
-   * SEM religar (ai_mode_source='MANUAL' — o cron de reativação e o after-hours não
-   * mexem); (c) avisa os ADMs no número fixo configurado. Retorna true se tratou (o
-   * caller deve `return` e pular todo o fluxo de venda), false pra seguir normal.
-   * Opt-in por tenant: NAO_PACIENTE_TRIAGE_ENABLED_<tenant> (default OFF).
-   */
-  private async maybeHandleNonPatient(convo: any, chronological: any[]): Promise<boolean> {
-    const tenantId = convo.tenant_id || convo.lead?.tenant_id;
+  /** Toggle da triagem com handoff (pausa + aviso aos ADMs). Default OFF; erro = OFF. */
+  private async nonPatientTriageOn(tenantId: string | null | undefined): Promise<boolean> {
     if (!tenantId) return false;
+    try {
+      const on = await this.prisma.globalSetting.findUnique({ where: { key: naoPacienteTriageKey(tenantId) } });
+      return on?.value === 'true';
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao ler o toggle da triagem (tenant ${tenantId}): ${e?.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Classificador (só com o toggle ligado). Detecta fornecedor/currículo/parceria/
+   * negócio/propaganda e, se for o caso: (a) responde educado que vai encaminhar ao
+   * responsável e encerra; (b) pausa a IA nesta conversa SEM religar
+   * (ai_mode_source='MANUAL' — o cron de reativação e o after-hours não mexem) e marca o
+   * lead (Lead.non_patient_category/at); (c) avisa os ADMs (sendAdminAlert) e encaminha
+   * os arquivos que a pessoa já mandou. handled=true → o caller faz `return` e pula o
+   * fluxo de venda. Lead JÁ marcado não é reclassificado (o bloqueio dele vem da marca).
+   * Classificou mas a resposta falhou antes de sair → handled=false + classified: o
+   * fluxo normal segue com a agenda bloqueada.
+   */
+  private async maybeHandleNonPatient(
+    convo: any,
+    chronological: any[],
+  ): Promise<{ handled: boolean; classified: { category: string; reason: string } | null }> {
+    const none = { handled: false, classified: null };
+    const tenantId = convo.tenant_id || convo.lead?.tenant_id;
+    if (!tenantId) return none;
+    if (convo.lead?.non_patient_category) return none; // já triado: não gasta outra chamada
 
     // Gate opt-in por tenant (default OFF).
-    const on = await this.prisma.globalSetting.findUnique({
-      where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
-    });
-    if (on?.value !== 'true') return false;
+    if (!(await this.nonPatientTriageOn(tenantId))) return none;
 
     // Classifica SÓ pelas mensagens do contato (inbound) — nunca pelas da Sophia.
     const inboundMessages = chronological
       .filter((m: any) => m.direction === 'in')
       .map((m: any) => (m.text || '[mídia]').slice(0, 300));
-    if (inboundMessages.length === 0) return false;
+    if (inboundMessages.length === 0) return none;
 
     // Mesmo provider/model do router (chamada barata). Sem chave → segue normal.
     const routerConfig = await this.settings.getRouterConfig();
     const apiKey = routerConfig.provider === 'anthropic'
       ? await this.settings.getAnthropicKey()
       : await this.settings.getOpenAiKey();
-    if (!apiKey) return false;
+    if (!apiKey) return none;
 
     const { category, reason } = await this.nonPatientClassifier.classify({
       inboundMessages,
@@ -237,7 +512,14 @@ export class AiProcessor extends WorkerHost {
       apiKey,
     });
 
-    if (category === 'PACIENTE') return false; // segue o fluxo de venda normal
+    if (category === 'PACIENTE') return none; // segue o fluxo de venda normal
+    const classified = { category, reason };
+
+    // Paciente cadastrado (ficha ligada ao lead) nunca passa pelo handoff.
+    if (await this.leadHasPatientRecord(convo)) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Conv ${convo.id} classificada como ${category}, mas o lead tem cadastro de paciente — sem handoff (segue normal)`);
+      return none;
+    }
 
     this.logger.log(
       `[AI][NÃO-PACIENTE] Conv ${convo.id} classificada como ${category} (${reason}) — encaminhando ao responsável + pausando IA + alertando ADMs.`,
@@ -245,13 +527,17 @@ export class AiProcessor extends WorkerHost {
 
     // (a) Resposta educada de encerramento, assinada com o perfil COMERCIAL DESTA
     // clínica (nome da assistente + assinatura liga/desliga em Ajustes › IA).
-    const { profile } = await loadClinicAiContext(this.prisma, tenantId, 'COMERCIAL');
-    const handoffMsg =
-      'Olá! Muito obrigada pelo contato. 😊 Aqui é o canal de atendimento aos pacientes, ' +
-      'mas já vou encaminhar sua mensagem para o responsável, combinado? Qualquer retorno ' +
-      'será por aqui. Tenha um ótimo dia!';
-    const signature = profile.signature ? `*${profile.assistantName}:* ` : '';
-    await this.sendPlainWhatsApp(convo.lead?.phone, `${signature}${handoffMsg}`, convo.instance_name);
+    let assistantName = 'Assistente';
+    try {
+      const { profile } = await loadClinicAiContext(this.prisma, tenantId, 'COMERCIAL');
+      assistantName = profile.assistantName;
+      const signature = profile.signature ? `*${profile.assistantName}:* ` : '';
+      const sent = await this.sendPlainWhatsApp(convo.lead?.phone, `${signature}${NON_PATIENT_HANDOFF_TEXT}`, convo.instance_name);
+      if (!sent) this.logger.warn(`[AI][NÃO-PACIENTE] Conv ${convo.id}: resposta de repasse NÃO entregue — segue o handoff (ADMs avisados)`);
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao responder o contato (conv ${convo.id}): ${e?.message} — segue o fluxo normal sem agenda`);
+      return { handled: false, classified };
+    }
 
     // Salva a mensagem de saída (best-effort — não bloqueia o handoff).
     try {
@@ -260,7 +546,7 @@ export class AiProcessor extends WorkerHost {
           conversation_id: convo.id,
           direction: 'out',
           type: 'text',
-          text: handoffMsg,
+          text: NON_PATIENT_HANDOFF_TEXT,
           external_message_id: `sys_ai_np_${Date.now()}`,
           status: 'enviado',
           skill_id: null,
@@ -270,98 +556,282 @@ export class AiProcessor extends WorkerHost {
       this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao salvar mensagem de handoff: ${e?.message}`);
     }
 
-    // (b) Pausa a IA sem religar. MANUAL é OBRIGATÓRIO: o ai-reactivation-cron só
-    // religa `ai_mode_source: { not: 'MANUAL' }`, e o after-hours respeita MANUAL.
-    await this.prisma.conversation.update({
-      where: { id: convo.id },
-      data: {
-        ai_mode: false,
-        ai_mode_disabled_at: new Date(),
-        ai_mode_source: 'MANUAL',
-        last_message_at: new Date(),
-      },
-    });
-
-    // (c) Alerta pros ADMs (número fixo), best-effort.
-    await this.alertAdminsNonPatient(tenantId, category, convo, profile.assistantName).catch((e: any) =>
-      this.logger.warn(`[AI][NÃO-PACIENTE] alerta admin falhou: ${e?.message}`),
+    // (b) pausa + marca o lead, (c) ADMs + arquivos.
+    await this.finishNonPatientHandoff(
+      convo,
+      tenantId,
+      { categoria: isNonPatientCategory(category) ? category : 'OUTRO', resumo: reason },
+      assistantName,
     );
-
-    return true;
+    return { handled: true, classified };
   }
 
-  /** Alerta interno pros ADMs no número fixo (mesmo do "Venda feita / Resumo diário"). */
-  private async alertAdminsNonPatient(
-    tenantId: string,
-    category: string,
-    convo: any,
-    assistantName: string,
-  ): Promise<void> {
-    const [vf, ds] = await Promise.all([
-      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
-      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
-    ]);
-    const phone = (vf?.value || ds?.value || '').trim();
-    if (!phone) {
-      this.logger.warn(
-        `[AI][NÃO-PACIENTE] Sem número de alerta configurado (VENDA_FEITA_PHONE/DAILY_SUMMARY_PHONE) — tenant ${tenantId}. Handoff feito, mas ninguém avisado.`,
-      );
-      return;
-    }
-
-    const label: Record<string, string> = {
-      FORNECEDOR: 'Fornecedor / proposta comercial',
-      CURRICULO: 'Currículo / vaga de emprego',
-      PARCERIA: 'Proposta de parceria',
-      SPAM: 'Propaganda / spam',
-    };
-    const nome = convo.lead?.name || 'Contato';
-    const tel = convo.lead?.phone || '';
-    const lastIn = (convo.messages || []).find((m: any) => m.direction === 'in');
-    const trecho = (lastIn?.text || '').slice(0, 160);
-    const msg =
-      `🔔 *Contato não-paciente na ${assistantName} (Comercial)*\n\n` +
-      `Tipo: *${label[category] || category}*\n` +
-      `Contato: *${nome}*${tel ? ` (${tel})` : ''}\n` +
-      (trecho ? `Mensagem: "${trecho}"\n` : '') +
-      `\nA IA já respondeu que vai encaminhar e foi pausada nessa conversa. ` +
-      `Assumam pelo painel se quiserem responder.`;
-
-    // Envia por um chip do tenant (FINANCEIRO → CLINICA → resto), padrão sendInternalAlert.
-    const instances = await this.prisma.instance.findMany({
-      where: { tenant_id: tenantId },
-      select: { name: true, purpose: true },
-    });
-    const rank = (p?: string | null) => (p === 'FINANCEIRO' ? 0 : p === 'CLINICA' ? 1 : 2);
-    const tryList = instances
-      .sort((a: any, b: any) => rank(a.purpose) - rank(b.purpose))
-      .map((i: any) => i.name)
-      .filter(Boolean);
-    if (tryList.length === 0) tryList.push(process.env.EVOLUTION_INSTANCE_NAME || '');
-
-    let sent = false;
-    for (const inst of tryList) {
-      if (await this.sendPlainWhatsApp(phone, msg, inst)) {
-        sent = true;
-        break;
-      }
-    }
-
+  /** O lead tem cadastro de Paciente (ficha)? Erro = assume que tem (não faz handoff às cegas). */
+  private async leadHasPatientRecord(convo: any): Promise<boolean> {
+    const leadId: string | null = convo.lead_id || convo.lead?.id || null;
+    if (!leadId) return false;
     try {
-      await this.prisma.dispatchLog.create({
+      const p = await (this.prisma as any).patient.findFirst({ where: { lead_id: leadId }, select: { id: true } });
+      return !!p;
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao checar cadastro de paciente (lead ${leadId}): ${e?.message}`);
+      return true;
+    }
+  }
+
+  /**
+   * Marca de não-paciente do lead que VALE neste turno (null = trata como paciente).
+   * A marca só nasce no handoff (IA pausada), mas a IA pode voltar a rodar por outros
+   * caminhos (lembrete de consulta, mover setor…) sem limpar a marca: quem é cliente,
+   * tem ficha de Paciente ou consulta marcada é paciente — a marca antiga não bloqueia.
+   */
+  private async effectiveNonPatientMark(convo: any, isClient: boolean): Promise<string | null> {
+    const mark: string | null = convo.lead?.non_patient_category || null;
+    if (!mark || isClient || convo.lead?.is_client) return null;
+    if ((await this.leadHasPatientRecord(convo)) || (await this.hasFutureClinicalAppointment(convo))) {
+      this.logger.log(
+        `[AI][NÃO-PACIENTE] lead ${convo.lead?.id} marcado ${mark}, mas tem ficha de paciente/consulta — marca ignorada (conv ${convo.id})`,
+      );
+      return null;
+    }
+    return mark;
+  }
+
+  /**
+   * Marca o lead como não-paciente (Lead.non_patient_category/at). Só se ainda não
+   * estava marcado: não reescreve a categoria nem reinicia a janela de 72h dos anexos.
+   * Devolve o instante gravado (null = já estava marcado / erro).
+   */
+  private async markLeadNonPatient(convo: any, categoria: string): Promise<Date | null> {
+    const leadId: string | null = convo.lead_id || convo.lead?.id || null;
+    if (!leadId) return null;
+    try {
+      const at = new Date();
+      const r = await this.prisma.lead.updateMany({
+        where: { id: leadId, non_patient_category: null },
+        data: { non_patient_category: categoria, non_patient_at: at },
+      });
+      if (r.count > 0) {
+        if (convo.lead) Object.assign(convo.lead, { non_patient_category: categoria, non_patient_at: at });
+        this.logger.log(`[AI][NÃO-PACIENTE] Lead ${leadId} marcado como ${categoria}`);
+        return at;
+      }
+      return null;
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao marcar o lead ${leadId}: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Handoff de não-paciente (toggle ligado): (b) pausa a IA SEM religar (MANUAL é
+   * OBRIGATÓRIO: o ai-reactivation-cron só religa `ai_mode_source: { not: 'MANUAL' }` e
+   * o after-hours respeita MANUAL) e marca o lead logo em seguida; (c) avisa os ADMs e
+   * encaminha os arquivos que a pessoa JÁ mandou. Sem número de aviso / ninguém recebeu →
+   * nota interna + sininho (alguém precisa dar o retorno). Cada passo é best-effort.
+   * Devolve o id da nota interna, se precisou criar.
+   */
+  private async finishNonPatientHandoff(
+    convo: any,
+    tenantId: string,
+    flag: { categoria: string; resumo: string },
+    assistantName: string,
+  ): Promise<string | null> {
+    try {
+      await this.prisma.conversation.update({
+        where: { id: convo.id },
         data: {
-          tenant_id: tenantId,
-          type: 'nao_paciente_handoff',
-          channel: 'WHATSAPP',
-          recipient_name: nome,
-          recipient_phone: phone,
-          status: sent ? 'SENT' : 'FAILED',
-          sent_at: new Date(),
+          ai_mode: false,
+          ai_mode_disabled_at: new Date(),
+          ai_mode_source: 'MANUAL',
+          last_message_at: new Date(),
         },
       });
     } catch (e: any) {
-      this.logger.warn(`[AI][NÃO-PACIENTE] DispatchLog não gravou: ${e?.message}`);
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao pausar a IA (conv ${convo.id}): ${e?.message}`);
     }
+    const markedAt = (await this.markLeadNonPatient(convo, flag.categoria)) || new Date();
+
+    let delivered = false;
+    try {
+      const r = await this.alertAdminsNonPatient(tenantId, flag, convo, assistantName);
+      delivered = r.sent > 0;
+      if (!r.noPhone) {
+        await this.forwardNonPatientPriorAttachments(convo, tenantId, flag.categoria, markedAt);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] alerta admin falhou: ${e?.message}`);
+    }
+    if (!delivered) {
+      const lastIn = (convo.messages || []).find((m: any) => m.direction === 'in' && m.text);
+      return this.alertTeamNonPatient(convo, flag, lastIn?.text || null);
+    }
+    return null;
+  }
+
+  /**
+   * Aviso aos ADMs pelo helper sendAdminAlert: VÁRIOS números (VENDA_FEITA_PHONE_<t>,
+   * senão DAILY_SUMMARY_PHONE_<t>), só chips DA CLÍNICA (nunca o EVOLUTION_INSTANCE_NAME
+   * global), DispatchLog 'nao_paciente_handoff' por número.
+   */
+  private async alertAdminsNonPatient(
+    tenantId: string,
+    flag: { categoria: string; resumo: string },
+    convo: any,
+    assistantName: string,
+  ): Promise<{ sent: number; noPhone: boolean }> {
+    const nome = convo.lead?.name || 'Contato';
+    const lastIn = (convo.messages || []).find((m: any) => m.direction === 'in' && m.text);
+    const text = buildNonPatientAdminText({
+      assistantName,
+      categoria: flag.categoria,
+      nome,
+      telefone: convo.lead?.phone || null,
+      resumo: flag.resumo,
+      trecho: lastIn?.text || null,
+    });
+    const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
+      type: 'nao_paciente_handoff',
+      text,
+      recipientName: nome,
+    });
+    if (r.noPhone) {
+      this.logger.warn(
+        `[AI][NÃO-PACIENTE] Sem número de aviso dos ADMs (VENDA_FEITA_PHONE/DAILY_SUMMARY_PHONE) — tenant ${tenantId}. Handoff feito, mas ninguém avisado por WhatsApp.`,
+      );
+    } else {
+      this.logger.log(`[AI][NÃO-PACIENTE] ADMs avisados: ${r.sent}/${r.phones.length} número(s) (conv ${convo.id})`);
+    }
+    return { sent: r.sent, noPhone: r.noPhone };
+  }
+
+  /** Tamanho máximo do arquivo encaminhado aos ADMs (o mesmo do webhook da API). */
+  private static readonly NAO_PACIENTE_ANEXO_MAX_BYTES = 15 * 1024 * 1024;
+
+  /**
+   * Encaminha aos ADMs os arquivos (documento/imagem) que a pessoa JÁ mandou nesta
+   * conversa — últimas 24h, até 3, até o instante da triagem (os que chegarem DEPOIS o
+   * webhook da API encaminha). Dedup por mensagem com o MESMO marcador da API (AuditLog
+   * NAO_PACIENTE_ANEXO, entity_id = Message.id), gravado ANTES de enviar. Arquivo que
+   * chegou pelo chip da CLÍNICA/FINANCEIRO é de paciente: nunca encaminha. Best-effort.
+   */
+  private async forwardNonPatientPriorAttachments(
+    convo: any,
+    tenantId: string,
+    categoria: string,
+    upTo: Date,
+  ): Promise<number> {
+    let forwarded = 0;
+    try {
+      const msgs: any[] = await this.prisma.message.findMany({
+        where: {
+          conversation_id: convo.id,
+          direction: 'in',
+          type: { in: ['document', 'image'] },
+          created_at: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000), lte: upTo },
+        },
+        orderBy: { created_at: 'desc' },
+        take: 3,
+        select: {
+          id: true,
+          type: true,
+          text: true,
+          external_message_id: true,
+          instance_name: true,
+          media: { select: { mime_type: true, original_name: true } },
+        },
+      });
+      if (!msgs.length) return 0;
+
+      const chipNames = [...new Set(msgs.map((m) => m.instance_name).filter(Boolean))] as string[];
+      const chips: { name: string; purpose: string | null }[] = chipNames.length
+        ? await this.prisma.instance.findMany({ where: { name: { in: chipNames } }, select: { name: true, purpose: true } })
+        : [];
+      const purposeOf = new Map(chips.map((c) => [c.name, c.purpose]));
+      const nome = convo.lead?.name || convo.lead?.phone || 'Contato';
+      const telefone = convo.lead?.phone || null;
+
+      for (const m of [...msgs].reverse()) {
+        try {
+          const purpose = m.instance_name ? purposeOf.get(m.instance_name) : null;
+          if (purpose === 'CLINICA' || purpose === 'FINANCEIRO') continue;
+          const ja = await this.prisma.auditLog.findFirst({
+            where: { entity: 'NAO_PACIENTE_ANEXO', entity_id: m.id },
+            select: { id: true },
+          });
+          if (ja) continue;
+          // Marca ANTES de enviar (mesmo formato da API): na dúvida, não manda 2×.
+          await this.prisma.auditLog.create({
+            data: { entity: 'NAO_PACIENTE_ANEXO', entity_id: m.id, action: 'forward', meta_json: { tenant_id: tenantId } },
+          });
+          const file = await this.downloadAttachmentBase64(m, convo.instance_name || null);
+          const meta = nonPatientAttachmentMeta({
+            type: m.type,
+            mime: file?.mimetype || m.media?.mime_type || null,
+            originalName: m.media?.original_name || null,
+          });
+          const caption = buildNonPatientAttachmentCaption({ nome, categoria, telefone, caption: m.text || null });
+          const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
+            type: 'nao_paciente_anexo',
+            recipientName: nome,
+            text: file ? caption : `${caption}\n\n_(o arquivo não pôde ser anexado — veja na conversa pelo painel)_`,
+            media: file
+              ? { data: file.data, mediatype: meta.mediatype, mimetype: meta.mimetype, fileName: meta.fileName }
+              : null,
+          });
+          if (r.sent > 0) forwarded++;
+        } catch (e: any) {
+          this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao encaminhar o arquivo da msg ${m?.id}: ${e?.message}`);
+        }
+      }
+      if (forwarded) {
+        this.logger.log(`[AI][NÃO-PACIENTE] ${forwarded} arquivo(s) que o contato já tinha mandado encaminhado(s) aos ADMs (conv ${convo.id})`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao buscar arquivos do contato (conv ${convo?.id}): ${e?.message}`);
+    }
+    return forwarded;
+  }
+
+  /**
+   * Base64 do arquivo de uma mensagem recebida: 1º a Evolution (chat/getBase64FromMediaMessage
+   * na instância que RECEBEU a mensagem — Message.instance_name, senão o chip da conversa;
+   * nunca o chip global), senão a cópia da API (GET /media/:id). null = não conseguiu.
+   */
+  private async downloadAttachmentBase64(
+    msg: { id: string; external_message_id?: string | null; instance_name?: string | null },
+    convoInstance: string | null,
+  ): Promise<{ data: string; mimetype: string | null } | null> {
+    const max = AiProcessor.NAO_PACIENTE_ANEXO_MAX_BYTES;
+    const instance = msg.instance_name || convoInstance;
+    const keyId = msg.external_message_id || '';
+    if (instance && keyId && !keyId.startsWith('sys_')) {
+      try {
+        const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
+        if (apiUrl) {
+          const res = await axios.post(
+            `${apiUrl}/chat/getBase64FromMediaMessage/${instance}`,
+            { message: { key: { id: keyId } } },
+            { headers: { apikey: apiKey }, timeout: 60_000, maxContentLength: 30 * 1024 * 1024 },
+          );
+          const b64 = String(res.data?.base64 || '').replace(/^data:[^;]+;base64,/, '');
+          if (b64 && Math.floor((b64.length * 3) / 4) <= max) {
+            return { data: b64, mimetype: String(res.data?.mimetype || '').split(';')[0].trim() || null };
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[AI][NÃO-PACIENTE] Evolution não devolveu o arquivo da msg ${msg.id}: ${e?.message}`);
+      }
+    }
+    try {
+      const { buffer, contentType } = await this.fetchMediaBuffer(msg.id);
+      if (buffer.length && buffer.length <= max) {
+        return { data: buffer.toString('base64'), mimetype: contentType.split(';')[0].trim() || null };
+      }
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] API não devolveu o arquivo da msg ${msg.id}: ${e?.message}`);
+    }
+    return null;
   }
 
   /** Envio WhatsApp cru via Evolution com checagem de entrega REAL (estilo wasSent). */
@@ -565,17 +1035,22 @@ export class AiProcessor extends WorkerHost {
   private parseAiResponse(raw: string): {
     reply: string;
     updates: any;
-    scheduling_action?: { action: string; date?: string; time?: string };
+    scheduling_action?: NormalizedSchedulingAction;
     slots_to_offer?: { date: string; time: string; label: string }[];
     /** Paciente encerrou sem agendar → sistema manda a 2ª tentativa depois. */
     retry_scheduling?: boolean;
+    /** Quem escreve NÃO é paciente (emprego, fornecedor, negócio…) — null = paciente. */
+    nao_paciente?: NaoPacienteFlag | null;
   } {
     const extract = (parsed: any) => ({
       reply: parsed.reply ?? '',
       updates: parsed.updates || parsed.lead_update || {},
-      scheduling_action: parsed.scheduling_action || undefined,
+      // Normalizado: aceita a ação dentro de `updates`, solta no topo, com grafia
+      // variante e data/hora em outros formatos (antes era descartada em silêncio).
+      scheduling_action: this.normalizeActionLogged(parsed) || undefined,
       slots_to_offer: parsed.slots_to_offer || undefined,
       retry_scheduling: parsed.retry_scheduling === true || parsed.retry_scheduling === 'true',
+      nao_paciente: normalizeNaoPaciente(parsed),
     });
 
     // 1. JSON puro
@@ -602,11 +1077,42 @@ export class AiProcessor extends WorkerHost {
         .replace(/\\"/g, '"')
         .replace(/\\\\/g, '\\');
       this.logger.warn(`[AI] JSON malformado — reply extraído via regex (${reply.length} chars)`);
-      return { reply, updates: {}, retry_scheduling: /"retry_scheduling"\s*:\s*(?:true|"true")/.test(raw) };
+      // Tenta salvar o scheduling_action também (antes era perdido aqui).
+      let scheduling_action: NormalizedSchedulingAction | undefined;
+      const actionMatch = raw.match(/"scheduling_action"\s*:\s*(\{[^{}]*\})/);
+      if (actionMatch) {
+        try {
+          scheduling_action = this.normalizeActionLogged({ scheduling_action: JSON.parse(actionMatch[1]) }) || undefined;
+        } catch {
+          // ação também malformada — segue sem
+        }
+      }
+      return {
+        reply,
+        updates: {},
+        scheduling_action,
+        retry_scheduling: /"retry_scheduling"\s*:\s*(?:true|"true")/.test(raw),
+        nao_paciente: extractNaoPacienteFromRaw(raw),
+      };
     }
 
     this.logger.warn('[AI] Resposta não é JSON válido — usando como texto puro');
     return { reply: raw, updates: {} };
+  }
+
+  /** normalizeSchedulingAction + log quando o formato veio diferente do contrato. */
+  private normalizeActionLogged(container: any): NormalizedSchedulingAction | null {
+    const norm = normalizeSchedulingAction(container);
+    const raw = container?.scheduling_action;
+    const rawStr = raw === undefined ? undefined : JSON.stringify(raw);
+    if (norm && rawStr !== JSON.stringify(norm)) {
+      this.logger.warn(
+        `[AI] scheduling_action normalizado: ${rawStr ?? '(fora do topo)'} → ${JSON.stringify(norm)}`,
+      );
+    } else if (!norm && raw != null && rawStr !== 'null') {
+      this.logger.warn(`[AI] scheduling_action ignorado (ação desconhecida): ${String(rawStr).slice(0, 200)}`);
+    }
+    return norm;
   }
 
   /**
@@ -1192,23 +1698,14 @@ export class AiProcessor extends WorkerHost {
         }
       }
       if (daysWithSlots.length === 0) return null;
-      // Mesma curadoria da PROPOSTA SUGERIDA: máx 2 dias, 1 por dia + completa
-      // até 3 com o 2º horário do dia mais próximo (nunca 3 do mesmo dia).
-      const nearDays = daysWithSlots.slice(0, 2);
-      const picks: { label: string; dateStr: string; time: string }[] = [];
-      for (const d of nearDays) picks.push({ label: d.label, dateStr: d.dateStr, time: d.times[0] });
-      for (const d of nearDays) {
-        if (picks.length >= 3) break;
-        if (d.times[1]) picks.push({ label: d.label, dateStr: d.dateStr, time: d.times[1] });
-      }
-      // Ordena cronologicamente pra não "voltar" pra um dia já citado.
-      picks.sort((a, b) =>
-        a.dateStr === b.dateStr ? a.time.localeCompare(b.time) : a.dateStr.localeCompare(b.dateStr),
-      );
+      // Mesma curadoria da PROPOSTA SUGERIDA (pickSuggestedSlots): máx 2 dias, o
+      // mais cedo de cada + 1 da tarde (nunca 3 do mesmo dia), em ordem cronológica.
+      const labelOf = new Map(daysWithSlots.map((d) => [d.dateStr, d.label]));
+      const picks = pickSuggestedSlots(daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times })));
       const firstName = (convo.lead?.name || '').split(' ')[0] || '';
       const greeting = firstName ? `${firstName}, ` : '';
       const intro = `${greeting}sem problema! Consegui te encaixar bem pertinho:`;
-      const lines = picks.map((s) => `• ${s.label} às ${s.time}`).join('\n');
+      const lines = picks.map((s) => `• ${labelOf.get(s.date) || s.date} às ${s.time}`).join('\n');
       const cta = '\nAlgum desses serve melhor pra você?';
       return `${intro}\n${lines}${cta}`;
     } catch (e: any) {
@@ -1554,6 +2051,8 @@ export class AiProcessor extends WorkerHost {
         if (aiProfile.schedulingRetryMin <= 0) abortReason = 'clínica desligou a 2ª tentativa no perfil do chip';
         else if (profilePurpose === 'FINANCEIRO') abortReason = 'chip Financeiro não faz tentativa de agendamento';
         else if (convo.lead?.is_client) abortReason = 'contato já é paciente (Pós-Venda)';
+        else if (await this.effectiveNonPatientMark(convo, false))
+          abortReason = `contato marcado como não-paciente (${convo.lead.non_patient_category})`;
         else if (!(await isChipAiEnabledForClinic(this.prisma, rawTenantId || chipTenantId || (convo as any).lead?.tenant_id, chipPurpose)))
           abortReason = `IA desligada no chip ${chipPurpose ?? 'sem função'} desta clínica`;
         else if (await this.hasFutureClinicalAppointment(convo)) abortReason = 'lead já tem consulta futura';
@@ -1579,13 +2078,16 @@ export class AiProcessor extends WorkerHost {
           automationSignals = await loadAutomationSignals(this.prisma, {
             tenantId: profileTenantId,
             lead: convo.lead ? { id: convo.lead.id, phone: convo.lead.phone } : null,
-            messages: chronological as any[],
+            // Nota interna da IA pra equipe (note_ai_) não é conversa — fica de fora.
+            messages: (chronological as any[]).filter((m: any) => !isAiTeamNote(m)),
           });
         } catch (e: any) {
           this.logger.warn(`[AI] Falha ao carregar envios automáticos da conversa ${convo.id}: ${e.message}`);
         }
       }
       const historyText = chronological
+        // Alerta interno que a própria IA gravou pra equipe não é conversa com o paciente.
+        .filter((m: any) => !isAiTeamNote(m))
         .map((m: any) => {
           const sender = historyTextLabel(classifyHistorySender(m, automationSignals), assistantName);
           // Indica tipo de mídia quando não há texto
@@ -1672,10 +2174,22 @@ export class AiProcessor extends WorkerHost {
       // quando NÃO é cliente já cadastrado. Opt-in por tenant (default OFF). Best-effort:
       // qualquer dúvida/erro → trata como PACIENTE e segue o fluxo normal de venda.
       // (2ª tentativa: a conversa já foi triada no turno normal — não reclassifica.)
-      if (!dryRun && !isSchedulingRetry && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
+      // Handoff de não-paciente: fora da 2ª tentativa, contato que não é cliente, chip
+      // COMERCIAL ou sem função (mesma trava do webhook dos anexos). Marcar/gravar: também
+      // fora do chat de teste (lá só mostra o que faria).
+      const npEligible =
+        !isSchedulingRetry && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO';
+      const npCanMark = !dryRun && npEligible;
+      // Marca de não-paciente do lead que vale neste turno (handoff antigo; ignorada pra
+      // quem tem ficha de Paciente ou consulta marcada).
+      const npLeadMark = await this.effectiveNonPatientMark(convo, isActiveClient);
+      // Classificou como não-paciente mas o handoff não saiu: segue o fluxo SEM agenda.
+      let npClassified: { category: string; reason: string } | null = null;
+      if (npCanMark) {
         try {
-          const handled = await this.maybeHandleNonPatient(convo, chronological);
-          if (handled) return;
+          const triage = await this.maybeHandleNonPatient(convo, chronological);
+          if (triage.handled) return;
+          npClassified = triage.classified;
         } catch (e: any) {
           this.logger.warn(`[AI][NÃO-PACIENTE] Falha na triagem (segue fluxo normal): ${e?.message}`);
         }
@@ -1809,6 +2323,9 @@ export class AiProcessor extends WorkerHost {
       // [] pra dias sem turnos. Window ampliada de 7 pra 14 dias pra cobrir
       // sabados que podem cair na semana seguinte.
       let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
+      // Mesma lista, ESTRUTURADA (todos os horários livres de cada dia): a rede de
+      // segurança do "deixei agendado" e as alternativas de horário usam ela.
+      let freeSlotDays: FreeSlotDay[] = [];
       // Onda 18.x — os horários da CONSULTA têm que vir da agenda do MESMO dentista que o
       // confirm_slot vai marcar (a Orçamentista, Dra. Suellen). Antes lia
       // convo.assigned_dentist_id CRU (podia ser o especialista de ÁREA, ex. Dr. Fellipe) e
@@ -1862,6 +2379,7 @@ export class AiProcessor extends WorkerHost {
             }
           }
 
+          freeSlotDays = daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times }));
           if (daysWithSlots.length === 0) {
             availableSlots = 'Sem horários disponíveis nos próximos dias.';
           } else {
@@ -1871,32 +2389,21 @@ export class AiProcessor extends WorkerHost {
             // agenda e passa impressão de agenda vazia), dentro dos 2 dias mais
             // próximos com vaga. O 1º horário = "encaixe mais próximo" (mostra
             // esforço e valoriza a vaga → aumenta o comparecimento).
-            // Regra determinística:
+            // Regra determinística (pickSuggestedSlots):
             //   1) 1 horário (o mais cedo) de cada um dos 2 dias mais próximos;
-            //   2) se faltar pra chegar a 3, completa com o 2º horário do dia
-            //      mais próximo (MÁX 2 por dia — nunca 3 do mesmo dia).
-            const nearDays = daysWithSlots.slice(0, 2); // preferência: no máx 2 dias
-            const suggestion: { label: string; dateStr: string; time: string }[] = [];
-            for (const d of nearDays) {
-              suggestion.push({ label: d.label, dateStr: d.dateStr, time: d.times[0] });
-            }
-            for (const d of nearDays) {
-              if (suggestion.length >= 3) break;
-              if (d.times[1]) suggestion.push({ label: d.label, dateStr: d.dateStr, time: d.times[1] });
-            }
-            // Ordena CRONOLOGICAMENTE (dia, depois hora) pra agrupar o mesmo dia e
-            // NÃO "voltar" pra um dia já citado (ex.: seg 08:00 → seg 08:30 → ter
-            // 08:00, e nunca seg → ter → seg). O 1º após ordenar = ENCAIXE (o mais cedo).
-            suggestion.sort((a, b) =>
-              a.dateStr === b.dateStr ? a.time.localeCompare(b.time) : a.dateStr.localeCompare(b.dateStr),
-            );
+            //   2) o 3º é um horário da TARDE do dia mais próximo que tiver (manhã E
+            //      tarde aparecem); sem tarde, o 2º horário do dia (MÁX 2 por dia).
+            // Ordem CRONOLÓGICA (dia, depois hora): o 1º = ENCAIXE (o mais cedo).
+            const labelOf = new Map(daysWithSlots.map((d) => [d.dateStr, d.label]));
+            const suggestion = pickSuggestedSlots(freeSlotDays);
             const suggLines = suggestion
-              .map((s, idx) => `  • ${s.label} às ${s.time}${idx === 0 ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
+              .map((s, idx) => `  • ${labelOf.get(s.date) || s.date} às ${s.time}${idx === 0 ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
               .join('\n');
             // Agenda completa compacta — fallback só pra quando o lead pedir um
-            // dia/horário específico ou recusar as sugeridas.
+            // dia/horário específico ou recusar as sugeridas. Manhã E tarde de cada
+            // dia (antes slice(0, 6) mostrava só a manhã e a tarde ficava invisível).
             const fullLines = daysWithSlots
-              .map((d) => `${d.label}: ${d.times.slice(0, 6).join(', ')}`)
+              .map((d) => `${d.label}: ${compactDayTimes(d.times)}`)
               .join(' | ');
             availableSlots =
               `PROPOSTA SUGERIDA (ofereça SÓ estas — no máx 3, espalhados em até 2 dias, a mais cedo primeiro; NUNCA 3 do mesmo dia):\n${suggLines}\n` +
@@ -2433,6 +2940,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       const supportsVision = this.modelSupportsVision(model);
       const chatTurns: Array<{role: 'user' | 'assistant', content: string | any[]}> = [];
       for (const m of chronological) {
+        // Alerta interno que a própria IA gravou pra equipe (nunca foi pro paciente).
+        if (isAiTeamNote(m)) continue;
         const isClient = (m as any).direction === 'in';
         const role: 'user' | 'assistant' = isClient ? 'user' : 'assistant';
 
@@ -2553,6 +3062,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       let toolCallLogs: any[] = [];
       // Modelo marcou retry_scheduling (paciente encerrou sem agendar).
       let retrySchedulingFlag = false;
+      // Modelo marcou "nao_paciente" (emprego, fornecedor, negócio… — não é consulta).
+      let naoPacienteFromModel: NaoPacienteFlag | null = null;
 
       if (useToolCalling) {
         // ─── PATH NOVO: Function Calling com Tool Executor ───
@@ -2588,6 +3099,19 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             handlerMap.set(name, {
               name: (h as any).name,
               execute: async () => ({ ok: true, simulated: true, note: 'Modo teste: nada foi gravado.' }),
+            } as any);
+          }
+        }
+        // Contato JÁ marcado como não-paciente (13-NP): a ferramenta de agendar não marca nada.
+        if (npLeadMark) {
+          for (const [name, h] of handlerMap) {
+            if ((h as any).name !== 'book_appointment') continue;
+            handlerMap.set(name, {
+              name: 'book_appointment',
+              execute: async () => ({
+                success: false,
+                error: 'Este contato NÃO é paciente (emprego/fornecedor/negócio): não agende. Diga que vai repassar ao responsável.',
+              }),
             } as any);
           }
         }
@@ -2647,10 +3171,11 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         if (respondCall) {
           aiText = respondCall.input.reply || '';
           updates = respondCall.input.updates || {};
-          scheduling_action = respondCall.input.scheduling_action || null;
+          scheduling_action = this.normalizeActionLogged(respondCall.input);
           slotsToOffer = respondCall.input.slots_to_offer || null;
           retrySchedulingFlag =
             respondCall.input.retry_scheduling === true || respondCall.input.retry_scheduling === 'true';
+          naoPacienteFromModel = normalizeNaoPaciente(respondCall.input);
         } else if (toolResult.response.content) {
           // Fallback: parse content as JSON (hybrid mode) ou texto puro
           const parsed = this.parseAiResponse(toolResult.response.content);
@@ -2658,6 +3183,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           updates = parsed.updates || {};
           scheduling_action = parsed.scheduling_action || null;
           retrySchedulingFlag = !!parsed.retry_scheduling;
+          naoPacienteFromModel = parsed.nao_paciente || null;
         }
 
         // Propaga stage/next_step de update_lead quando respond_to_client não trouxe status.
@@ -2754,6 +3280,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         scheduling_action = parsed.scheduling_action;
         slotsToOffer = parsed.slots_to_offer || null;
         retrySchedulingFlag = !!parsed.retry_scheduling;
+        naoPacienteFromModel = parsed.nao_paciente || null;
       }
 
       this.logger.log(
@@ -2778,6 +3305,267 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           if (!updates.next_step && sanitized.updates?.next_step) updates.next_step = sanitized.updates.next_step;
           if (!updates.notes && sanitized.updates?.notes) updates.notes = sanitized.updates.notes;
           if (sanitized.retry_scheduling) retrySchedulingFlag = true;
+          if (!naoPacienteFromModel && sanitized.nao_paciente) naoPacienteFromModel = sanitized.nao_paciente;
+          // A ação também pode ter vindo dentro do JSON cru.
+          if (!isValidConfirmSlot(scheduling_action) && sanitized.scheduling_action) {
+            scheduling_action = sanitized.scheduling_action;
+          }
+        }
+      }
+
+      const isAwaitingConfirmation = reminderCtx?.awaiting_confirmation === true;
+      const lastInboundForRetry = [...chronological].reverse().find((m: any) => m.direction === 'in');
+      const lastInboundAt = lastInboundForRetry ? new Date(lastInboundForRetry.created_at).getTime() : 0;
+      // Nossa última fala ANTES da dele (todos os balões, sem notas internas): a proposta
+      // que o "sim"/"ok" dele aceitou (13a) — e, se ela propôs horário, um "ok"/"👍"
+      // solto é CONFIRMAÇÃO, não encerramento (13c).
+      const lastOutBeforeInbound = lastOutTurnText(chronological as any[], lastInboundAt);
+      const todayStr = maceioTodayStr();
+      let suppressRetry = false;
+      let bookingRecovered = false;
+      let teamAlertNoteId: string | null = null;
+      // A 13a zerou uma ação que o MODELO emitiu (confirm_slot incompleto/inválido,
+      // confirm_appointment com "agendei" de outro horário): pro SAFEGUARD v28 e pra 2ª
+      // tentativa isso continua sendo "veio ação" (como antes da 13a) — senão um
+      // "cancelei…" mantido no texto cancelaria a consulta real.
+      let actionDroppedBy13a = false;
+      // A 13a corrigiu um "agendei/remarquei" falso neste turno (a equipe foi avisada ou o
+      // paciente vai confirmar): o v28 não cancela consulta por causa do texto deste
+      // turno nem anexa outra proposta de horário.
+      let claimCorrectedBy13a = false;
+      // Resposta a lembrete com "não vou poder…" (gatilho 2 do SAFEGUARD v28: sem ação do
+      // modelo, a consulta é cancelada). Calculado aqui porque a 13a precisa saber.
+      const patientSaidNo =
+        isAwaitingConfirmation &&
+        /\b(n[ãa]o\s+(?:vou|posso|consigo|d[áa])|imprevisto|preciso\s+remarcar|n[ãa]o\s+ir(?:ei|i)|n[ãa]o\s+conseguirei|n[ãa]o\s+poderei)\b/i.test(
+          String(lastInboundForRetry?.text || '').toLowerCase(),
+        );
+
+      // 13-NP. NÃO É CONSULTA — emprego/currículo/entrevista, fornecedor, negociação/
+      // contrato/reunião comercial, parceria, imprensa. Vale quando o MODELO marcou
+      // "nao_paciente", o classificador marcou (handoff não saiu) ou o lead JÁ está
+      // marcado (não reclassifica). Bloqueado: confirm_slot descartado, sem rede 13a, sem
+      // 2ª tentativa e sem oferta de horário; a resposta é a da IA quando serve (sem
+      // horário/reunião e, no handoff, dizendo que repassa), senão o texto fixo de repasse.
+      // Depois do envio: toggle da triagem ligado → handoff (pausa + marca + ADMs); senão
+      // só ALERTA interno (nota + sininho), sem pausar e SEM gravar a marca no lead (um
+      // erro do modelo não pode tirar a agenda do lead pra sempre).
+      // Chip Financeiro só conversa com quem já é paciente (cobrança, negociação da dívida
+      // do próprio tratamento): marca de não-paciente lá é falso positivo — não vale.
+      const npOnFinanceiro = profilePurpose === 'FINANCEIRO';
+      if (naoPacienteFromModel && npOnFinanceiro) {
+        this.logger.warn(
+          `[AI][NÃO-PACIENTE] modelo marcou ${naoPacienteFromModel.categoria} no chip Financeiro — ignorado (conv ${convo.id})`,
+        );
+      }
+      // Sinal contraditório no MESMO turno (confirm_slot / ofereceu horário / "agendei"):
+      // na dúvida, é PACIENTE — a marca do modelo não vale.
+      const npModelContradicts =
+        !!naoPacienteFromModel &&
+        !npOnFinanceiro &&
+        contradictsNonPatient(aiText, { confirmSlot: isValidConfirmSlot(scheduling_action) });
+      if (npModelContradicts) {
+        this.logger.warn(
+          `[AI][NÃO-PACIENTE] modelo marcou ${naoPacienteFromModel!.categoria}, mas marcou/ofereceu horário no mesmo turno — tratado como paciente (conv ${convo.id})`,
+        );
+      }
+      const npBlock = decideNonPatientBlock({
+        fromModel: npOnFinanceiro ? null : naoPacienteFromModel,
+        fromClassifier: npClassified,
+        leadCategory: npOnFinanceiro ? null : npLeadMark,
+        isClient: isActiveClient,
+        modelSchedules: npModelContradicts,
+      });
+      const npTenantId: string | null = convo.tenant_id || convo.lead?.tenant_id || null;
+      let npHandoff = false;
+      if (npBlock.blocked) {
+        if (scheduling_action?.action === 'confirm_slot') {
+          this.logger.warn(
+            `[AI][NÃO-PACIENTE] confirm_slot DESCARTADO — contato não é paciente (${npBlock.categoria}, ${npBlock.origem}): ${JSON.stringify(scheduling_action)} (conv ${convo.id})`,
+          );
+          scheduling_action = null;
+        }
+        retrySchedulingFlag = false;
+        // Handoff com pausa: só detectado AGORA, contato/chip elegível, toggle ligado e sem
+        // ficha de paciente ligada ao lead (no chat de teste só mostra que faria).
+        npHandoff =
+          npBlock.novo &&
+          npEligible &&
+          (await this.nonPatientTriageOn(npTenantId)) &&
+          (dryRun || !(await this.leadHasPatientRecord(convo)));
+        const chosen = chooseNonPatientReply(aiText, { requireRepasse: npHandoff, alreadyMarked: !npBlock.novo });
+        if (chosen.replaced) {
+          this.logger.warn(
+            `[AI][NÃO-PACIENTE] resposta da IA trocada pelo texto de repasse (oferecia horário/reunião ou não dizia que repassa) (conv ${convo.id}): "${aiText.slice(0, 160)}"`,
+          );
+          // Lead JÁ marcado e a resposta da IA (com horário/"agendei") foi trocada: avisa a
+          // equipe — sem isso um paciente marcado por engano ficava sem agenda, em silêncio.
+          if (npBlock.origem === 'lead' && npBlock.categoria && aiText.trim() && !dryRun) {
+            teamAlertNoteId =
+              (await this.alertTeamNonPatient(
+                convo,
+                { categoria: npBlock.categoria, resumo: npBlock.resumo },
+                lastInboundForRetry?.text || null,
+                { alreadyMarked: true },
+              )) || teamAlertNoteId;
+          }
+        }
+        aiText = chosen.text;
+        this.logger.log(
+          `[AI][NÃO-PACIENTE] conv ${convo.id}: ${npBlock.categoria} (${npBlock.origem}${npBlock.novo ? ', novo' : ', já marcado'}) — agenda bloqueada${npHandoff ? ', handoff com pausa' : ''}`,
+        );
+      }
+
+      // 13a. REDE DE SEGURANÇA — "disse que agendou sem confirm_slot". As skills rodam
+      // no caminho JSON legado e o modelo às vezes responde "Perfeito, deixei agendado"
+      // sem emitir a ação (ou com ela incompleta): nada era criado e a frase falsa ia
+      // pro paciente. Filtro de ENTRADA: findBookingClaims; quem DECIDE é o
+      // assessBookingClaim (scheduling-safety.ts):
+      //  - resposta sobre consulta que JÁ existe → não mexe;
+      //  - proposta ("vou deixar agendado terça às 9h, pode ser?") → não mexe;
+      //  - SÓ MARCA (sintetiza o confirm_slot e segue o caminho normal: freio,
+      //    Orçamentista e guardas do book_appointment) quando é afirmação de FATO, sem
+      //    pergunta, de UM horário livre, o paciente ACEITOU esse horário e ele não tem
+      //    consulta futura;
+      //  - senão a frase falsa NÃO sai: vira pedido de confirmação / oferta sem o que ele
+      //    recusou (buildBookingFixText) ou, sem como marcar, resposta honesta + alerta pra
+      //    equipe, mantendo o resto da resposta.
+      // Vale também na resposta a lembrete ("sua consulta está confirmada" é 'existing') e
+      // com confirm_appointment / reschedule_appointment / cancel_appointment: nenhuma
+      // delas marca horário NOVO — "deixei agendado X" / "remarquei pra X" com elas é falso.
+      // Não vale na 2ª tentativa, no chip Financeiro ("o pagamento ficou agendado" não é
+      // consulta) nem pra quem não é paciente (13-NP).
+      const netAction: string | null = scheduling_action?.action || null;
+      if (
+        !npBlock.blocked &&
+        !isSchedulingRetry &&
+        profilePurpose !== 'FINANCEIRO' &&
+        !isValidConfirmSlot(scheduling_action)
+      ) {
+        if (scheduling_action?.action === 'confirm_slot') {
+          this.logger.warn(`[AI] confirm_slot incompleto: ${JSON.stringify(scheduling_action)} (conv ${convo.id})`);
+        }
+        if (findBookingClaims(aiText, todayStr).length) {
+          const existingStarts = await this.futureClinicalStarts(convo);
+          // Resposta a lembrete: a consulta do lembrete conta como "já tem" (mesmo se o tipo
+          // do evento estiver fora da busca) — "sua consulta está confirmada" não é corrigida.
+          const reminderStart = isAwaitingConfirmation ? new Date(String(reminderCtx?.event_date_iso || '')) : null;
+          if (reminderStart && Number.isFinite(reminderStart.getTime()) && !existingStarts.some((d) => d.getTime() === reminderStart.getTime())) {
+            existingStarts.push(reminderStart);
+          }
+          const decision = assessBookingClaim({
+            reply: aiText,
+            freeDays: freeSlotDays,
+            todayStr,
+            patientText: lastInboundForRetry?.text || null,
+            lastOutText: lastOutBeforeInbound,
+            existingStarts,
+            hint:
+              scheduling_action?.action === 'confirm_slot'
+                ? { date: scheduling_action.date, time: scheduling_action.time }
+                : null,
+          });
+          if (decision.kind === 'book') {
+            scheduling_action = { action: 'confirm_slot', date: decision.slot.date, time: decision.slot.time };
+            bookingRecovered = true;
+            this.logger.warn(
+              `[AI] confirm_slot RECUPERADO do texto (${decision.slot.date} ${decision.slot.time}) — a IA disse que agendou sem emitir a ação e o paciente aceitou esse horário (conv ${convo.id})`,
+            );
+          } else if (decision.kind === 'existing') {
+            this.logger.log(
+              `[AI] Resposta fala de consulta que já existe — rede de segurança do "agendei" não interfere (conv ${convo.id})`,
+            );
+          } else if (decision.kind === 'offer') {
+            this.logger.log(
+              `[AI] Resposta é proposta com pedido de confirmação ("vou deixar agendado…?") — nada é marcado, texto mantido (conv ${convo.id})`,
+            );
+          } else if (decision.kind === 'correct') {
+            this.logger.warn(
+              `[AI] disse que agendou sem confirm_slot (${decision.why}) — NÃO marca; corrigindo a resposta (conv ${convo.id}): "${aiText.slice(0, 160)}"`,
+            );
+            claimCorrectedBy13a = true;
+            // Cancelar/remarcar que o modelo emitiu continua valendo (o paciente pediu: 15c/
+            // 15e cancelam a consulta atual) — só a frase falsa do horário NOVO cai. O resto
+            // (confirm_slot incompleto, confirm_appointment de outro horário) não serve.
+            const keepsCancel = netAction === 'cancel_appointment' || netAction === 'reschedule_appointment';
+            if (!keepsCancel) {
+              if (netAction) actionDroppedBy13a = true;
+              scheduling_action = null;
+            }
+            // A consulta que ele tem vai MESMO ser cancelada neste turno? (ação acima, ou o
+            // gatilho 2 do v28: lembrete + "não vou poder" sem ação do modelo.)
+            const oldCancelled = decision.hasExisting && (keepsCancel || (patientSaidNo && !netAction));
+            // "Cancelei sua consulta anterior" mantido no texto só fica se for verdade (o
+            // novo horário NÃO foi marcado: a anterior continua ativa).
+            const cancelStrip = oldCancelled ? { text: decision.keepText, stripped: false } : stripCancellationClaims(decision.keepText);
+            if (cancelStrip.stripped) {
+              this.logger.warn(`[AI] 13a tirou "cancelei…" da resposta — a consulta anterior NÃO foi cancelada (conv ${convo.id})`);
+            }
+            const fixDecision = { ...decision, keepText: cancelStrip.text };
+            // Paciente com consulta (remarcação?) → não oferece outro: a equipe resolve.
+            const autobookOn =
+              !decision.hasExisting && (await isAiAutobookEnabled(this.prisma, (convo as any)?.tenant_id));
+            // Pediu um horário que não está livre: as alternativas nunca são ele.
+            const requestedSlot: SlotRef | null =
+              decision.requested?.date && decision.requested?.time
+                ? { date: decision.requested.date, time: decision.requested.time }
+                : null;
+            let alts: SlotRef[] = [];
+            let altsFromClaim = false;
+            if (autobookOn) {
+              // Horário(s) identificado(s) — conferidos com a mesma regra de conflito da guarda.
+              if (decision.propose.length) {
+                alts = assignedDentistId
+                  ? await this.pickVerifiedAlternatives(
+                      decision.propose.map((s) => ({ date: s.date, times: [s.time] })),
+                      null,
+                      assignedDentistId,
+                      [],
+                      Math.min(3, decision.propose.length),
+                    )
+                  : decision.propose;
+                altsFromClaim = alts.length > 0;
+              }
+              if (!alts.length) {
+                // Recusou: nenhuma alternativa cai no que ele recusou (horário, dia, hora, turno).
+                const pool = withoutRefused(freeSlotDays, decision.refused);
+                alts = assignedDentistId
+                  ? await this.pickVerifiedAlternatives(pool, requestedSlot, assignedDentistId, [])
+                  : pickAlternativeSlots(pool, requestedSlot, 2);
+              }
+            }
+            let fix: string;
+            if (alts.length) {
+              // Pediu horário que não está livre → "Não consegui X. Tenho A ou B…"; recusou →
+              // oferta "Sem problemas! Tenho A ou B…"; senão pede a confirmação (o próximo
+              // "pode ser" vira confirm_slot normal).
+              fix = buildBookingFixText(fixDecision, alts, altsFromClaim);
+            } else {
+              const slot = decision.propose.length === 1 ? decision.propose[0] : requestedSlot;
+              // Depois de RECUSA não houve escolha dele: "a recepção te chama com outras opções".
+              const refusedNoChoice = decision.offer || (!!decision.refused && !slot);
+              fix = buildHonestPreferenceText(slot, fixDecision);
+              suppressRetry = true;
+              if (!dryRun) {
+                teamAlertNoteId = await this.alertTeamBookingIssue(convo, {
+                  slot: refusedNoChoice ? null : slot,
+                  reason: decision.hasExisting
+                    ? oldCancelled
+                      ? 'o paciente pediu pra remarcar/cancelar: a consulta anterior foi CANCELADA e o novo horário NÃO foi marcado — marquem com ele'
+                      : 'o paciente já tem consulta e a IA disse que marcou outro horário (remarcação?) — o novo horário NÃO foi marcado e a consulta que ele já tem CONTINUA ATIVA (não foi cancelada)' +
+                        (cancelStrip.stripped ? '; a IA também disse que tinha cancelado a anterior (frase tirada da resposta)' : '')
+                    : !autobookOn
+                      ? 'agendamento automático pela IA desligado nesta clínica'
+                      : refusedNoChoice
+                        ? 'o paciente recusou o horário e não havia outro livre pra oferecer — chamem com outras opções'
+                        : 'a IA disse que tinha agendado, mas não havia horário livre pra marcar',
+                  detail: lastInboundForRetry?.text || null,
+                });
+              }
+            }
+            // Mantém o resto da resposta (ex.: o preço que ele perguntou), sem a frase falsa.
+            aiText = fixDecision.keepText ? `${fixDecision.keepText}\n\n${fix}` : fix;
+          }
         }
       }
 
@@ -2787,16 +3575,18 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // já oferece horário, com scheduling_action (confirmou/cancelou/remarcou), no
       // chip Financeiro, pra quem já é paciente (Pós-Venda) ou se a própria resposta
       // já é a 2ª tentativa. Consulta futura é conferida no banco ao agendar.
-      const lastInboundForRetry = [...chronological].reverse().find((m: any) => m.direction === 'in');
-      const retryBySafetyNet = !retrySchedulingFlag && isClosingWithoutScheduling(lastInboundForRetry?.text);
       // A conversa já estava em andamento (a IA/equipe falou antes do "ok") — um "ok"
       // solto de lead novo não dispara a tentativa.
-      const lastInboundAt = lastInboundForRetry ? new Date(lastInboundForRetry.created_at).getTime() : 0;
       const hadPriorReply = chronological.some(
         (m: any) => m.direction === 'out' && new Date(m.created_at).getTime() < lastInboundAt,
       );
+      const retryBySafetyNet =
+        !retrySchedulingFlag && isClosingWithoutScheduling(lastInboundForRetry?.text, lastOutBeforeInbound);
       const retryEligible =
         !isSchedulingRetry &&
+        !suppressRetry &&
+        // Quem não é paciente (13-NP) nunca recebe tentativa de agendamento.
+        !npBlock.blocked &&
         hadPriorReply &&
         aiProfile.schedulingRetryMin > 0 &&
         // Lead marcado como perdido nesta resposta (recusou) → não insiste.
@@ -2805,7 +3595,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         !updates?.loss_reason &&
         profilePurpose !== 'FINANCEIRO' &&
         !isActiveClient &&
-        !scheduling_action?.action &&
+        modelEmittedNoAction(scheduling_action, actionDroppedBy13a) &&
         !!aiText.trim() &&
         !replyProposesSlots(aiText);
       const wantsSchedulingRetry = retryEligible && (retrySchedulingFlag || retryBySafetyNet);
@@ -2872,6 +3662,12 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           model,
           handoff: willHandoff,
           scheduling_action: scheduling_action || null,
+          // true = a IA disse "agendei" sem a ação e o horário foi recuperado do texto.
+          schedulingRecovered: bookingRecovered,
+          // Não é consulta (13-NP): categoria/resumo e se faria o handoff com pausa.
+          naoPaciente: npBlock.blocked
+            ? { categoria: npBlock.categoria, resumo: npBlock.resumo, origem: npBlock.origem, handoff: npHandoff }
+            : null,
           tools: toolCallLogs.map((l: any) => l.name).filter((n: string) => n !== 'respond_to_client'),
         };
       }
@@ -2896,15 +3692,16 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       //
       // CAMADA 3: log estruturado pra rastreabilidade
       //   Sempre logamos qual camada disparou, com excerpt da resposta
-      // (reminderCtx ja foi declarado linha ~1388 — reutilizamos aqui)
-      const isAwaitingConfirmation = reminderCtx?.awaiting_confirmation === true;
+      // (reminderCtx e isAwaitingConfirmation já foram declarados acima — reutilizamos aqui)
       // Pega ultima msg do paciente (direction='in') — vem de chronological
       const lastInbound = chronological?.filter((m: any) => m.direction === 'in')?.slice(-1)?.[0];
       const lastInboundText = (lastInbound?.text || '').toLowerCase();
-      const patientSaidNo = isAwaitingConfirmation && /\b(n[ãa]o\s+(?:vou|posso|consigo|d[áa])|imprevisto|preciso\s+remarcar|n[ãa]o\s+ir(?:ei|i)|n[ãa]o\s+conseguirei|n[ãa]o\s+poderei)\b/i.test(lastInboundText);
+      // (patientSaidNo — gatilho 2 — é calculado antes da 13a, com a mesma regra.)
 
-      // Detecta palavras-chave AMPLIADAS de "encerrar/abandonar agendamento"
-      const aiSaysCancel = finalText && /\b(cancelei|cancelado|cancelada|removi|desmarquei|tirei\s+da\s+agenda|fica\s+pra?\s+(?:pr[oó]xima|outro\s+dia)|deixa\s+pra?\s+depois|fica\s+pra\s+depois|anotei\s+(?:aqui|que)|ficou\s+pra\s+(?:pr[oó]xima|depois)|removi\s+da\s+agenda)\b/i.test(finalText);
+      // Detecta palavras-chave AMPLIADAS de "encerrar/abandonar agendamento". Texto que a
+      // 13a corrigiu neste turno não arma o gatilho: o "agendei/remarquei" era falso, a
+      // equipe foi avisada e a consulta que ele tem fica como está.
+      const aiSaysCancel = !claimCorrectedBy13a && finalText && /\b(cancelei|cancelado|cancelada|removi|desmarquei|tirei\s+da\s+agenda|fica\s+pra?\s+(?:pr[oó]xima|outro\s+dia)|deixa\s+pra?\s+depois|fica\s+pra\s+depois|anotei\s+(?:aqui|que)|ficou\s+pra\s+(?:pr[oó]xima|depois)|removi\s+da\s+agenda)\b/i.test(finalText);
 
       // Detecta proposta de horarios novos (formato comum: "DD/MM as HH:MM" ou bullet "• ")
       const aiProposedSlots = finalText && (
@@ -2914,7 +3711,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         /(?:que\s+tal|posso\s+te?\s+encaixar|consigo\s+te?\s+encaixar)/i.test(finalText)
       );
 
-      const noActionFromAi = !scheduling_action?.action;
+      // Ação que o modelo emitiu e a 13a zerou (confirm_slot incompleto) conta como
+      // ação — igual a antes da 13a; senão o "cancelei…" mantido no texto armaria o v28.
+      const noActionFromAi = modelEmittedNoAction(scheduling_action, actionDroppedBy13a);
 
       this.logger.log(
         `[AI-SAFEGUARD] convo=${convo.id} awaiting=${isAwaitingConfirmation} patientNo=${patientSaidNo} aiCancel=${aiSaysCancel} aiProposed=${aiProposedSlots} action=${scheduling_action?.action || 'null'}`
@@ -2966,7 +3765,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           // Onda v28: APPENDA proposta de remarcacao na resposta da IA se ela
           // nao ofereceu nenhuma. Estrategia de venda: paciente que so ouve
           // "ok cancelei" tem ~70% chance de nao voltar.
-          if (!aiProposedSlots && cancelled.length > 0) {
+          // (Nunca pra quem não é paciente — 13-NP: sem oferta de horário.)
+          // (Nem quando a 13a corrigiu o texto: a resposta já diz que a recepção confirma.)
+          if (!aiProposedSlots && cancelled.length > 0 && !npBlock.blocked && !claimCorrectedBy13a) {
             const slotsAppend = await this.buildRescheduleSuggestion(convo);
             if (slotsAppend) {
               finalText = finalText.trimEnd() + '\n\n' + slotsAppend;
@@ -2991,6 +3792,17 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         this.logger.log(
           `[AI] Sinal de escalada detectado ("${handoffSignal}") — ai_mode desativado para ${conversation_id}`,
         );
+      }
+
+      // 13-NP (sem handoff): toggle da triagem desligado, chip/contato sem handoff ou ficha
+      // de paciente → só ALERTA interno (nota + sininho) com o tipo e o resumo; a IA NÃO
+      // é pausada e o lead NÃO é marcado (a marca só nasce no handoff, que a recepção
+      // desfaz religando a IA — aqui ninguém religaria e um erro do modelo bloquearia a
+      // agenda do lead pra sempre, em silêncio). O handoff com pausa roda depois do envio.
+      if (npBlock.novo && !npHandoff && npBlock.categoria) {
+        const npFlag = { categoria: npBlock.categoria, resumo: npBlock.resumo };
+        teamAlertNoteId =
+          (await this.alertTeamNonPatient(convo, npFlag, lastInboundForRetry?.text || null)) || teamAlertNoteId;
       }
 
       // 14a. Reply vazio = conversa encerrada — IA decidiu não responder
@@ -3035,28 +3847,36 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // ensureOrcamentistaAssigned() reatribui pra um Orçamentista antes de criar
       // o evento. Se não houver NENHUM Orçamentista cadastrado → não cria evento
       // e loga warning (operador precisa marcar manualmente).
-      if (scheduling_action?.action === 'confirm_slot' && scheduling_action.date && scheduling_action.time) {
+      if (isValidConfirmSlot(scheduling_action)) {
+        const slot: SlotRef = { date: scheduling_action.date, time: scheduling_action.time };
+        // Sem como marcar (freio, sem Orçamentista, recusa sem alternativa, erro):
+        // resposta honesta + alerta pra equipe. Antes era "Deixa eu confirmar esse
+        // horário certinho e já te retorno" — e ninguém retornava.
+        const honestAndAlert = async (reason: string) => {
+          finalText = buildHonestPreferenceText(slot);
+          teamAlertNoteId =
+            (await this.alertTeamBookingIssue(convo, { slot, reason, detail: lastInboundForRetry?.text || null })) ||
+            teamAlertNoteId;
+        };
         try {
           // FREIO — agendamento automático pela IA é OPT-IN (default OFF). Sem isso,
           // a IA NÃO cria a "Avaliação" sozinha (evita "agendando o pessoal sozinho").
           if (!(await isAiAutobookEnabled(this.prisma, (convo as any)?.tenant_id))) {
             this.logger.warn(
-              `[AI] Auto-agendamento DESATIVADO (tenant ${(convo as any)?.tenant_id ?? 'null'}) — Avaliação NÃO criada; operador confirma manualmente.`,
+              `[AI] Auto-agendamento DESATIVADO (tenant ${(convo as any)?.tenant_id ?? 'null'}) — Avaliação NÃO criada (${slot.date} ${slot.time}); operador confirma manualmente.`,
             );
             // Autobook OFF → NENHUM evento é criado. Não deixa a IA dizer "Agendei"
-            // (falso) — igual aos ramos "sem Orçamentista" e "guarda recusou" abaixo.
-            // Sem isso, com a disponibilidade voltando a funcionar (Onda 19), a IA
-            // ofertaria horário, o lead aceitaria e ela confirmaria sem marcar nada.
-            finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
+            // (falso): responde honesto e avisa a equipe com o horário pedido.
+            await honestAndAlert('agendamento automático pela IA desligado nesta clínica');
           } else {
           const dentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
 
           if (!dentistId) {
             this.logger.warn(
-              `[AI] confirm_slot ${scheduling_action.date} ${scheduling_action.time} — NENHUM Orçamentista cadastrado no tenant. CalendarEvent NÃO criado. Lead ${convo.lead.id} ficará em "avaliacao-aceita" sem evento — operador precisa atribuir um Orçamentista (Settings → Usuários) e agendar manualmente.`,
+              `[AI] confirm_slot ${slot.date} ${slot.time} — NENHUM Orçamentista cadastrado no tenant. CalendarEvent NÃO criado. Lead ${convo.lead.id} ficará em "avaliacao-aceita" sem evento — operador precisa atribuir um Orçamentista (Settings → Usuários) e agendar manualmente.`,
             );
             // Sem Orçamentista não há evento — NÃO deixa a IA dizer "agendei" (falso).
-            finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
+            await honestAndAlert('nenhum dentista Orçamentista cadastrado');
           } else {
             // Onda 18.x — DELEGA pro book_appointment em vez do createCalendarEvent CRU.
             // O caminho antigo criava o evento SEM validação (conflito/feriado/passado/
@@ -3065,28 +3885,37 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             // (1d/1h/15min) + notifica dentista. ensureOrcamentistaAssigned acima já
             // travou a Dra. Suellen em assigned_dentist_id, que o handler lê.
 
-            // (1) REMARCAÇÃO — o createCalendarEvent antigo CANCELAVA as consultas ativas
-            // da MESMA conversa antes de criar; o book_appointment NÃO faz isso (só dedup
-            // ±3h por lead). Sem restaurar, remarcar geraria 2 consultas (fora de ±3h) ou
-            // diria um horário e manteria o outro (dentro de ±3h). Cancela as anteriores
-            // desta conversa ANTES de marcar a nova.
+            // (1) REMARCAÇÃO — consultas FUTURAS ativas desta MESMA conversa. Só são
+            // canceladas DEPOIS que a nova foi marcada (antes eram canceladas ANTES do
+            // book: se a guarda recusasse, o lead perdia a consulta que tinha). O book
+            // ignora essas na checagem de conflito/dedup (ignoreEventIds) — senão
+            // mover 9h → 9h30 batia na própria consulta antiga.
+            // Horário RECUPERADO do texto (13a) nunca é remarcação: só é sintetizado sem
+            // consulta futura — e não cancela nada (nem consulta fora da busca do 13a).
+            // Alerta da IA pra equipe nas últimas horas (ex.: "já tem consulta, disse que
+            // marcou outro — remarcação?") → NÃO cancela a anterior: pode ser a consulta
+            // real dele (o novo horário era da filha…) e a recepção está resolvendo.
+            const openTeamAlert = hasRecentAiTeamNote(convo.messages || []);
+            if (openTeamAlert && !bookingRecovered) {
+              this.logger.warn(
+                `[AI] confirm_slot ${slot.date} ${slot.time} com alerta da IA em aberto nesta conversa — NÃO cancela consulta anterior (conv ${convo.id})`,
+              );
+            }
+            let prev: { id: string }[] = [];
             try {
-              const prev = await (this.prisma as any).calendarEvent.findMany({
-                where: { conversation_id: convo.id, type: 'CONSULTA', status: { notIn: ['CANCELADO', 'CONCLUIDO'] } },
-                select: { id: true },
-              });
-              for (const old of prev) {
-                await (this.prisma as any).calendarEvent.update({
-                  where: { id: old.id },
-                  data: { status: 'CANCELADO', description: `[CANCELADO — reagendamento via IA em ${new Date().toISOString()}]` },
+              if (!bookingRecovered && !openTeamAlert) {
+                prev = await (this.prisma as any).calendarEvent.findMany({
+                  where: {
+                    conversation_id: convo.id,
+                    type: 'CONSULTA',
+                    status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+                    start_at: { gt: maceioNowNaive() },
+                  },
+                  select: { id: true },
                 });
-                await (this.prisma as any).eventReminder.deleteMany({ where: { event_id: old.id, sent_at: null } });
-              }
-              if (prev.length) {
-                this.logger.log(`[AI] Reagendamento: ${prev.length} consulta(s) anterior(es) da conv ${convo.id} CANCELADA(s) antes de remarcar.`);
               }
             } catch (e: any) {
-              this.logger.warn(`[AI] Falha ao cancelar consulta anterior (reagendamento) conv ${convo.id}: ${e?.message}`);
+              this.logger.warn(`[AI] Falha ao buscar consulta anterior (reagendamento) conv ${convo.id}: ${e?.message}`);
             }
 
             // (2) DELEGA. skipPatientNotify=true — a confirmação ao paciente é o próprio
@@ -3095,8 +3924,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             const { BookAppointmentHandler } = require('./tool-handlers/book-appointment');
             const bookResult = await new BookAppointmentHandler().execute(
               {
-                date: scheduling_action.date,
-                time: scheduling_action.time,
+                date: slot.date,
+                time: slot.time,
                 title: `Consulta — ${convo.lead.name || 'Lead'}`,
                 description: 'Consulta agendada pela IA',
               },
@@ -3106,25 +3935,58 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
                 leadId: convo.lead.id,
                 reminderQueue: this.reminderQueue,
                 skipPatientNotify: true,
+                ignoreEventIds: prev.map((p) => p.id),
               } as any,
             );
             if (bookResult?.success) {
               this.logger.log(
-                `[AI] Consulta agendada (Dra. Suellen): ${scheduling_action.date} ${scheduling_action.time} evt=${bookResult.eventId}${bookResult.already_booked ? ' (ja existia)' : ''}`,
+                `[AI] Consulta agendada (Dra. Suellen): ${slot.date} ${slot.time} evt=${bookResult.eventId}${bookResult.already_booked ? ' (ja existia)' : ''}${bookingRecovered ? ' [recuperado do texto]' : ''}`,
               );
+              // (3) Remarcação: agora sim cancela as anteriores (nunca a que acabou de
+              // ser marcada/reaproveitada).
+              const toCancel = prev.filter((p) => p.id !== bookResult.eventId);
+              try {
+                for (const old of toCancel) {
+                  await (this.prisma as any).calendarEvent.update({
+                    where: { id: old.id },
+                    data: { status: 'CANCELADO', description: `[CANCELADO — reagendamento via IA em ${new Date().toISOString()}]` },
+                  });
+                  await (this.prisma as any).eventReminder.deleteMany({ where: { event_id: old.id, sent_at: null } });
+                }
+                if (toCancel.length) {
+                  this.logger.log(`[AI] Reagendamento: ${toCancel.length} consulta(s) anterior(es) da conv ${convo.id} CANCELADA(s) depois de marcar a nova.`);
+                }
+              } catch (e: any) {
+                this.logger.warn(`[AI] Falha ao cancelar consulta anterior (reagendamento) conv ${convo.id}: ${e?.message}`);
+              }
             } else {
-              // (3) Guarda recusou (conflito/feriado/turno/passado/devedor). O finalText
-              // ("agendei") ainda NÃO foi enviado (o envio é ~L2670, depois daqui) → SOBRESCREVE
-              // pra NÃO confirmar falso. Oferece handoff honesto em vez de mentir "agendei".
+              // (4) Guarda recusou. O finalText ("agendei") ainda NÃO foi enviado → SOBRESCREVE
+              // pra NÃO confirmar falso. Recusa DESTE horário (ocupado/passado/turno/feriado/
+              // bloqueio) → oferece 2 horários livres NOVOS; recusa que vale pra qualquer
+              // horário (devedor…) ou sem alternativa → honesto + alerta pra equipe.
+              const err = String(bookResult?.error || 'erro desconhecido');
               this.logger.warn(
-                `[AI] confirm_slot RECUSADO pela guarda (${scheduling_action.date} ${scheduling_action.time}): ${bookResult?.error} — evento NÃO criado; corrigindo a resposta e sinalizando recepção (conv ${convo.id}).`,
+                `[AI] confirm_slot RECUSADO pela guarda (${slot.date} ${slot.time}): ${err} — evento NÃO criado; corrigindo a resposta (conv ${convo.id}).`,
               );
-              finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
+              const alts = isSlotSpecificRefusal(err)
+                ? await this.pickVerifiedAlternatives(freeSlotDays, slot, dentistId, prev.map((p) => p.id))
+                : [];
+              if (alts.length) {
+                finalText = buildSlotTakenText(alts);
+              } else {
+                await honestAndAlert(`agenda recusou: ${err}`);
+              }
             }
           }
           }
         } catch (e: any) {
-          this.logger.warn(`[AI] Falha ao agendar avaliação: ${e.message}`);
+          // Exceção no meio do caminho: o "deixei agendado" da IA NÃO pode sair sem evento.
+          this.logger.warn(`[AI] Falha ao agendar avaliação (${slot.date} ${slot.time}): ${e.message} — corrigindo a resposta`);
+          try {
+            await honestAndAlert(`erro ao agendar: ${String(e?.message || e).slice(0, 120)}`);
+          } catch {
+            finalText = buildHonestPreferenceText(slot);
+          }
         }
       }
 
@@ -3560,6 +4422,20 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // Leitura de AiMemory permanece como fallback na linha ~970 para
       // leads legacy sem tenant_id que nao puderam ser migrados em massa.
 
+      // 19a. 13-NP com handoff (toggle da triagem ligado): a resposta de repasse já saiu —
+      // agora o mesmo handoff do classificador: pausa a IA (MANUAL), marca o lead, avisa
+      // os ADMs e encaminha os arquivos que a pessoa já mandou. Mesmo se o envio falhou:
+      // os ADMs precisam saber.
+      if (npHandoff && npBlock.categoria && npTenantId) {
+        teamAlertNoteId =
+          (await this.finishNonPatientHandoff(
+            convo,
+            npTenantId,
+            { categoria: npBlock.categoria, resumo: npBlock.resumo },
+            assistantName,
+          )) || teamAlertNoteId;
+      }
+
       // 19b. 2ª tentativa de agendamento — SÓ depois do envio dar certo (e do áudio,
       // se houve: o marco retryAfterMessageAt é "agora", depois de tudo que saiu).
       // Nunca a partir de uma 2ª tentativa (13c), nem com handoff pra humano.
@@ -3569,7 +4445,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
 
       // 20. Retorna IDs para o AiEventsService da API emitir WebSocket em tempo real
       // messageIds: todos os balões (a API emite cada um no WebSocket).
-      return { conversationId: convo.id, messageId: savedMsg.id, messageIds: savedMsgs.map((m: any) => m.id) };
+      // Nota interna de alerta (se houve) vai antes dos balões — mesma ordem do banco.
+      const emittedIds = [...(teamAlertNoteId ? [teamAlertNoteId] : []), ...savedMsgs.map((m: any) => m.id)];
+      return { conversationId: convo.id, messageId: savedMsg.id, messageIds: emittedIds };
     } catch (e: any) {
       this.logger.error(`Erro no processamento da IA: ${e.message}`);
       throw e;

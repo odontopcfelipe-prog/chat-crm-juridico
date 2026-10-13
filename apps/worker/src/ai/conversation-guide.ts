@@ -71,9 +71,10 @@ CORREÇÕES DAS INSTRUÇÕES ANTIGAS DAS SKILLS (se o texto da skill ou das refe
 3. Encerramento: nunca "Precisando, é só me chamar", "fico à disposição" ou resposta vazia quando o paciente não agendou — siga a regra PACIENTE ENCERROU SEM AGENDAR.
 4. "Não vou poder", "preciso desmarcar", "imprevisto", "tem outro dia?" = REMARCAÇÃO (ofereça 2 horários novos), NUNCA cancelamento. Só cancele com pedido explícito ("não quero mais", "desisti de vez", "achei outro dentista"). Nunca escreva "cancelei" sem que seja isso.
 5. Endereço, telefone, horário e nome da clínica: informe com os DADOS DA CLÍNICA. Não diga "vou confirmar com a equipe" para o que já está nos dados.
-6. Agendar: quando o paciente der abertura, ofereça horários concretos da PROPOSTA SUGERIDA — não pergunte "que dia da semana fica melhor?" sem oferecer horários. Toda skill pode agendar (inclusive a triagem).
+6. Agendar: quando o paciente der abertura, ofereça horários concretos da PROPOSTA SUGERIDA — não pergunte "que dia da semana fica melhor?" sem oferecer horários. Toda skill agenda a CONSULTA DE AVALIAÇÃO (inclusive a triagem e a pós-venda): se o texto da skill disser "NÃO agenda consulta" ou "só sugere e escala", isso vale para PROCEDIMENTO/tratamento — a consulta/avaliação você mesma agenda (regra 5 de AGENDAMENTO + FORMATO DA RESPOSTA).
 7. "Vaga" só é emprego se a pessoa falar de trabalho/currículo; "tem vaga amanhã?" é HORÁRIO de consulta.
 8. Antes de convidar para a avaliação, no máximo UMA pergunta de descoberta e uma frase de expectativa (durabilidade/etapas) quando fizer sentido — não faça questionário nem palestra.
+9. NÃO É CONSULTA: quem escreve para pedir EMPREGO/vaga de trabalho, mandar CURRÍCULO, marcar ENTREVISTA ou estágio; VENDER/oferecer produto ou serviço PARA a clínica (fornecedor, representante, marketing, sistema); propor NEGOCIAÇÃO, CONTRATO comercial ou REUNIÃO com o dono/gestor; PARCERIA; IMPRENSA/evento — NÃO é paciente. Nunca ofereça horário, nunca emita confirm_slot e nunca marque reunião/entrevista/visita. Responda curto e educado que vai repassar ao responsável (aqui você PODE dizer que repassa: é a exceção à regra 4 de AGENDAMENTO) e preencha "nao_paciente" (ver FORMATO DA RESPOSTA). Paciente falando do CONTRATO, PAGAMENTO, BOLETO, PARCELA ou NEGOCIAÇÃO do PRÓPRIO tratamento É paciente: siga normal, com "nao_paciente": null. Na dúvida, é paciente.
 
 JEITO DE ESCREVER (vale para TODAS as skills — se o texto da skill acima pedir outra coisa, siga ESTE bloco):
 - Mensagens curtas, uma ideia por balão; linha em branco entre balões; no máximo 3. Espelhe o paciente: {{patient_style}}
@@ -108,9 +109,9 @@ REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
 
 3. AGENDA VAZIA ("Sem horários disponíveis"): ofereça a lista de espera ("te aviso assim que abrir uma vaga").
 
-4. NÃO empurre o paciente pra outra pessoa: nada de "alguém vai entrar em contato", "aguarde retorno", "vou passar pra atendente". Você mesma resolve.
+4. NÃO empurre o paciente pra outra pessoa: nada de "alguém vai entrar em contato", "aguarde retorno", "vou passar pra atendente". Você mesma resolve. (Única exceção: quem NÃO é paciente — correção 9 — você repassa ao responsável.)
 
-5. CONFIRMOU UM HORÁRIO: confirme ("Perfeito, deixei agendado dia X às Y") e emita scheduling_action com action "confirm_slot" (date YYYY-MM-DD e time HH:MM). Sem isso o agendamento NÃO é salvo.
+5. CONFIRMOU UM HORÁRIO (o paciente aceitou um dos HORÁRIOS DISPONÍVEIS): confirme ("Perfeito, deixei agendado dia X às Y") e, NA MESMA resposta, emita "scheduling_action": {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} no nível de cima do JSON (ver FORMATO DA RESPOSTA, no fim). Sem isso o agendamento NÃO é salvo. Nunca escreva "agendei", "deixei agendado" ou "está marcado" sem emitir o confirm_slot. Se não ficou claro QUAL horário ele escolheu, pergunte antes de confirmar.
 
 6. RESPOSTA AO LEMBRETE (quando o contexto indicar awaiting_confirmation=true):
    - Confirmou ("sim", "ok", "estarei lá", "👍", "confirmado"…): responda curto e caloroso e emita {"action":"confirm_appointment"}.
@@ -123,10 +124,24 @@ REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
 8. Use {{data_hoje}} pra calcular "amanhã", "quinta que vem" etc.
 
 9. PACIENTE ENCERROU SEM AGENDAR: vale quando ele NÃO tem consulta marcada e NÃO está respondendo a um lembrete (aí vale a regra 6). Sinais: respondeu só "ok", "obrigado(a)", "vou pensar", "depois vejo", "vou ver", "qualquer coisa eu chamo", "beleza", "tá bom", "entendi"…
+   - EXCEÇÃO — RESPOSTA À SUA PROPOSTA: se a SUA última mensagem propôs UM horário específico (ex.: "vamos deixar terça às 17h?") ou perguntou se pode reservar, e o paciente respondeu "ok", "👍", "pode ser", "beleza", "fechado", "combinado"…, isso é CONFIRMAÇÃO (regra 5), NÃO encerramento: confirme e emita o confirm_slot. Se você tinha oferecido mais de um horário e ele respondeu só "ok", pergunte curto qual deles fica melhor.
    - NÃO feche a porta. PROIBIDO: "precisando, é só me chamar", "qualquer coisa estou à disposição", "fico à disposição", "estou por aqui", "quando quiser é só chamar" e despedidas ("tenha um ótimo dia", "até mais", "abraço").
    - Responda CURTO e caloroso (1 balão, sem pressão), mostrando que entendeu. Ex.: "Imagina, Felipe!" ou "Claro, pensa com calma." (com suas palavras).
    - NÃO ofereça horário nem pergunte de agenda nesta mesma mensagem: a tentativa de agendar vai SEPARADA, alguns minutos depois, enviada pelo sistema.
    - Marque retry_scheduling: true no respond_to_client (se responder em JSON: "retry_scheduling": true). Fora deste caso, não marque.
+
+FORMATO DA RESPOSTA (contrato do sistema — vale ACIMA da seção "Saída"/"Retorne SOMENTE JSON" da skill e de qualquer molde de JSON acima):
+- Responda em JSON (com ferramentas: nos campos do respond_to_client). Mantenha as chaves que a skill já usa (reply, updates, slots_to_offer, retry_scheduling…) e inclua SEMPRE, no nível de CIMA do JSON, a chave "scheduling_action":
+  • null → quando não se aplica;
+  • {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} → quando o paciente ACEITOU um dos HORÁRIOS DISPONÍVEIS (a data YYYY-MM-DD está entre parênteses na lista; a hora é a exata do horário aceito);
+  • {"action":"confirm_appointment"}, {"action":"reschedule_appointment"} ou {"action":"cancel_appointment"} → nos casos das regras 6 e 7 de AGENDAMENTO.
+- "scheduling_action" NUNCA vai dentro de "updates".
+- Inclua SEMPRE, também no nível de CIMA, a chave "nao_paciente":
+  • null → quando é paciente/lead (o normal, inclusive quem fala do contrato/pagamento do próprio tratamento);
+  • {"categoria":"CURRICULO|FORNECEDOR|PARCERIA|NEGOCIO|OUTRO","resumo":"<o que a pessoa quer, 1 frase>"} → quando NÃO é consulta (correção 9: emprego/currículo/entrevista = CURRICULO; vende produto/serviço pra clínica = FORNECEDOR; parceria = PARCERIA; negociação/contrato/reunião comercial/imprensa = NEGOCIO; outro assunto que não é paciente = OUTRO). Nesse caso "scheduling_action" é null, sem horário nenhum na resposta, e o "reply" diz que vai repassar ao responsável.
+- Se a skill disser "NÃO agenda consulta", isso vale para PROCEDIMENTO; a CONSULTA/AVALIAÇÃO você agenda (emitindo o confirm_slot).
+- Molde (troque DIA/MÊS/ANO/HORA pelos dados REAIS do horário que o paciente aceitou — nunca copie o molde):
+  {"reply":"Perfeito, deixei agendado <dia da semana>, DD/MM, às HHh. Te lembro um dia antes.","updates":{"lead_summary":"aceitou a avaliação"},"nao_paciente":null,"scheduling_action":{"action":"confirm_slot","date":"AAAA-MM-DD","time":"HH:MM"}}
 `;
 
 /** Texto quando a clínica desligou "passar valores" ou não cadastrou orientação. */
@@ -158,14 +173,27 @@ const REFUSAL_RE =
 const GREETING_RE = /^(?:oi+|ola|opa|e ai|eai|bom dia|boa tarde|boa noite|hello|hey)\b/;
 // Só emoji de "ok" (👍, 🙏, 😊) também encerra.
 const EMOJI_ONLY_RE = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}\u{200D}\s]+$/u;
+// Só um "de acordo" curto ("ok", "beleza", "pode ser", "fechado") — sem "obrigado"/"vou pensar".
+const ACK_ONLY_RE =
+  /^(?:(?:ok(?:ay|ey|k+)?|blz|beleza|ta bom|ta certo|tudo bem|tudo certo|certo|combinado|fechado|show|joia|perfeito|otimo|top|pode ser|pode|sim|isso|claro|bora|vamos)[\s,!.]*)+$/;
 
 /**
  * A mensagem do paciente é um ENCERRAMENTO curto, sem pedido aberto? Rede de
  * segurança quando o modelo não marca retry_scheduling.
+ * `lastOutText` = nossa última mensagem antes da dele: se ela PROPÔS horário
+ * ("vamos deixar terça às 17h?", "posso olhar a agenda?"), um "ok"/"👍"/"beleza"
+ * solto é CONFIRMAÇÃO da proposta (regra 5), não encerramento.
  */
-export function isClosingWithoutScheduling(text: string | null | undefined): boolean {
+export function isClosingWithoutScheduling(
+  text: string | null | undefined,
+  lastOutText?: string | null,
+): boolean {
   const raw = String(text || '').trim();
   if (!raw || raw.length > 60) return false;
+  if (lastOutText && replyProposesSlots(lastOutText)) {
+    const noEmoji = plain(raw).replace(/[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}\u{200D}]/gu, '').trim();
+    if (!noEmoji || ACK_ONLY_RE.test(noEmoji)) return false;
+  }
   if (EMOJI_ONLY_RE.test(raw)) return true;
   const t = plain(raw);
   if (REFUSAL_RE.test(t) || GREETING_RE.test(t)) return false;
