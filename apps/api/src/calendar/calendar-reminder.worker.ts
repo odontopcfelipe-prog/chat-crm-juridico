@@ -183,8 +183,13 @@ function templateAdvogado(event: any, minutesBefore: number): string {
       `\n_Lembrete automático do CRM Jurídico_`
     );
   }
+  // O título é o PROCEDIMENTO ("Avaliação", "Restauração"…) — sem o nome de quem vem.
+  // Mostra o paciente (ficha) ou o lead, senão o dentista não sabe quem é.
+  const pacienteNome = event.patient?.name || event.lead?.name;
   return (
-    `📅 *Lembrete — ${prazo} antes*\n\nOlá, ${advNome}!\n\n*${event.title}*\n📅 ${dateStr}\n\n_Lembrete automático do CRM Jurídico_`
+    `📅 *Lembrete — ${prazo} antes*\n\nOlá, ${advNome}!\n\n*${event.title}*\n` +
+    (pacienteNome ? `👤 *Paciente:* ${pacienteNome}\n` : '') +
+    `📅 ${dateStr}\n\n_Lembrete automático do CRM Jurídico_`
   );
 }
 

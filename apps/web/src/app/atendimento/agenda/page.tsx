@@ -35,6 +35,9 @@ import { useRole } from '@/lib/useRole';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import { TasksPanel } from './TasksPanel';
 import { ScheduleBlockModal } from './ScheduleBlockModal';
+import {
+  AGENDA_PATIENT_TYPES, AgendaFlagChips, agendaFlagsHtml, isAiBookedEvent, isNewPatientEvent,
+} from './agenda-flags';
 
 // ─── Tipos ────────────────────────────────────────────
 
@@ -58,7 +61,11 @@ interface CalendarEvent {
   created_by_id?: string | null;
   assigned_user?: { id: string; name: string } | null;
   created_by?: { id: string; name: string } | null;
-  lead?: { id: string; name: string | null; phone: string; profile_picture_url?: string | null } | null;
+  // true = marcado pela IA (book_appointment) — card mostra o selo "IA" e o modal
+  // "Agendado pela IA" no lugar do criador (created_by é o dentista, exigido pelo schema).
+  created_by_ai?: boolean;
+  // is_client=false (sem ficha) = paciente novo → selo "Novo".
+  lead?: { id: string; name: string | null; phone: string; profile_picture_url?: string | null; is_client?: boolean | null } | null;
   patient?: { id: string; name: string | null; phone: string | null; avatar_url?: string | null } | null;
   // Validacao clinica (Fase 23)
   validated_at?: string | null;
@@ -140,7 +147,8 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
 // por STATUS (Chegou = azul, etc), igual a Procedimento/Retorno. Antes ficava de
 // fora e o card saía com a cor do TIPO (rosa), ignorando o status — bug do "Chegou
 // ficou vermelho". O tipo continua indicado pelo marcador (quadradinho rosa).
-const PATIENT_APPT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+// Fonte única em agenda-flags.tsx (os selos IA/Novo usam a mesma lista).
+const PATIENT_APPT_TYPES = AGENDA_PATIENT_TYPES;
 function eventAccentColor(ev: { type: string; status: string }): string {
   if (PATIENT_APPT_TYPES.includes(ev.type)) {
     return EVENT_STATUSES.find(s => s.id === ev.status)?.color || '#E91E63';
@@ -1450,7 +1458,6 @@ export default function AgendaPage() {
           const isCardType = AGENDA_CARD_TYPES.includes(e.type);
           let cardHtml = '';
           if (isCardType) {
-            const timeLabel = `${startLocal.slice(11, 16)} – ${endLocal.slice(11, 16)}`;
             const stColor = eventAccentColor(e);
             const dtColor = agendaDentistColor(e.assigned_user?.id);
             const nm = clientName || e.title;
@@ -1471,31 +1478,56 @@ export default function AgendaPage() {
               : _waPhoto
                 ? `<span class="ag-av"><img src="${agendaEsc(_waPhoto)}" alt=""/></span>`
                 : `<span class="ag-av ag-av-i" style="background:${agendaAvatarColor(clientName || nm || _pid || 'x')}">${agendaEsc(_avInit)}</span>`;
+            // Selos "IA" (marcado pela assistente) e "Novo" (paciente novo) na linha do
+            // horário; no card curto/estreito (linha do horário some) viram mini-selos
+            // antes do nome. HTML fixo (sem dado do usuário) — agenda-flags.tsx.
+            const flagsFull = agendaFlagsHtml(e, 'full');
+            const flagsMini = flagsFull ? agendaFlagsHtml(e, 'mini') : '';
+            // Card curto (30 min): a linha do procedimento some (container query) → o
+            // procedimento vai embutido no nome ("Felipe · Avaliação"), 1 linha truncada.
+            const nameProc = showProc ? `<span class="ag-name-proc"> · ${agendaEsc(e.title)}</span>` : '';
             cardHtml =
               '<div class="ag-card">' +
                 `<span class="ag-bar" style="background:${dtColor}"></span>` +
                 _avatar +
                 '<div class="ag-body">' +
                   `<div class="ag-r1"><span class="ag-dot" style="background:${stColor}"></span>` +
-                  `<span class="ag-time">${agendaEsc(timeLabel)}</span>` +
+                  `<span class="ag-time">${agendaEsc(startLocal.slice(11, 16))}<span class="ag-time-end"> – ${agendaEsc(endLocal.slice(11, 16))}</span></span>` +
+                  (flagsFull ? `<span class="ag-flags">${flagsFull}</span>` : '') +
                   (showType ? `<span class="ag-type" style="background:${tpColor}"></span>` : '') + '</div>' +
-                  `<div class="ag-name">${agendaEsc(nm)}</div>` +
+                  (flagsMini ? `<div class="ag-nflags">${flagsMini}</div>` : '') +
+                  `<div class="ag-name">${flagsMini ? `<span class="ag-iflags">${flagsMini}</span>` : ''}${agendaEsc(nm)}${nameProc}</div>` +
                   (showProc ? `<div class="ag-proc">${agendaEsc(e.title)}</div>` : '') +
                   (e.assigned_user ? `<div class="ag-dent"><span class="ag-dent-dot" style="background:${dtColor}"></span>${agendaEsc(e.assigned_user.name)}</div>` : '') +
                 '</div>' +
               '</div>';
           }
 
+          const sxTitle = `${statusIcon}${typeEmoji ? typeEmoji + ' ' : ''}${headline}${caseTag}${recurringTag}${commentsTag}${dentistTail}`;
+          // Mês: o render padrão é só "hora + título" (texto). Evento com selo IA/Novo
+          // ganha conteúdo próprio com as MESMAS classes do schedule-x + os selos.
+          const mgFlags = isCardType ? agendaFlagsHtml(e, 'full') : '';
+          const monthHtml = mgFlags
+            ? '<span class="ag-mg">' +
+                `<span class="sx__month-grid-event-time">${agendaEsc(startLocal.slice(11, 16))}</span>` +
+                mgFlags +
+                `<span class="sx__month-grid-event-title">${agendaEsc(sxTitle.replace(/\n/g, ' · '))}</span>` +
+              '</span>'
+            : '';
+
           return {
             id: e.id,
             // title mantido (tooltip dos "Próximos", view de mês, busca, a11y). No
             // grid semana/dia o _customContent.timeGrid abaixo é que aparece.
-            title: `${statusIcon}${typeEmoji ? typeEmoji + ' ' : ''}${headline}${caseTag}${recurringTag}${commentsTag}${dentistTail}`,
+            title: sxTitle,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
             calendarId: getSemanticCalendarId(e),
-            _customContent: cardHtml ? { timeGrid: cardHtml } : {},
+            _customContent: {
+              ...(cardHtml ? { timeGrid: cardHtml } : {}),
+              ...(monthHtml ? { monthGrid: monthHtml } : {}),
+            },
             _options: { additionalClasses: [statusClass, isCardType ? 'ag-has-card' : ''].filter(Boolean) },
           };
         });
@@ -2238,6 +2270,7 @@ export default function AgendaPage() {
                         {' · '}
                         {d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                       </span>
+                      <AgendaFlagChips event={ev} className="ml-auto" />
                     </div>
                     <div className="flex items-center gap-2 min-w-0">
                       {ev.patient && (
@@ -2660,6 +2693,9 @@ export default function AgendaPage() {
             {hoverTooltip.event.location && <p>📍 {hoverTooltip.event.location}</p>}
             {hoverTooltip.event.lead && <p>👤 {hoverTooltip.event.lead.name || hoverTooltip.event.lead.phone}</p>}
             {hoverTooltip.event.assigned_user && <p>⚖️ {hoverTooltip.event.assigned_user.name}</p>}
+            {(isAiBookedEvent(hoverTooltip.event) || isNewPatientEvent(hoverTooltip.event)) && (
+              <div className="pt-0.5"><AgendaFlagChips event={hoverTooltip.event} long className="flex-wrap" /></div>
+            )}
             {hoverTooltip.event.legal_case && (
               <p className="text-primary/80 font-semibold truncate">
                 📂 {hoverTooltip.event.legal_case.case_number ?? 'Processo vinculado'}
@@ -2745,11 +2781,21 @@ export default function AgendaPage() {
                     {editingEvent ? (canEdit ? 'Editar Evento' : 'Visualizar Evento') : 'Novo Evento'}
                   </h2>
                 )}
-                {editingEvent?.created_by && (
+                {/* Marcado pela IA: o created_by é o dentista (o schema exige um User) —
+                    no lugar do "Criado por" vai o selo "Agendado pela IA". */}
+                {editingEvent?.created_by && !isAiBookedEvent(editingEvent) && (
                   <p className="text-[10px] text-muted-foreground mt-0.5">
                     Criado por: {editingEvent.created_by.name}
                     {!canEdit && ' · Somente leitura'}
                   </p>
+                )}
+                {editingEvent && (isAiBookedEvent(editingEvent) || isNewPatientEvent(editingEvent)) && (
+                  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                    <AgendaFlagChips event={editingEvent} size="lg" long className="flex-wrap" />
+                    {isAiBookedEvent(editingEvent) && !canEdit && (
+                      <span className="text-[10px] text-muted-foreground">Somente leitura</span>
+                    )}
+                  </div>
                 )}
               </div>
               <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground shrink-0">

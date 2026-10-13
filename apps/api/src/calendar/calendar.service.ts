@@ -207,7 +207,9 @@ export class CalendarService {
       include: {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
+        // is_client: selo "Novo" do card (sem ficha + lead que ainda não compareceu/pagou —
+        // clinic-transfer-guard). Mesmo JOIN do lead, custo ~zero.
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true, is_client: true } },
         // Paciente vinculado: exibido no card da agenda + botao "Abrir ficha"
         // no modal de edicao. Necessario tanto no findAll quanto no findOne
         // pra evitar fetch extra ao clicar no evento.
@@ -226,7 +228,7 @@ export class CalendarService {
       include: {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true, is_client: true } },
         // v32: patient pra UI mostrar nome quando paciente foi vinculado direto
         patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         appointment_type: true,

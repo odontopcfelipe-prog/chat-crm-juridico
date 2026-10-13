@@ -28,6 +28,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import { DayPilotCalendar, DayPilot } from '@daypilot/daypilot-lite-react';
+import { isAiBookedEvent, isNewPatientEvent } from './agenda-flags';
 
 export interface ResourceUser {
   id: string;
@@ -42,6 +43,11 @@ export interface ResourceEvent {
   type: string;
   status: string;
   assigned_user_id?: string | null;
+  // Selos IA / Novo (agenda-flags.tsx) — viram sufixo de texto no evento do DayPilot.
+  created_by_ai?: boolean;
+  patient_id?: string | null;
+  lead_id?: string | null;
+  lead?: { is_client?: boolean | null } | null;
 }
 
 interface Props {
@@ -113,7 +119,7 @@ export function AgendaResourceView({
         const c = statusOf(e);
         return {
           id: e.id,
-          text: e.title,
+          text: [e.title, isAiBookedEvent(e) ? 'IA' : '', isNewPatientEvent(e) ? 'Novo' : ''].filter(Boolean).join(' · '),
           start: toLocalDpString(e.start_at),
           end: toLocalDpString(e.end_at || new Date(new Date(e.start_at).getTime() + 30 * 60000).toISOString()),
           resource: e.assigned_user_id!,

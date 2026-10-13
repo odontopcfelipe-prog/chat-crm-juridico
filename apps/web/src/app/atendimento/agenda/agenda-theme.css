@@ -634,6 +634,71 @@
   .sx-react-calendar-wrapper .ag-card .ag-bar { left: 3px; width: 2.5px; }
   .sx-react-calendar-wrapper .ag-card .ag-name { -webkit-line-clamp: 2; white-space: normal; text-overflow: clip; font-size: 11px; line-height: 1.15; margin-top: 0; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+ * SELOS "IA" (marcado pela assistente) e "Novo" (paciente novo) — agenda-flags.tsx.
+ * Globais (não só no wrapper do schedule-x): também usados no "Próximos", Lista,
+ * tooltip e modal. Cor = tom fixo misturado aos tokens do tema → texto escurece no
+ * tema claro e clareia no escuro, sempre legível sobre a tinta do status do card.
+ * ════════════════════════════════════════════════════════════════════ */
+.ag-flag {
+  display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
+  height: 14px; padding: 0 4px; border-radius: 999px;
+  font-size: 8.5px; font-weight: 800; letter-spacing: .03em; line-height: 1;
+  white-space: nowrap; vertical-align: middle;
+  border: 1px solid transparent;
+  color: color-mix(in srgb, var(--ag-flag-c) 70%, var(--text-primary, #111));
+  background: color-mix(in srgb, var(--ag-flag-c) 16%, var(--bg-primary, #fff));
+  border-color: color-mix(in srgb, var(--ag-flag-c) 40%, transparent);
+}
+.ag-flag svg { width: 9px; height: 9px; flex-shrink: 0; }
+.ag-flag-ia { --ag-flag-c: #7c3aed; }  /* lilás — IA */
+.ag-flag-new { --ag-flag-c: #059669; } /* esmeralda — paciente novo */
+.ag-flag-icon { padding: 0 2px; }
+/* Tamanho maior (modal / lista). */
+.ag-flag.ag-flag-lg { height: 18px; padding: 0 7px; gap: 4px; font-size: 10px; letter-spacing: .01em; }
+.ag-flag.ag-flag-lg svg { width: 11px; height: 11px; }
+
+/* No card: selos na linha do horário (some junto com ela no card micro/estreito). */
+.sx-react-calendar-wrapper .ag-card .ag-flags { display: inline-flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+/* Procedimento EMBUTIDO no nome ("Felipe · Avaliação") e selos mini (inline antes do
+   nome / linha própria acima dele): escondidos no card normal — lá o procedimento tem
+   linha própria e os selos ficam na linha do horário. */
+.sx-react-calendar-wrapper .ag-card .ag-name-proc { display: none; font-weight: 500; opacity: .72; }
+.sx-react-calendar-wrapper .ag-card .ag-iflags,
+.sx-react-calendar-wrapper .ag-card .ag-nflags { display: none; }
+/* Card médio (coluna da semana em tela larga): o horário não encolhe → o selo IA vira só o
+   ícone do robô pra o "Novo" caber inteiro ao lado. */
+@container (max-width: 200px) {
+  .sx-react-calendar-wrapper .ag-card .ag-flags .ag-flag-ia { font-size: 0; padding: 0 2px; gap: 0; }
+  /* card com selo: só a hora de início (a altura do card já mostra a duração) */
+  .sx-react-calendar-wrapper .ag-card .ag-r1:has(.ag-flag) .ag-time-end { display: none; }
+}
+/* compact (≤42px, ex.: 30 min): a linha do procedimento some → ele vai no nome (1 linha,
+   reticências). */
+@container (max-height: 42px) {
+  .sx-react-calendar-wrapper .ag-card .ag-name-proc { display: inline; }
+}
+/* micro (≤28px): a linha do horário some → selos mini na frente do nome (1 linha). */
+@container (max-height: 28px) {
+  .sx-react-calendar-wrapper .ag-card .ag-iflags { display: inline-flex; gap: 2px; margin-right: 3px; vertical-align: middle; }
+}
+/* narrow (coluna dividida): o NOME inteiro (2 linhas) manda — sem procedimento e sem
+   selo inline (roubaria a 1ª linha do nome). Se o card for alto, selos numa linha
+   própria acima do nome; baixo e estreito = só o nome. */
+@container (max-width: 128px) {
+  .sx-react-calendar-wrapper .ag-card .ag-name-proc,
+  .sx-react-calendar-wrapper .ag-card .ag-iflags { display: none; }
+}
+@container (max-width: 128px) and (min-height: 43px) {
+  .sx-react-calendar-wrapper .ag-card .ag-nflags { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; overflow: hidden; }
+}
+
+/* Mês: o evento com selo usa _customContent.monthGrid (hora + selos + título numa linha). */
+.sx-react-calendar-wrapper .sx__month-grid-event > div:has(> .ag-mg) { min-width: 0; flex: 1; overflow: hidden; }
+.sx-react-calendar-wrapper .ag-mg { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.sx-react-calendar-wrapper .ag-mg .sx__month-grid-event-time { margin-right: 1px; flex-shrink: 0; }
+.sx-react-calendar-wrapper .ag-mg .sx__month-grid-event-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sx-react-calendar-wrapper.is-dark .sx__time-grid-event:hover,
 [data-theme="noturno"] .sx-react-calendar-wrapper .sx__time-grid-event:hover,
 [data-theme="cyber"] .sx-react-calendar-wrapper .sx__time-grid-event:hover {

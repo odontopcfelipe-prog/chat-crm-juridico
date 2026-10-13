@@ -1,5 +1,10 @@
 import { Logger } from '@nestjs/common';
-import { BookAppointmentHandler } from './book-appointment';
+import {
+  BookAppointmentHandler,
+  aiBookingDescription,
+  aiBookingTitle,
+  findEvaluationAppointmentTypeId,
+} from './book-appointment';
 
 /** Instante REAL a partir da hora de Maceió (UTC-3). */
 const maceio = (iso: string) => new Date(`${iso}-03:00`).getTime();
@@ -34,6 +39,7 @@ function fakePrisma() {
       findMany: jest.fn(async () => [{ start_time: '08:00', end_time: '12:00' }, { start_time: '13:00', end_time: '18:00' }]),
     },
     patient: { findUnique: jest.fn(async () => null) },
+    appointmentType: { findFirst: jest.fn(async () => null) },
   };
   return { prisma, created };
 }
@@ -101,5 +107,111 @@ describe('BookAppointmentHandler — fuso e remarcação', () => {
       { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true } as any,
     );
     expect(prisma.calendarEvent.findFirst.mock.calls[0][0].where.id).toBeUndefined();
+  });
+});
+
+describe('BookAppointmentHandler — título/descrição da consulta marcada pela IA', () => {
+  let nowSpy: jest.SpyInstance;
+  beforeAll(() => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(maceio('2026-10-12T15:00:00'));
+  });
+  afterEach(() => nowSpy.mockRestore());
+
+  it('lead sem ficha: título "Avaliação" (sem nome do paciente) + descrição com a assistente e "paciente novo"', async () => {
+    const { prisma, created } = fakePrisma();
+    const res = await new BookAppointmentHandler().execute(
+      { date: '2026-10-13', time: '11:00', title: 'Avaliação' },
+      { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true, assistantName: 'Sophia' } as any,
+    );
+    expect(res.success).toBe(true);
+    expect(created[0].title).toBe('Avaliação');
+    expect(created[0].description).toBe('Avaliação agendada pela IA (Sophia) pelo WhatsApp — paciente novo');
+    expect(created[0].created_by_ai).toBe(true);
+    expect(created[0].patient_id).toBeUndefined();
+    // Clínica sem tipo "Avaliação" cadastrado → appointment_type_id fica de fora.
+    expect(created[0].appointment_type_id).toBeUndefined();
+    expect(prisma.appointmentType.findFirst.mock.calls[0][0].where).toEqual({
+      tenant_id: 't1',
+      active: true,
+      name: { contains: 'avalia', mode: 'insensitive' },
+    });
+  });
+
+  it('sem título (chamada direta da ferramenta) cai em "Avaliação"; paciente com ficha NÃO é "novo"', async () => {
+    const { prisma, created } = fakePrisma();
+    prisma.patient.findUnique = jest.fn(async () => ({ id: 'pat-1' }));
+    await new BookAppointmentHandler().execute(
+      { date: '2026-10-13', time: '11:00' },
+      { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true } as any,
+    );
+    expect(created[0].title).toBe('Avaliação');
+    expect(created[0].patient_id).toBe('pat-1');
+    expect(created[0].description).toBe('Avaliação agendada pela IA pelo WhatsApp');
+  });
+
+  it('lead que já é cliente (is_client) sem ficha: NÃO marca "paciente novo"', async () => {
+    const { prisma, created } = fakePrisma();
+    prisma.lead = { findUnique: jest.fn(async () => ({ is_client: true })) };
+    await new BookAppointmentHandler().execute(
+      { date: '2026-10-13', time: '11:00', title: 'Avaliação' },
+      { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true, assistantName: 'Sophia' } as any,
+    );
+    expect(created[0].description).toBe('Avaliação agendada pela IA (Sophia) pelo WhatsApp');
+  });
+
+  it('clínica com tipo "Avaliação" ativo: o evento já sai com appointment_type_id', async () => {
+    const { prisma, created } = fakePrisma();
+    prisma.appointmentType.findFirst = jest.fn(async () => ({ id: 'at-aval' }));
+    await new BookAppointmentHandler().execute(
+      { date: '2026-10-13', time: '11:00', title: 'Avaliação' },
+      { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true } as any,
+    );
+    expect(created[0].appointment_type_id).toBe('at-aval');
+  });
+
+  it('outro procedimento pedido pela IA: mantém o título e não procura tipo "Avaliação"', async () => {
+    const { prisma, created } = fakePrisma();
+    await new BookAppointmentHandler().execute(
+      { date: '2026-10-13', time: '11:00', title: 'Profilaxia', description: 'Prefere à tarde' },
+      { prisma, conversationId: 'c1', leadId: 'lead-1', skipPatientNotify: true, assistantName: 'Sophia' } as any,
+    );
+    expect(created[0].title).toBe('Profilaxia');
+    expect(created[0].description).toBe('Agendado pela IA (Sophia) pelo WhatsApp — paciente novo\nPrefere à tarde');
+    expect(prisma.appointmentType.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('helpers do agendamento pela IA', () => {
+  it('aiBookingTitle: vazio/"Consulta…"/"Avaliação…" → "Avaliação"; tira " — Fulano"', () => {
+    expect(aiBookingTitle(undefined)).toBe('Avaliação');
+    expect(aiBookingTitle('   ')).toBe('Avaliação');
+    expect(aiBookingTitle('  Consulta   de  avaliação ')).toBe('Avaliação');
+    expect(aiBookingTitle('Consulta — Felipe Passos')).toBe('Avaliação');
+    expect(aiBookingTitle('Avaliação - Felipe')).toBe('Avaliação');
+    expect(aiBookingTitle('Profilaxia — Ana')).toBe('Profilaxia');
+    expect(aiBookingTitle('Clareamento')).toBe('Clareamento');
+  });
+
+  it('aiBookingDescription: sem nome da assistente não deixa "()" vazio', () => {
+    expect(aiBookingDescription({ title: 'Avaliação', assistantName: '  ', isNewPatient: false })).toBe(
+      'Avaliação agendada pela IA pelo WhatsApp',
+    );
+    expect(aiBookingDescription({ title: 'Consulta de avaliação', assistantName: 'Sophia', isNewPatient: true })).toBe(
+      'Consulta de avaliação agendada pela IA (Sophia) pelo WhatsApp — paciente novo',
+    );
+  });
+
+  it('findEvaluationAppointmentTypeId: sem tenant não consulta (nunca mistura clínica); erro → null', async () => {
+    const prisma: any = { appointmentType: { findFirst: jest.fn(async () => ({ id: 'x' })) } };
+    expect(await findEvaluationAppointmentTypeId(prisma, null)).toBeNull();
+    expect(prisma.appointmentType.findFirst).not.toHaveBeenCalled();
+    prisma.appointmentType.findFirst = jest.fn(async () => {
+      throw new Error('db fora');
+    });
+    expect(await findEvaluationAppointmentTypeId(prisma, 't1')).toBeNull();
   });
 });

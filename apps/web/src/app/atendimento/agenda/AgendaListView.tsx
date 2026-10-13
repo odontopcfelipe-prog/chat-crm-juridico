@@ -21,6 +21,7 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Clock, MapPin, User, Printer, Stethoscope } from 'lucide-react';
+import { AgendaFlagChips } from './agenda-flags';
 
 interface CalendarEventLike {
   id: string;
@@ -33,6 +34,10 @@ interface CalendarEventLike {
   assigned_user?: { id: string; name: string } | null;
   location?: string | null;
   patient_id?: string | null;
+  // Selos "IA" / "Novo" (agenda-flags.tsx)
+  created_by_ai?: boolean;
+  lead_id?: string | null;
+  lead?: { is_client?: boolean | null } | null;
 }
 
 interface UserLike {
@@ -275,6 +280,7 @@ export function AgendaListView({
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                           • {typeLabel}
                         </span>
+                        <AgendaFlagChips event={ev} />
                       </div>
                       <p className={`text-sm font-medium text-foreground truncate ${isCancelled ? 'line-through' : ''}`}>
                         {ev.title}

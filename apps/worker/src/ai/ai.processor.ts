@@ -3159,6 +3159,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             // check_availability precisa dele pra achar a agenda sem conversa real)
             tenantId: tenantIdForBH || (dryRun ? convo.tenant_id : undefined) || undefined,
             dryRun,
+            assistantName,
           },
         });
 
@@ -3926,8 +3927,11 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               {
                 date: slot.date,
                 time: slot.time,
-                title: `Consulta — ${convo.lead.name || 'Lead'}`,
-                description: 'Consulta agendada pela IA',
+                // Avaliação inicial com a Orçamentista: o procedimento vai no TÍTULO (o
+                // nome do paciente o card da agenda já mostra). A descrição ("Avaliação
+                // agendada pela IA (<assistente>) pelo WhatsApp — paciente novo") o
+                // handler monta.
+                title: 'Avaliação',
               },
               {
                 prisma: this.prisma,
@@ -3936,6 +3940,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
                 reminderQueue: this.reminderQueue,
                 skipPatientNotify: true,
                 ignoreEventIds: prev.map((p) => p.id),
+                assistantName,
               } as any,
             );
             if (bookResult?.success) {

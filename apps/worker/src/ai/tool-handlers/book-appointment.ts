@@ -34,6 +34,61 @@ export async function findDentistConflict(
   });
 }
 
+/** Título padrão do que a IA marca: a avaliação inicial com a Orçamentista (mesmo
+ *  rótulo que a recepção usa). O nome do paciente NÃO vai no título — o card da
+ *  agenda já mostra o nome (antes saía "Consulta — Fulano", que escondia o procedimento). */
+export const AI_BOOKING_DEFAULT_TITLE = 'Avaliação';
+
+/** Título do evento marcado pela IA: o que a IA mandou (ex.: "Profilaxia") ou "Avaliação".
+ *  Tira o " — Fulano" que o modelo às vezes cola; "Consulta…"/"Avaliação…" viram "Avaliação"
+ *  (a IA só marca a consulta inicial com a Orçamentista). */
+export function aiBookingTitle(rawTitle?: string | null): string {
+  const t = String(rawTitle ?? '')
+    .replace(/\s+/g, ' ')
+    .split(/\s+[—–-]\s+/)[0]
+    .trim();
+  if (!t || /^(consulta|avalia)/i.test(t)) return AI_BOOKING_DEFAULT_TITLE;
+  return t;
+}
+
+/**
+ * Descrição do evento marcado pela IA — quem marcou, por onde e se é paciente novo.
+ * Ex.: "Avaliação agendada pela IA (Sophia) pelo WhatsApp — paciente novo".
+ * `isNewPatient` = sem ficha (Patient) ligada ao lead: ainda não compareceu nem pagou
+ * (regra do clinic-transfer-guard). Observação livre da IA vai numa 2ª linha.
+ */
+export function aiBookingDescription(p: {
+  title: string;
+  assistantName?: string | null;
+  isNewPatient: boolean;
+  extra?: string | null;
+}): string {
+  const who = String(p.assistantName ?? '').trim();
+  const by = `pela IA${who ? ` (${who})` : ''} pelo WhatsApp`;
+  const head = /avalia/i.test(p.title) ? `${p.title} agendada ${by}` : `Agendado ${by}`;
+  const line = `${head}${p.isNewPatient ? ' — paciente novo' : ''}`;
+  const extra = String(p.extra ?? '').trim();
+  return extra ? `${line}\n${extra}` : line;
+}
+
+/**
+ * Tipo de agendamento "Avaliação" ativo da clínica (nome casa /avalia/i), se existir.
+ * Só procura com tenant definido (nunca mistura clínica). Falha/ausência = null.
+ */
+export async function findEvaluationAppointmentTypeId(prisma: any, tenantId?: string | null): Promise<string | null> {
+  if (!tenantId || !prisma?.appointmentType?.findFirst) return null;
+  try {
+    const t = await prisma.appointmentType.findFirst({
+      where: { tenant_id: tenantId, active: true, name: { contains: 'avalia', mode: 'insensitive' } },
+      orderBy: { name: 'asc' },
+      select: { id: true },
+    });
+    return t?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Agenda uma reunião/consulta para o lead.
  *
@@ -331,12 +386,38 @@ export class BookAppointmentHandler implements ToolHandler {
       }
     }
 
+    // Procedimento no TÍTULO ("Avaliação" por padrão — sem o nome do paciente, que o
+    // card já mostra) + descrição dizendo que foi a IA e se é paciente novo (sem ficha).
+    // Se a clínica cadastrou um tipo "Avaliação", o evento já sai com ele.
+    // Paciente novo = sem ficha E lead que ainda não virou paciente (is_client=false) —
+    // mesma regra do selo "Novo" da agenda (lead vira paciente ao comparecer/pagar).
+    let leadIsClient = false;
+    if (!resolvedPatientId && context.leadId && prisma.lead?.findUnique) {
+      try {
+        const l = await prisma.lead.findUnique({ where: { id: context.leadId }, select: { is_client: true } });
+        leadIsClient = l?.is_client === true;
+      } catch {
+        /* sem a flag: trata como novo (não tem ficha) */
+      }
+    }
+    const title = aiBookingTitle(params.title);
+    const description = aiBookingDescription({
+      title,
+      assistantName: context.assistantName,
+      isNewPatient: !resolvedPatientId && !leadIsClient,
+      extra: params.description,
+    });
+    const appointmentTypeId = /avalia/i.test(title)
+      ? await findEvaluationAppointmentTypeId(prisma, convo.tenant_id)
+      : null;
+
     // Cria o CalendarEvent + reminders em uma só chamada
     const event = await prisma.calendarEvent.create({
       data: {
         type: 'CONSULTA',
-        title: params.title || 'Consulta',
-        description: params.description || 'Reunião agendada automaticamente pela IA',
+        title,
+        description,
+        ...(appointmentTypeId ? { appointment_type_id: appointmentTypeId } : {}),
         start_at: startAt,
         end_at: endAt,
         status: 'AGENDADO',
@@ -345,6 +426,9 @@ export class BookAppointmentHandler implements ToolHandler {
         lead_id: context.leadId,
         patient_id: resolvedPatientId,
         conversation_id: context.conversationId,
+        // created_by_id é OBRIGATÓRIO no schema (relation User) — a IA não é um User,
+        // então fica o dentista responsável. Quem marcou de verdade é o created_by_ai:
+        // a agenda mostra "Agendado pela IA" no lugar do criador.
         created_by_id: assignedUserId,
         created_by_ai: true,
         tenant_id: convo.tenant_id || undefined,
