@@ -241,7 +241,8 @@ export class ReactivationService {
       // "Previstos hoje" = o que está na fila até o fim do dia (inclui atrasados que
       // escorreram de domingo/feriado/teto — saem assim que der).
       this.prisma.leadDispatch.count({
-        where: { tenant_id: tenantId, status: 'AGENDADO', agendado_para: { lt: end } },
+        // Não-paciente (triagem da IA) sai dos Previstos — o worker encerra o ciclo.
+        where: { tenant_id: tenantId, status: 'AGENDADO', agendado_para: { lt: end }, lead: { non_patient_category: null } },
       }),
       this.prisma.leadReactivation.count({ where: { tenant_id: tenantId, status: 'ATIVA' } }),
       // Ciclos com resposta a um toque ENVIADO (replied_at) — conta ciclo, não mensagem.
@@ -297,6 +298,9 @@ export class ReactivationService {
         tenant_id: tenantId,
         status: 'AGENDADO',
         agendado_para: { lte: ate },
+        // Fornecedor/currículo/parceria/negócio/spam (triagem da IA) nunca aparece nos
+        // Previstos — o planejador/despachante do worker encerram o ciclo com 'não é paciente'.
+        lead: { non_patient_category: null },
         ...(col ? { coluna: col } : {}),
       },
       orderBy: [{ agendado_para: 'asc' }, { toque: 'asc' }],

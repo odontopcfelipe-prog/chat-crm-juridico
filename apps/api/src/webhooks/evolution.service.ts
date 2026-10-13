@@ -11,6 +11,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { FollowupService } from '../followup/followup.service';
 import { AdminBotService } from '../admin-bot/admin-bot.service';
 import { MediaDownloadService } from '../media/media-download.service';
+import { FileStorageService } from '../media/filesystem.service';
 import { PostCareService } from '../post-care/post-care.service';
 import {
   aiEnabledKey,
@@ -20,6 +21,10 @@ import {
   REATIVACAO_OPT_OUT_RE,
   ehRecusaDoLead,
   brazilPhoneMatchVariants,
+  parseAlertPhones,
+  nonPatientCategoryLabel,
+  naoPacienteTriageKey,
+  NAO_PACIENTE_ANEXO_JANELA_MS,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 
@@ -621,15 +626,30 @@ export class EvolutionService implements OnApplicationBootstrap {
       // Sem worker BullMQ — fluxo simplificado estilo Chatwoot.
       if (msgType !== 'text') {
         const mediaData = (data.message as any)?.[messageType];
-        this.mediaDownloadService.downloadAndStore({
+        const download = this.mediaDownloadService.downloadAndStore({
           messageId: msg.id,
           conversationId: conv.id,
           externalMessageId,
           instanceName,
           mediaData,
-        }).catch(err => {
+        });
+        download.catch(err => {
           this.logger.error(`[MEDIA-SYNC] Erro inesperado para msg ${msg.id}: ${err.message}`);
         });
+        // Triagem NÃO-PACIENTE: currículo/proposta que a pessoa manda DEPOIS da triagem
+        // da IA vai pros ADMs. Best-effort, fire-and-forget: nunca atrasa nem quebra o webhook.
+        if (!isOutgoing && (msgType === 'document' || msgType === 'image')) {
+          this.forwardNonPatientAttachment(download, {
+            messageId: msg.id,
+            messageCreatedAt: msg.created_at,
+            leadId: lead.id,
+            tenantId: conv.tenant_id ?? lead.tenant_id ?? effectiveTenantId ?? null,
+            msgType,
+            caption: messageContent,
+            fileNameHint: (mediaData as any)?.fileName ?? null,
+            instanceName: instanceName || conv.instance_name || null,
+          }).catch((e) => this.logger.warn(`[NAO-PACIENTE][ANEXO] msg ${msg.id}: ${e?.message}`));
+        }
       }
       this.chatGateway.emitConversationsUpdate(conv.tenant_id ?? null, true);
 
@@ -835,6 +855,170 @@ export class EvolutionService implements OnApplicationBootstrap {
   // respondido, um "pare" com o ciclo só em prévia (Envio desligado) ou recusa só
   // pela regra ampla encerram como RESPONDEU. Reação (👍/❤️) nunca é opt-out.
   private static readonly REATIV_RESPOSTA_JANELA_MS = 14 * 86400000;
+
+  // ─── Triagem não-paciente: arquivo que chega DEPOIS → ADMs ────────────────
+  //
+  // A IA (worker) marca Lead.non_patient_category/non_patient_at quando o contato é
+  // fornecedor / currículo / parceria / negócio / spam, pausa a IA e avisa os ADMs.
+  // Se a pessoa manda o currículo/proposta DEPOIS (até 72h), este encaminha o arquivo
+  // pro número de aviso dos ADMs (o do Venda feita / Resumo diário — vários números,
+  // parseAlertPhones), pelo chip FINANCEIRO → CLINICA → resto. Toggle: o mesmo da
+  // triagem (NAO_PACIENTE_TRIAGE_ENABLED_<t>). Prisma direto + FileStorage pego pelo
+  // ModuleRef (sem injetar nada novo no construtor — ciclo de DI já derrubou a API).
+  // Dedup por mensagem: AuditLog NAO_PACIENTE_ANEXO (entity_id = Message.id).
+  private static readonly NAO_PACIENTE_ANEXO_MAX_BYTES = 15 * 1024 * 1024;
+
+  private async forwardNonPatientAttachment(
+    download: Promise<boolean>,
+    ctx: {
+      messageId: string;
+      messageCreatedAt: Date;
+      leadId: string;
+      tenantId: string | null;
+      msgType: string;
+      caption: string | null;
+      fileNameHint: string | null;
+      /** Chip por onde o arquivo CHEGOU (mesma trava de função da triagem). */
+      instanceName: string | null;
+    },
+  ): Promise<void> {
+    const tenantId = ctx.tenantId;
+    if (!tenantId) return;
+
+    // 1) Barato primeiro: o contato foi triado como não-paciente nas últimas 72h e a
+    //    mensagem é POSTERIOR à triagem? (o arquivo que veio junto da 1ª mensagem a
+    //    IA já leva no próprio aviso).
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: ctx.leadId },
+      select: { name: true, phone: true, is_client: true, non_patient_category: true, non_patient_at: true },
+    });
+    if (!lead?.non_patient_category || !lead.non_patient_at) return;
+    // Paciente NUNCA tem arquivo encaminhado aos ADMs (raio-x, documento...): triagem
+    // errada que depois virou paciente (is_client / cadastro de Paciente) para aqui.
+    if (lead.is_client) return;
+    const triadoEm = new Date(lead.non_patient_at).getTime();
+    const chegouEm = new Date(ctx.messageCreatedAt).getTime();
+    if (chegouEm <= triadoEm) return;
+    if (Date.now() - triadoEm > NAO_PACIENTE_ANEXO_JANELA_MS) return;
+
+    // Mesma trava de função da triagem (ai.processor): só chip COMERCIAL ou sem função.
+    // Arquivo que chega pelo chip da CLÍNICA/FINANCEIRO é de paciente — nunca encaminha.
+    if (ctx.instanceName) {
+      const chip = await this.prisma.instance.findFirst({
+        where: { name: ctx.instanceName },
+        select: { purpose: true },
+      });
+      if (chip?.purpose === 'CLINICA' || chip?.purpose === 'FINANCEIRO') return;
+    }
+    const paciente = await this.prisma.patient.findFirst({
+      where: { lead_id: ctx.leadId },
+      select: { id: true },
+    });
+    if (paciente) return;
+
+    const toggle = await this.prisma.globalSetting.findUnique({ where: { key: naoPacienteTriageKey(tenantId) } });
+    if (toggle?.value !== 'true') return;
+
+    const [vf, ds] = await Promise.all([
+      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
+    ]);
+    const proprios = parseAlertPhones(vf?.value);
+    const phones = proprios.length ? proprios : parseAlertPhones(ds?.value);
+    if (!phones.length) {
+      this.logger.warn(`[NAO-PACIENTE][ANEXO] tenant ${tenantId}: sem número de aviso dos ADMs — arquivo da msg ${ctx.messageId} não encaminhado.`);
+      return;
+    }
+
+    // 2) Dedup por mensagem (marca ANTES de enviar: na dúvida, não manda 2×).
+    const ja = await this.prisma.auditLog.findFirst({
+      where: { entity: 'NAO_PACIENTE_ANEXO', entity_id: ctx.messageId },
+      select: { id: true },
+    });
+    if (ja) return;
+    await this.prisma.auditLog.create({
+      data: { entity: 'NAO_PACIENTE_ANEXO', entity_id: ctx.messageId, action: 'forward', meta_json: { tenant_id: tenantId } },
+    });
+
+    // 3) Espera o download da mídia (MediaDownloadService grava no filesystem da API).
+    const baixou = await download.catch(() => false);
+    let base64: string | null = null;
+    let mimetype: string | null = null;
+    let fileName: string | null = null;
+    if (baixou) {
+      const media = await this.prisma.media.findUnique({
+        where: { message_id: ctx.messageId },
+        select: { file_path: true, mime_type: true, original_name: true, size: true },
+      });
+      if (media?.file_path && (media.size ?? 0) <= EvolutionService.NAO_PACIENTE_ANEXO_MAX_BYTES) {
+        try {
+          const storage = this.moduleRef.get(FileStorageService, { strict: false });
+          const buf = await storage.read(media.file_path);
+          base64 = buf.toString('base64');
+          mimetype = (media.mime_type || '').split(';')[0].trim() || null;
+          const ext = (mimetype?.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+          fileName = media.original_name || ctx.fileNameHint || `arquivo.${ext}`;
+        } catch (e: any) {
+          this.logger.warn(`[NAO-PACIENTE][ANEXO] não leu o arquivo da msg ${ctx.messageId}: ${e?.message}`);
+        }
+      }
+    }
+
+    const nome = lead.name || lead.phone || 'Contato';
+    const legenda =
+      `📎 Arquivo de ${nome} (${nonPatientCategoryLabel(lead.non_patient_category)})` +
+      (lead.phone ? `\nTel: ${lead.phone}` : '') +
+      (ctx.caption ? `\nMensagem: "${String(ctx.caption).slice(0, 300)}"` : '');
+
+    // 4) Chips da clínica: FINANCEIRO → CLINICA → resto (mesma ordem do aviso interno).
+    const chips = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      select: { name: true, purpose: true },
+    });
+    const rank = (pp?: string | null) => (pp === 'FINANCEIRO' ? 0 : pp === 'CLINICA' ? 1 : 2);
+    const ordem = chips.sort((a, b) => rank(a.purpose) - rank(b.purpose) || a.name.localeCompare(b.name)).map((c) => c.name);
+    const entregou = (r: any) =>
+      !!r && typeof r === 'object' && !(typeof r.statusCode === 'number' && r.statusCode >= 400) &&
+      !(r.error && !r.key) && r.exists !== false && !!(r.key?.id || r.messageId || r.id);
+
+    for (const phone of phones) {
+      let ok: any = null;
+      let erro = 'nenhum chip entregou';
+      if (base64) {
+        for (const chip of ordem) {
+          const r = await this.whatsappService
+            .sendMedia(phone, ctx.msgType === 'image' ? 'image' : 'document', base64, legenda, chip, fileName || undefined, mimetype || undefined)
+            .catch((e: any) => ({ statusCode: 500, error: e?.message }));
+          if (entregou(r)) { ok = r; break; }
+          erro = `arquivo: ${String((r as any)?.error || (r as any)?.statusCode || 'falhou').slice(0, 160)}`;
+        }
+      }
+      if (!ok) {
+        // Sem arquivo (não baixou / grande demais / nenhum chip entregou): avisa em texto.
+        const texto = `${legenda}\n\n_(o arquivo não pôde ser anexado — veja na conversa pelo painel)_`;
+        for (const chip of ordem) {
+          const r = await this.whatsappService.sendText(phone, texto, chip, undefined, tenantId).catch(() => null);
+          if (entregou(r)) { ok = r; break; }
+        }
+      }
+      await this.prisma.dispatchLog
+        .create({
+          data: {
+            tenant_id: tenantId,
+            type: 'nao_paciente_anexo',
+            channel: 'WHATSAPP',
+            recipient_name: nome.slice(0, 200),
+            recipient_phone: phone,
+            status: ok ? 'SENT' : 'FAILED',
+            error: ok ? null : erro.slice(0, 500),
+            external_message_id: ok?.key?.id || null,
+          },
+        })
+        .catch(() => undefined);
+      if (ok) this.logger.log(`[NAO-PACIENTE][ANEXO] tenant ${tenantId}: arquivo de ${nome} encaminhado pra ${phone}.`);
+      else this.logger.warn(`[NAO-PACIENTE][ANEXO] tenant ${tenantId}: arquivo de ${nome} NÃO entregue pra ${phone} (${erro}).`);
+    }
+  }
 
   private async checkReactivationResponse(
     leadId: string,

@@ -533,7 +533,7 @@ export class ConversationsService {
   async setAiMode(id: string, ai_mode: boolean): Promise<Conversation> {
     // Toggle do operador SEMPRE marca como MANUAL — protege a conversa do
     // cron AfterHours, que só mexe em entradas sem origem manual.
-    return this.prisma.conversation.update({
+    const conv = await this.prisma.conversation.update({
       where: { id },
       data: {
         ai_mode,
@@ -541,6 +541,19 @@ export class ConversationsService {
         ai_mode_source: 'MANUAL',
       },
     });
+    // Operador RELIGOU a IA = desfaz a triagem "não-paciente" do contato (fornecedor/
+    // currículo/...): volta a poder receber a régua de reativação e para o
+    // encaminhamento de arquivos aos ADMs. Se for mesmo não-paciente, a IA reclassifica
+    // na próxima mensagem. Best-effort: nunca derruba o toggle.
+    if (ai_mode && conv.lead_id) {
+      await this.prisma.lead
+        .updateMany({
+          where: { id: conv.lead_id, NOT: { non_patient_category: null } },
+          data: { non_patient_category: null, non_patient_at: null },
+        })
+        .catch((e: any) => this.logger.warn(`[NAO-PACIENTE] não limpou a triagem do lead ${conv.lead_id}: ${e?.message}`));
+    }
+    return conv;
   }
 
   async assign(id: string, userId: string): Promise<Conversation> {

@@ -347,6 +347,12 @@ model Lead {
   reactivations           LeadReactivation[]
   reactivation_dispatches LeadDispatch[]
 
+  // Triagem não-paciente (IA): fornecedor/currículo/parceria/negócio/spam. Preenchido
+  // quando a IA classifica o contato como NÃO-paciente. Nunca entra na régua de
+  // reativação; anexos que chegarem depois (72h) são encaminhados aos ADMs.
+  non_patient_category    String? // FORNECEDOR | CURRICULO | PARCERIA | NEGOCIO | SPAM | OUTRO
+  non_patient_at          DateTime?
+
   // Unicidade POR TENANT (Postgres: tenant_id null nao colide — leads orfaos
   // legados convivem; o codigo resolve orfaos por escopo explicito).
   @@unique([tenant_id, phone])
@@ -1144,6 +1150,10 @@ model CalendarEvent {
   overdue_override_at         DateTime?
   overdue_override_reason     String?
 
+  // Aviso de NOVO AGENDAMENTO aos ADMs (worker admin-alerts): claim atômico —
+  // preenchido ANTES de enviar (2 workers não avisam 2×). null = ainda não avisado.
+  admin_notified_at DateTime?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -1154,6 +1164,7 @@ model CalendarEvent {
   @@index([patient_id, start_at])
   @@index([room_id, start_at])
   @@index([validated_at])
+  @@index([tenant_id, created_at])
 }
 
 model EventReminder {

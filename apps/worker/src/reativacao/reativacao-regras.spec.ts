@@ -23,6 +23,7 @@ import {
   dentroDaJanela,
   disjuntorAbre,
   dividirBaloes,
+  ehNaoPaciente,
   ehMensagemReal,
   emCarenciaDeNutricao,
   escolherHorarios,
@@ -51,6 +52,7 @@ import {
   variantesEnvio,
   type DadosCandidato,
   MOTIVO_COLUNA_DESLIGADA,
+  MOTIVO_NAO_PACIENTE,
   MOTIVO_PODE_TER_SAIDO,
   TEXTO_MAX_CHARS,
 } from './reativacao-regras';
@@ -161,6 +163,23 @@ describe('régua de reativação — quem entra (planejador)', () => {
     expect(avaliarCandidato({ ...base, temCicloAtivo: true }, ligadas, agora).ok).toBe(false);
     expect(avaliarCandidato({ ...base, colunasBloqueadas: new Set(['conversa']) }, ligadas, agora).ok).toBe(false);
     expect(avaliarCandidato({ ...base, temEventoFuturo: true }, ligadas, agora).ok).toBe(false);
+  });
+
+  it('não-paciente (fornecedor/currículo/parceria/negócio/spam) NUNCA entra — nem na coluna faltou', () => {
+    expect(avaliarCandidato({ ...base, naoPaciente: true }, ligadas, agora)).toEqual({ ok: false, motivo: MOTIVO_NAO_PACIENTE });
+    const falta = { ...base, colunaGeral: 'agendado', noShow: { id: 'ev1', startNaive: new Date('2026-10-11T14:00:00Z') }, naoPaciente: true };
+    expect(avaliarCandidato(falta, ligadas, agora)).toEqual({ ok: false, motivo: 'não é paciente' });
+    // campo ausente (chamadas antigas) = pode ser paciente
+    expect(avaliarCandidato({ ...base, naoPaciente: false }, ligadas, agora).ok).toBe(true);
+  });
+
+  it('ehNaoPaciente: só com categoria preenchida', () => {
+    expect(ehNaoPaciente({ non_patient_category: 'CURRICULO' })).toBe(true);
+    expect(ehNaoPaciente({ non_patient_category: 'FORNECEDOR' })).toBe(true);
+    expect(ehNaoPaciente({ non_patient_category: null })).toBe(false);
+    expect(ehNaoPaciente({ non_patient_category: '  ' })).toBe(false);
+    expect(ehNaoPaciente({})).toBe(false);
+    expect(ehNaoPaciente(null)).toBe(false);
   });
 
   it('faltou: NO_SHOW de ontem entra; de hoje espera; lead que escreveu depois da falta não entra', () => {

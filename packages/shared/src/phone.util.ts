@@ -90,3 +90,63 @@ export function brazilPhoneMatchVariants(raw: string | null | undefined): string
   }
   return [...set];
 }
+
+// ─── Números de AVISO INTERNO aos ADMs (vários por clínica) ─────────────────
+// VENDA_FEITA_PHONE_<t> / DAILY_SUMMARY_PHONE_<t> aceitam VÁRIOS números separados
+// por vírgula, ponto-e-vírgula ou quebra de linha ("5582999998888, 82988887777").
+// Fonte ÚNICA do parse — a API (venda feita, resumo diário, anexo de não-paciente)
+// e o worker (admin-alerts) usam esta mesma função; nunca recriar.
+
+/** Separadores aceitos entre os números de aviso. */
+export const ALERT_PHONES_SEPARATOR_RE = /[,;\r\n]+/;
+
+/**
+ * Celular/fixo BR no formato de ENVIO: 55 + DDD (2 dígitos, sem 0) + 8 dígitos
+ * (fixo / celular antigo) ou 9 + 8 dígitos (celular). Barra o que o
+ * toBrazilWhatsappNumber deixa passar mas nunca entrega: dois números colados
+ * ("8299999888882988887777"), local de 9 dígitos com 55 ("55829999988" → 5555829999988),
+ * 55 digitado duas vezes ("555582999998888").
+ */
+const ALERT_PHONE_SEND_RE = /^55[1-9]{2}(?:9\d{8}|\d{8})$/;
+
+/** Um trecho → número pronto pra envio (toBrazilWhatsappNumber), ou null se não é um telefone BR válido. */
+export function toAlertPhone(part: string | null | undefined): string | null {
+  const digits = String(part ?? '').replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  const envio = toBrazilWhatsappNumber(digits);
+  return ALERT_PHONE_SEND_RE.test(envio) ? envio : null;
+}
+
+/**
+ * Lista de números de aviso → números PRONTOS PRA ENVIO (toBrazilWhatsappNumber),
+ * sem repetidos (o mesmo assinante com/sem 9 ou 55 conta 1 vez — casa pelo
+ * canônico) e sem lixo (trecho que não é telefone BR válido — toAlertPhone — é
+ * descartado). Ordem preservada.
+ */
+export function parseAlertPhones(raw: string | null | undefined): string[] {
+  if (!raw || typeof raw !== 'string') return [];
+  const out: string[] = [];
+  const vistos = new Set<string>();
+  for (const parte of raw.split(ALERT_PHONES_SEPARATOR_RE)) {
+    const envio = toAlertPhone(parte);
+    if (!envio) continue;
+    const canon = normalizeBrazilianPhone(envio);
+    if (vistos.has(canon)) continue;
+    vistos.add(canon);
+    out.push(envio);
+  }
+  return out;
+}
+
+/**
+ * Trechos que NÃO viram telefone BR válido (curto demais, dois números colados,
+ * 55 repetido...) — pra a tela recusar em vez de salvar e silenciar o aviso.
+ * Trechos vazios são ignorados.
+ */
+export function invalidAlertPhoneParts(raw: string | null | undefined): string[] {
+  if (!raw || typeof raw !== 'string') return [];
+  return raw
+    .split(ALERT_PHONES_SEPARATOR_RE)
+    .map((p) => p.trim())
+    .filter((p) => p && !toAlertPhone(p));
+}

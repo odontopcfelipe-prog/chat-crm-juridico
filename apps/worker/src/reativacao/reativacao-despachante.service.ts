@@ -36,6 +36,7 @@ import {
   ENVIANDO_PRESO_MS,
   ETAPAS_LEGADAS_FORA,
   JANELA_UMA_MSG_DIA_MS,
+  MOTIVO_NAO_PACIENTE,
   MOTIVO_PODE_TER_SAIDO,
   PAUSA_CHIP_CAIDO_MS,
   PAUSA_DISJUNTOR_MS,
@@ -45,6 +46,7 @@ import {
   dentroDaJanela,
   disjuntorAbre,
   dividirBaloes,
+  ehNaoPaciente,
   inicioDiaMaceio,
   interpretarWhatsappNumbers,
   intervaloChipMs,
@@ -359,6 +361,7 @@ export class ReativacaoDespachanteService {
             select: {
               id: true, tenant_id: true, name: true, phone: true, stage: true, stage_id: true,
               is_client: true, contact_opt_out_at: true, whatsapp_invalid_at: true,
+              non_patient_category: true,
             },
           },
         },
@@ -391,6 +394,9 @@ export class ReativacaoDespachanteService {
       if (irmaos.some((l) => l.is_client)) return encerrar('VIROU_PACIENTE', 'virou paciente');
       if (irmaos.some((l) => l.contact_opt_out_at)) return encerrar('OPT_OUT', 'pediu pra parar');
       if (irmaos.some((l) => l.whatsapp_invalid_at)) return encerrar('SEM_WHATSAPP', 'número sem WhatsApp');
+      // Triagem da IA marcou o contato (ou um gêmeo) como fornecedor/currículo/parceria/
+      // negócio/spam depois que o ciclo nasceu: não é lead de venda — encerra sem enviar.
+      if (irmaos.some((l) => ehNaoPaciente(l))) return encerrar('CANCELADA', MOTIVO_NAO_PACIENTE);
       if (irmaosIds.length > 1) {
         // Ciclos gêmeos já criados (antes da dedup do planejador): fica só o mais antigo.
         const outro = await this.prisma.leadReactivation.findFirst({

@@ -7,17 +7,18 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, PartyPopper, Check } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { Phone55Input } from './Phone55Input';
-import { stripCountry55, join55, hasLocalNumber } from './phone55';
+import { Phones55ListInput } from './Phones55ListInput';
+import { splitStoredPhones, joinPhones55, hasAnyLocalNumber } from './phone55';
 
 export function VendaFeitaEditor() {
-  const [local, setLocal] = useState(''); // só DDD + número; o 55 é prefixo fixo
+  // Vários números (cada campo: só DDD + número; o 55 é prefixo fixo).
+  const [locais, setLocais] = useState<string[]>(['']);
   const [inheritedPhone, setInheritedPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Está seguindo o número do Resumo Diário? (sem número próprio, mas o resumo tem)
-  const inherited = !hasLocalNumber(local) && !!inheritedPhone;
+  const inherited = !hasAnyLocalNumber(locais) && !!inheritedPhone;
 
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +27,7 @@ export function VendaFeitaEditor() {
       .get<{ phone: string; inheritedPhone?: string }>('/followup/venda-feita-config')
       .then((r) => {
         if (cancelled) return;
-        setLocal(stripCountry55(r.data?.phone));
+        setLocais(splitStoredPhones(r.data?.phone));
         setInheritedPhone(r.data?.inheritedPhone || '');
       })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a configuração'); })
@@ -37,8 +38,8 @@ export function VendaFeitaEditor() {
   const save = async () => {
     setSaving(true);
     try {
-      const r = await api.put('/followup/venda-feita-config', { phone: join55(local) });
-      setLocal(stripCountry55(r.data?.phone));
+      const r = await api.put('/followup/venda-feita-config', { phone: joinPhones55(locais) });
+      setLocais(splitStoredPhones(r.data?.phone));
       showSuccess('Configuração salva.');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Não foi possível salvar');
@@ -70,8 +71,12 @@ export function VendaFeitaEditor() {
 
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div>
-          <label className="text-sm font-medium text-foreground">Número que recebe o aviso</label>
-          <Phone55Input local={local} onLocal={setLocal} />
+          <label className="text-sm font-medium text-foreground">Números que recebem o aviso</label>
+          <p className="text-[11px] text-muted-foreground mb-1">
+            É o <b>número de aviso dos ADMs</b>: também recebe os avisos de <b>novo agendamento</b> e da{' '}
+            <b>triagem não-paciente</b>. Pode cadastrar <b>vários</b> — o aviso vai pra todos.
+          </p>
+          <Phones55ListInput locais={locais} onChange={setLocais} />
           {inherited ? (
             <p className="text-[12px] text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-start gap-1.5">
               <Check size={14} className="mt-0.5 shrink-0" />
@@ -80,7 +85,7 @@ export function VendaFeitaEditor() {
                 em branco que o aviso segue esse contato. Só coloque um número aqui se quiser um <b>diferente</b>.
               </span>
             </p>
-          ) : !hasLocalNumber(local) && !inheritedPhone ? (
+          ) : !hasAnyLocalNumber(locais) && !inheritedPhone ? (
             <p className="text-[12px] text-amber-600 dark:text-amber-400 mt-1.5">
               Nenhum número configurado — defina um aqui, ou configure o Resumo Diário que este aviso passa a usar o
               mesmo contato automaticamente.

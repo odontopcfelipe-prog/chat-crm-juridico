@@ -406,7 +406,20 @@ export interface DadosCandidato {
   temCicloAtivo: boolean;
   /** Colunas com ciclo recente que bloqueia o reciclo (REATIVACAO_RECICLO_DIAS). */
   colunasBloqueadas: ReadonlySet<string>;
+  /**
+   * A IA classificou o contato (ou um gêmeo do número) como NÃO-paciente
+   * (Lead.non_patient_category: fornecedor/currículo/parceria/negócio/spam)? Nunca entra.
+   */
+  naoPaciente?: boolean;
 }
+
+/** Contato marcado pela triagem como não-paciente (Lead.non_patient_category preenchido). */
+export function ehNaoPaciente(lead: { non_patient_category?: string | null } | null | undefined): boolean {
+  return !!String(lead?.non_patient_category ?? '').trim();
+}
+
+/** Motivo de fim do ciclo / recusa quando o contato não é paciente. */
+export const MOTIVO_NAO_PACIENTE = 'não é paciente';
 
 export type Avaliacao =
   | { ok: true; coluna: ReativacaoColuna; paradoDesde: Date; refEventId: string | null }
@@ -425,6 +438,8 @@ export type Avaliacao =
  *     "confirmado!") não impede — o gatilho é a falta.
  */
 export function avaliarCandidato(d: DadosCandidato, colunasLigadas: ReadonlySet<string>, agora: Date): Avaliacao {
+  // Fornecedor/currículo/parceria/negócio/spam: não é lead de venda — nunca reativa.
+  if (d.naoPaciente) return { ok: false, motivo: MOTIVO_NAO_PACIENTE };
   const coluna = d.colunaGeral;
   if (!isReativacaoColuna(coluna)) return { ok: false, motivo: `coluna ${coluna} fora da régua` };
   if (!colunasLigadas.has(coluna)) return { ok: false, motivo: 'coluna desligada' };

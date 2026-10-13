@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -181,6 +181,18 @@ export class FollowupService {
     const naoPacienteSetting = await this.prisma.globalSetting.findUnique({
       where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
     });
+
+    // AVISO AOS ADMs DE NOVO AGENDAMENTO (feito pela IA / pela equipe) — vai pro número
+    // de aviso dos ADMs (o do Venda feita / Resumo diário). Default OFF (opt-in). O worker
+    // (admin-alerts/admin-agendamento-alert.service) lê as MESMAS keys.
+    const adminAgendSettings = await this.prisma.globalSetting
+      .findMany({
+        where: { key: { in: [`ADMIN_AGENDAMENTO_IA_ENABLED_${tenantId}`, `ADMIN_AGENDAMENTO_EQUIPE_ENABLED_${tenantId}`] } },
+        select: { key: true, value: true },
+      })
+      .catch(() => [] as { key: string; value: string }[]);
+    const adminAgendOn = (origem: 'IA' | 'EQUIPE') =>
+      adminAgendSettings.find((r) => r.key === `ADMIN_AGENDAMENTO_${origem}_ENABLED_${tenantId}`)?.value === 'true';
 
     // Régua de reativação de leads (follow-up do chip COMERCIAL): Envio + 5 colunas
     // numa query só, FORA do Promise.all posicional (não desalinha os de cima).
@@ -418,6 +430,9 @@ export class FollowupService {
       },
       // Triagem não-paciente (fornecedor/currículo/parceria/spam). Default OFF (opt-in).
       nao_paciente_triage: { enabled: (naoPacienteSetting as any)?.value === 'true' },
+      // Aviso aos ADMs de novo agendamento (IA / equipe). Default OFF (opt-in).
+      admin_agendamento_ia: { enabled: adminAgendOn('IA') },
+      admin_agendamento_equipe: { enabled: adminAgendOn('EQUIPE') },
     };
   }
 
@@ -448,6 +463,10 @@ export class FollowupService {
       orto_reminder: 'Lembrete de ortodontia (portões)',
       // Régua de reativação de leads (worker grava 1 DispatchLog por toque).
       reativacao_lead: 'Reativação de leads',
+      // Avisos internos aos ADMs (número do Venda feita / Resumo diário).
+      admin_agendamento: 'Aviso aos ADMs: novo agendamento',
+      nao_paciente_handoff: 'Triagem não-paciente (aviso aos ADMs)',
+      nao_paciente_anexo: 'Arquivo de não-paciente (aos ADMs)',
     };
 
     const rows: DisparoRow[] = [];
@@ -595,7 +614,11 @@ export class FollowupService {
       recall_preventivo: ['recall_preventivo'],
       task_alerts: ['task_alert'],
       followup_lead: ['followup_lead'],
-      nao_paciente_triage: ['nao_paciente_handoff'],
+      // handoff (IA classificou) + arquivos que a pessoa mandou depois (webhook da API).
+      nao_paciente_triage: ['nao_paciente_handoff', 'nao_paciente_anexo'],
+      // Aviso aos ADMs de novo agendamento — os 2 cards (IA/equipe) gravam o mesmo type.
+      admin_agendamento_ia: ['admin_agendamento'],
+      admin_agendamento_equipe: ['admin_agendamento'],
       // Régua de reativação — card geral (Envio). Os cards de COLUNA leem o
       // LeadDispatch (ramo abaixo): o DispatchLog não guarda a coluna.
       reativacao_leads: ['reativacao_lead'],
@@ -942,6 +965,16 @@ export class FollowupService {
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
       }
+      // Aviso aos ADMs de novo agendamento (o worker admin-alerts lê estas keys; o
+      // updated_at da key marca "ligado em" — nunca avisa agendamento de antes disso).
+      case 'admin_agendamento_ia':
+      case 'admin_agendamento_equipe': {
+        const origem = which === 'admin_agendamento_ia' ? 'IA' : 'EQUIPE';
+        const key = `ADMIN_AGENDAMENTO_${origem}_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
       // POLÍTICA (não é disparo) — bloquear agendamento de paciente com boleto
       // atrasado. O CalendarService.create lê esta key (default OFF = opt-in).
       case 'block_sched_on_overdue': {
@@ -1031,6 +1064,23 @@ export class FollowupService {
 
   // ─── Resumo diário: config do número que recebe + horário ─────────────────
 
+  /**
+   * Números de aviso interno (Resumo diário / Venda feita / avisos aos ADMs): aceita
+   * VÁRIOS separados por vírgula, ";" ou quebra de linha. Recusa trecho que não é
+   * telefone BR válido (curto, dois colados, 55 repetido — toAlertPhone) e grava normalizado (55), sem repetidos, separado
+   * por ", " — o MESMO parse (parseAlertPhones do @crm/shared) que os envios usam.
+   * Vazio = sem número.
+   */
+  private cleanAlertPhones(raw: string): string {
+    const invalidos = invalidAlertPhoneParts(raw || '');
+    if (invalidos.length) {
+      throw new BadRequestException(
+        `Número inválido (${invalidos.join(', ')}) — cada campo leva UM número: DDD + número (ex.: 82999998888). Pra mais de um, use "Adicionar outro número".`,
+      );
+    }
+    return parseAlertPhones(raw || '').join(', ');
+  }
+
   /** Número que recebe o resumo + horário (HH:MM, default 00:00). O cron
    *  cronDailySummary (quotes.service) lê estas keys. */
   async getDailySummaryConfig(tenantId: string) {
@@ -1044,10 +1094,7 @@ export class FollowupService {
 
   async setDailySummaryConfig(tenantId: string, phone: string, time: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const cleanPhone = (phone || '').replace(/\D/g, '');
-    if (cleanPhone && cleanPhone.length < 10) {
-      throw new BadRequestException('Número inválido — use DDD + número (com o 55, ex.: 5582999998888).');
-    }
+    const cleanPhone = this.cleanAlertPhones(phone);
     const t = (time || '00:00').trim();
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) {
       throw new BadRequestException('Horário inválido — use HH:MM (ex.: 00:00).');
@@ -1081,10 +1128,7 @@ export class FollowupService {
 
   async setVendaFeitaConfig(tenantId: string, phone: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const cleanPhone = (phone || '').replace(/\D/g, '');
-    if (cleanPhone && cleanPhone.length < 10) {
-      throw new BadRequestException('Número inválido — use DDD + número (com o 55, ex.: 5582999998888).');
-    }
+    const cleanPhone = this.cleanAlertPhones(phone);
     const key = `VENDA_FEITA_PHONE_${tenantId}`;
     await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value: cleanPhone }, update: { value: cleanPhone } });
     this.logger.log(`[VENDA_FEITA] config salva (tenant ${tenantId}): ${cleanPhone || '(sem número)'}`);

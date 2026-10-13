@@ -110,6 +110,8 @@ export type OperacionalKey =
   | 'block_sched_on_overdue'
   // Triagem não-paciente (IA): fornecedor/currículo/parceria/spam → encaminha e encerra.
   | 'nao_paciente_triage'
+  // Aviso aos ADMs de NOVO AGENDAMENTO — marcado pela IA / pela equipe (número dos adms).
+  | 'admin_agendamento_ia' | 'admin_agendamento_equipe'
   // Régua de reativação de leads (chip Comercial) — ids = REATIVACAO_TOGGLE_IDS do
   // shared. 'reativacao_leads' = ENVIO de verdade; cada coluna = entra nos Previstos.
   | 'reativacao_leads'
@@ -120,6 +122,8 @@ export interface DisparoItem {
   nome: string;
   categoria: DisparoCategoria;
   gatilho: string;          // resumo curto exibido na linha
+  /** Explicação completa (o que faz, pra quem vai, o que diz) — exibida sob o gatilho. */
+  descricao?: string;
   canal: string;            // "WhatsApp" | "Painel"
   tags: string[];           // ['Template', 'via CRC']
   editor?: DisparoEditor;   // painel de config (reusa componentes do Follow-up).
@@ -399,6 +403,30 @@ export const DISPAROS: DisparoItem[] = [
   // propaganda, a IA encaminha ao responsável e encerra (em vez de tentar vender) e
   // avisa os adms no mesmo número do "Venda feita / Resumo diário". Default OFF.
   { id: 'nao_paciente_triage', nome: 'Triagem não-paciente (IA)', categoria: 'equipe',
-    gatilho: 'IA detecta fornecedor/currículo/parceria/propaganda · encaminha ao responsável, encerra e avisa os adms', canal: 'WhatsApp', tags: ['IA', 'Interno'],
+    gatilho: 'IA detecta emprego/currículo, fornecedor, negociação comercial, parceria ou spam · repassa ao responsável e avisa os adms', canal: 'WhatsApp', tags: ['IA', 'Interno'],
+    descricao:
+      'Quando quem escreve NÃO é paciente — emprego / currículo / entrevista, fornecedor, negociação / contrato / reunião comercial, ' +
+      'parceria ou propaganda / spam — a IA não marca consulta nem tenta vender: responde que vai repassar ao responsável, PAUSA a IA ' +
+      'nessa conversa e avisa os ADMs no número de aviso (o mesmo do "Venda feita" / "Resumo diário"), junto com o currículo/arquivo ' +
+      'que a pessoa mandar (os que chegarem depois, até 72h, também são encaminhados). Esse contato nunca entra na régua de reativação.',
     operacionalKey: 'nao_paciente_triage' },
+  // Aviso aos ADMs de NOVO AGENDAMENTO ("todo paciente agendado notificar aos adms"):
+  // o worker (admin-alerts) avisa no número dos adms. Um card por origem — dá pra
+  // ligar só o da IA (conferir o que ela marca) ou os dois. Default OFF.
+  { id: 'admin_agendamento_ia', nome: 'Aviso aos ADMs: agendamento feito pela IA', categoria: 'equipe',
+    gatilho: 'A IA marcou uma consulta · paciente, dia e hora, tipo e dentista · ao número dos adms', canal: 'WhatsApp', tags: ['IA', 'Interno'],
+    descricao:
+      'A cada consulta, procedimento, retorno ou ortodontia que a IA marcar, um aviso vai pro número de aviso dos ADMs — o mesmo do ' +
+      '"Venda feita" / "Resumo diário" (pra avisar mais de um número, use "Adicionar outro número" no card do Venda feita — um número por campo). A mensagem diz: "📅 Novo agendamento" com o ' +
+      'paciente e o telefone, o dia da semana, data e hora, o tipo, com qual dentista e "Marcado por: IA (nome da assistente)". ' +
+      'Série recorrente avisa só a 1ª; agendamento desmarcado antes do aviso não avisa. Só avisa o que for marcado depois de ligar.',
+    operacionalKey: 'admin_agendamento_ia' },
+  { id: 'admin_agendamento_equipe', nome: 'Aviso aos ADMs: agendamento feito pela equipe', categoria: 'equipe',
+    gatilho: 'Alguém da equipe marcou uma consulta · paciente, dia e hora, tipo, dentista e quem marcou · ao número dos adms', canal: 'WhatsApp', tags: ['Interno'],
+    descricao:
+      'A cada consulta, procedimento, retorno ou ortodontia marcado por alguém da equipe (recepção, dentista, comercial), um aviso ' +
+      'vai pro número de aviso dos ADMs — o mesmo do "Venda feita" / "Resumo diário" (pra avisar mais de um número, use "Adicionar outro número" no card do Venda feita — um número por campo). ' +
+      'A mensagem diz: "📅 Novo agendamento" com o paciente e o telefone, o dia da semana, data e hora, o tipo, com qual dentista e ' +
+      '"Marcado por: nome de quem marcou". Série recorrente avisa só a 1ª; desmarcado antes do aviso não avisa. Só avisa o que for marcado depois de ligar.',
+    operacionalKey: 'admin_agendamento_equipe' },
 ];

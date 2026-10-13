@@ -7,11 +7,12 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, BarChart3 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { Phone55Input } from './Phone55Input';
-import { stripCountry55, join55 } from './phone55';
+import { Phones55ListInput } from './Phones55ListInput';
+import { splitStoredPhones, joinPhones55 } from './phone55';
 
 export function ResumoDiarioEditor() {
-  const [local, setLocal] = useState(''); // só DDD + número; o 55 é prefixo fixo
+  // Vários números (cada campo: só DDD + número; o 55 é prefixo fixo).
+  const [locais, setLocais] = useState<string[]>(['']);
   const [time, setTime] = useState('00:00');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,7 +24,7 @@ export function ResumoDiarioEditor() {
       .get<{ phone: string; time: string }>('/followup/daily-summary-config')
       .then((r) => {
         if (cancelled) return;
-        setLocal(stripCountry55(r.data?.phone));
+        setLocais(splitStoredPhones(r.data?.phone));
         setTime(r.data?.time || '00:00');
       })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a configuração'); })
@@ -34,8 +35,8 @@ export function ResumoDiarioEditor() {
   const save = async () => {
     setSaving(true);
     try {
-      const r = await api.put('/followup/daily-summary-config', { phone: join55(local), time: time.trim() });
-      setLocal(stripCountry55(r.data?.phone));
+      const r = await api.put('/followup/daily-summary-config', { phone: joinPhones55(locais), time: time.trim() });
+      setLocais(splitStoredPhones(r.data?.phone));
       setTime(r.data?.time || '00:00');
       showSuccess('Configuração salva.');
     } catch (e: any) {
@@ -69,9 +70,9 @@ export function ResumoDiarioEditor() {
 
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div>
-          <label className="text-sm font-medium text-foreground">Número que recebe o resumo</label>
-          <Phone55Input local={local} onLocal={setLocal} />
-          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Deixe vazio pra desligar.</p>
+          <label className="text-sm font-medium text-foreground">Números que recebem o resumo</label>
+          <Phones55ListInput locais={locais} onChange={setLocais} />
+          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Pode cadastrar <b>vários</b> (o resumo vai pra todos). Deixe vazio pra desligar.</p>
         </div>
 
         <div>

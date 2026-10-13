@@ -93,6 +93,10 @@ interface OperacionalData {
   daily_summary?: { enabled: boolean };
   // Notificação de venda feita (opt-in) — a um número configurado.
   venda_feita?: { enabled: boolean };
+  // Triagem não-paciente (IA) e aviso de novo agendamento aos ADMs (opt-in).
+  nao_paciente_triage?: { enabled: boolean };
+  admin_agendamento_ia?: { enabled: boolean };
+  admin_agendamento_equipe?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
@@ -792,9 +796,12 @@ export default function CentralDisparosPage() {
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate" title={d.descricao || undefined}>
                             {d.gatilho} · {d.canal}
                           </div>
+                          {d.descricao && (
+                            <p className="text-[11px] text-muted-foreground/90 mt-1 leading-snug">{d.descricao}</p>
+                          )}
                         </div>
                         {hasToggle && (
                           // Onda 18.29 — botão (não checkbox sr-only). A checkbox

@@ -28,6 +28,7 @@ import {
   EXPIRA_SEM_ENVIO_MS,
   MOTIVO_COLUNA_DESLIGADA,
   MOTIVO_EXPIROU,
+  MOTIVO_NAO_PACIENTE,
   TIPOS_EVENTO_CLINICO,
   avaliarCandidato,
   calcularAgendamentos,
@@ -35,6 +36,7 @@ import {
   cotaNovosCiclos,
   deduplicarPorNumero,
   ehConversaComercial,
+  ehNaoPaciente,
   emCarenciaDeNutricao,
   inicioDiaMaceio,
   inicioDiaNaive,
@@ -99,6 +101,7 @@ export class ReativacaoPlanejadorService {
       await this.cancelarColunasDesligadas(ligadas, agora);
       await this.expirarCiclosSemEnvio(agora);
       await this.concluirCiclosSemPendentes(agora);
+      await this.encerrarNaoPacientes(agora);
       for (const [tenantId, colunas] of ligadas) {
         try {
           await this.planejarClinica(tenantId, colunas, agora);
@@ -174,6 +177,32 @@ export class ReativacaoPlanejadorService {
     this.logger.log(`${LOG} ${ids.length} ciclo(s) expirado(s) sem envio (prévia renovada)`);
   }
 
+  /**
+   * Contato que a triagem da IA marcou como NÃO-paciente (fornecedor/currículo/
+   * parceria/negócio/spam) DEPOIS de entrar na régua: o ciclo sai dos Previstos
+   * (toques AGENDADO → CANCELADO). O despachante também reconfere antes de cada envio.
+   */
+  private async encerrarNaoPacientes(agora: Date): Promise<void> {
+    const ciclos = await this.prisma.leadReactivation.findMany({
+      where: { status: 'ATIVA', lead: { non_patient_category: { not: null } } },
+      select: { id: true },
+      take: 1000,
+    });
+    if (!ciclos.length) return;
+    const ids = ciclos.map((c) => c.id);
+    await this.prisma.$transaction([
+      this.prisma.leadDispatch.updateMany({
+        where: { reactivation_id: { in: ids }, status: 'AGENDADO' },
+        data: { status: 'CANCELADO', motivo: MOTIVO_NAO_PACIENTE },
+      }),
+      this.prisma.leadReactivation.updateMany({
+        where: { id: { in: ids }, status: 'ATIVA' },
+        data: { status: 'CANCELADA', motivo_fim: MOTIVO_NAO_PACIENTE, ended_at: agora },
+      }),
+    ]);
+    this.logger.log(`${LOG} ${ids.length} ciclo(s) encerrado(s): contato não é paciente`);
+  }
+
   /** Ciclo ATIVA sem nenhum toque pendente (último pulado/cancelado à mão) → CONCLUIDA. */
   private async concluirCiclosSemPendentes(agora: Date): Promise<void> {
     const r = await this.prisma.leadReactivation.updateMany({
@@ -240,6 +269,8 @@ export class ReativacaoPlanejadorService {
           is_client: false,
           contact_opt_out_at: null,
           whatsapp_invalid_at: null,
+          // Triagem da IA: fornecedor/currículo/parceria/negócio/spam nunca entra na régua.
+          non_patient_category: null,
           stage: { notIn: ETAPAS_LEGADAS_FORA },
         },
       },
@@ -263,6 +294,7 @@ export class ReativacaoPlanejadorService {
         phone: true,
         stage: true,
         last_followup_at: true,
+        non_patient_category: true,
         current_stage: {
           select: {
             slug: true, name: true, position: true, pipeline_id: true,
@@ -306,7 +338,10 @@ export class ReativacaoPlanejadorService {
     const gemeos = await emLotes(variantes, (lote) =>
       this.prisma.lead.findMany({
         where: { tenant_id: tenantId, phone: { in: lote } },
-        select: { id: true, phone: true, is_client: true, contact_opt_out_at: true, whatsapp_invalid_at: true },
+        select: {
+          id: true, phone: true, is_client: true, contact_opt_out_at: true, whatsapp_invalid_at: true,
+          non_patient_category: true,
+        },
       }),
     );
     const gemeoEmCiclo = new Set(
@@ -328,11 +363,13 @@ export class ReativacaoPlanejadorService {
       gemeos.map((g) => ({
         id: g.id,
         phone: g.phone,
-        bloqueado: g.is_client || !!g.contact_opt_out_at || !!g.whatsapp_invalid_at || gemeoEmCiclo.has(g.id),
+        bloqueado:
+          g.is_client || !!g.contact_opt_out_at || !!g.whatsapp_invalid_at || ehNaoPaciente(g) || gemeoEmCiclo.has(g.id),
       })),
     ).map((c) => c.id);
     if (!ids.length) return [];
     const ultimoFollowupDe = new Map(leads.map((l) => [l.id, l.last_followup_at]));
+    const naoPacienteIds = new Set(leads.filter((l) => ehNaoPaciente(l)).map((l) => l.id));
 
     // 3) Ciclos: ATIVA (qualquer coluna) e recentes que bloqueiam o reciclo.
     const desdeReciclo = new Date(agoraMs - REATIVACAO_RECICLO_DIAS * DIA_MS);
@@ -483,6 +520,7 @@ export class ReativacaoPlanejadorService {
           noShow: noShow.get(id) ?? null,
           temCicloAtivo: ativo.has(id),
           colunasBloqueadas: bloqueadas.get(id) ?? new Set(),
+          naoPaciente: naoPacienteIds.has(id),
         },
         colunas,
         agora,

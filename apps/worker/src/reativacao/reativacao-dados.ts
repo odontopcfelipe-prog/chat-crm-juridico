@@ -291,6 +291,8 @@ export interface ContatoIrmao {
   is_client: boolean;
   contact_opt_out_at: Date | null;
   whatsapp_invalid_at: Date | null;
+  /** Triagem da IA: fornecedor/currículo/parceria/negócio/spam (null = pode ser paciente). */
+  non_patient_category?: string | null;
 }
 
 /**
@@ -307,7 +309,10 @@ export async function irmaosDoNumero(
   const outros = variantes.length
     ? await prisma.lead.findMany({
         where: { tenant_id: tenantId, phone: { in: variantes }, id: { not: lead.id } },
-        select: { id: true, phone: true, is_client: true, contact_opt_out_at: true, whatsapp_invalid_at: true },
+        select: {
+          id: true, phone: true, is_client: true, contact_opt_out_at: true, whatsapp_invalid_at: true,
+          non_patient_category: true,
+        },
       })
     : [];
   return [lead, ...outros];

@@ -31,3 +31,5 @@ export * from './memory-prompts';
 export * from './pipeline-general';
 // Régua de reativação de leads (follow-up do chip Comercial)
 export * from './reativacao-leads';
+// Triagem não-paciente (IA): categorias + rótulos + janela dos anexos (worker e API)
+export * from './nao-paciente';

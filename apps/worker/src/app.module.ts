@@ -21,6 +21,7 @@ import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
 import { PostCareModule } from './post-care/post-care.module';
 import { InfluencerMessagesModule } from './influencer-messages/influencer-messages.module';
 import { ReativacaoLeadsModule } from './reativacao/reativacao.module';
+import { AdminAlertsModule } from './admin-alerts/admin-alerts.module';
 
 @Module({
   imports: [
@@ -58,6 +59,8 @@ import { ReativacaoLeadsModule } from './reativacao/reativacao.module';
     InfluencerMessagesModule,
     // Régua de reativação de leads (follow-up do chip Comercial) — liga na Central de Disparos
     ReativacaoLeadsModule,
+    // Avisos internos aos ADMs (novo agendamento pela IA/equipe) — liga na Central de Disparos
+    AdminAlertsModule,
   ],
 })
 export class AppModule {}

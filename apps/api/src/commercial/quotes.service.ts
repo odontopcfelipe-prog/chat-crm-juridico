@@ -15,7 +15,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, parseAlertPhones, type Permission, type Sector } from '@crm/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
@@ -1978,8 +1978,10 @@ export class QuotesService {
         this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
         this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
       ]);
-      const phone = ((ownRow?.value || inheritRow?.value) || '').replace(/\D/g, '');
-      if (!phone) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número (nem próprio nem herdado do resumo) — pulando`); return; }
+      // Aceita VÁRIOS números (vírgula/;/quebra de linha) — parse único do @crm/shared.
+      const ownPhones = parseAlertPhones(ownRow?.value);
+      const phones = ownPhones.length ? ownPhones : parseAlertPhones(inheritRow?.value);
+      if (!phones.length) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número (nem próprio nem herdado do resumo) — pulando`); return; }
 
       // Dedup por venda (approve-and-bill é idempotente; não notifica 2x).
       const ja = await this.prisma.auditLog.findFirst({ where: { entity: 'VENDA_FEITA', entity_id: planId }, select: { id: true } });
@@ -2014,12 +2016,17 @@ export class QuotesService {
 
       // Aviso interno: tenta os chips do tenant e para no primeiro que entregou.
       // Se o FINANCEIRO estiver caído, sai pelo CLINICA/COMERCIAL — não silencia.
-      const sent = await this.sendInternalAlert(tenantId, phone, msg.trim());
-      if (!sent.ok) { this.logger.warn(`[VENDA_FEITA] nenhum chip conectado entregou (plano ${planId}, ${phone}).`); return; }
+      let algumEntregou = false;
+      for (const phone of phones) {
+        const sent = await this.sendInternalAlert(tenantId, phone, msg.trim());
+        if (!sent.ok) { this.logger.warn(`[VENDA_FEITA] nenhum chip conectado entregou (plano ${planId}, ${phone}).`); continue; }
+        algumEntregou = true;
+        await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (sent.res as any)?.key?.id || null } }).catch(() => {});
+        this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone} (chip ${sent.instance}).`);
+      }
+      if (!algumEntregou) return;
 
       await this.prisma.auditLog.create({ data: { entity: 'VENDA_FEITA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } }).catch(() => {});
-      await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (sent.res as any)?.key?.id || null } }).catch(() => {});
-      this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone} (chip ${sent.instance}).`);
     } catch (e: any) {
       this.logger.warn(`[VENDA_FEITA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
     }
@@ -4739,8 +4746,9 @@ export class QuotesService {
         const enabled = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tid}` } }).catch(() => null);
         if (enabled?.value !== 'true') continue;
         const phoneRow = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tid}` } }).catch(() => null);
-        const phone = (phoneRow?.value || '').replace(/\D/g, '');
-        if (!phone) { this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} ligado mas SEM número configurado — pulando`); continue; }
+        // Aceita VÁRIOS números (vírgula/;/quebra de linha) — parse único do @crm/shared.
+        const phones = parseAlertPhones(phoneRow?.value);
+        if (!phones.length) { this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} ligado mas SEM número configurado — pulando`); continue; }
 
         const already = await this.prisma.dispatchLog.findFirst({
           where: { tenant_id: tid, type: 'daily_summary', sent_at: { gte: startOfToday } },
@@ -4752,15 +4760,17 @@ export class QuotesService {
         // Mesmo helper resiliente do venda_feita: tenta os chips e só marca SENT
         // se algum REALMENTE entregou (antes marcava SENT mesmo com o chip caído,
         // porque a Evolution não lança — devolve erro).
-        const sent = await this.sendInternalAlert(tid, phone, msg);
-        if (sent.ok) {
-          await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } }).catch(() => {});
-          this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone} (chip ${sent.instance}).`);
-        } else {
-          await this.prisma.dispatchLog
-            .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: 'nenhum chip conectado entregou' } })
-            .catch(() => {});
-          this.logger.warn(`[DAILY_SUMMARY] tenant ${tid}: nenhum chip entregou o resumo pra ${phone}.`);
+        for (const phone of phones) {
+          const sent = await this.sendInternalAlert(tid, phone, msg);
+          if (sent.ok) {
+            await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } }).catch(() => {});
+            this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone} (chip ${sent.instance}).`);
+          } else {
+            await this.prisma.dispatchLog
+              .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: 'nenhum chip conectado entregou' } })
+              .catch(() => {});
+            this.logger.warn(`[DAILY_SUMMARY] tenant ${tid}: nenhum chip entregou o resumo pra ${phone}.`);
+          }
         }
       } catch (err: any) {
         this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} falhou: ${err?.message}`);
