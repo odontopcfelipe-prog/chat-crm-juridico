@@ -1,8 +1,10 @@
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
+import { startOfTodayMaceioUtc } from '@crm/shared';
 import type { ToolHandler, ToolContext } from '../tool-executor';
 import { isHolidayMatch, resolveConversationTenantId } from './check-availability';
 import { isAiAutobookEnabled } from '../auto-book-gate';
+import { isPastNaive, reminderDelayMs, REMINDER_MIN_DELAY_MS } from '../scheduling-safety';
 
 /**
  * Agenda uma reunião/consulta para o lead.
@@ -80,7 +82,9 @@ export class BookAppointmentHandler implements ToolHandler {
     const startAt = new Date(Date.UTC(y, mo - 1, d, h, mi, 0, 0));
     const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
 
-    if (startAt.getTime() <= Date.now()) {
+    // startAt é naive (Maceió) → compara com o "agora" de Maceió. Contra Date.now()
+    // (UTC real) um horário das próximas ~3h era recusado como "já passou".
+    if (isPastNaive(startAt)) {
       return { success: false, error: 'Data/hora já passou. Ofereça outro horário.' };
     }
 
@@ -287,7 +291,8 @@ export class BookAppointmentHandler implements ToolHandler {
             tenant_id: convo.tenant_id,
             status: { in: ['PENDING', 'OVERDUE'] },
             received_in_cash: false,
-            due_date: { lt: new Date() },
+            // Vence HOJE ainda está no prazo (mesma régua da API — calendar.service).
+            due_date: { lt: startOfTodayMaceioUtc() },
             OR: or,
           },
         });
@@ -322,9 +327,10 @@ export class BookAppointmentHandler implements ToolHandler {
         tenant_id: convo.tenant_id || undefined,
         // Onda 5e v26: alinhado com defaults da UI [1d, 1h, 15min antes].
         // Filtra pelo tempo restante (nao cria reminder cuja antecedencia ja passou).
+        // Mesma conta/piso da API (enqueueReminders): instante real = naive + 3h.
         reminders: {
           create: [1440, 60, 15]
-            .filter((m) => (startAt.getTime() - Date.now()) / 60_000 > m)
+            .filter((m) => reminderDelayMs(startAt, m) >= REMINDER_MIN_DELAY_MS)
             .map((m) => ({ minutes_before: m, channel: 'WHATSAPP' as const })),
         },
       },
@@ -338,9 +344,10 @@ export class BookAppointmentHandler implements ToolHandler {
     // Enfileira cada lembrete com delay correspondente
     if (context.reminderQueue) {
       for (const r of event.reminders) {
-        const fireAt = new Date(event.start_at.getTime() - r.minutes_before * 60 * 1000);
-        const delay = fireAt.getTime() - Date.now();
-        if (delay <= 0) continue; // não tem tempo para disparar antes
+        // start_at é naive (Maceió): instante real = naive + 3h (igual à API) — sem
+        // isso o lembrete saía 3h adiantado. < 1 min de antecedência pula.
+        const delay = reminderDelayMs(event.start_at, r.minutes_before);
+        if (delay < REMINDER_MIN_DELAY_MS) continue; // não tem tempo para disparar antes
         try {
           await context.reminderQueue.add(
             'send-reminder',

@@ -49,6 +49,7 @@ import {
   stripHistoryLabels,
   type AutomationSignals,
 } from './history-sender';
+import { maceioNowNaive, reminderDelayMs, REMINDER_MIN_DELAY_MS } from './scheduling-safety';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -848,7 +849,9 @@ export class AiProcessor extends WorkerHost {
               type: 'TAREFA',
               title: `${taskTitle} — ${lead?.name || 'Lead'}`,
               description: `Tarefa automática criada pela IA ao mover lead para ${resolvedStage}`,
-              start_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              // Agenda é naive-UTC: "daqui a 24h" parte do agora de Maceió (senão a
+              // tarefa caía 3h depois do horário em que foi criada).
+              start_at: new Date(maceioNowNaive().getTime() + 24 * 60 * 60 * 1000),
               assigned_user_id: dentistId,
               lead_id: leadId,
               conversation_id: convoId,
@@ -1125,10 +1128,11 @@ export class AiProcessor extends WorkerHost {
       include: { reminders: true },
     });
 
-    // Enqueue WhatsApp reminders
+    // Enqueue WhatsApp reminders — mesma conta da API (calendar.service.enqueueReminders):
+    // start_at é naive (Maceió), instante real = naive + 3h; < 1 min de antecedência pula.
     for (const r of event.reminders) {
-      const fireAt = new Date(event.start_at.getTime() - r.minutes_before * 60 * 1000);
-      if (fireAt > new Date()) {
+      const delay = reminderDelayMs(event.start_at, r.minutes_before);
+      if (delay >= REMINDER_MIN_DELAY_MS) {
         await this.reminderQueue.add(
           'send-reminder',
           { reminderId: r.id, eventId: event.id, channel: r.channel },
@@ -1136,7 +1140,7 @@ export class AiProcessor extends WorkerHost {
           // (dedup natural do BullMQ) + attempts:1. Sem isto herdava attempts:3 e, como o
           // processor reseta sent_at na falha, uma entrega-com-erro da Evolution reenviava
           // ao paciente. (Latente: só via autobook da IA, default OFF.)
-          { delay: fireAt.getTime() - Date.now(), jobId: `reminder-${r.id}`, attempts: 1, removeOnComplete: true, removeOnFail: 50 },
+          { delay, jobId: `reminder-${r.id}`, attempts: 1, removeOnComplete: true, removeOnFail: 50 },
         );
       }
     }
@@ -1927,7 +1931,7 @@ export class AiProcessor extends WorkerHost {
         const upcomingEvents = await this.prisma.calendarEvent.findMany({
           where: {
             lead_id: convo.lead_id,
-            start_at: { gte: new Date() },
+            start_at: { gte: maceioNowNaive() }, // agenda naive-UTC: "agora" de Maceió
             status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
           },
           orderBy: { start_at: 'asc' },
@@ -2935,7 +2939,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               OR: [{ conversation_id: convo.id }, { lead_id: convo.lead.id }],
               type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
-              start_at: { gte: new Date() },
+              start_at: { gte: maceioNowNaive() }, // agenda naive-UTC: "agora" de Maceió
             },
             select: { id: true, title: true, start_at: true },
           });
@@ -3140,7 +3144,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               ],
               type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
-              start_at: { gte: new Date() }, // so eventos futuros (passados nao cancela)
+              start_at: { gte: maceioNowNaive() }, // so eventos futuros (passados nao cancela) — agora de Maceió (naive-UTC)
             },
             select: { id: true, start_at: true, title: true },
           });
@@ -3191,7 +3195,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
                 ],
                 type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
                 status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
-                start_at: { gte: new Date() },
+                start_at: { gte: maceioNowNaive() }, // agenda naive-UTC: "agora" de Maceió
               },
               orderBy: { start_at: 'asc' },
               select: { id: true },
@@ -3238,7 +3242,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               ],
               type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
-              start_at: { gte: new Date() },
+              start_at: { gte: maceioNowNaive() }, // agenda naive-UTC: "agora" de Maceió
             },
             select: { id: true, start_at: true },
           });
