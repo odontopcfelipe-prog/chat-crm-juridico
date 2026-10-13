@@ -408,17 +408,15 @@ export class QuotePdfService {
       };
     }
 
-    // ── Boleto parcelado (1x..24x com juros 1.5%/mês; entrada 20% a partir de 12x) ──
+    // ── Boleto parcelado (1x..24x com juros 1.5%/mês; entrada SÓ a digitada) ──
+    // Sem entrada embutida de 20% em 12x+ (igual a tela de cobranca).
     const parceladoMatch = paymentKey.match(/^parcelado-(\d+)x$/);
     if (parceladoMatch) {
       const n = Number(parceladoMatch[1]);
       const PASSOS_RATE = 1.5 / 100; // 1.5% ao mes
-      const defaultDownPercent = n >= 12 ? 0.20 : 0;
-      const defaultDown = total * defaultDownPercent;
-      // Custom down sobrescreve o default da opcao
       const downValue = downPayment > 0
         ? Math.min(downPayment, total - 0.01)
-        : defaultDown;
+        : 0;
       const financed = total - downValue;
       const installmentValue = financed * PASSOS_RATE / (1 - Math.pow(1 + PASSOS_RATE, -n));
       const extraInterest = installmentValue * n - financed;

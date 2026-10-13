@@ -397,10 +397,12 @@ function buildPaymentOptions(avistaPct: number = 0, semJuros: boolean = false): 
         downPaymentPercent: 0,
         isAVistaHighlight: true,
       },
-      // 1x..24x com juros (parcela 1 = 30 dias). Entrada 20% a partir de 12x.
+      // 1x..24x com juros (parcela 1 = 30 dias). SEM entrada embutida: a
+      // entrada e so a que o operador digita (customDownPayment). Antes 12x+
+      // embutia 20% INVISIVEL com o campo vazio — parcela da tela nao batia
+      // com o total e o apply-financing emitia boletos sem essa entrada.
       ...Array.from({ length: 24 }, (_, idx) => {
         const n = idx + 1;
-        const hasDownPayment = n >= 12;
         return {
           key: `parcelado-${n}x`,
           label: `${n}x`,
@@ -415,7 +417,7 @@ function buildPaymentOptions(avistaPct: number = 0, semJuros: boolean = false): 
           installments: n,
           variant: 'parcelado' as const,
           interestRate: semJuros ? 0 : 1.5,
-          downPaymentPercent: hasDownPayment ? 20 : 0,
+          downPaymentPercent: 0,
         };
       }),
     ],
@@ -8754,7 +8756,7 @@ function CreditCheckDialog({
   }, [patientId]);
 
   // Calcula a parcela alvo baseado no prazo escolhido.
-  // Onda 14.4 — entrada 20% so a partir de 12x (alinhado com buildPaymentOptions).
+  // Sem entrada embutida (alinhado com buildPaymentOptions): so a customDownPayment.
   const opt: PaymentOption = useMemo(() => ({
     key: `parcelado-${parcelas}x`,
     label: `${parcelas}x`,
@@ -8763,7 +8765,7 @@ function CreditCheckDialog({
     installments: parcelas,
     variant: 'parcelado',
     interestRate: 1.5,
-    downPaymentPercent: parcelas >= 12 ? 20 : 0,
+    downPaymentPercent: 0,
   }), [parcelas]);
   // Onda 14.56 — passa customDownPayment pra applyPaymentOption respeitar
   // a entrada que o operador configurou no painel. Antes este calculo ignorava
