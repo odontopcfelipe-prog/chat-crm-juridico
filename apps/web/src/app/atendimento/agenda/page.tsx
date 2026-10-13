@@ -1,5 +1,6 @@
 'use client';
 
+import './temporal-shim'; // antes do schedule-x: Temporal no Safari/iPhone
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
