@@ -159,6 +159,33 @@ function plain(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
+/** A resposta LISTA horários concretos (lista com "•", data + hora ou dia + hora)? */
+export function replyListsSlots(text: string | null | undefined): boolean {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  if (raw.includes('•')) return true;
+  const t = plain(raw);
+  return (
+    /\b\d{1,2}\/\d{1,2}\b[\s\S]*\b\d{1,2}(?:h|:\d{2})/.test(t) ||
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|amanha|hoje)\b[^.!?\n]{0,30}\b\d{1,2}(?:h\d{0,2}|:\d{2})\b/.test(t)
+  );
+}
+
+/**
+ * A resposta PROMETE mandar horários depois ("vou te passar outros horários", "já te
+ * mando os horários", "vou ver os horários e te passo")? Ninguém manda depois: a IA só
+ * fala quando o paciente escreve — então o sistema lista as vagas na mesma resposta.
+ */
+export function promisesSlotsLater(text: string | null | undefined): boolean {
+  const t = plain(String(text || ''));
+  if (!t.trim()) return false;
+  return (
+    /\b(?:vou|ja|vou ja)\s+(?:te\s+|lhe\s+)?(?:passar|mandar|enviar|separar|ver|verificar|olhar|conferir|checar|buscar|procurar)\b[^.!?\n]{0,50}\b(?:horarios?|opcoes|vagas?|datas?)\b/.test(t) ||
+    /\b(?:horarios?|opcoes|vagas?)\b[^.!?\n]{0,40}\b(?:e\s+)?(?:ja\s+)?(?:te|lhe)\s+(?:passo|mando|envio|retorno|aviso)\b/.test(t) ||
+    /\b(?:te|lhe)\s+(?:passo|mando|envio)\b[^.!?\n]{0,40}\b(?:horarios?|opcoes|vagas?)\b/.test(t)
+  );
+}
+
 // Encerramento curto: "ok", "obrigada", "vou pensar", "depois vejo", "qualquer coisa eu chamo"…
 const CLOSING_RE =
   /\b(ok(?:ay|ey|k+)?|blz|beleza|obrigad[oa]s?|obg|brigad[oa]|valeu|vlw|vou pensar|vou ver|vou analisar|vou avaliar|vou me organizar|depois (?:eu )?(?:vejo|veja|falo|te falo|retorno|chamo|te chamo)|qualquer coisa (?:eu )?(?:te |lhe )?(?:chamo|falo|aviso|procuro|retorno)|ta bom|ta certo|tudo bem|tranquilo|entendi|certo|show|joia|combinado)\b/;

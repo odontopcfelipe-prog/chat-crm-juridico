@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { SCHEDULING_RULES, isClosingWithoutScheduling, replyProposesSlots } from './conversation-guide';
+import { SCHEDULING_RULES, isClosingWithoutScheduling, replyProposesSlots, replyListsSlots, promisesSlotsLater } from './conversation-guide';
 import { PromptBuilder } from './prompt-builder';
 
 describe('isClosingWithoutScheduling', () => {
@@ -106,5 +106,33 @@ describe('contrato entra por ÚLTIMO no prompt (com skill, sem skill e no chat d
     });
     expect(prompt.indexOf('FORMATO DA RESPOSTA')).toBeGreaterThan(prompt.indexOf('# Saída'));
     expect(prompt.trimEnd().endsWith('"time":"HH:MM"}}')).toBe(true);
+  });
+});
+
+describe('remarcação / horário prometido sem listar (13b-2)', () => {
+  it('promessa de mandar horários depois é detectada', () => {
+    for (const t of [
+      'Sem problemas, Felipe!\n\nVou te passar outros horários pra você escolher.',
+      'Já te mando os horários disponíveis.',
+      'Vou ver os horários e te passo, tá?',
+      'Vou verificar outras opções na agenda.',
+      'Deixa eu olhar a agenda: vou separar umas vagas pra você.',
+    ]) expect(promisesSlotsLater(t)).toBe(true);
+  });
+
+  it('não confunde com resposta normal', () => {
+    for (const t of [
+      'Nosso horário de atendimento é das 8h às 18h.',
+      'Quer que eu veja um horário pra você essa semana?',
+      'Perfeito, deixei agendado terça (13/10) às 8h.',
+      'Sem problemas, Felipe!',
+    ]) expect(promisesSlotsLater(t)).toBe(false);
+  });
+
+  it('replyListsSlots: só conta horário concreto', () => {
+    expect(replyListsSlots('Tenho estes horários livres:\n• qua., 14/10 às 08:00\n• qui., 15/10 às 13:00')).toBe(true);
+    expect(replyListsSlots('Tenho quinta (15/10) às 9h ou sexta às 14h.')).toBe(true);
+    expect(replyListsSlots('Vou te passar outros horários pra você escolher.')).toBe(false);
+    expect(replyListsSlots('Quer que eu veja um horário?')).toBe(false);
   });
 });

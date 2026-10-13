@@ -56,6 +56,8 @@ import {
   detectPatientStyle,
   isClosingWithoutScheduling,
   replyProposesSlots,
+  replyListsSlots,
+  promisesSlotsLater,
   leadFirstName,
   buildSchedulingRetryInstruction,
 } from './conversation-guide';
@@ -1665,13 +1667,27 @@ export class AiProcessor extends WorkerHost {
    *
    * Retorna string formatada pra concat, ou null se nao tem dados suficientes.
    */
-  private async buildRescheduleSuggestion(convo: any): Promise<string | null> {
+  private async buildRescheduleSuggestion(
+    convo: any,
+    opts: {
+      /** Continua uma resposta da IA ("Sem problemas! Vou te passar outros horários.")
+       *  → sem saudação nem "sem problema" repetidos. */
+      continuing?: boolean;
+      /** Horários que NÃO podem voltar na oferta (o que o paciente acabou de largar). */
+      exclude?: { date: string; time: string }[];
+      /** Chat de teste: não grava o lock-in do Orçamentista. */
+      readOnly?: boolean;
+    } = {},
+  ): Promise<string | null> {
     try {
       // Onda 19: usa o Orçamentista (o MESMO dentista que o confirm_slot marca),
       // não o assigned cru — o convo em memória pode estar desatualizado e o
       // fallback assigned_user_id podia ser um operador (não-dentista).
       const dentistId =
-        (await ensureOrcamentistaAssigned(this.prisma as any, convo.id)) ||
+        (await ensureOrcamentistaAssigned(this.prisma as any, convo.id, {
+          tenantId: convo.tenant_id || convo.lead?.tenant_id || undefined,
+          readOnly: !!opts.readOnly,
+        })) ||
         (convo as any).assigned_dentist_id;
       if (!dentistId) return null;
       const tz = 'America/Maceio';
@@ -1693,8 +1709,10 @@ export class AiProcessor extends WorkerHost {
           60,
           convo.tenant_id || convo.lead?.tenant_id || null,
         );
-        if (dayslots.length > 0) {
-          daysWithSlots.push({ label: formatDateBR(anchor), dateStr, times: dayslots.map((s) => s.start) });
+        const excluded = new Set((opts.exclude || []).filter((x) => x.date === dateStr).map((x) => x.time));
+        const times = dayslots.map((s) => s.start).filter((t) => !excluded.has(t));
+        if (times.length > 0) {
+          daysWithSlots.push({ label: formatDateBR(anchor), dateStr, times });
         }
       }
       if (daysWithSlots.length === 0) return null;
@@ -1702,9 +1720,12 @@ export class AiProcessor extends WorkerHost {
       // mais cedo de cada + 1 da tarde (nunca 3 do mesmo dia), em ordem cronológica.
       const labelOf = new Map(daysWithSlots.map((d) => [d.dateStr, d.label]));
       const picks = pickSuggestedSlots(daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times })));
+      if (picks.length === 0) return null;
       const firstName = (convo.lead?.name || '').split(' ')[0] || '';
       const greeting = firstName ? `${firstName}, ` : '';
-      const intro = `${greeting}sem problema! Consegui te encaixar bem pertinho:`;
+      const intro = opts.continuing
+        ? 'Tenho estes horários livres:'
+        : `${greeting}sem problema! Consegui te encaixar bem pertinho:`;
       const lines = picks.map((s) => `• ${labelOf.get(s.date) || s.date} às ${s.time}`).join('\n');
       const cta = '\nAlgum desses serve melhor pra você?';
       return `${intro}\n${lines}${cta}`;
@@ -3570,6 +3591,31 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         }
       }
 
+      // 13b-2. Remarcação sem horário na resposta, ou horário PROMETIDO e não listado
+      // ("Sem problemas! Vou te passar outros horários."): a IA só fala quando o paciente
+      // escreve — ninguém mandaria os horários depois. Lista 2–3 vagas reais AGORA, na
+      // mesma resposta. Roda antes do 15e: a consulta que ele está largando ainda ocupa
+      // a agenda, então o mesmo horário não volta na oferta. Com horário listado, a 2ª
+      // tentativa e o v28 não repetem a oferta (replyProposesSlots / aiProposedSlots).
+      if (
+        !isSchedulingRetry &&
+        !npBlock.blocked &&
+        !claimCorrectedBy13a &&
+        profilePurpose !== 'FINANCEIRO' &&
+        (scheduling_action?.action === 'reschedule_appointment' || promisesSlotsLater(aiText)) &&
+        !replyListsSlots(aiText)
+      ) {
+        const offer = await this.buildRescheduleSuggestion(convo, { continuing: true, readOnly: dryRun });
+        if (offer) {
+          aiText = `${aiText.trimEnd()}\n\n${offer}`;
+          this.logger.log(
+            `[AI] conv ${conversation_id}: ${scheduling_action?.action === 'reschedule_appointment' ? 'remarcação' : 'prometeu horários'} sem listar — vagas listadas na mesma resposta`,
+          );
+        } else {
+          this.logger.warn(`[AI] conv ${conversation_id}: prometeu horários mas não há vaga pra listar`);
+        }
+      }
+
       // 13c. Vai ter 2ª tentativa de agendamento? Pelo modelo (retry_scheduling) ou
       // pela REDE DE SEGURANÇA: a última mensagem do paciente é um encerramento curto
       // ("ok", "vou pensar") e a resposta não propõe horário. Nunca numa resposta que
@@ -3769,7 +3815,15 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           // (Nunca pra quem não é paciente — 13-NP: sem oferta de horário.)
           // (Nem quando a 13a corrigiu o texto: a resposta já diz que a recepção confirma.)
           if (!aiProposedSlots && cancelled.length > 0 && !npBlock.blocked && !claimCorrectedBy13a) {
-            const slotsAppend = await this.buildRescheduleSuggestion(convo);
+            // O horário que acabou de ser cancelado não volta na oferta.
+            const slotsAppend = await this.buildRescheduleSuggestion(convo, {
+              exclude: cancelled
+                .filter((ev: any) => ev.start_at)
+                .map((ev: any) => {
+                  const iso = new Date(ev.start_at).toISOString();
+                  return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+                }),
+            });
             if (slotsAppend) {
               finalText = finalText.trimEnd() + '\n\n' + slotsAppend;
               this.logger.log(`[AI] Safeguard APPENDOU proposta de remarcacao na resposta`);
