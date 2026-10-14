@@ -15,6 +15,7 @@ import {
 import axios from 'axios';
 import { buildGroupMessage, memberKey, planGroup, GROUP_MAX_PDFS, type GroupMember, type GroupPlan } from './cobranca-grupo';
 import { combinar, veredictoAsaas, veredictoLocal, type ConsultaAsaas, type Veredicto } from './cobranca-freio';
+import { buildAlertIndex, DEDUP_LOOKBACK_DAYS } from './regua-dedup';
 
 /**
  * Cron de COBRANÇA financeira — PACED / marca-passo (Onda 18.16).
@@ -28,10 +29,10 @@ import { combinar, veredictoAsaas, veredictoLocal, type ConsultaAsaas, type Vere
  * e solta NO MÁXIMO 1 cobrança por vez, com intervalo ALEATÓRIO de 3-7 min entre
  * envios (mesmo marca-passo do recall). O excedente escorre pro próximo tick/dia.
  *
- * Idempotência POR ESTÁGIO: registra um AuditLog (entity=PAYMENT_ALERT,
- * entity_id=charge.id, action=stage) — cada boleto recebe no MÁXIMO uma vez cada
- * estágio, pra nunca mandar "atraso 15d" duas vezes. Marca na TENTATIVA (sucesso
- * OU falha de envio) pra um número inválido não travar a fila.
+ * Idempotência POR BOLETO + ESTÁGIO: registra um AuditLog (entity=PAYMENT_ALERT,
+ * entity_id=patientId, action=stage, meta_json.charge_ids=boletos avisados) — cada
+ * boleto recebe no MÁXIMO uma vez cada estágio (ver regua-dedup.ts). Marca na
+ * TENTATIVA (sucesso OU falha de envio) pra um número inválido não travar a fila.
  *
  * NOTA: cooldown em memória (assume 1 réplica do worker, como os outros crons).
  */
@@ -98,8 +99,8 @@ interface ChargeCandidate {
   /** external_id (Asaas) + gateway — pra buscar boleto/PIX ao vivo quando faltam. */
   externalId?: string;
   gateway?: string;
-  /** Onda 18.x — chave de dedup e agrupamento é o PACIENTE (não o boleto), pra
-   *  paciente com N parcelas atrasadas receber 1 aviso por estágio (não N). */
+  /** Onda 18.x — o AGRUPAMENTO é por PACIENTE (N parcelas no mesmo estágio = 1
+   *  aviso, não N). A trava de repetição é por BOLETO+estágio (regua-dedup.ts). */
   patientId: string;
   tenantId: string;
   stage: Stage;
@@ -301,9 +302,15 @@ export class PaymentAlertsCronService {
     }
 
     // Marca na TENTATIVA (sucesso OU falha) e avança o marca-passo — assim um
-    // número inválido não trava as próximas cobranças. Onda 18.x — dedup por
-    // PACIENTE (não por boleto): grava o patientId no AuditLog.
-    await this.logSent(pick.patientId, pick.stage, pick.tenantId, typeof messageId === 'string' ? messageId : null);
+    // número inválido não trava as próximas cobranças. Grava QUAIS boletos foram
+    // avisados (os que sobraram depois do freio) — a trava é por boleto+estágio.
+    await this.logSent(
+      pick.patientId,
+      pick.stage,
+      pick.tenantId,
+      typeof messageId === 'string' ? messageId : null,
+      pick.members.map((m) => m.chargeId),
+    );
     // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
     await this.logDispatchUnificado(pick.tenantId, pick.stage, pick.name, pick.phone, messageId, pick.chargeId);
     this.lastSentAt = nowMs;
@@ -514,7 +521,7 @@ export class PaymentAlertsCronService {
       //     hoje já é um marco, ele é o mais avançado e manda sozinho;
       //   - só marcos de ATRASO (OVERDUE_STAGES) — lembrete de "vence amanhã"
       //     perdido não faz sentido depois do vencimento;
-      //   - a dedup por paciente+estágio (once-ever) segue valendo, então nada
+      //   - a trava por boleto+estágio (regua-dedup.ts) segue valendo, então nada
       //     repete o que já foi enviado;
       //   - nunca dois numa segunda: escolhemos UM da lista.
       // Feriado em dia útil continua descoberto (o cron não conhece feriado).
@@ -609,12 +616,29 @@ export class PaymentAlertsCronService {
     }
     if (candidates.length === 0) return null;
 
+    // Anti-repetição por BOLETO + estágio (regua-dedup.ts): tira os boletos que JÁ
+    // receberam este marco. Antes era por PACIENTE+estágio para sempre — da 2ª parcela
+    // em diante os marcos já usados nunca mais saíam (caso Jose, out/2026).
+    const patientIds = [...new Set(candidates.map((c) => c.patientId))];
+    const alertLogs = await this.prisma.auditLog.findMany({
+      where: {
+        entity: 'PAYMENT_ALERT',
+        entity_id: { in: patientIds },
+        action: { in: STAGES },
+        created_at: { gte: new Date(Date.now() - DEDUP_LOOKBACK_DAYS * 86_400_000) },
+      },
+      select: { entity_id: true, action: true, created_at: true, meta_json: true },
+    });
+    const avisos = buildAlertIndex(alertLogs, Date.now());
+    const pendentes = candidates.filter((c) => !avisos.jaAvisado(c.chargeId, c.patientId, c.stage));
+    if (pendentes.length === 0) return null;
+
     // Onda 18.x — AGRUPA por (tenant, paciente, estágio): paciente com N boletos
     // atrasados no mesmo estágio recebe UM aviso (total + todos os links), não N
     // (anti-spam/anti-ban). A ordem por due_date asc garante que o REPRESENTANTE
     // (1º do grupo) é o mais atrasado.
     const groups = new Map<string, ChargeCandidate>();
-    for (const cand of candidates) {
+    for (const cand of pendentes) {
       const key = `${cand.tenantId}::${cand.patientId}::${cand.stage}`;
       const g = groups.get(key);
       if (!g) {
@@ -632,16 +656,7 @@ export class PaymentAlertsCronService {
     }
     const grouped = [...groups.values()];
 
-    // Anti-repetição por PACIENTE+estágio (não por boleto): 1 query batch no
-    // AuditLog. (Antes era por charge; a chave agora é o patientId.)
-    const ids = grouped.map((g) => g.patientId);
-    const already = await this.prisma.auditLog.findMany({
-      where: { entity: 'PAYMENT_ALERT', entity_id: { in: ids }, action: { in: STAGES } },
-      select: { entity_id: true, action: true },
-    });
-    const sentSet = new Set(already.map((a) => `${a.entity_id}:${a.action}`));
-
-    return grouped.find((g) => !sentSet.has(`${g.patientId}:${g.stage}`) && !this.freioBarrado(g)) || null;
+    return grouped.find((g) => !this.freioBarrado(g)) || null;
   }
 
   /**
@@ -778,7 +793,7 @@ export class PaymentAlertsCronService {
 
     // Dedup por JANELA DE TEMPO (não once-ever): re-toca no máx 1× a cada
     // OVERDUE_REPEAT_DAYS por paciente. É o que faz a cobrança RECORRER até pagar,
-    // sem virar spam. (Os marcos usam dedup once-ever; este usa created_at recente.)
+    // sem virar spam. (Os marcos usam trava por boleto+estágio; este usa created_at recente.)
     // ANTI-BAN CRÍTICO: olha QUALQUER estágio (action in STAGES), não só
     // 'boleto_atrasado'. Senão a carteira re-cobra no MESMO dia quem acabou de
     // receber um marco (boleto_atraso_1d/15d/30d escrevem outra action) → 2
@@ -1229,16 +1244,22 @@ export class PaymentAlertsCronService {
     }
   }
 
-  /** Registra o envio do estágio (idempotência exactly-once por charge+estágio). */
-  private async logSent(dedupKey: string, stage: Stage, tenantId: string, messageId: string | null): Promise<void> {
-    // Onda 18.x — dedupKey = patientId (idempotência 1 aviso/paciente/estágio).
+  /** Registra o envio do estágio. entity_id = paciente (a carteira semanal olha por
+   *  paciente); charge_ids = boletos avisados (trava dos marcos por boleto+estágio). */
+  private async logSent(
+    dedupKey: string,
+    stage: Stage,
+    tenantId: string,
+    messageId: string | null,
+    chargeIds: string[],
+  ): Promise<void> {
     try {
       await this.prisma.auditLog.create({
         data: {
           entity: 'PAYMENT_ALERT',
           entity_id: dedupKey,
           action: stage,
-          meta_json: { tenant_id: tenantId, message_id: messageId, sent_at: new Date().toISOString() },
+          meta_json: { tenant_id: tenantId, message_id: messageId, sent_at: new Date().toISOString(), charge_ids: chargeIds },
         },
       });
     } catch (e: any) {
