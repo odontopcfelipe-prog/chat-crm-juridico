@@ -3,7 +3,14 @@ import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { formatTenantAddress, toBrazilWhatsappNumber, DEFAULT_ORTO_REMINDER } from '@crm/shared';
+import {
+  formatTenantAddress,
+  toBrazilWhatsappNumber,
+  DEFAULT_ORTO_REMINDER,
+  escolherChipPaciente,
+  chipPacienteOuLegado,
+  soTemChipFinanceiro,
+} from '@crm/shared';
 
 /**
  * Onda 18.x — LEMBRETE DE ORTODONTIA (por ordem de chegada) ~1h antes.
@@ -110,21 +117,22 @@ export class AppointmentOrtoReminderService {
         });
         if (already) { skipped++; continue; }
 
-        // Resolve instance do tenant. Mensagem é pro PACIENTE ⇒ prefere o chip
-        // CLINICA (principal), com fallback pra qualquer instance (tenant 1-chip).
+        // Resolve instance do tenant. Mensagem é pro PACIENTE ⇒ chip CLINICA, na falta
+        // o COMERCIAL; NUNCA o FINANCEIRO (antes o fallback "qualquer instance" podia
+        // ser ele). Clínica legada (sem chip com função): 1º chip por nome, sem o
+        // financeiro (regra única em escolherChipPaciente).
         let instance = instanceByTenant.get(tid);
         if (instance === undefined) {
-          const clinica = await this.prisma.instance.findFirst({
-            where: { tenant_id: tid, purpose: 'CLINICA' },
-            select: { name: true },
+          const chips = await this.prisma.instance.findMany({
+            where: { tenant_id: tid, type: 'whatsapp' },
+            select: { name: true, purpose: true },
             orderBy: { name: 'asc' },
           });
-          const inst = clinica || await this.prisma.instance.findFirst({
-            where: { tenant_id: tid },
-            select: { name: true },
-            orderBy: { name: 'asc' },
-          });
-          instance = inst?.name || null;
+          const escolha = escolherChipPaciente(chips, 'CLINICA');
+          if (soTemChipFinanceiro(escolha)) {
+            this.logger.warn(`[ORTO-REMINDER] Tenant ${tid} só tem chip FINANCEIRO — lembrete de ortô NÃO sai por ele. Conecte um chip CLINICA.`);
+          }
+          instance = chipPacienteOuLegado(escolha);
           instanceByTenant.set(tid, instance);
         }
         if (!instance) { skipped++; continue; }
@@ -174,11 +182,15 @@ export class AppointmentOrtoReminderService {
           .trim();
 
         try {
-          await axios.post(
+          const resp = await axios.post(
             `${apiUrl}/message/sendText/${instance}`,
             { number: toBrazilWhatsappNumber(phone), text: message },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },
           );
+          // 2xx com exists:false = número sem WhatsApp → FALHA, não "enviado".
+          let respJson = '';
+          try { respJson = JSON.stringify(resp?.data) ?? ''; } catch { /* resposta não serializável */ }
+          if (/"exists"\s*:\s*false/.test(respJson)) throw new Error('Número sem WhatsApp');
           await this.prisma.dispatchLog.create({
             data: {
               tenant_id: tid,

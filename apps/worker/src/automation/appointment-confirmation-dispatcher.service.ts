@@ -3,7 +3,12 @@ import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import {
+  toBrazilWhatsappNumber,
+  escolherChipPaciente,
+  chipPacienteOuLegado,
+  soTemChipFinanceiro,
+} from '@crm/shared';
 
 /**
  * Cron horario que processa AppointmentConfirmation pendentes
@@ -141,43 +146,34 @@ export class AppointmentConfirmationDispatcherService {
         // purpose: como os nomes são t{hash}-N, isso era "o primeiro chip que a
         // clínica conectou na vida" — se fosse o do FINANCEIRO, TODA confirmação de
         // consulta saía pelo número do financeiro, de forma determinística.
+        // Out/2026 — regra única (escolherChipPaciente): CLINICA → COMERCIAL (o mesmo
+        // mundo paciente/lead) e NUNCA o FINANCEIRO: só com o financeiro, a confirmação
+        // NÃO sai (decisão do dono: melhor pausar que trocar o número do paciente).
+        // Clínica legada (sem chip com função): 1º chip por nome, sem o financeiro.
         let instance = instanceByTenant.get(tenantId);
         if (instance === undefined) {
-          const clinica = await this.prisma.instance.findFirst({
-            where: { tenant_id: tenantId, purpose: 'CLINICA' },
-            select: { name: true },
+          const chips = await this.prisma.instance.findMany({
+            where: { tenant_id: tenantId, type: 'whatsapp' },
+            select: { name: true, purpose: true },
             orderBy: { name: 'asc' },
           });
-          // Sem chip CLINICA: qualquer um MENOS o financeiro (cobre o tenant 1-chip
-          // e os chips legados com purpose null).
-          const naoFin = clinica || await this.prisma.instance.findFirst({
-            where: { tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
-            select: { name: true },
-            orderBy: { name: 'asc' },
-          });
-          if (!clinica && naoFin) {
+          const escolha = escolherChipPaciente(chips, 'CLINICA');
+          if (escolha.tipo === 'FUNCAO' && escolha.usouIrmao) {
             this.logger.warn(
-              `[CONF-DISPATCH] Tenant ${tenantId} sem chip CLINICA — confirmação saindo por "${naoFin.name}".`,
+              `[CONF-DISPATCH] Tenant ${tenantId} sem chip CLINICA — confirmação saindo pelo COMERCIAL "${escolha.instance}".`,
             );
           }
-          // Último recurso: só existe o financeiro. Manda (melhor que a pessoa não
-          // ser confirmada) mas avisa alto — é o chip errado pra falar de agenda.
-          const inst = naoFin || await this.prisma.instance.findFirst({
-            where: { tenant_id: tenantId },
-            select: { name: true },
-            orderBy: { name: 'asc' },
-          });
-          if (!naoFin && inst) {
+          if (soTemChipFinanceiro(escolha)) {
             this.logger.warn(
-              `[CONF-DISPATCH] Tenant ${tenantId} só tem chip FINANCEIRO — confirmação de consulta vai sair por ele. Conecte um chip CLINICA.`,
+              `[CONF-DISPATCH] Tenant ${tenantId} só tem chip FINANCEIRO — confirmação de consulta NÃO sai por ele. Conecte um chip CLINICA.`,
             );
           }
-          instance = inst?.name || null;
+          instance = chipPacienteOuLegado(escolha);
           instanceByTenant.set(tenantId, instance);
         }
 
         if (!instance) {
-          await this.markFailed(c.id, 'Sem Evolution instance configurada para o tenant');
+          await this.markFailed(c.id, 'Sem chip Clínica/Comercial do WhatsApp conectado nesta clínica');
           skipped++;
           continue;
         }
@@ -194,7 +190,7 @@ export class AppointmentConfirmationDispatcherService {
         if (claim.count === 0) { skipped++; continue; } // outra execução já pegou esta
 
         try {
-          await axios.post(
+          const resp = await axios.post(
             `${apiUrl}/message/sendText/${instance}`,
             {
               number: toBrazilWhatsappNumber(phone),
@@ -202,6 +198,10 @@ export class AppointmentConfirmationDispatcherService {
             },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },
           );
+          // 2xx com exists:false = número sem WhatsApp → FALHA, não "enviada".
+          let respJson = '';
+          try { respJson = JSON.stringify(resp?.data) ?? ''; } catch { /* resposta não serializável */ }
+          if (/"exists"\s*:\s*false/.test(respJson)) throw new Error('Número sem WhatsApp');
 
           await this.prisma.appointmentConfirmation.update({
             where: { id: c.id },

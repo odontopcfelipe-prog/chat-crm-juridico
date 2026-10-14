@@ -148,11 +148,15 @@ export class AppointmentConfirmationSchedulerService {
         // (não pedem confirmação) — então NÃO devem desligar esta confirmação de 24h.
         // Assim "deixar todas funcionando, ligo o que quero" vale: se você usa a de 48h,
         // ela desliga esta (não duplica); senão, esta confirmação de 24h dispara normal.
+        // Só conta a de 48h AINDA PENDENTE (last_error null): a que FALHOU também fica
+        // com sent_at null (o worker desfaz o claim e grava last_error) e não tem
+        // retry automático — sem este filtro o paciente ficava sem confirmação nenhuma.
         const confirmacao48h = await this.prisma.eventReminder.findFirst({
           where: {
             event_id: ev.id,
             channel: 'WHATSAPP',
             sent_at: null,
+            last_error: null,
             minutes_before: { gte: 2880 },
           },
           select: { id: true },

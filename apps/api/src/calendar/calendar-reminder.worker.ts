@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { SettingsService } from '../settings/settings.service';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -12,6 +12,8 @@ import {
   applyTemplate,
   pickTemplateKey,
   formatTenantAddress,
+  escolherChipPaciente,
+  type FuncaoChipPaciente,
   type ReminderConfig,
 } from '@crm/shared';
 
@@ -327,7 +329,7 @@ export class CalendarReminderWorker extends WorkerHost {
     }
 
     // ── Lembretes antes do evento (fluxo original) ────────────────────────────
-    const { reminderId, eventId, channel } = job.data;
+    const { reminderId, eventId, channel, resend } = job.data;
 
     if (channel !== 'WHATSAPP' && channel !== 'EMAIL') {
       this.logger.warn(`Worker: canal desconhecido "${channel}" para reminder ${reminderId}`);
@@ -354,10 +356,10 @@ export class CalendarReminderWorker extends WorkerHost {
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true, is_client: true } },
+        lead: { select: { id: true, name: true, phone: true, is_client: true, tenant_id: true } },
         // v31: patient como fallback quando evento foi criado direto via ficha
         // (sem lead vinculado). Worker mescla lead || patient ao processar.
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, tenant_id: true } },
         // Onda 17.60 — pra saber se ESTE lembrete é o de MAIOR antecedência
         // (= a confirmação) ou só um lembrete intermediário.
         reminders: { select: { minutes_before: true } },
@@ -406,7 +408,7 @@ export class CalendarReminderWorker extends WorkerHost {
     // Mantem event.lead pra compat com restantes do codigo (templates, logs)
     if (!event.lead && (event as any).patient) {
       const p = (event as any).patient;
-      (event as any).lead = { id: p.id, name: p.name, phone: p.phone };
+      (event as any).lead = { id: p.id, name: p.name, phone: p.phone, tenant_id: p.tenant_id };
     }
 
     if (['CANCELADO', 'CONCLUIDO'].includes(event.status)) {
@@ -444,7 +446,7 @@ export class CalendarReminderWorker extends WorkerHost {
         sent = false;
       } else {
         try {
-          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before);
+          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before, { pularDentista: !!resend });
           capturedExternalMsgId = result.externalMsgId;
           sent = true;
         } catch (e: any) {
@@ -548,6 +550,7 @@ export class CalendarReminderWorker extends WorkerHost {
   private async sendWhatsAppReminders(
     event: any,
     minutesBefore: number,
+    opts: { pularDentista?: boolean } = {},
   ): Promise<{ externalMsgId: string | null }> {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
     // Onda 17.61 — lembretes pra TODOS os atendimentos da agenda: CONSULTA +
@@ -566,16 +569,34 @@ export class CalendarReminderWorker extends WorkerHost {
 
     const context = buildContext(event, memory, null, ficha, djenPubs);
 
-    // ── 1. Mensagem para o Dentista/Advogado (sempre) ─────────────────────────
-    if (event.assigned_user?.phone) {
+    // Clínica DONA do envio: o chip sai sempre de dentro dela (nunca de outro tenant).
+    // Evento sem tenant_id herda o do lead/paciente.
+    const tenantId: string | null =
+      event.tenant_id || event.lead?.tenant_id || event.patient?.tenant_id || null;
+
+    // ── 1. Mensagem para o Dentista/Advogado (sempre — menos no "Reenviar" manual,
+    //       que é só do paciente: o dentista já recebeu na 1ª tentativa) ──────────
+    if (event.assigned_user?.phone && !opts.pularDentista) {
       const advPhone = event.assigned_user.phone.replace(/\D/g, '');
       // Dentista/Advogado recebe template rico — sem precisar de IA
       const advMsg = templateAdvogado(event, minutesBefore);
-      try {
-        await this.whatsapp.sendText(advPhone, advMsg);
-        this.logger.log(`[REMINDER] WhatsApp enviado para dentista/advogado ${advPhone}`);
-      } catch (e: any) {
-        this.logger.warn(`[REMINDER] Erro ao enviar para dentista/advogado ${advPhone}: ${e.message}`);
+      // Aviso interno sai pelo chip CLINICA da clínica (na falta, o COMERCIAL). Antes
+      // ia sem instância e sem tenant → default global ('whatsapp', que nem existe mais
+      // na Evolution) e o log dizia "enviado" mesmo com o 404.
+      const advInstance = tenantId ? await this.resolveTenantInstance(tenantId, 'CLINICA') : null;
+      if (!advInstance) {
+        this.logger.warn(`[REMINDER] Aviso ao dentista ${advPhone} NÃO enviado — ${tenantId ? `clínica ${tenantId} sem chip Clínica/Comercial` : 'evento sem clínica (tenant)'} (evento ${event.id})`);
+      } else {
+        try {
+          const advResult = await this.whatsapp.sendText(advPhone, advMsg, advInstance, undefined, tenantId);
+          if (evolutionSendFailed(advResult)) {
+            this.logger.warn(`[REMINDER] FALHA ao enviar para dentista/advogado ${advPhone} pelo chip ${advInstance}: ${String(advResult?.statusCode ?? '')} ${String(advResult?.error ?? 'número sem WhatsApp').slice(0, 200)}`);
+          } else {
+            this.logger.log(`[REMINDER] WhatsApp enviado para dentista/advogado ${advPhone} (chip ${advInstance})`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`[REMINDER] Erro ao enviar para dentista/advogado ${advPhone}: ${e.message}`);
+        }
       }
     }
 
@@ -618,7 +639,8 @@ export class CalendarReminderWorker extends WorkerHost {
       if (suppressOrtoClient && minutesBefore >= 1440) {
         const pending48h = await this.prisma.eventReminder
           .findFirst({
-            where: { event_id: event.id, channel: 'WHATSAPP', sent_at: null, minutes_before: { gte: 2880 } },
+            // last_error null = mesmo predicado do scheduler (48h que FALHOU não segura a de 24h).
+            where: { event_id: event.id, channel: 'WHATSAPP', sent_at: null, last_error: null, minutes_before: { gte: 2880 } },
             select: { id: true },
           })
           .catch(() => null);
@@ -735,34 +757,49 @@ export class CalendarReminderWorker extends WorkerHost {
         select: { id: true, instance_name: true },
       }).catch(() => null);
 
-      // Onda 17.59 — CONSULTA odonto resolve a instância por TENANT e passa o
-      // tenantId pro sendText (IGUAL à "agendada"/Notificar que FUNCIONAM). O
-      // caminho antigo (instância por lead, sem tenantId) fazia o lembrete de
-      // consulta falhar calado, porque o sendText resolve a config da Evolution
-      // pelo tenant. Audiência/perícia mantêm o caminho legado por lead.
-      // Agenda do Comercial: lead não-cliente sai pelo chip COMERCIAL.
-      const reminderInstanceName = isClinical && event.tenant_id
-        ? await this.resolveTenantInstance(event.tenant_id, usaComercial ? 'COMERCIAL' : 'CLINICA')
-        : await this.resolveInstanceName(event.lead.id);
+      // Chip pela FUNÇÃO, sempre DENTRO da clínica do evento (Onda 17.59 + out/2026):
+      // lembrete comercial (lead) → COMERCIAL, senão CLINICA; paciente → CLINICA,
+      // senão COMERCIAL; nunca o FINANCEIRO. Vale também pra audiência/perícia — o
+      // caminho antigo por lead pegava conversa de QUALQUER caixa e, sem nada, a 1ª
+      // Instance do banco SEM filtro de clínica (podia sair pelo chip de outra).
+      const reminderInstanceName = tenantId
+        ? await this.resolveTenantInstance(tenantId, usaComercial ? 'COMERCIAL' : 'CLINICA')
+        : null;
 
+      // Motivo da falha (null = saiu). Falha vira FAILED no EventReminder (throw no
+      // fim deste bloco) — antes o worker gravava "enviado" mesmo quando a Evolution
+      // recusava, e ninguém ficava sabendo.
+      let falhaEnvio: string | null = null;
       let reminderSendResult: any;
-      try {
-        reminderSendResult = await this.whatsapp.sendText(
-          clientPhone,
-          clientMsg,
-          reminderInstanceName ?? undefined,
-          undefined,
-          isClinical ? event.tenant_id : undefined,
-        );
-        // sendText() retorna objeto de erro em vez de lançar exceção em falhas HTTP
-        if (!reminderSendResult || reminderSendResult?.statusCode >= 400 || reminderSendResult?.error) {
-          throw new Error(`Evolution API error ${reminderSendResult?.statusCode}: ${reminderSendResult?.error}`);
+      if (!reminderInstanceName) {
+        falhaEnvio = tenantId
+          ? 'Clínica sem chip Clínica/Comercial conectado — o lembrete não sai pelo Financeiro. Reconecte o WhatsApp da Clínica.'
+          : 'Evento sem clínica (tenant) — não dá pra escolher o chip do WhatsApp.';
+        this.logger.warn(`[REMINDER] Lembrete pra ${clientPhone} NÃO enviado (evento ${event.id}): ${falhaEnvio}`);
+      } else {
+        try {
+          reminderSendResult = await this.whatsapp.sendText(
+            clientPhone,
+            clientMsg,
+            reminderInstanceName,
+            undefined,
+            tenantId,
+          );
+          // sendText() retorna objeto de erro em vez de lançar exceção em falhas HTTP
+          // (e exists:false quando o número não tem WhatsApp).
+          if (evolutionSendFailed(reminderSendResult)) {
+            throw new Error(
+              `Evolution recusou o envio (chip ${reminderInstanceName}): ` +
+              `${String(reminderSendResult?.statusCode ?? '')} ${String(reminderSendResult?.error ?? 'número sem WhatsApp').slice(0, 200)}`.trim(),
+            );
+          }
+          this.logger.log(`[REMINDER] WhatsApp enviado para cliente ${clientPhone} (chip ${reminderInstanceName})`);
+        } catch (e: any) {
+          falhaEnvio = e?.message || 'Falha desconhecida ao enviar WhatsApp';
+          this.logger.warn(`[REMINDER] Erro ao enviar para cliente ${clientPhone}: ${falhaEnvio}`);
+          // Não salva mensagem se envio falhou
+          reminderSendResult = undefined;
         }
-        this.logger.log(`[REMINDER] WhatsApp enviado para cliente ${clientPhone}`);
-      } catch (e: any) {
-        this.logger.warn(`[REMINDER] Erro ao enviar para cliente ${clientPhone}: ${e.message}`);
-        // Não salva mensagem se envio falhou
-        reminderSendResult = undefined;
       }
 
       // Central de Disparos 2.0 — o lembrete COMERCIAL ganha registro próprio no
@@ -775,8 +812,8 @@ export class CalendarReminderWorker extends WorkerHost {
             channel: 'WHATSAPP',
             recipient_name: event.lead?.name || null,
             recipient_phone: clientPhone,
-            status: reminderSendResult !== undefined ? 'SENT' : 'FAILED',
-            error: reminderSendResult !== undefined ? null : 'Evolution recusou o envio (número/chip)',
+            status: falhaEnvio ? 'FAILED' : 'SENT',
+            error: falhaEnvio ? falhaEnvio.slice(0, 500) : null,
             external_message_id: reminderSendResult?.data?.key?.id || null,
             ref_event_id: event.id,
             sent_at: new Date(),
@@ -842,6 +879,10 @@ export class CalendarReminderWorker extends WorkerHost {
           this.logger.warn(`[REMINDER] Falha ao salvar mensagem na conversa: ${e.message}`);
         }
       }
+
+      // Envio ao paciente/lead falhou → o process() grava FAILED (sent_at volta a null,
+      // last_error com o motivo, badge FALHOU + aviso no sininho), não "enviado".
+      if (falhaEnvio) throw new Error(falhaEnvio);
     }
 
     // v25: retorna externalMsgId pra worker salvar no EventReminder
@@ -899,10 +940,10 @@ export class CalendarReminderWorker extends WorkerHost {
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true, is_client: true } },
+        lead: { select: { id: true, name: true, phone: true, is_client: true, tenant_id: true } },
         // v31: patient como fallback quando evento foi criado direto via ficha
         // (sem lead vinculado). Worker mescla lead || patient ao processar.
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, tenant_id: true } },
       },
     });
 
@@ -916,6 +957,19 @@ export class CalendarReminderWorker extends WorkerHost {
     }
     if (!event.lead?.phone) {
       this.logger.log(`[HEARING-NOTIFY] Evento ${eventId} sem telefone do cliente — ignorado`);
+      return;
+    }
+
+    // Chip pela FUNÇÃO (CLINICA, senão COMERCIAL), DENTRO da clínica do evento. Antes:
+    // conversa do lead em qualquer caixa → 1ª Instance do banco sem filtro de clínica.
+    // Sem chip/clínica não adianta o retry do BullMQ — só registra e sai.
+    const tenantId: string | null = event.tenant_id || event.lead?.tenant_id || null;
+    const instanceName = tenantId ? await this.resolveTenantInstance(tenantId, 'CLINICA') : null;
+    if (!instanceName) {
+      this.logger.warn(
+        `[HEARING-NOTIFY] Evento ${eventId} NÃO notificado — ` +
+        `${tenantId ? `clínica ${tenantId} sem chip Clínica/Comercial (não sai pelo Financeiro)` : 'evento sem clínica (tenant)'}`,
+      );
       return;
     }
 
@@ -940,16 +994,17 @@ export class CalendarReminderWorker extends WorkerHost {
         : this.templateHearingScheduled(event, firstName);
     }
 
-    // Busca a conversa ativa para salvar a mensagem (visível ao operador)
+    // Busca a conversa ativa para salvar a mensagem (visível ao operador).
+    // Nunca a do FINANCEIRO (mundo isolado) — mesma regra do lembrete.
     const lastConvo = await this.prisma.conversation.findFirst({
-      where: { lead_id: leadId, status: { not: 'ENCERRADO' } },
+      where: {
+        lead_id: leadId,
+        status: { not: 'ENCERRADO' },
+        NOT: { inbox: { purpose: 'FINANCEIRO' } },
+      },
       orderBy: { last_message_at: 'desc' },
       select: { id: true, ai_mode: true, instance_name: true },
     }).catch(() => null);
-
-    // Resolve instância WhatsApp em 4 níveis: conversa ativa → encerrada → banco → env
-    // Cobre clientes sem histórico no chat (cadastrados via processos/DJEN)
-    const instanceName = await this.resolveInstanceName(leadId);
 
     let sendResult: any;
     try {
@@ -957,10 +1012,13 @@ export class CalendarReminderWorker extends WorkerHost {
         clientPhone,
         msg,
         instanceName,
+        undefined,
+        tenantId,
       );
       // sendText() retorna objeto de erro em vez de lançar exceção em falhas HTTP
-      if (!sendResult || sendResult?.statusCode >= 400 || sendResult?.error) {
-        throw new Error(`Evolution API error ${sendResult?.statusCode}: ${sendResult?.error}`);
+      // (e exists:false quando o número não tem WhatsApp).
+      if (evolutionSendFailed(sendResult)) {
+        throw new Error(`Evolution API error ${sendResult?.statusCode ?? ''}: ${String(sendResult?.error ?? 'número sem WhatsApp').slice(0, 200)}`);
       }
       this.logger.log(`[HEARING-NOTIFY] WhatsApp enviado para ${clientPhone} sobre ${event.type} ${eventId}`);
     } catch (e: any) {
@@ -1187,94 +1245,42 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
     }
   }
 
-  // ─── Resolução da instância WhatsApp (4 níveis de fallback) ──────────────────
+  // ─── Chip do envio: FUNÇÃO dentro do TENANT (Onda 17.59/17.64 → out/2026) ────
   //
-  //  1. Conversa ativa do lead (status ≠ ENCERRADO)
-  //  2. Qualquer conversa do lead (inclusive encerradas)
-  //  3. Primeira instância WhatsApp cadastrada no banco
-  //     → cobre clientes sem histórico no chat (cadastrados via processos/DJEN)
-  //  4. Variável de ambiente EVOLUTION_INSTANCE_NAME
+  // SEMPRE escopado pela clínica do envio (tenant_id no where — nunca Instance de
+  // outra clínica) e pela FUNÇÃO: lead → COMERCIAL, senão CLINICA; paciente/dentista
+  // → CLINICA, senão COMERCIAL; NUNCA o FINANCEIRO. A regra mora em
+  // escolherChipPaciente (@crm/shared), a mesma do worker.
   //
-  // Ao retornar undefined o sendText() usará a instância padrão configurada
-  // no WhatsappService — envio ainda pode funcionar em instâncias single-tenant.
-
-  private async resolveInstanceName(leadId: string): Promise<string | undefined> {
-    // Nível 1: conversa ativa
-    const activeConvo = await this.prisma.conversation.findFirst({
-      where: { lead_id: leadId, status: { not: 'ENCERRADO' } },
-      orderBy: { last_message_at: 'desc' },
-      select: { instance_name: true },
-    }).catch(() => null);
-    if (activeConvo?.instance_name) return activeConvo.instance_name;
-
-    // Nível 2: qualquer conversa (inclusive encerradas)
-    const anyConvo = await this.prisma.conversation.findFirst({
-      where: { lead_id: leadId, instance_name: { not: null } },
-      orderBy: { last_message_at: 'desc' },
-      select: { instance_name: true },
-    }).catch(() => null);
-    if (anyConvo?.instance_name) {
-      this.logger.log(`[INSTANCE] Lead ${leadId} sem conversa ativa — usando instância de conversa anterior: ${anyConvo.instance_name}`);
-      return anyConvo.instance_name;
-    }
-
-    // Nível 3: primeira instância WhatsApp cadastrada no banco
-    const dbInstance = await this.prisma.instance.findFirst({
-      where: { type: 'whatsapp' },
-      select: { name: true },
-    }).catch(() => null);
-    if (dbInstance?.name) {
-      this.logger.log(`[INSTANCE] Lead ${leadId} sem conversas — usando instância do banco: ${dbInstance.name}`);
-      return dbInstance.name;
-    }
-
-    // Nível 4: variável de ambiente
-    const envInstance = process.env.EVOLUTION_INSTANCE_NAME;
-    if (envInstance) {
-      this.logger.log(`[INSTANCE] Lead ${leadId} sem instância no banco — usando env EVOLUTION_INSTANCE_NAME: ${envInstance}`);
-      return envInstance;
-    }
-
-    this.logger.warn(`[INSTANCE] Lead ${leadId}: nenhuma instância WhatsApp encontrada. Envio pode falhar.`);
-    return undefined;
-  }
-
-  // ─── Resolução da instância por TENANT (Onda 17.59) ──────────────────────────
-  //
-  // Espelha resolveTenantWhatsappInstance do CalendarService — a engine da
-  // "agendada"/Notificar que FUNCIONAM. Escopar por tenant_id (em vez de por lead)
-  // é o que faltava pro lembrete de CONSULTA odonto entregar: conversa do tenant →
-  // instância do tenant. Pode voltar null — aí o sendText resolve via tenantId.
+  // Clínica LEGADA (nenhum chip COMERCIAL/CLINICA) mantém a heurística antiga —
+  // conversa mais recente do tenant → 1ª instância dele — sem o financeiro. Sem
+  // NENHUM chip na tabela, usa o override legado da própria clínica. null = não
+  // envia; o chamador registra a falha.
   private async resolveTenantInstance(
     tenantId: string,
-    purpose?: 'COMERCIAL' | 'CLINICA',
+    purpose: FuncaoChipPaciente,
   ): Promise<string | null> {
-    // Onda 17.64 — prefere o chip da função pedida (lembrete clínico sai pelo
-    // chip CLINICA). Sempre escopado por tenant_id; fallback = heurística atual.
-    if (purpose) {
-      const byPurpose = await this.prisma.instance.findFirst({
-        where: { type: 'whatsapp', tenant_id: tenantId, purpose },
-        orderBy: { created_at: 'asc' },
-        select: { name: true },
-      }).catch(() => null);
-      if (byPurpose?.name) return byPurpose.name;
+    const chips = await this.prisma.instance.findMany({
+      where: { type: 'whatsapp', tenant_id: tenantId },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, purpose: true },
+    }).catch((e: any) => {
+      this.logger.warn(`[REMINDER] Falha ao listar os chips do tenant ${tenantId}: ${e?.message}`);
+      return null;
+    });
+    // Erro de banco: não chuta chip (podia ser o errado) — o envio fica como falha.
+    if (!chips) return null;
+
+    const escolha = escolherChipPaciente(chips, purpose);
+    if (escolha.tipo === 'FUNCAO') {
+      if (escolha.usouIrmao) {
+        this.logger.log(`[REMINDER] Tenant ${tenantId} sem chip ${purpose} — saindo pelo ${escolha.funcao} (${escolha.instance})`);
+      }
+      return escolha.instance;
     }
-    // Onda 18.x — UNIÃO Comercial↔Clínica: chip pedido fora → usa o OUTRO chip
-    // clínico antes de qualquer fallback (mesmo mundo paciente/lead). Nunca Financeiro.
-    if (purpose === 'CLINICA' || purpose === 'COMERCIAL') {
-      const irmao = purpose === 'CLINICA' ? 'COMERCIAL' : 'CLINICA';
-      const bySibling = await this.prisma.instance.findFirst({
-        where: { type: 'whatsapp', tenant_id: tenantId, purpose: irmao },
-        orderBy: { created_at: 'asc' },
-        select: { name: true },
-      }).catch(() => null);
-      if (bySibling?.name) return bySibling.name;
-    }
-    // Nomes dos chips FINANCEIRO — pra não vazarem no fallback por conversa.
-    const finNames = (await this.prisma.instance.findMany({
-      where: { type: 'whatsapp', tenant_id: tenantId, purpose: 'FINANCEIRO' },
-      select: { name: true },
-    }).catch(() => [] as { name: string }[])).map((i) => i.name);
+
+    // ── LEGADO ── nomes dos chips FINANCEIRO — pra não vazarem no fallback por conversa.
+    const finNames = escolha.financeiros;
     // Fallback: a conversa mais recente do TENANT. Excluir o financeiro é essencial —
     // ele não é do mundo da agenda e, como toda cobrança dá bump no last_message_at,
     // ele virava "a mais recente" e SEQUESTRAVA o chip do próximo lembrete de consulta.
@@ -1291,12 +1297,18 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       select: { instance_name: true },
     }).catch(() => null);
     if (convo?.instance_name) return convo.instance_name;
-    const inst = await this.prisma.instance.findFirst({
-      where: { type: 'whatsapp', tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
-      orderBy: { created_at: 'asc' },
-      select: { name: true },
-    }).catch(() => null);
-    if (inst?.name) return inst.name;
+    if (escolha.naoFinanceiros[0]) return escolha.naoFinanceiros[0];
+
+    // Nenhum chip na tabela: o override LEGADO da própria clínica (TenantSetting
+    // EVOLUTION_INSTANCE_NAME — chip antigo sem prefixo t<hash>-, que nem entra na
+    // tabela). NÃO cai no default global/env: esse é o chip de OUTRA clínica.
+    if (!finNames.length) {
+      const legado = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'EVOLUTION_INSTANCE_NAME' } },
+        select: { value: true },
+      }).catch(() => null);
+      if (legado?.value) return legado.value;
+    }
 
     // Onda 18.x — só sobrou o chip FINANCEIRO: NÃO manda lembrete/confirmação de
     // paciente por ele (número de cobrança). Devolve null → não envia; o aviso de

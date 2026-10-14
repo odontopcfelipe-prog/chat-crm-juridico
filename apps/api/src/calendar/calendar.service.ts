@@ -1664,10 +1664,11 @@ export class CalendarService {
       throw new BadRequestException('Não dá pra reenviar lembrete de evento cancelado/concluído');
     }
 
-    // Zera sent_at pra worker re-processar
+    // Zera sent_at pra worker re-processar. last_error também: o lembrete volta a ser
+    // "pendente" (o scheduler da confirmação de 24h distingue pendente de falho por ele).
     await this.prisma.eventReminder.update({
       where: { id: reminderId },
-      data: { sent_at: null },
+      data: { sent_at: null, last_error: null },
     });
 
     // Re-enfileira no BullMQ com delay imediato (1s)
@@ -1678,7 +1679,8 @@ export class CalendarService {
     } catch {}
     await this.reminderQueue.add(
       'send-reminder',
-      { reminderId: reminder.id, eventId: reminder.event.id, channel: reminder.channel },
+      // resend: o dentista já recebeu o aviso na 1ª tentativa — o reenvio é só do paciente.
+      { reminderId: reminder.id, eventId: reminder.event.id, channel: reminder.channel, resend: true },
       {
         delay: 1000,
         jobId,
@@ -1869,6 +1871,12 @@ export class CalendarService {
     tenant_id?: string,
     purpose?: 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO',
   ): Promise<string | null> {
+    // Sem clínica não há chip seguro: os fallbacks abaixo (conversa recente / 1ª
+    // instância) sem tenant_id varreriam TODAS as clínicas — chip de outra clínica.
+    if (!tenant_id) {
+      this.logger.warn(`[WPP-INSTANCE] Resolução de chip sem tenant (purpose=${purpose ?? '-'}) — não envia.`);
+      return null;
+    }
     // Onda 17.64 — se a clínica separou os chips por função, prefere o chip DAQUELA
     // função (ex: disparo clínico sai pelo chip CLINICA). SEMPRE escopado por
     // tenant_id — nunca resolve instância de outro tenant (sem listInstances).

@@ -33,3 +33,5 @@ export * from './pipeline-general';
 export * from './reativacao-leads';
 // Triagem não-paciente (IA): categorias + rótulos + janela dos anexos (worker e API)
 export * from './nao-paciente';
+// Chip do disparo de paciente/lead pela FUNÇÃO (Comercial↔Clínica, nunca Financeiro)
+export * from './chip-paciente';

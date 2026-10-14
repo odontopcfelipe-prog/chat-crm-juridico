@@ -4,6 +4,8 @@ import { randomBytes } from 'crypto';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { evolutionSendFailed } from '../whatsapp/whatsapp.service';
+import { escolherChipPaciente, chipPacienteOuLegado, soTemChipFinanceiro } from '@crm/shared';
 
 @Injectable()
 export class PortalAuthService {
@@ -142,14 +144,26 @@ export class PortalAuthService {
       if (!cfg.apiUrl || !cfg.apiKey) {
         return { status: 'FAILED', reason: 'Evolution API nao configurada' };
       }
-      const instance = await this.prisma.instance.findFirst({
-        where: { tenant_id: tenantId },
-        select: { name: true },
+      // Link do portal/anamnese é do PACIENTE ⇒ chip CLINICA (na falta, o COMERCIAL),
+      // nunca o FINANCEIRO. Antes era a 1ª Instance por NOME — 'Comercial'/'whatsapp'
+      // (órfãs, purpose NULL) vinham antes de 't00000000-*' e o envio ia pra elas.
+      // Clínica legada (sem chip com função) segue no 1º chip por nome, sem o financeiro.
+      const chips = await this.prisma.instance.findMany({
+        where: { tenant_id: tenantId, type: 'whatsapp' },
+        select: { name: true, purpose: true },
         orderBy: { name: 'asc' },
       });
-      if (!instance) {
-        return { status: 'FAILED', reason: 'Sem Evolution instance no tenant' };
+      const escolha = escolherChipPaciente(chips, 'CLINICA');
+      const instanceName = chipPacienteOuLegado(escolha);
+      if (!instanceName) {
+        return {
+          status: 'FAILED',
+          reason: soTemChipFinanceiro(escolha)
+            ? 'A clínica só tem o chip do Financeiro conectado — o link não sai por ele. Conecte o WhatsApp da Clínica.'
+            : 'Sem Evolution instance no tenant',
+        };
       }
+      const instance = { name: instanceName };
 
       const firstName = name.split(' ')[0];
       const text = purpose === 'ANAMNESE'
@@ -174,16 +188,22 @@ export class PortalAuthService {
 
       const endpoint = `${cfg.apiUrl}/message/sendText/${instance.name}`;
       this.logger.log(
-        `[Portal] [evolution-call] POST ${endpoint} | phone=${phone} | instance=${instance.name}`,
+        `[Portal] [evolution-call] POST ${endpoint} | phone=${normalizedPhone} | instance=${instance.name}`,
       );
-      await axios.post(
+      // Envia o número NORMALIZADO (com 55) — o cru ia sem DDI e a Evolution recusava.
+      const resp = await axios.post(
         endpoint,
-        { number: phone, text },
+        { number: normalizedPhone, text },
         {
           headers: { 'Content-Type': 'application/json', apikey: cfg.apiKey },
           timeout: 15000,
         },
       );
+      // 2xx com exists:false = número sem WhatsApp → FALHA, não "enviado".
+      if (evolutionSendFailed(resp?.data)) {
+        this.logger.warn(`[Portal] [evolution-FAILED] phone=${normalizedPhone} | instance=${instance.name} | número sem WhatsApp`);
+        return { status: 'FAILED', reason: 'Esse número não tem WhatsApp. Confira o telefone no cadastro do paciente.' };
+      }
       this.logger.log(`[Portal] Magic link (${purpose}) enviado para ${name} (${phone})`);
       return { status: 'SENT' };
     } catch (err: any) {

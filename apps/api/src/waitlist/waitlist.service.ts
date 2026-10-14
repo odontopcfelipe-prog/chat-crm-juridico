@@ -10,7 +10,8 @@
  */
 import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
+import { escolherChipPaciente, soTemChipFinanceiro, type FuncaoChipPaciente } from '@crm/shared';
 
 export interface CreateWaitlistDto {
   lead_id: string;
@@ -197,7 +198,7 @@ export class WaitlistService {
         ],
       },
       include: {
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, tenant_id: true, is_client: true } },
         dentist: { select: { id: true, name: true } },
       },
       orderBy: { created_at: 'asc' }, // FIFO
@@ -233,12 +234,6 @@ export class WaitlistService {
         return { notified: 0, matches: [] };
       }
 
-      // Resolve a instância WhatsApp (pega a primeira do banco como fallback)
-      const dbInstance = await this.prisma.instance.findFirst({
-        where: { type: 'whatsapp' },
-        select: { name: true },
-      }).catch(() => null);
-
       const dateLabel = params.slotStart.toLocaleString('pt-BR', {
         timeZone: 'UTC',
         weekday: 'long',
@@ -253,13 +248,28 @@ export class WaitlistService {
         const phone = entry.lead?.phone;
         if (!phone) continue;
 
-        // Resolve instância prioritariamente da conversa ativa do lead
-        const activeConvo = await this.prisma.conversation.findFirst({
-          where: { lead_id: entry.lead_id, status: { not: 'ENCERRADO' } },
-          orderBy: { last_message_at: 'desc' },
-          select: { instance_name: true },
-        }).catch(() => null);
-        const instanceName = activeConvo?.instance_name || dbInstance?.name || undefined;
+        // Chip pela FUNÇÃO, DENTRO da clínica da entrada. Antes: conversa do lead em
+        // qualquer caixa e, sem ela, a 1ª Instance do banco SEM filtro de clínica.
+        const tenantId: string | null =
+          entry.tenant_id || params.tenantId || entry.lead?.tenant_id || null;
+        if (!tenantId) {
+          this.logger.warn(`[WAITLIST] Entrada ${entry.id} sem clínica (tenant) — não notificada (não dá pra escolher o chip)`);
+          continue;
+        }
+        const instanceName = await this.resolveWaitlistInstance(
+          tenantId,
+          entry.lead_id,
+          // Lead não-cliente sai pelo COMERCIAL (evita a transferência pelo eco da
+          // Clínica); paciente pelo CLINICA. Um na falta do outro; nunca o Financeiro.
+          entry.lead?.is_client === false ? 'COMERCIAL' : 'CLINICA',
+        ).catch((e: any) => {
+          this.logger.warn(`[WAITLIST] Falha ao escolher o chip da clínica ${tenantId}: ${e?.message}`);
+          return null;
+        });
+        if (!instanceName) {
+          this.logger.warn(`[WAITLIST] ${phone} NÃO notificado — clínica ${tenantId} sem chip Clínica/Comercial (não sai pelo Financeiro nem por chip de outra clínica)`);
+          continue;
+        }
 
         const firstName = (entry.lead?.name || '').split(' ')[0] || 'Olá';
         const dentistLabel = params.dentistName || entry.dentist?.name || 'a equipe';
@@ -273,10 +283,11 @@ Você está na nossa lista de espera. Quer reservar essa vaga? Responde aqui que
 (O primeiro a confirmar leva o horário.)`;
 
         try {
-          const sendResult: any = await this.whatsapp.sendText(phone, msg, instanceName);
-          if (!sendResult || sendResult?.statusCode >= 400 || sendResult?.error) {
+          const sendResult: any = await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
+          // Falha (HTTP ou exists:false) NÃO marca NOTIFICADO.
+          if (evolutionSendFailed(sendResult)) {
             this.logger.warn(
-              `[WAITLIST] Falha enviando pra ${phone}: ${JSON.stringify(sendResult)}`,
+              `[WAITLIST] Falha enviando pra ${phone} (chip ${instanceName}): ${JSON.stringify(sendResult)?.slice(0, 300)}`,
             );
             continue;
           }
@@ -301,5 +312,50 @@ Você está na nossa lista de espera. Quer reservar essa vaga? Responde aqui que
       this.logger.error(`[WAITLIST] notifySlotOpened falhou: ${e?.message}`);
       return { notified: 0, matches: [] };
     }
+  }
+
+  /**
+   * Chip do aviso de vaga: pela FUNÇÃO, sempre dentro do tenant (regra única em
+   * escolherChipPaciente). Clínica legada (sem chip COMERCIAL/CLINICA): conversa
+   * ativa do lead NESTA clínica (fora do Financeiro) → 1º chip não-financeiro →
+   * override legado DA clínica (TenantSetting EVOLUTION_INSTANCE_NAME). Nunca o
+   * default global/env do sendText — esse é o chip de OUTRA clínica.
+   * null = não envia (só o FINANCEIRO, ou nenhum chip).
+   */
+  private async resolveWaitlistInstance(
+    tenantId: string,
+    leadId: string,
+    funcao: FuncaoChipPaciente,
+  ): Promise<string | null> {
+    const chips = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, purpose: true },
+    });
+    const escolha = escolherChipPaciente(chips, funcao);
+    if (escolha.tipo === 'FUNCAO') return escolha.instance;
+    if (soTemChipFinanceiro(escolha)) return null;
+
+    const activeConvo = await this.prisma.conversation.findFirst({
+      where: {
+        lead_id: leadId,
+        tenant_id: tenantId,
+        status: { not: 'ENCERRADO' },
+        instance_name: { not: null },
+        NOT: [
+          { inbox: { purpose: 'FINANCEIRO' } },
+          ...(escolha.financeiros.length ? [{ instance_name: { in: escolha.financeiros } }] : []),
+        ],
+      },
+      orderBy: { last_message_at: 'desc' },
+      select: { instance_name: true },
+    }).catch(() => null);
+    if (activeConvo?.instance_name) return activeConvo.instance_name;
+    if (escolha.naoFinanceiros[0]) return escolha.naoFinanceiros[0];
+    const legado = await this.prisma.tenantSetting.findUnique({
+      where: { tenant_id_key: { tenant_id: tenantId, key: 'EVOLUTION_INSTANCE_NAME' } },
+      select: { value: true },
+    }).catch(() => null);
+    return legado?.value || null;
   }
 }

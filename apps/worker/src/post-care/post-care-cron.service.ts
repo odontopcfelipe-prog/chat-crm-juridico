@@ -2,7 +2,12 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import {
+  toBrazilWhatsappNumber,
+  escolherChipPaciente,
+  chipPacienteOuLegado,
+  soTemChipFinanceiro,
+} from '@crm/shared';
 import axios from 'axios';
 
 const POST_CARE_KEY = 'POST_CARE_CONFIG';
@@ -206,21 +211,41 @@ export class PostCareCronService implements OnModuleInit {
     if (!cfg.apiUrl || !cfg.apiKey) {
       throw new Error('Evolution API nao configurada');
     }
-    const instance = await this.prisma.instance.findFirst({
-      where: { tenant_id: tenantId },
-      select: { name: true },
+    if (!tenantId) throw new Error('Paciente sem clínica (tenant) — não dá pra escolher o chip');
+    // Pesquisa pós-atendimento é do PACIENTE ⇒ chip CLINICA (na falta, o COMERCIAL),
+    // nunca o FINANCEIRO. Antes era a 1ª Instance por NOME — 'Comercial'/'whatsapp'
+    // (órfãs, purpose NULL) vinham antes de 't00000000-*' e o envio ia pra elas.
+    // Clínica legada (sem chip com função) segue no 1º chip por nome, sem o financeiro.
+    const chips = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      select: { name: true, purpose: true },
       orderBy: { name: 'asc' },
     });
-    if (!instance) throw new Error('Sem Evolution instance no tenant');
+    const escolha = escolherChipPaciente(chips, 'CLINICA');
+    const instance = chipPacienteOuLegado(escolha);
+    if (!instance) {
+      throw new Error(
+        soTemChipFinanceiro(escolha)
+          ? 'Clínica só tem o chip Financeiro — pesquisa não sai por ele. Conecte o chip da Clínica.'
+          : 'Sem Evolution instance no tenant',
+      );
+    }
 
     const resp = await axios.post(
-      `${cfg.apiUrl}/message/sendText/${instance.name}`,
+      `${cfg.apiUrl}/message/sendText/${instance}`,
       { number: toBrazilWhatsappNumber(phone), text },
       {
         headers: { 'Content-Type': 'application/json', apikey: cfg.apiKey },
         timeout: 15000,
       },
     );
+    // Evolution pode responder 2xx com exists:false (número sem WhatsApp) — isso é
+    // FALHA, não envio (vira status FAILED na pesquisa).
+    let respJson = '';
+    try { respJson = JSON.stringify(resp.data) ?? ''; } catch { /* resposta não serializável */ }
+    if (/"exists"\s*:\s*false/.test(respJson)) {
+      throw new Error(`Número sem WhatsApp (chip ${instance})`);
+    }
     return resp.data?.key?.id || resp.data?.id || null;
   }
 }

@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { toBrazilWhatsappNumber, DEFAULT_RECALL_TEMPLATE } from '@crm/shared';
+import {
+  toBrazilWhatsappNumber,
+  DEFAULT_RECALL_TEMPLATE,
+  escolherChipPaciente,
+  chipPacienteOuLegado,
+  soTemChipFinanceiro,
+} from '@crm/shared';
 import axios from 'axios';
 
 /**
@@ -276,16 +282,20 @@ export class MaintenanceRecallCronService {
       return 'NO_CONFIG';
     }
     try {
-      // Recall é mensagem CLÍNICA: sai pelo chip CLINICA do tenant (fallback:
-      // qualquer chip que não seja o FINANCEIRO → env). Antes usava a instância
-      // única do env — errada em tenant com chips separados por função.
-      const instance = (await this.resolveClinicaInstance(tenantId)) || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+      // Recall é mensagem CLÍNICA: sai pelo chip CLINICA do tenant, na falta o
+      // COMERCIAL; nunca o FINANCEIRO e nunca o chip do env (que é de OUTRA clínica).
+      const instance = await this.resolveClinicaInstance(tenantId);
+      if (!instance) return false;
       const cleanPhone = toBrazilWhatsappNumber(phone);
       const res = await axios.post(
         `${apiUrl}/message/sendText/${instance}`,
         { number: cleanPhone, text },
         { headers: { apikey: apiKey }, timeout: 15000 },
       );
+      // 2xx com exists:false = número sem WhatsApp → FALHA, não "enviado".
+      let respJson = '';
+      try { respJson = JSON.stringify(res?.data) ?? ''; } catch { /* resposta não serializável */ }
+      if (/"exists"\s*:\s*false/.test(respJson)) throw new Error(`número sem WhatsApp (chip ${instance})`);
       return res.data?.key?.id || res.data?.messageId || (true as any);
     } catch (e: any) {
       this.logger.warn(`[RECALL] Falha WhatsApp para ${phone}: ${e.message}`);
@@ -293,23 +303,38 @@ export class MaintenanceRecallCronService {
     }
   }
 
-  /** Chip CLINICA do tenant → qualquer chip NÃO-financeiro → null (cai no env). */
+  /**
+   * Chip do recall, SEMPRE do tenant (regra única em escolherChipPaciente):
+   * CLINICA → COMERCIAL → (clínica legada) 1º chip não-financeiro → override legado
+   * da própria clínica (TenantSetting EVOLUTION_INSTANCE_NAME). null = não envia.
+   */
   private async resolveClinicaInstance(tenantId?: string): Promise<string | null> {
-    if (!tenantId) return null;
+    if (!tenantId) {
+      this.logger.warn('[RECALL] Task sem clínica (tenant) — não dá pra escolher o chip; não envia.');
+      return null;
+    }
     try {
-      const clinica = await this.prisma.instance.findFirst({
-        where: { type: 'whatsapp', tenant_id: tenantId, purpose: 'CLINICA' },
+      const chips = await this.prisma.instance.findMany({
+        where: { type: 'whatsapp', tenant_id: tenantId },
         orderBy: { created_at: 'asc' },
-        select: { name: true },
+        select: { name: true, purpose: true },
       });
-      if (clinica?.name) return clinica.name;
-      const naoFin = await this.prisma.instance.findFirst({
-        where: { type: 'whatsapp', tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
-        orderBy: { created_at: 'asc' },
-        select: { name: true },
+      const escolha = escolherChipPaciente(chips, 'CLINICA');
+      const chip = chipPacienteOuLegado(escolha);
+      if (chip) return chip;
+      if (soTemChipFinanceiro(escolha)) {
+        this.logger.warn(`[RECALL] Tenant ${tenantId} só tem chip FINANCEIRO — recall NÃO sai por ele. Conecte um chip CLINICA.`);
+        return null;
+      }
+      const legado = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'EVOLUTION_INSTANCE_NAME' } },
+        select: { value: true },
       });
-      return naoFin?.name ?? null;
-    } catch {
+      if (legado?.value) return legado.value;
+      this.logger.warn(`[RECALL] Tenant ${tenantId} sem chip de WhatsApp — recall não enviado.`);
+      return null;
+    } catch (e: any) {
+      this.logger.warn(`[RECALL] Falha ao resolver o chip do tenant ${tenantId}: ${e?.message}`);
       return null;
     }
   }
