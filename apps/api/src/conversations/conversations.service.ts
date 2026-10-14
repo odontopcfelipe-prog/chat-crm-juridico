@@ -26,6 +26,32 @@ export class ConversationsService {
     return this.prisma.conversation.create({ data });
   }
 
+  /**
+   * Chip de uma conversa aberta pela equipe ("Novo contato" / "Abrir no chat"). O front
+   * mandava o nome fixo "whatsapp" — chip antigo que não existe mais na Evolution: a
+   * conversa nascia presa nele e toda resposta da IA/follow-up dava 404 calado.
+   * Usa o chip pedido só se for um chip VIVO e com função da clínica (nunca o
+   * Financeiro, que é mundo isolado); senão Clínica pra paciente, Comercial pra lead.
+   * Clínica legada sem chips com função: mantém o comportamento antigo.
+   */
+  async resolveManualConversationInstance(
+    tenantId: string | null | undefined,
+    leadId: string,
+    requested?: string | null,
+  ): Promise<string | null> {
+    if (!tenantId) return requested ?? null;
+    const comFuncao = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp', purpose: { in: ['COMERCIAL', 'CLINICA'] } },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, purpose: true },
+    });
+    if (comFuncao.length === 0) return requested ?? null;
+    if (requested && comFuncao.some((i) => i.name === requested)) return requested;
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, tenant_id: tenantId }, select: { is_client: true } });
+    const quer = lead?.is_client ? 'CLINICA' : 'COMERCIAL';
+    return (comFuncao.find((i) => i.purpose === quer) ?? comFuncao[0]).name;
+  }
+
   async findAll(status?: string, userId?: string, inboxId?: string, tenantId?: string, clientMode?: boolean, viewMode?: string, limit?: number, offset?: number) {
     const where: any = {};
     // Filtro por status explícito (se passado via query param)

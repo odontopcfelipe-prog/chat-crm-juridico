@@ -94,11 +94,11 @@ export default function NewContactModal({ onClose, onCreated }: {
         stage: 'INICIAL',
       });
 
-      // Criar conversa — instância sempre "whatsapp", atendente = quem cadastrou
+      // Criar conversa — o chip é escolhido no servidor (Comercial pra lead novo);
+      // atendente = quem cadastrou
       const convR = await api.post('/conversations', {
         lead_id: leadR.data.id,
         channel: 'whatsapp',
-        instance_name: 'whatsapp',
       });
 
       // Atribuir atendente (quem cadastrou)

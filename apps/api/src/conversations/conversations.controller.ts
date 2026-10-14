@@ -77,13 +77,19 @@ export class ConversationsController {
   }
 
   @Post()
-  create(@Body() dto: CreateConversationDto, @Request() req: any) {
+  async create(@Body() dto: CreateConversationDto, @Request() req: any) {
+    // O chip é decidido no servidor (o front mandava "whatsapp" fixo — chip morto).
+    const instanceName = await this.conversationsService.resolveManualConversationInstance(
+      req.user?.tenant_id,
+      dto.lead_id,
+      dto.instance_name,
+    );
     return this.conversationsService.create({
       lead: { connect: { id: dto.lead_id } },
       channel: dto.channel || 'whatsapp',
       external_id: dto.external_id,
       inbox: dto.inbox_id ? { connect: { id: dto.inbox_id } } : undefined,
-      instance_name: dto.instance_name,
+      instance_name: instanceName,
       ai_mode: dto.ai_mode ?? true,
       tenant: req.user?.tenant_id ? { connect: { id: req.user.tenant_id } } : undefined,
     });

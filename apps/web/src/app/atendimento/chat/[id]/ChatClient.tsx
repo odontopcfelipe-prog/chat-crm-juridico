@@ -18,6 +18,7 @@ import { getDateKey, formatDateLabel, formatTime as formatTimeUtil, getInitial a
 
 function StatusIcon({ status, isOut }: { status: string; isOut: boolean }) {
   if (!isOut) return null;
+  if (status === 'erro') return <XCircle size={12} className="text-red-300" aria-label="Não foi enviada" />;
   if (status === 'lido') return <CheckCheck size={12} className="text-blue-400" />;
   if (status === 'entregue') return <CheckCheck size={12} className="text-primary-foreground/60" />;
   return <Check size={12} className="text-primary-foreground/60" />;

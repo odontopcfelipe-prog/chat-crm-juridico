@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { EmailAutomationService } from '../email-automation/email-automation.service';
 // Onda 14.53 — Resolvido via ModuleRef (strict:false) — LeadsService eh
 // global no AppModule. Mesmo padrao de quotes.service.ts tryGraduateLead.
@@ -2707,7 +2707,19 @@ export class PaymentGatewayService {
           orderBy: { last_message_at: 'desc' },
           select: { id: true, instance_name: true },
         });
-        if (existing) return existing;
+        if (existing) {
+          // Conversa do Financeiro presa em outro chip (ex.: o antigo "whatsapp", que
+          // não existe mais na Evolution → todo envio dava 404 calado). A caixa é a do
+          // Financeiro, então o chip certo é SEMPRE o Financeiro — corrige aqui.
+          if (finInstance && existing.instance_name !== finInstance) {
+            await tx.conversation.update({ where: { id: existing.id }, data: { instance_name: finInstance } });
+            this.logger.log(
+              `[FINANCEIRO] Conversa ${existing.id} estava no chip "${existing.instance_name ?? '—'}" → ${finInstance}`,
+            );
+            return { id: existing.id, instance_name: finInstance };
+          }
+          return existing;
+        }
         const created = await tx.conversation.create({
           data: {
             lead_id: leadId,
@@ -2868,38 +2880,65 @@ export class PaymentGatewayService {
       }).catch(() => null));
 
     // Onda 18.7 — confirmação de pagamento sai pelo chip FINANCEIRO (fallback:
-    // instância da última conversa).
-    const finInstance = (charge as any)?.tenant_id
-      ? await this.whatsapp.getInstanceForPurpose((charge as any).tenant_id, 'FINANCEIRO')
-      : null;
+    // instância da última conversa). O tenant é o já resolvido acima (cobrança OU
+    // lead): PIX pago direto na chave chega SEM cobrança local, e antes isso pulava o
+    // chip Financeiro e saía pelo chip da última conversa / instância padrão.
+    const finInstance = tenantId ? await this.whatsapp.getInstanceForPurpose(tenantId, 'FINANCEIRO') : null;
     const dispatchInstance = finInstance ?? lastConvo?.instance_name ?? undefined;
 
     try {
-      const sendResult = await this.whatsapp.sendText(clientPhone, msg, dispatchInstance);
-      this.logger.log(`[WEBHOOK] Confirmação de pagamento enviada para ${clientPhone}`);
+      const sendResult: any = await this.whatsapp.sendText(clientPhone, msg, dispatchInstance);
+      // A Evolution NÃO lança erro: devolve {statusCode, error} (ou exists:false). Antes o
+      // balão era gravado como "enviado" mesmo assim — falha invisível no chat.
+      const falhou = evolutionSendFailed(sendResult);
+      // O id vem em `key.id` na raiz da resposta (não em data.key.id). Com o id real o
+      // eco do WhatsApp casa com este balão e os tiques (entregue/lido) chegam nele.
+      const evolutionMsgId: string | null = sendResult?.key?.id || sendResult?.data?.key?.id || null;
+      if (falhou) {
+        this.logger.warn(
+          `[WEBHOOK] Confirmação de pagamento NÃO saiu para ${clientPhone} (chip ${dispatchInstance || 'padrão'}): ` +
+          `${sendResult?.statusCode ?? ''} ${String(sendResult?.error ?? JSON.stringify(sendResult ?? null)).slice(0, 200)}`,
+        );
+      } else {
+        this.logger.log(`[WEBHOOK] Confirmação de pagamento enviada para ${clientPhone} (chip ${dispatchInstance || 'padrão'})`);
+      }
 
       if (lastConvo) {
-        const evolutionMsgId = sendResult?.data?.key?.id || `sys_payment_${Date.now()}`;
-        await this.prisma.message.create({
-          data: { conversation_id: lastConvo.id, direction: 'out', type: 'text', text: msg, external_message_id: evolutionMsgId, status: 'enviado' },
-        });
+        try {
+          await this.prisma.message.create({
+            data: {
+              conversation_id: lastConvo.id,
+              direction: 'out',
+              type: 'text',
+              text: msg,
+              external_message_id: evolutionMsgId || `sys_payment_${Date.now()}`,
+              // 'erro' = balão vermelho "não enviada" no chat (a equipe vê e reenvia).
+              status: falhou ? 'erro' : 'enviado',
+              instance_name: dispatchInstance ?? null,
+            },
+          });
+        } catch (e: any) {
+          // P2002: o eco do WhatsApp (mesmo id) já gravou o balão — não duplica.
+          if (e?.code !== 'P2002') throw e;
+        }
         await this.prisma.conversation.update({ where: { id: lastConvo.id }, data: { last_message_at: new Date() } });
       }
 
       // Central de Disparos 2.0 — este disparo não deixava NENHUM rastro estruturado
       // (só a Message no chat). Agora registra no DispatchLog (métrica + resumo).
-      const falhou = !sendResult || (sendResult as any)?.statusCode >= 400 || (sendResult as any)?.error;
       await this.prisma.dispatchLog
         .create({
           data: {
-            tenant_id: (charge as any)?.tenant_id || (gatewayCustomer.lead as any)?.tenant_id || '',
+            tenant_id: tenantId || '',
             type: 'confirmacao_pagamento',
             channel: 'WHATSAPP',
             recipient_name: lead.name || null,
             recipient_phone: clientPhone,
             status: falhou ? 'FAILED' : 'SENT',
-            error: falhou ? 'Evolution recusou o envio (número/chip)' : null,
-            external_message_id: (sendResult as any)?.data?.key?.id || (sendResult as any)?.key?.id || null,
+            error: falhou
+              ? `Evolution recusou o envio (número/chip ${dispatchInstance || 'padrão'}): ${String(sendResult?.error ?? sendResult?.statusCode ?? 'sem resposta').slice(0, 200)}`
+              : null,
+            external_message_id: evolutionMsgId,
             sent_at: new Date(),
           },
         })
@@ -2982,54 +3021,67 @@ export class PaymentGatewayService {
       }).catch(() => null);
     }
 
+    // Onda 18.7 — estorno/cancelamento sai pelo chip FINANCEIRO (fallback:
+    // instância da conversa). Tenant da cobrança OU do lead (igual à confirmação).
+    const finInstance = notifyTenantId
+      ? await this.whatsapp.getInstanceForPurpose(notifyTenantId, 'FINANCEIRO')
+      : null;
     if (!lastConvo) {
       // Criar conversa para que a mensagem fique visível no chat.
       // Onda 18.32 (review) — channel MINÚSCULO ('whatsapp': é o que o webhook e
       // os finds filtram; 'WHATSAPP' criava conversa inencontrável) + tenant_id
       // (sem ele a conversa ficava invisível no findAll, que filtra por tenant).
+      // instance_name: o chip Financeiro (ou nenhum) — NUNCA o nome fixo "whatsapp",
+      // chip antigo que não existe mais (conversa presa nele falha todo envio).
       try {
         const newConvo = await this.prisma.conversation.create({
           data: {
             lead_id: lead.id,
             channel: 'whatsapp',
             status: 'ABERTO',
-            instance_name: 'whatsapp',
+            instance_name: finInstance ?? null,
             last_message_at: new Date(),
             ...(notifyTenantId ? { tenant_id: notifyTenantId } : {}),
           },
         });
-        lastConvo = { id: newConvo.id, instance_name: 'whatsapp' };
+        lastConvo = { id: newConvo.id, instance_name: finInstance ?? null };
         this.logger.log(`[WEBHOOK] Conversa criada para lead ${lead.id}: ${newConvo.id}`);
       } catch (e: any) {
         this.logger.warn(`[WEBHOOK] Falha ao criar conversa: ${e.message}`);
       }
     }
-    // Onda 18.7 — estorno/cancelamento sai pelo chip FINANCEIRO (fallback:
-    // instância da conversa).
-    const finInstance = (charge as any)?.tenant_id
-      ? await this.whatsapp.getInstanceForPurpose((charge as any).tenant_id, 'FINANCEIRO')
-      : null;
     try {
-      const sendResult = await this.whatsapp.sendText(
-        clientPhone,
-        msg,
-        finInstance ?? lastConvo?.instance_name ?? undefined,
-      );
-      this.logger.log(`[WEBHOOK] Notificação de ${status} enviada para ${clientPhone}`);
+      const chip = finInstance ?? lastConvo?.instance_name ?? undefined;
+      const sendResult: any = await this.whatsapp.sendText(clientPhone, msg, chip);
+      // Mesma régua da confirmação: a Evolution não lança erro — confere o resultado.
+      const falhou = evolutionSendFailed(sendResult);
+      if (falhou) {
+        this.logger.warn(
+          `[WEBHOOK] Notificação de ${status} NÃO saiu para ${clientPhone} (chip ${chip || 'padrão'}): ` +
+          `${sendResult?.statusCode ?? ''} ${String(sendResult?.error ?? '').slice(0, 200)}`,
+        );
+      } else {
+        this.logger.log(`[WEBHOOK] Notificação de ${status} enviada para ${clientPhone}`);
+      }
 
       // Salvar mensagem na conversa (visível para o operador)
       if (lastConvo) {
-        const evolutionMsgId = sendResult?.data?.key?.id || `sys_charge_${Date.now()}`;
-        await this.prisma.message.create({
-          data: {
-            conversation_id: lastConvo.id,
-            direction: 'out',
-            type: 'text',
-            text: msg,
-            external_message_id: evolutionMsgId,
-            status: 'enviado',
-          },
-        });
+        const evolutionMsgId = sendResult?.key?.id || sendResult?.data?.key?.id || `sys_charge_${Date.now()}`;
+        try {
+          await this.prisma.message.create({
+            data: {
+              conversation_id: lastConvo.id,
+              direction: 'out',
+              type: 'text',
+              text: msg,
+              external_message_id: evolutionMsgId,
+              status: falhou ? 'erro' : 'enviado',
+              instance_name: chip ?? null,
+            },
+          });
+        } catch (e: any) {
+          if (e?.code !== 'P2002') throw e; // eco do WhatsApp já gravou o balão
+        }
         await this.prisma.conversation.update({
           where: { id: lastConvo.id },
           data: { last_message_at: new Date() },

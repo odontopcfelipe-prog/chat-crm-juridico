@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { loadClinicAiContext } from '../ai/clinic-ai-context';
 import axios from 'axios';
+import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
 
 interface StaleConfig {
   stage: string; days: number; msg: string;
@@ -81,7 +82,7 @@ export class FollowupCronService {
             // Pular leads que já estão em alguma sequência ativa
             followup_enrollments: { none: { status: 'ATIVO' } },
           },
-          include: { conversations: { where: { status: 'ABERTO' }, take: 1, orderBy: { last_message_at: 'desc' } } },
+          include: { conversations: { where: { status: 'ABERTO', ...FORA_DO_FINANCEIRO }, take: 1, orderBy: { last_message_at: 'desc' } } }, // nunca o chip Financeiro
         });
 
         for (const lead of leads) {

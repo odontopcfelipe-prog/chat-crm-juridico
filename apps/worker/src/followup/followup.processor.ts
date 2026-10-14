@@ -5,6 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FollowupService } from './followup.service';
 import axios from 'axios';
+// Null-safe: `NOT { inbox: { purpose: 'FINANCEIRO' } }` descarta caixa com purpose NULL
+// (clínica legada de 1 chip) — o filtro da reativação inclui esses casos.
+import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
 
 @Processor('followup-jobs')
 export class FollowupProcessor extends WorkerHost {
@@ -155,8 +158,11 @@ export class FollowupProcessor extends WorkerHost {
 
     // ─── Anti-spam: não enviar se houve mensagem na conversa nas últimas 12h ─
 
+    // Follow-up é de LEAD: nunca olha/usa a conversa do chip FINANCEIRO (mundo isolado
+    // de cobrança). Sem o filtro, consertar o chip das conversas do Financeiro faria
+    // o follow-up de venda sair pelo número do Financeiro.
     const convo = await this.prisma.conversation.findFirst({
-      where: { lead_id: enrollment.lead_id, status: 'ABERTO' },
+      where: { lead_id: enrollment.lead_id, status: 'ABERTO', ...FORA_DO_FINANCEIRO },
       orderBy: { last_message_at: 'desc' },
     });
     // Onda 18.x — respeita o "IA Inativa": se o operador desligou a IA da conversa,
@@ -243,7 +249,7 @@ export class FollowupProcessor extends WorkerHost {
     }
 
     const convo = await this.prisma.conversation.findFirst({
-      where: { lead_id: msg.lead_id, status: 'ABERTO' },
+      where: { lead_id: msg.lead_id, status: 'ABERTO', ...FORA_DO_FINANCEIRO }, // nunca o chip Financeiro
       orderBy: { last_message_at: 'desc' },
     });
 
@@ -264,7 +270,7 @@ export class FollowupProcessor extends WorkerHost {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) return;
 
-    const instanceName = convo?.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
+    const instanceName = convo?.instance_name || (await this.chipDoLead(lead));
 
     try {
       await axios.post(`${apiUrl}/message/sendText/${instanceName}`, {
@@ -366,10 +372,10 @@ export class FollowupProcessor extends WorkerHost {
       }
 
       const convo = await this.prisma.conversation.findFirst({
-        where: { lead_id: lead.id, status: 'ABERTO' },
+        where: { lead_id: lead.id, status: 'ABERTO', ...FORA_DO_FINANCEIRO }, // nunca o chip Financeiro
         orderBy: { last_message_at: 'desc' },
       });
-      const instanceName = convo?.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
+      const instanceName = convo?.instance_name || (await this.chipDoLead(lead));
 
       await axios.post(`${apiUrl}/message/sendText/${instanceName}`, {
         number: lead.phone, text,
@@ -459,6 +465,25 @@ Gere APENAS o texto da mensagem, sem introduções.`;
   private fallbackBroadcastMessage(nome: string, type: string, dataEvento: string, location?: string): string {
     const tipoLabel = type === 'AUDIENCIA' ? 'audiência' : type === 'PERICIA' ? 'perícia' : 'compromisso';
     return `Olá, ${nome}! Tudo bem?\n\nGostaria de lembrá-lo(a) que sua ${tipoLabel} está agendada para *${dataEvento}*${location ? ` no local: *${location}*` : ''}.\n\nPor favor, chegue com 30 minutos de antecedência e traga seus documentos pessoais.\n\nEm caso de dúvidas, estou à disposição!`;
+  }
+
+  /** Chip de envio quando o lead não tem conversa aberta fora do Financeiro: o chip
+   *  VIVO da clínica dele (Comercial pra lead, Clínica pra paciente — nunca o
+   *  Financeiro). Antes caía direto na instância padrão do servidor (env), que pode
+   *  ser o antigo "whatsapp", chip que não existe mais. Clínica legada sem chips com
+   *  função: mantém o padrão do servidor. */
+  private async chipDoLead(lead: { tenant_id?: string | null; is_client?: boolean | null } | null): Promise<string> {
+    if (lead?.tenant_id) {
+      const chips = await this.prisma.instance.findMany({
+        where: { tenant_id: lead.tenant_id, type: 'whatsapp', purpose: { in: ['COMERCIAL', 'CLINICA'] } },
+        orderBy: { created_at: 'asc' },
+        select: { name: true, purpose: true },
+      });
+      const quer = lead.is_client ? 'CLINICA' : 'COMERCIAL';
+      const chip = chips.find((c) => c.purpose === quer) ?? chips[0];
+      if (chip) return chip.name;
+    }
+    return process.env.EVOLUTION_INSTANCE_NAME || '';
   }
 
   private async advanceEnrollment(msgId: string) {

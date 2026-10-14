@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import OpenAI from 'openai';
+import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
 
 @Injectable()
 export class FollowupService {
@@ -14,7 +15,7 @@ export class FollowupService {
   async buildDossie(enrollment: any, step: any, lead: any): Promise<any> {
     // Conversa ativa
     const convo = await this.prisma.conversation.findFirst({
-      where: { lead_id: lead.id, status: 'ABERTO' },
+      where: { lead_id: lead.id, status: 'ABERTO', ...FORA_DO_FINANCEIRO }, // dossiê de venda: nunca a conversa de cobrança,
       orderBy: { last_message_at: 'desc' },
       include: { assigned_user: { select: { name: true } } },
     });

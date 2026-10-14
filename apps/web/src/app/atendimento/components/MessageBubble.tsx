@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Download, Mic, FileText, Trash2, Reply, Pencil, CheckCheck, Check, Bot, Loader2 } from 'lucide-react';
+import { Download, Mic, FileText, Trash2, Reply, Pencil, CheckCheck, Check, Bot, Loader2, AlertTriangle } from 'lucide-react';
 import { AudioPlayer } from '@/components/AudioPlayer';
 import { MediaLoadingState } from './MediaLoadingState';
 import { LinkPreview } from '@/components/LinkPreview';
@@ -20,6 +20,15 @@ function extractFirstUrl(text: string | null): string | null {
 function StatusIcon({ status, isOut }: { status: string; isOut: boolean }) {
   if (!isOut) return null;
   if (status === 'enviando') return <div className="w-3 h-3 border border-primary-foreground/60 border-t-transparent rounded-full animate-spin" />;
+  // 'erro' = o WhatsApp recusou o envio (número fora do WhatsApp, chip desconectado…).
+  // Antes caía no tique normal e a falha passava despercebida.
+  if (status === 'erro') {
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded bg-red-600 px-1 text-[10px] font-semibold text-white" title="Não foi enviada — o WhatsApp recusou o envio">
+        <AlertTriangle size={10} /> não enviada
+      </span>
+    );
+  }
   if (status === 'lido' || status === 'read') return <CheckCheck size={12} className="text-blue-400" />;
   if (status === 'entregue' || status === 'delivered') return <CheckCheck size={12} className="text-primary-foreground/60" />;
   return <Check size={12} className="text-primary-foreground/60" />;

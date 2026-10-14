@@ -1623,7 +1623,7 @@ export function ClientPanel({
                 // Se não tem conversa, criar uma
                 if (!convId && lead.phone) {
                   try {
-                    const res = await api.post('/conversations', { lead_id: lead.id, channel: 'whatsapp', instance_name: 'whatsapp' });
+                    const res = await api.post('/conversations', { lead_id: lead.id, channel: 'whatsapp' });
                     convId = res.data?.id;
                   } catch {
                     // Fallback: tenta buscar conversa existente

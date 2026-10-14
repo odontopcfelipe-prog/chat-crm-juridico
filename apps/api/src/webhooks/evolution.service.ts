@@ -27,6 +27,7 @@ import {
   NAO_PACIENTE_ANEXO_JANELA_MS,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
+import { ackSobe, parseEvolutionAck } from './evolution-ack';
 
 interface EvolutionWebhookPayload {
   event: string;
@@ -422,6 +423,34 @@ export class EvolutionService implements OnApplicationBootstrap {
           where: { id: conv.id },
           data: updateData,
         });
+      }
+
+      // 2b. Conversa presa num chip MORTO (ex.: o antigo "whatsapp", que não existe mais
+      // na Evolution — toda resposta da IA, follow-up e aviso do Financeiro por ela dava
+      // 404 calado). O paciente falou por um chip VIVO e com função → a conversa passa a
+      // usar este. Só troca quando o chip atual é inválido (sem linha Instance da clínica
+      // com função): um chip vivo Comercial/Clínica é mantido (Model B — a conversa flutua
+      // entre os dois). O mundo é o mesmo: o convScope acima já garante Financeiro só com
+      // Financeiro. Clínica legada de 1 chip (sem função) não entra (purpose obrigatório).
+      if (conv && instanceName && conv.instance_name !== instanceName && (inbox as any)?.purpose) {
+        const atualVivo = conv.instance_name
+          ? await this.prisma.instance.findFirst({
+              where: {
+                name: conv.instance_name,
+                purpose: { not: null },
+                ...((conv.tenant_id || effectiveTenantId) ? { tenant_id: conv.tenant_id || effectiveTenantId } : {}),
+              },
+              select: { id: true },
+            })
+          : null;
+        if (!atualVivo) {
+          const antigo = conv.instance_name;
+          conv = await this.prisma.conversation.update({
+            where: { id: conv.id },
+            data: { instance_name: instanceName },
+          });
+          this.logger.log(`[WEBHOOK] Conversa ${conv.id} estava no chip "${antigo ?? '—'}" (inválido) → ${instanceName}`);
+        }
       }
 
       // 2a. Onda 17.64 — o SETOR da conversa (que controla o NÚMERO de saída via
@@ -1430,18 +1459,11 @@ export class EvolutionService implements OnApplicationBootstrap {
 
     for (const update of updates) {
       if (!update) continue;
-      const externalMessageId: string = update.key?.id || update.id;
-      if (!externalMessageId) continue;
-
-      // Map Evolution status codes to internal status
-      // 0=ERROR, 1=PENDING, 2=SERVER_ACK(enviado), 3=DELIVERY_ACK(entregue), 4=READ(lido), 5=PLAYED(ouvido)
-      const statusCode: number = update.update?.status ?? update.status ?? -1;
-      let newStatus: string | null = null;
-      if (statusCode === 2) newStatus = 'enviado';
-      else if (statusCode === 3) newStatus = 'entregue';
-      else if (statusCode === 4 || statusCode === 5) newStatus = 'lido';
-
-      if (!newStatus) continue;
+      // v1 (status numérico) e v2 (keyId + status em texto) — ver evolution-ack.ts.
+      const ack = parseEvolutionAck(update);
+      if (!ack) continue;
+      const externalMessageId = ack.id;
+      const newStatus = ack.status;
 
       try {
         const msg = await this.prisma.message.findUnique({
@@ -1449,14 +1471,18 @@ export class EvolutionService implements OnApplicationBootstrap {
         });
         if (!msg) continue;
 
-        const updated = await this.prisma.message.update({
-          where: { id: msg.id },
-          data: { status: newStatus },
-          include: { media: true, skill: { select: { id: true, name: true, area: true } } },
-        });
+        // Só mensagens ENVIADAS ganham tique (o status das recebidas não muda aqui), e o
+        // tique nunca regride.
+        if (msg.direction === 'out' && ackSobe(msg.status, newStatus)) {
+          const updated = await this.prisma.message.update({
+            where: { id: msg.id },
+            data: { status: newStatus },
+            include: { media: true, skill: { select: { id: true, name: true, area: true } } },
+          });
 
-        this.chatGateway.emitMessageUpdate(msg.conversation_id, updated);
-        this.logger.log(`[WEBHOOK] msg ${externalMessageId} status → ${newStatus}`);
+          this.chatGateway.emitMessageUpdate(msg.conversation_id, updated);
+          this.logger.log(`[WEBHOOK] msg ${externalMessageId} status → ${newStatus}`);
+        }
 
         // Onda 5e v25 (Fase 25, Onda C) — propaga status pra EventReminder.
         // Se essa Message corresponde a um lembrete (external_message_id bate
