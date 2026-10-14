@@ -45,6 +45,22 @@ function estimateCostUsd(model: string, inputTk: number, outputTk: number): numb
   return (inputTk * p.inp + outputTk * p.out) / 1_000_000;
 }
 
+// ── CARLA — Financeiro: prompt da skill do chip FINANCEIRO ──────────────────
+// As REGRAS de peso (escopo, segurança, formato, redirecionamento) vivem no
+// FINANCE_GUIDE/FINANCE_RULES (worker/conversation-guide.ts, finalRules). Este
+// prompt reforça persona + cobertura. Origem: pacote sophia-financeiro do dono.
+const CARLA_FINANCEIRO_PROMPT = `Carla é a atendente do FINANCEIRO do Instituto Odonto Passos, no WhatsApp exclusivo de cobrança. Não é dentista. Não é IA. Não é assistente virtual. Conversa como pessoa real — educada e DIRETA.
+
+Atende SÓ paciente já cadastrado e SÓ assunto financeiro: saldo devedor, parcelas pagas / em aberto / atrasadas, 2ª via de boleto, PIX, vencimento, forma de pagamento, confirmar se o pagamento caiu. Responde SEMPRE com os números REAIS do RESUMO FINANCEIRO desta conversa — nunca de cabeça, nunca inventa valor, código de boleto, PIX ou baixa.
+
+Quando o paciente pede o(s) boleto(s)/PIX, emite a ação de envio (o sistema manda os boletos do PRÓPRIO paciente e confere antes de enviar). Confirma simples: "Mandei aqui no seu WhatsApp. Chegou?".
+
+NÃO decide nada que mude a cobrança — desconto, reparcelamento, cancelamento, baixa manual, estorno, trocar valor/vencimento, negativação, recibo/nota fiscal: escala pra equipe financeira ("Te chamam ainda hoje"). Se o paciente diz que pagou e não consta baixa, pede o comprovante e escala.
+
+O que NÃO é financeiro — agendar/remarcar, dor ou dúvida clínica, queixa, orçamento novo, quem não é paciente — encaminha curto ao contato principal. Nunca oferece horário, nunca vende.
+
+Mensagens curtas (no máximo 2 linhas), uma pergunta por vez, sem floreio. Valores em R$ 1.234,56 e datas em DD/MM. Confirmação de pagamento, lembrete de vencimento e cobrança já são automáticos neste canal — não repita; só responda quando o paciente te chamar.`;
+
 // ── SDR — Sophia: prompt system canônico (Instituto Odonto Passos) ──────────
 // Single source of truth. Usado em:
 //   - defaultSkills (getSkills) para criar via create-if-not-exists
@@ -2449,6 +2465,26 @@ export class SettingsService {
           skill_type: 'specialist',
           provider: 'openai',
         },
+        // ─── CARLA — FINANCEIRO (chip Financeiro) ──────────────────────────
+        // Única skill purpose='FINANCEIRO': sem ela o chip Financeiro fica MUDO
+        // (isolamento duro no ai.processor). Regras de peso no FINANCE_GUIDE/
+        // FINANCE_RULES (worker). Reenvia boleto do próprio paciente com freio.
+        {
+          name: 'Carla — Financeiro',
+          area: 'Financeiro',
+          system_prompt: CARLA_FINANCEIRO_PROMPT,
+          purpose: 'FINANCEIRO',
+          model: 'gpt-4.1-mini',
+          max_tokens: 500,
+          temperature: 0.4,
+          handoff_signal: 'ESCALAR_HUMANO',
+          active: true,
+          order: 10,
+          description: 'Atendimento FINANCEIRO (chip Financeiro): 2ª via de boleto, PIX, saldo devedor, parcelas pagas/em aberto/atrasadas, vencimento, confirmar pagamento. Só do PRÓPRIO paciente. Reenvia boleto sob pedido (com freio anti já-pago). Escala decisão (desconto/cancelamento/reparcelamento/baixa) pra equipe financeira. Encaminha o que não é financeiro ao contato principal. Educada e direta.',
+          trigger_keywords: ['boleto', 'segunda via', '2 via', '2a via', 'extrato', 'debito', 'débito', 'em aberto', 'pix', 'pagamento', 'paguei', 'parcela', 'parcelas', 'fatura', 'cobranca', 'cobrança', 'vencimento', 'quanto devo', 'quanto eu devo', 'atrasado', 'atrasada', 'recibo', 'nota fiscal'],
+          skill_type: 'specialist',
+          provider: 'openai',
+        },
       ];
 
       // Create-if-missing: só cria skills que não existem no banco.
@@ -2461,7 +2497,10 @@ export class SettingsService {
           // Onda 18.20 — nasce já mapeada no chip (SDR+especialistas=Comercial,
           // Pós-Venda=Clínica). O admin reajusta na tela depois.
           await (this.prisma as any).promptSkill.create({
-            data: { ...s, purpose: this.defaultSkillPurpose(s.area) },
+            // A entry pode trazer o próprio purpose (ex.: Carla='FINANCEIRO'); só cai
+            // no default (COMERCIAL) quando a semente não especifica. Sem isto o
+            // purpose da Carla seria descartado e o chip Financeiro ficaria mudo.
+            data: { ...s, purpose: (s as any).purpose ?? this.defaultSkillPurpose(s.area) },
           });
         }
       }

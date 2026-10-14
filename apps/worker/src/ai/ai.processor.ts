@@ -47,6 +47,8 @@ import { ensureOrcamentistaAssigned } from './orcamentista';
 import {
   CONVERSATION_GUIDE,
   SCHEDULING_RULES,
+  FINANCE_GUIDE,
+  FINANCE_RULES,
   NO_PRICE_TABLE,
   splitIntoBubbles,
   bubbleTypingMs,
@@ -65,6 +67,13 @@ import { loadClinicAiContext, isChipAiEnabledForClinic, type ClinicAiContext } f
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { findDentistConflict } from './tool-handlers/book-appointment';
 import { isAiAutobookEnabled } from './auto-book-gate';
+import {
+  loadFinanceiroContext,
+  normalizeFinanceiroAction,
+  runFinanceiroSend,
+  type FinanceiroSendable,
+  type FinanceiroAction,
+} from './financeiro';
 import {
   alternativeCandidates,
   assessBookingClaim,
@@ -1043,6 +1052,8 @@ export class AiProcessor extends WorkerHost {
     retry_scheduling?: boolean;
     /** Quem escreve NÃO é paciente (emprego, fornecedor, negócio…) — null = paciente. */
     nao_paciente?: NaoPacienteFlag | null;
+    /** Ação da Carla (FINANCEIRO): reenviar boleto/PIX do próprio paciente. */
+    financeiro_action?: FinanceiroAction | null;
   } {
     const extract = (parsed: any) => ({
       reply: parsed.reply ?? '',
@@ -1053,6 +1064,7 @@ export class AiProcessor extends WorkerHost {
       slots_to_offer: parsed.slots_to_offer || undefined,
       retry_scheduling: parsed.retry_scheduling === true || parsed.retry_scheduling === 'true',
       nao_paciente: normalizeNaoPaciente(parsed),
+      financeiro_action: normalizeFinanceiroAction(parsed),
     });
 
     // 1. JSON puro
@@ -1089,12 +1101,19 @@ export class AiProcessor extends WorkerHost {
           // ação também malformada — segue sem
         }
       }
+      // A ação financeira também pode ter vindo no JSON truncado — resgata por regex.
+      let financeiro_action: FinanceiroAction | null = null;
+      const finMatch = raw.match(/"financeiro_action"\s*:\s*(\{[^{}]*\})/);
+      if (finMatch) {
+        try { financeiro_action = normalizeFinanceiroAction({ financeiro_action: JSON.parse(finMatch[1]) }); } catch { /* malformado */ }
+      }
       return {
         reply,
         updates: {},
         scheduling_action,
         retry_scheduling: /"retry_scheduling"\s*:\s*(?:true|"true")/.test(raw),
         nao_paciente: extractNaoPacienteFromRaw(raw),
+        financeiro_action,
       };
     }
 
@@ -2228,7 +2247,10 @@ export class AiProcessor extends WorkerHost {
       // busca no conjunto COMPLETO (não no filtrado por chip): o override
       // "cliente → Pós-Venda" é transversal. Assim um paciente que escreve no chip
       // Comercial ainda recebe a Pós-Venda (Clínica), sem cair no router de vendas.
-      if (isActiveClient) {
+      // FINANCEIRO (Carla): NÃO aplica o override "cliente → Pós-Venda". No chip de
+      // cobrança todo titular é paciente; sem esta exceção, a skill de venda/agenda
+      // sequestraria a conversa. Deixa o filtro por purpose escolher a skill FINANCEIRO.
+      if (isActiveClient && profilePurpose !== 'FINANCEIRO') {
         skill = allActiveSkills.find((s: any) => s.area === 'Acompanhamento') || null;
         if (skill) {
           const casesNote = activeCases.length > 0 ? ` com ${activeCases.length} processo(s) ativo(s)` : '';
@@ -2344,6 +2366,12 @@ export class AiProcessor extends WorkerHost {
       // [] pra dias sem turnos. Window ampliada de 7 pra 14 dias pra cobrir
       // sabados que podem cair na semana seguinte.
       let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
+      // FINANCEIRO (Carla): não há agenda neste canal. Resumo real das cobranças do
+      // PRÓPRIO paciente (escopado por tenant+paciente, reconciliado ao vivo no Asaas)
+      // entra no lugar de {{available_slots}}; a lista `sendable` alimenta o reenvio
+      // seguro de boletos (financeiro_action).
+      let financeiroResumo = '(não se aplica neste canal)';
+      let financeiroSendable: FinanceiroSendable[] = [];
       // Mesma lista, ESTRUTURADA (todos os horários livres de cada dia): a rede de
       // segurança do "deixei agendado" e as alternativas de horário usam ela.
       let freeSlotDays: FreeSlotDay[] = [];
@@ -2353,15 +2381,34 @@ export class AiProcessor extends WorkerHost {
       // o confirm_slot reatribuía pra Suellen → oferecia horário do Fellipe e a marcação na
       // Suellen era recusada (conflito/turno). Resolve o Orçamentista aqui, igual o check_availability.
       let assignedDentistId: string | null = null;
-      try {
-        assignedDentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id, {
-          tenantId: convo.tenant_id || undefined,
-          readOnly: dryRun,
-        });
-      } catch (e: any) {
-        this.logger.warn(`[AI] Falha ao resolver Orçamentista pros slots (conv ${convo.id}): ${e?.message}`);
+      // FINANCEIRO não resolve/atribui Orçamentista (efeito colateral em dados) nem
+      // calcula horários — só carrega o financeiro do paciente desta conversa.
+      if (profilePurpose === 'FINANCEIRO') {
+        availableSlots = '(não se aplica — canal financeiro)';
+        try {
+          const finCtx = await loadFinanceiroContext(
+            this.prisma as any,
+            this.settings,
+            profileTenantId,
+            convo.lead_id || convo.lead?.id || null,
+          );
+          financeiroResumo = finCtx.resumoText;
+          financeiroSendable = finCtx.sendable;
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao carregar financeiro do paciente (conv ${convo.id}): ${e?.message}`);
+          financeiroResumo = '(não consegui consultar o financeiro agora — diga que vai conferir com a equipe)';
+        }
+      } else {
+        try {
+          assignedDentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id, {
+            tenantId: convo.tenant_id || undefined,
+            readOnly: dryRun,
+          });
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao resolver Orçamentista pros slots (conv ${convo.id}): ${e?.message}`);
+        }
+        if (!assignedDentistId) assignedDentistId = (convo as any).assigned_dentist_id;
       }
-      if (!assignedDentistId) assignedDentistId = (convo as any).assigned_dentist_id;
       if (assignedDentistId) {
         try {
           const tz = 'America/Maceio';
@@ -2670,6 +2717,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         }),
         ficha_status: fichaStatus,
         available_slots: availableSlots,
+        financeiro_resumo: financeiroResumo,
         reminder_context: reminderContextBlock,
         upcoming_events: upcomingEventsBlock,
         operator_notes: operatorNotesBlock,
@@ -2691,6 +2739,13 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // CORE_RULES: regras técnicas injetadas em TODO prompt (identidade, memória,
       // horários). Tom e jeito de conversar vêm do CONVERSATION_GUIDE (conversation-guide.ts).
       // O roteiro de cada especialidade está no skill.system_prompt (editável no admin).
+      // FINANCEIRO (Carla) tem guia PRÓPRIO: sem venda/agenda. No lugar do
+      // CONVERSATION_GUIDE + HORÁRIOS, entra FINANCE_GUIDE + RESUMO FINANCEIRO do
+      // paciente; e os finalRules viram FINANCE_RULES (ver conversation-guide.ts).
+      const isFinance = profilePurpose === 'FINANCEIRO';
+      const guideBlock = isFinance
+        ? `${FINANCE_GUIDE}\nRESUMO FINANCEIRO (use SOMENTE estes dados — são do PRÓPRIO paciente desta conversa):\n{{financeiro_resumo}}`
+        : `${CONVERSATION_GUIDE}\nHORÁRIOS DISPONÍVEIS (use SOMENTE estes — NUNCA invente datas ou horários):\n{{available_slots}}`;
       const CORE_RULES = `DATA E HORA ATUAL: {{data_hoje}} (fuso horário de Maceió/AL).
 
 ═══════════════════════════════════════════════════
@@ -2708,17 +2763,16 @@ MEMÓRIA DO LEAD (tudo que já foi coletado sobre este cliente — não pergunte
 {{reminder_context}}
 {{upcoming_events}}
 {{active_cases_info}}
-${CONVERSATION_GUIDE}
-HORÁRIOS DISPONÍVEIS (use SOMENTE estes — NUNCA invente datas ou horários):
-{{available_slots}}
+${guideBlock}
 
 STATUS DA FICHA:
 {{ficha_status}}
 `;
 
-      // Regras de agendamento — entram POR ÚLTIMO no prompt (o modelo pesa mais o
-      // final), valendo sobre skills custom mal escritas. Ver conversation-guide.ts.
-      const AGENDAMENTO_OVERRIDES = SCHEDULING_RULES;
+      // Regras finais — entram POR ÚLTIMO no prompt (o modelo pesa mais o final),
+      // valendo sobre skills custom mal escritas. FINANCEIRO usa as regras de cobrança
+      // (sem venda/agenda); os demais, as de agendamento. Ver conversation-guide.ts.
+      const AGENDAMENTO_OVERRIDES = isFinance ? FINANCE_RULES : SCHEDULING_RULES;
 
 
       // ─── Sistema de memoria (3 camadas) ──────────────────────────────
@@ -3079,6 +3133,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       let aiText = '';
       let updates: any = {};
       let scheduling_action: any = null;
+      let financeiro_action: FinanceiroAction | null = null;
       let slotsToOffer: any[] | null = null;
       let toolCallLogs: any[] = [];
       // Modelo marcou retry_scheduling (paciente encerrou sem agendar).
@@ -3194,6 +3249,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           aiText = respondCall.input.reply || '';
           updates = respondCall.input.updates || {};
           scheduling_action = this.normalizeActionLogged(respondCall.input);
+          financeiro_action = normalizeFinanceiroAction(respondCall.input);
           slotsToOffer = respondCall.input.slots_to_offer || null;
           retrySchedulingFlag =
             respondCall.input.retry_scheduling === true || respondCall.input.retry_scheduling === 'true';
@@ -3204,6 +3260,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           aiText = parsed.reply;
           updates = parsed.updates || {};
           scheduling_action = parsed.scheduling_action || null;
+          financeiro_action = parsed.financeiro_action || null;
           retrySchedulingFlag = !!parsed.retry_scheduling;
           naoPacienteFromModel = parsed.nao_paciente || null;
         }
@@ -3300,6 +3357,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         aiText = parsed.reply;
         updates = parsed.updates;
         scheduling_action = parsed.scheduling_action;
+        financeiro_action = parsed.financeiro_action || null;
         slotsToOffer = parsed.slots_to_offer || null;
         retrySchedulingFlag = !!parsed.retry_scheduling;
         naoPacienteFromModel = parsed.nao_paciente || null;
@@ -3332,6 +3390,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           if (!isValidConfirmSlot(scheduling_action) && sanitized.scheduling_action) {
             scheduling_action = sanitized.scheduling_action;
           }
+          if (!financeiro_action && sanitized.financeiro_action) financeiro_action = sanitized.financeiro_action;
         }
       }
 
@@ -4211,6 +4270,59 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
       // Também tira rótulo de turno copiado do histórico ("[Operador Humano]: …").
       finalText = tidyReply(stripHistoryLabels(finalText));
+
+      // ─── CARLA (FINANCEIRO): reenvio de boleto/PIX sob pedido ───────────────────
+      // Só no chip FINANCEIRO, com ação emitida pela IA, fora do chat de teste. Os
+      // boletos saem SEMPRE do paciente DESTA conversa (financeiroSendable — escopado
+      // por tenant+paciente) e com freio ao vivo (nunca reenvia pra quem já pagou). O
+      // envio ocorre ANTES dos balões de texto, pela mesma instância FINANCEIRO da
+      // conversa. Kill-switch global AI_FINANCEIRO_SEND_OFF desliga todos os envios da
+      // Carla sem mexer no liga/desliga do chip.
+      if (profilePurpose === 'FINANCEIRO' && financeiro_action && !dryRun) {
+        const sendTenantId = (profileTenantId || (convo as any).tenant_id || '') as string;
+        const killed = await this.prisma.globalSetting
+          .findUnique({ where: { key: 'AI_FINANCEIRO_SEND_OFF' } })
+          .then((r: any) => r?.value === 'true')
+          .catch(() => false);
+        // Cross-check de tenant da instância de envio: a conta Evolution é global, então
+        // o número remetente é decidido só pelo instance_name. Garante que o chip
+        // pertence ao MESMO tenant do paciente (nunca manda a cobrança do Instituto pelo
+        // número da Pra Sorrir, p.ex.). tenantId vazio = não envia (evita fallback global).
+        let instanceOk = !!sendTenantId && !!convo.instance_name;
+        if (instanceOk) {
+          const inst = await this.prisma.instance
+            .findFirst({ where: { name: convo.instance_name! }, select: { tenant_id: true } })
+            .catch(() => null);
+          if (inst?.tenant_id && inst.tenant_id !== sendTenantId) {
+            instanceOk = false;
+            this.logger.warn(`[CARLA] instância ${convo.instance_name} é de outro tenant (${inst.tenant_id} ≠ ${sendTenantId}) — não envia.`);
+          }
+        }
+        if (killed) {
+          this.logger.warn('[CARLA] envio de boleto desligado (AI_FINANCEIRO_SEND_OFF) — ação ignorada.');
+        } else if (!instanceOk) {
+          this.logger.warn('[CARLA] sem tenant/instância FINANCEIRO confiável — não envia boleto.');
+        } else if (financeiroSendable.length === 0) {
+          this.logger.log('[CARLA] ação de envio sem cobranças em aberto do paciente — nada a enviar.');
+        } else {
+          try {
+            const r = await runFinanceiroSend({
+              prisma: this.prisma,
+              settings: this.settings,
+              logger: this.logger,
+              tenantId: sendTenantId,
+              phone: convo.lead?.phone || '',
+              instanceName: convo.instance_name!,
+              action: financeiro_action,
+              sendable: financeiroSendable,
+              dryRun,
+            });
+            this.logger.log(`[CARLA] financeiro_action ${financeiro_action.action}: ${r.sent} enviada(s), ${r.blocked} barrada(s) de ${r.attempted}.`);
+          } catch (e: any) {
+            this.logger.error(`[CARLA] falha no reenvio de boleto: ${e?.message}`);
+          }
+        }
+      }
 
       // Assinatura "*<Nome>:*" em negrito no WhatsApp (salva sem assinatura no DB).
       // Nome e liga/desliga vêm do perfil do chip desta clínica (Ajustes › IA).
