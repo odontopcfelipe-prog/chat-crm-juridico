@@ -54,12 +54,14 @@ export interface FinanceiroContext {
 
 /** Ação financeira emitida pela Carla no JSON (espelha o scheduling_action). */
 export interface FinanceiroAction {
-  action: 'enviar_boletos' | 'enviar_pix' | 'enviar_vencidos' | 'enviar_todos';
+  action: 'enviar_boletos' | 'enviar_pix' | 'enviar_vencidos' | 'enviar_todos' | 'escalar';
   /** 1-based: índice na lista de PARCELAS EM ABERTO (opcional — envia só essa). */
   item?: number;
+  /** Só para 'escalar': resumo do caso que vai pros responsáveis (1 frase). */
+  resumo?: string;
 }
 
-const ACOES = new Set(['enviar_boletos', 'enviar_pix', 'enviar_vencidos', 'enviar_todos']);
+const ACOES = new Set(['enviar_boletos', 'enviar_pix', 'enviar_vencidos', 'enviar_todos', 'escalar']);
 
 /** Lê o financeiro_action do JSON da IA (topo ou dentro de updates). null = sem ação. */
 export function normalizeFinanceiroAction(parsed: any): FinanceiroAction | null {
@@ -70,6 +72,7 @@ export function normalizeFinanceiroAction(parsed: any): FinanceiroAction | null 
   const out: FinanceiroAction = { action: action as FinanceiroAction['action'] };
   const item = Number(raw.item);
   if (Number.isInteger(item) && item >= 1) out.item = item;
+  if (typeof raw.resumo === 'string' && raw.resumo.trim()) out.resumo = raw.resumo.trim().slice(0, 500);
   return out;
 }
 
@@ -286,6 +289,7 @@ export async function runFinanceiroSend(opts: {
 }): Promise<FinanceiroSendResult> {
   const { prisma, settings, logger, tenantId, phone, instanceName, action, sendable, dryRun } = opts;
   if (dryRun) return { attempted: 0, sent: 0, blocked: 0, reason: 'dry-run' };
+  if (action.action === 'escalar') return { attempted: 0, sent: 0, blocked: 0, reason: 'escalar não envia boleto' };
   if (!tenantId || !phone || !instanceName) return { attempted: 0, sent: 0, blocked: 0, reason: 'sem tenant/telefone/instância' };
 
   // Seleção — SEMPRE da lista escopada (nunca id solto do modelo). `item` indexa a

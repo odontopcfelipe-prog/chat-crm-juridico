@@ -4280,46 +4280,68 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // Carla sem mexer no liga/desliga do chip.
       if (profilePurpose === 'FINANCEIRO' && financeiro_action && !dryRun) {
         const sendTenantId = (profileTenantId || (convo as any).tenant_id || '') as string;
-        const killed = await this.prisma.globalSetting
-          .findUnique({ where: { key: 'AI_FINANCEIRO_SEND_OFF' } })
-          .then((r: any) => r?.value === 'true')
-          .catch(() => false);
-        // Cross-check de tenant da instância de envio: a conta Evolution é global, então
-        // o número remetente é decidido só pelo instance_name. Garante que o chip
-        // pertence ao MESMO tenant do paciente (nunca manda a cobrança do Instituto pelo
-        // número da Pra Sorrir, p.ex.). tenantId vazio = não envia (evita fallback global).
-        let instanceOk = !!sendTenantId && !!convo.instance_name;
-        if (instanceOk) {
-          const inst = await this.prisma.instance
-            .findFirst({ where: { name: convo.instance_name! }, select: { tenant_id: true } })
-            .catch(() => null);
-          if (inst?.tenant_id && inst.tenant_id !== sendTenantId) {
-            instanceOk = false;
-            this.logger.warn(`[CARLA] instância ${convo.instance_name} é de outro tenant (${inst.tenant_id} ≠ ${sendTenantId}) — não envia.`);
+        if (financeiro_action.action === 'escalar') {
+          // ESCALONAMENTO: a Carla assumiu ("deixa eu ver e já te retorno") e avisa os
+          // RESPONSÁVEIS da clínica com o resumo do caso (WhatsApp dos números de aviso,
+          // pelo chip da própria clínica). Não manda nada ao paciente aqui — o balão
+          // acolhedor segue no fluxo normal. Um humano decide e responde pelo inbox.
+          if (!sendTenantId) {
+            this.logger.warn('[CARLA] escalonamento sem tenant resolvido — não avisa os ADMs.');
+          } else {
+            try {
+              const resumo = String(financeiro_action.resumo || updates?.notes || aiText || '').slice(0, 500);
+              const r = await sendAdminAlert(this.prisma, this.settings, sendTenantId, {
+                type: 'carla_escalonamento',
+                text: `🔔 *Financeiro — precisa de você*\nPaciente: ${convo.lead?.name || 'sem nome'} (${convo.lead?.phone || 's/ número'})\n${resumo || '(sem resumo)'}\n\nResponda pelo chat do Financeiro.`,
+                recipientName: convo.lead?.name || null,
+              });
+              this.logger.log(`[CARLA] escalonamento → ADMs: sent=${r.sent} failed=${r.failed} noPhone=${r.noPhone}`);
+            } catch (e: any) {
+              this.logger.error(`[CARLA] falha ao avisar os ADMs do escalonamento: ${e?.message}`);
+            }
           }
-        }
-        if (killed) {
-          this.logger.warn('[CARLA] envio de boleto desligado (AI_FINANCEIRO_SEND_OFF) — ação ignorada.');
-        } else if (!instanceOk) {
-          this.logger.warn('[CARLA] sem tenant/instância FINANCEIRO confiável — não envia boleto.');
-        } else if (financeiroSendable.length === 0) {
-          this.logger.log('[CARLA] ação de envio sem cobranças em aberto do paciente — nada a enviar.');
         } else {
-          try {
-            const r = await runFinanceiroSend({
-              prisma: this.prisma,
-              settings: this.settings,
-              logger: this.logger,
-              tenantId: sendTenantId,
-              phone: convo.lead?.phone || '',
-              instanceName: convo.instance_name!,
-              action: financeiro_action,
-              sendable: financeiroSendable,
-              dryRun,
-            });
-            this.logger.log(`[CARLA] financeiro_action ${financeiro_action.action}: ${r.sent} enviada(s), ${r.blocked} barrada(s) de ${r.attempted}.`);
-          } catch (e: any) {
-            this.logger.error(`[CARLA] falha no reenvio de boleto: ${e?.message}`);
+          const killed = await this.prisma.globalSetting
+            .findUnique({ where: { key: 'AI_FINANCEIRO_SEND_OFF' } })
+            .then((r: any) => r?.value === 'true')
+            .catch(() => false);
+          // Cross-check de tenant da instância de envio: a conta Evolution é global, então
+          // o número remetente é decidido só pelo instance_name. Garante que o chip
+          // pertence ao MESMO tenant do paciente (nunca manda a cobrança do Instituto pelo
+          // número da Pra Sorrir, p.ex.). tenantId vazio = não envia (evita fallback global).
+          let instanceOk = !!sendTenantId && !!convo.instance_name;
+          if (instanceOk) {
+            const inst = await this.prisma.instance
+              .findFirst({ where: { name: convo.instance_name! }, select: { tenant_id: true } })
+              .catch(() => null);
+            if (inst?.tenant_id && inst.tenant_id !== sendTenantId) {
+              instanceOk = false;
+              this.logger.warn(`[CARLA] instância ${convo.instance_name} é de outro tenant (${inst.tenant_id} ≠ ${sendTenantId}) — não envia.`);
+            }
+          }
+          if (killed) {
+            this.logger.warn('[CARLA] envio de boleto desligado (AI_FINANCEIRO_SEND_OFF) — ação ignorada.');
+          } else if (!instanceOk) {
+            this.logger.warn('[CARLA] sem tenant/instância FINANCEIRO confiável — não envia boleto.');
+          } else if (financeiroSendable.length === 0) {
+            this.logger.log('[CARLA] ação de envio sem cobranças em aberto do paciente — nada a enviar.');
+          } else {
+            try {
+              const r = await runFinanceiroSend({
+                prisma: this.prisma,
+                settings: this.settings,
+                logger: this.logger,
+                tenantId: sendTenantId,
+                phone: convo.lead?.phone || '',
+                instanceName: convo.instance_name!,
+                action: financeiro_action,
+                sendable: financeiroSendable,
+                dryRun,
+              });
+              this.logger.log(`[CARLA] financeiro_action ${financeiro_action.action}: ${r.sent} enviada(s), ${r.blocked} barrada(s) de ${r.attempted}.`);
+            } catch (e: any) {
+              this.logger.error(`[CARLA] falha no reenvio de boleto: ${e?.message}`);
+            }
           }
         }
       }
