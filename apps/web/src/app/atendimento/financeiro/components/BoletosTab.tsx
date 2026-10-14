@@ -18,11 +18,11 @@
  * Endpoint: GET /financeiro/charges
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
-  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2, Users, ChevronRight, ChevronDown, BarChart3,
+  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2, Users, ChevronRight, ChevronDown, BarChart3, CalendarDays,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -31,6 +31,9 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
 import { toBrazilWhatsappNumber } from '@crm/shared';
 import BoletosKpis, { type ChargesKpis } from './BoletosKpis';
+import BoletosMesResumo, {
+  MES_COR, diaDoVencimento, mesAtualMaceio, nomeDoMes, statusDoMes, type MesStatus,
+} from './BoletosMesResumo';
 
 interface Charge {
   id: string;
@@ -47,6 +50,8 @@ interface Charge {
   payment_date: string | null;
   received_in_cash: boolean;
   days_overdue: number;
+  /** Em aberto e vence HOJE no fuso da clínica (backend calcula). */
+  due_today?: boolean;
   description: string | null;
   boleto_url: string | null;
   pix_qr_code: string | null;
@@ -69,6 +74,10 @@ const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
+// Vencimento é DATA gravada à meia-noite UTC (ver overdue.util do shared). No fuso
+// do navegador (UTC-3) ela virava o dia ANTERIOR ("vence 01/10" aparecia 30/09).
+// Lê a data em UTC — mesma régua do backend pra vencido/vence hoje.
+const fmtDue = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 
 const STATUS_GROUPS = [
   // Onda 18.x — "Negativados" no lugar de "Em aberto": visão POR PACIENTE (ordem
@@ -76,6 +85,9 @@ const STATUS_GROUPS = [
   // todos os boletos em aberto dele (atrasados + a vencer). O backend traz a
   // carteira inteira dos devedores (statusGroup=negativados).
   { key: 'negativados', label: 'Negativados', icon: Users, color: 'text-red-400' },
+  // Tudo que VENCE no mês escolhido, por dia: pago verde · vence hoje amarelo ·
+  // a vencer normal · atrasado vermelho (resumo + calendário em BoletosMesResumo).
+  { key: 'month', label: 'Do mês', icon: CalendarDays, color: 'text-primary' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
   { key: 'all', label: 'Todos', icon: Users, color: 'text-foreground' },
@@ -93,14 +105,21 @@ const KIND_LABEL: Record<string, string> = {
   INSTALLMENT: 'Parcela',
 };
 
-const computedStatusBadge = (status: Charge['computed_status']) => {
+const computedStatusBadge = (status: Charge['computed_status'], opts?: { dueToday?: boolean; mes?: boolean }) => {
   const map = {
     PAGO: { bg: 'bg-emerald-500/15', text: 'text-emerald-400', label: 'Pago' },
     EM_ABERTO: { bg: 'bg-blue-500/15', text: 'text-blue-400', label: 'Em aberto' },
     ATRASADO: { bg: 'bg-red-500/15', text: 'text-red-400', label: 'Atrasado' },
     CANCELADO: { bg: 'bg-muted', text: 'text-muted-foreground', label: 'Cancelado' },
   } as const;
-  const s = map[status];
+  // Vence hoje = amarelo (em qualquer aba). Na aba "Do mês", o resto em aberto é
+  // "A vencer" sem cor (pedido: "os a vencer normal").
+  const s =
+    status === 'EM_ABERTO' && opts?.dueToday
+      ? { bg: 'bg-yellow-400/20', text: 'text-yellow-600 dark:text-yellow-400', label: 'Vence hoje' }
+      : status === 'EM_ABERTO' && opts?.mes
+        ? { bg: 'bg-muted', text: 'text-foreground', label: 'A vencer' }
+        : map[status];
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${s.bg} ${s.text}`}>
       {s.label}
@@ -139,6 +158,27 @@ export default function BoletosTab({ dentistId }: Props) {
     return () => clearTimeout(t);
   }, [search]);
   const searching = debouncedSearch.trim().length > 0;
+  // Aba "Do mês": mês escolhido (AAAA-MM), "hoje" da clínica e o que entrou no mês
+  // de boletos de outros meses (vêm do backend), + filtros de dia/situação.
+  const [mes, setMes] = useState<string>(mesAtualMaceio);
+  const [mesHoje, setMesHoje] = useState<string | null>(null);
+  const [mesOutros, setMesOutros] = useState<{ count: number; total: number } | null>(null);
+  const [diaSel, setDiaSel] = useState<string | null>(null);
+  const [statusSel, setStatusSel] = useState<MesStatus | null>(null);
+  // Qual mês está de fato em `charges` (null enquanto carrega outra coisa) — o
+  // resumo não mostra números de outro mês/aba sob o título do mês novo.
+  const [mesCarregado, setMesCarregado] = useState<string | null>(null);
+  // Falhou ao carregar o mês → aviso com "tentar de novo" (não "nenhuma cobrança").
+  const [mesErro, setMesErro] = useState(false);
+  const isMes = statusGroup === 'month' && !searching;
+  const trocarMes = (m: string) => { setMes(m); setDiaSel(null); setStatusSel(null); };
+  // No celular a lista fica bem abaixo do calendário: ao tocar num dia, rola até ela.
+  const escolherDia = (d: string | null) => {
+    setDiaSel(d);
+    if (d && typeof window !== 'undefined' && window.innerWidth < 640) {
+      setTimeout(() => document.getElementById('boletos-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  };
   const [markingCash, setMarkingCash] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const role = useRole(); // role.isAdmin gateia o botão de apagar boleto
@@ -161,12 +201,40 @@ export default function BoletosTab({ dentistId }: Props) {
   }, [dentistId, kind, billingType]);
   useEffect(() => { fetchKpis(); }, [fetchKpis]);
 
-  const fetchData = useCallback(async () => {
+  // Só a resposta da ÚLTIMA requisição vale: trocar de mês/aba rápido não deixa uma
+  // resposta atrasada sobrescrever a tela (dados de outro mês sob o título novo).
+  const reqId = useRef(0);
+  // `silencioso`: recarga depois de receber/cancelar — mantém a lista na tela (sem
+  // spinner, sem perder a rolagem) e só troca quando a resposta chega.
+  const fetchData = useCallback(async (opts?: { silencioso?: boolean }) => {
+    const my = ++reqId.current;
+    const atual = () => my === reqId.current;
     // Relatório: só o dashboard — não carrega lista.
     if (statusGroup === 'report' && !debouncedSearch.trim()) { setCharges([]); setTotal(0); setLoading(false); return; }
-    setLoading(true);
+    if (!opts?.silencioso) {
+      setLoading(true);
+      setMesCarregado(null);
+    }
+    setMesErro(false);
+    const term = debouncedSearch.trim();
+    const isMesReq = statusGroup === 'month' && !term;
     try {
-      const term = debouncedSearch.trim();
+      // "Do mês": endpoint próprio — tudo que vence no mês (sem canceladas) + o
+      // "hoje" da clínica + o que entrou no mês de boletos de outros meses.
+      if (isMesReq) {
+        const params: any = { month: mes };
+        if (kind) params.kind = kind;
+        if (billingType) params.billingType = billingType;
+        if (dentistId) params.dentistId = dentistId;
+        const r = await api.get('/financeiro/charges/month', { params });
+        if (!atual()) return;
+        setCharges(r.data?.data || []);
+        setTotal(r.data?.total || 0);
+        setMesHoje(r.data?.today || null);
+        setMesOutros(r.data?.received_other_months || null);
+        setMesCarregado(r.data?.month || mes);
+        return;
+      }
       // Negativados/Todos agrupam por paciente no front → pedem a carteira (tetos 2000/5000 no back).
       const params: any = { limit: term ? 500 : statusGroup === 'negativados' || statusGroup === 'all' ? 2000 : 200 };
       // Buscando um paciente → traz TODOS os status dele (pago/aberto/atrasado):
@@ -177,23 +245,33 @@ export default function BoletosTab({ dentistId }: Props) {
       if (billingType) params.billingType = billingType;
       if (dentistId) params.dentistId = dentistId;
       const r = await api.get('/financeiro/charges', { params });
+      if (!atual()) return;
       setCharges(r.data?.data || []);
       setTotal(r.data?.total || 0);
     } catch (e: any) {
+      if (!atual()) return;
       // Onda 16.1 — mostra status code + mensagem do backend pra debugar.
       // Quando backend ainda nao deployou, da 404; quando query falha, 500
       // + mensagem clara. Ajuda muito pra ngm ficar adivinhando.
       const status = e?.response?.status;
       const msg = e?.response?.data?.message || e?.message || 'erro desconhecido';
+      const rota = isMesReq ? '/financeiro/charges/month' : '/financeiro/charges';
       if (status === 404) {
-        showError('Endpoint /financeiro/charges não disponível. Backend ainda não deployou — aguarde o redeploy completar.');
+        showError(`Endpoint ${rota} não disponível. Backend ainda não deployou — aguarde o redeploy completar.`);
       } else {
         showError(`Erro ao carregar boletos (${status || 'sem status'}): ${msg}`);
       }
+      // Do mês: não deixa a lista de outro mês/aba sob o título do mês — mostra o erro.
+      if (isMesReq && !opts?.silencioso) {
+        setCharges([]);
+        setTotal(0);
+        setMesOutros(null);
+        setMesErro(true);
+      }
     } finally {
-      setLoading(false);
+      if (atual()) setLoading(false);
     }
-  }, [statusGroup, kind, billingType, dentistId, debouncedSearch]);
+  }, [statusGroup, kind, billingType, dentistId, debouncedSearch, mes]);
 
   useEffect(() => {
     fetchData();
@@ -221,14 +299,13 @@ export default function BoletosTab({ dentistId }: Props) {
   }, [charges, search]);
 
   // "Este mês": só as cobranças com VENCIMENTO no mês atual (respeita a busca).
+  // Mês pela DATA do vencimento (parte UTC) e "mês atual" de Maceió — mesma régua da
+  // aba "Do mês" (no fuso do navegador o dia 1º caía no mês anterior).
+  const mesHojeMaceio = mesAtualMaceio();
   const monthStats = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
     return filtered.reduce(
       (acc, c) => {
-        const d = new Date(c.due_date);
-        if (d.getFullYear() !== y || d.getMonth() !== m) return acc;
+        if (diaDoVencimento(c).slice(0, 7) !== mesHojeMaceio) return acc;
         acc.count += 1;
         acc.totalValue += c.amount;
         if (c.computed_status === 'ATRASADO') acc.overdue += c.amount;
@@ -238,8 +315,19 @@ export default function BoletosTab({ dentistId }: Props) {
       },
       { count: 0, totalValue: 0, paid: 0, open: 0, overdue: 0 },
     );
-  }, [filtered]);
-  const mesLabel = new Date().toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  }, [filtered, mesHojeMaceio]);
+  const mesLabel = new Date(`${mesHojeMaceio}-01T12:00:00Z`)
+    .toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' })
+    .replace('.', '');
+
+  // O que está NA TELA: na aba "Do mês" respeita o dia e a situação escolhidos no
+  // resumo. Lista, CSV e contador usam a mesma coisa (antes o CSV exportava o mês todo).
+  const visiveis = useMemo(() => {
+    if (!isMes || (!diaSel && !statusSel)) return filtered;
+    return filtered.filter(
+      (c) => (!diaSel || diaDoVencimento(c) === diaSel) && (!statusSel || statusDoMes(c) === statusSel),
+    );
+  }, [filtered, isMes, diaSel, statusSel]);
 
   // Onda 18.x — BUGFIX: a rota chamada aqui (/payment-gateway/charges/:id/mark-cash-
   // received) NÃO existe → todo clique dava erro. Cada gateway tem a sua:
@@ -274,7 +362,7 @@ export default function BoletosTab({ dentistId }: Props) {
         await api.post(`/payment-gateway/charges/asaas/${c.external_id}/receive-in-cash`, { payment_method: method.key });
       }
       showSuccess(`Recebimento registrado (${method.label})`);
-      fetchData();
+      fetchData({ silencioso: true });
       fetchKpis();
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao marcar como pago');
@@ -293,14 +381,14 @@ export default function BoletosTab({ dentistId }: Props) {
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const STATUS_TXT: Record<string, string> = { PAGO: 'Pago', EM_ABERTO: 'Em aberto', ATRASADO: 'Atrasado', CANCELADO: 'Cancelado' };
-    const linhas = filtered.map((c) => [
+    const linhas = visiveis.map((c) => [
       c.patient?.name || 'Sem nome',
       c.patient?.phone || '',
       c.patient?.cpf || '',
       c.installment_label || KIND_LABEL[c.kind || ''] || '',
       // Vírgula decimal — o Excel pt-BR soma a coluna direto.
       c.amount.toFixed(2).replace('.', ','),
-      fmtDate(c.due_date),
+      fmtDue(c.due_date),
       STATUS_TXT[c.computed_status] || c.computed_status,
       c.computed_status === 'ATRASADO' ? c.days_overdue : '',
       c.paid_at ? fmtDate(c.paid_at) : '',
@@ -313,10 +401,10 @@ export default function BoletosTab({ dentistId }: Props) {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `boletos-${statusGroup}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = isMes ? `boletos-do-mes-${mes}${diaSel ? `-dia-${diaSel.slice(8, 10)}` : ''}${statusSel ? `-${statusSel}` : ''}.csv` : `boletos-${statusGroup}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showSuccess(`${filtered.length} cobrança(s) exportada(s)`);
+    showSuccess(`${visiveis.length} cobrança(s) exportada(s)`);
   };
 
   const handleDeleteBoleto = async (c: Charge) => {
@@ -345,7 +433,7 @@ export default function BoletosTab({ dentistId }: Props) {
     try {
       await api.delete(`/payment-gateway/charges/asaas/${c.external_id}?reason=${encodeURIComponent(motivo)}`);
       showSuccess('Cobrança cancelada — fica registrada no cadastro.');
-      fetchData();
+      fetchData({ silencioso: true });
       fetchKpis();
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao cancelar a cobrança.');
@@ -374,8 +462,50 @@ export default function BoletosTab({ dentistId }: Props) {
     paidCount?: number; paidTotal?: number; cancelledCount?: number; openTotal?: number;
     // Pagos: divisória por DIA do pagamento.
     dateGroup?: boolean;
+    // Do mês: divisória por DIA do vencimento (AAAA-MM-DD) + quanto já entrou dele.
+    // `total`/`paidTotal`/`count` são do DIA INTEIRO (o filtro de situação só esconde
+    // linhas — senão "recebido de" mentia: com "Recebido" ativo o dia parecia quitado).
+    dueDay?: { iso: string; isToday: boolean; paidTotal: number; total: number; count: number };
   };
   const groups = useMemo<Group[]>(() => {
+    // DO MÊS: uma divisória por DIA DE VENCIMENTO (1 → 31), respeitando o dia e a
+    // situação escolhidos no resumo. Dentro do dia: atrasado, vence hoje, a vencer,
+    // pago — e por nome.
+    if (statusGroup === 'month' && !searching) {
+      const ordem: Record<MesStatus, number> = { atrasado: 0, hoje: 1, aberto: 2, pago: 3 };
+      const byDay = new Map<string, Group>();
+      for (const c of filtered) {
+        const k = diaDoVencimento(c);
+        if (diaSel && k !== diaSel) continue;
+        const st = statusDoMes(c);
+        let g = byDay.get(k);
+        if (!g) {
+          const label = new Date(`${k}T12:00:00Z`)
+            .toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' })
+            .replace('.', '');
+          g = {
+            key: `v-${k}`, label, icon: CalendarDays, color: 'text-foreground', rows: [], total: 0,
+            dueDay: { iso: k, isToday: k === mesHoje, paidTotal: 0, total: 0, count: 0 },
+          };
+          byDay.set(k, g);
+        }
+        g.dueDay!.total += c.amount;
+        g.dueDay!.count += 1;
+        if (st === 'pago') g.dueDay!.paidTotal += c.amount;
+        if (statusSel && st !== statusSel) continue; // só esconde a linha
+        g.rows.push(c);
+        g.total += c.amount;
+      }
+      const nome = (c: Charge) => c.patient?.name || '';
+      return [...byDay.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .filter(([, g]) => g.rows.length > 0) // dia sem nenhuma linha da situação escolhida
+        .map(([, g]) => ({
+          ...g,
+          rows: g.rows.sort((a, b) =>
+            ordem[statusDoMes(a)] - ordem[statusDoMes(b)] || nome(a).localeCompare(nome(b), 'pt-BR', { sensitivity: 'base' })),
+        }));
+    }
     // Onda 18.x — POR PACIENTE (ordem alfabética, recolhido por padrão):
     //  • NEGATIVADOS: só quem tem ≥1 atrasado (back manda a carteira em aberto deles);
     //  • TODOS: todo paciente com boleto no sistema, com TUDO que negociou — pagos,
@@ -459,7 +589,7 @@ export default function BoletosTab({ dentistId }: Props) {
       { key: 'vencidos', label: 'Vencidos', icon: AlertTriangle, color: 'text-red-400', rows: vencidos, total: sum(vencidos) },
       { key: 'pagos', label: 'Pagos', icon: Check, color: 'text-emerald-400', rows: pagos, total: sum(pagos) },
     ].filter((g) => g.rows.length > 0);
-  }, [filtered, statusGroup, searching]);
+  }, [filtered, statusGroup, searching, diaSel, statusSel, mesHoje]);
 
   return (
     <div className="space-y-4">
@@ -522,7 +652,7 @@ export default function BoletosTab({ dentistId }: Props) {
           </select>
           {/* Onda 18.x — exporta o que está na tela (mesmos filtros) pra conferência
               offline / envio ao contador. Gera no navegador, sem passar pela API. */}
-          {filtered.length > 0 && (
+          {visiveis.length > 0 && (
             <button
               type="button"
               onClick={exportarCsv}
@@ -537,41 +667,82 @@ export default function BoletosTab({ dentistId }: Props) {
         {/* Onda 18.x — contagem da listagem (os KPIs de valor vivem no dashboard abaixo). */}
         {(statusGroup !== 'report' || searching) && (
         <div className="flex items-center gap-2 pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          <span>{filtered.length} de {total} cobrança(s) carregada(s)</span>
+          <span>{visiveis.length} de {total} cobrança(s) carregada(s)</span>
           {/* Onda 18.x — a agregação por paciente (Negativados/Todos) é feita sobre o
               que foi CARREGADO. Se a API cortou no teto, os totais por paciente ficam
               incompletos — avisa em vez de mostrar número errado em silêncio. */}
           {charges.length < total && (
             <span className="inline-flex items-center gap-1 normal-case text-amber-600 dark:text-amber-400">
               <AlertTriangle size={11} />
-              lista cortada no limite — os totais por paciente consideram só {charges.length} de {total}; use a busca pra ver um paciente específico
+              {isMes
+                ? `lista cortada no limite — o resumo do mês considera só ${charges.length} de ${total} cobranças; use os filtros de tipo/forma`
+                : `lista cortada no limite — os totais por paciente consideram só ${charges.length} de ${total}; use a busca pra ver um paciente específico`}
             </span>
           )}
+          {!isMes && (
           <span className="ml-auto flex items-center gap-1.5">
             <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">Este mês ({mesLabel})</span>
             {monthStats.count} cobrança(s) · {fmtBRL(monthStats.totalValue)}
           </span>
+          )}
         </div>
         )}
       </div>
 
       {/* Onda 18.x — Dashboard de KPIs contextual ao chip (carteira inteira). */}
-      <BoletosKpis kpis={kpis} chip={searching ? "all" : statusGroup} loading={kpisLoading} />
+      {/* "Do mês" tem resumo próprio (mês, faixa recebido × falta, calendário). */}
+      {isMes ? (
+        <BoletosMesResumo
+          mes={mes}
+          hoje={mesHoje}
+          charges={mesCarregado === mes ? charges : []}
+          pronto={mesCarregado === mes}
+          loading={loading}
+          recebidoOutrosMeses={mesCarregado === mes ? mesOutros : null}
+          diaSelecionado={diaSel}
+          statusSelecionado={statusSel}
+          onMes={trocarMes}
+          onDia={escolherDia}
+          onStatus={setStatusSel}
+        />
+      ) : (
+        <BoletosKpis kpis={kpis} chip={searching ? "all" : statusGroup} loading={kpisLoading} />
+      )}
 
       {/* Lista */}
       {statusGroup === 'report' && !searching ? null : loading ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <Loader2 size={24} className="mx-auto animate-spin text-primary" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : isMes && mesErro ? (
+        <div className="bg-card border border-red-500/40 rounded-xl p-8 text-center space-y-3">
+          <AlertTriangle size={28} className="mx-auto text-red-500" />
+          <p className="text-sm text-foreground">
+            Não foi possível carregar os boletos de {nomeDoMes(mes).toLowerCase()}.
+          </p>
+          <button
+            type="button"
+            onClick={() => fetchData()}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      ) : filtered.length === 0 || (isMes && groups.length === 0) ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground">
-            {statusGroup === 'negativados' && !searching ? 'Nenhum paciente negativado — carteira em dia 🎉' : 'Nenhuma cobrança encontrada nos filtros'}
+            {statusGroup === 'negativados' && !searching
+              ? 'Nenhum paciente negativado — carteira em dia 🎉'
+              : isMes
+                ? filtered.length === 0
+                  ? `Nenhuma cobrança vence em ${nomeDoMes(mes).toLowerCase()}.`
+                  : 'Nenhuma cobrança nesse dia/situação — limpe o filtro no resumo acima.'
+                : 'Nenhuma cobrança encontrada nos filtros'}
           </p>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div id="boletos-lista" className="bg-card border border-border rounded-xl overflow-hidden scroll-mt-4">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -651,6 +822,37 @@ export default function BoletosTab({ dentistId }: Props) {
                         </div>
                       </td>
                     </tr>
+                  ) : g.label && g.dueDay ? (
+                    <>
+                    {groups[0]?.key !== g.key && (
+                      <tr aria-hidden className="bg-background">
+                        <td colSpan={7} className="h-4 p-0 border-0" />
+                      </tr>
+                    )}
+                    {/* Do mês — divisória por DIA DE VENCIMENTO: quanto vence e quanto já entrou. */}
+                    <tr className={`border-y border-border ${g.dueDay.isToday ? 'bg-yellow-400/[0.14] border-t-2 border-t-yellow-400/70' : 'bg-muted/40'}`}>
+                      <td colSpan={7} className="px-3 py-2">
+                        {/* A tabela rola de lado no celular: o conteúdo fica preso à esquerda e
+                            limitado à largura da tela, pra o "recebido de" não sumir à direita. */}
+                        <div className="sticky left-3 flex items-center gap-x-2 gap-y-0.5 flex-wrap w-[min(100%,calc(100vw_-_5rem))]">
+                          <CalendarDays size={13} className={g.dueDay.isToday ? 'text-yellow-600 dark:text-yellow-400' : 'text-muted-foreground'} />
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">
+                            {g.label}{g.dueDay.isToday && ' · hoje'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {g.rows.length === g.dueDay.count
+                              ? `(${g.dueDay.count} cobrança${g.dueDay.count > 1 ? 's' : ''})`
+                              : `(mostrando ${g.rows.length} de ${g.dueDay.count})`}
+                          </span>
+                          <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{fmtBRL(g.dueDay.paidTotal)}</span>
+                            {' recebido de '}
+                            <span className="font-bold text-foreground">{fmtBRL(g.dueDay.total)}</span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    </>
                   ) : g.label && g.dateGroup ? (
                     <>
                     {/* Respiro em branco entre um dia e o próximo (não antes do primeiro). */}
@@ -690,12 +892,26 @@ export default function BoletosTab({ dentistId }: Props) {
                   {isOpen && g.rows.map((c) => {
                   const isOverdue = c.computed_status === 'ATRASADO';
                   const isPaid = c.computed_status === 'PAGO';
-                  const reminderMsg = `Olá ${c.patient?.name || ''}! Lembrando do pagamento de ${fmtBRL(c.amount)} (${c.installment_label}) com vencimento em ${fmtDate(c.due_date)}.${
+                  const isDueToday = !!c.due_today && c.computed_status === 'EM_ABERTO';
+                  // Do mês: a LINHA inteira leva a cor da situação (faixa à esquerda + fundo).
+                  const tom = isMes ? statusDoMes(c) : null;
+                  const linhaTom =
+                    tom === 'pago' ? 'bg-emerald-500/[0.06]'
+                      : tom === 'hoje' ? 'bg-yellow-400/[0.12]'
+                        : tom === 'atrasado' ? 'bg-red-500/[0.06]'
+                          : '';
+                  const faixaTom =
+                    tom === 'pago' ? 'border-l-[3px] border-l-emerald-500'
+                      : tom === 'hoje' ? 'border-l-[3px] border-l-yellow-400'
+                        : tom === 'atrasado' ? 'border-l-[3px] border-l-red-500'
+                          : tom === 'aberto' ? 'border-l-[3px] border-l-transparent'
+                            : '';
+                  const reminderMsg = `Olá ${c.patient?.name || ''}! Lembrando do pagamento de ${fmtBRL(c.amount)} (${c.installment_label}) com vencimento em ${fmtDue(c.due_date)}.${
                     c.boleto_url ? ` Boleto: ${c.boleto_url}` : ''
                   }`;
                   return (
-                    <tr key={c.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
-                      <td className="px-3 py-2.5">
+                    <tr key={c.id} className={`border-b border-border/50 hover:bg-accent/10 transition-colors ${linhaTom}`}>
+                      <td className={`px-3 py-2.5 ${faixaTom}`}>
                         <div className="flex items-center gap-2.5">
                           {c.patient && (
                             <PatientAvatar
@@ -728,13 +944,13 @@ export default function BoletosTab({ dentistId }: Props) {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right">
-                        <span className={`text-sm font-bold tabular-nums ${isPaid ? 'text-emerald-400' : isOverdue ? 'text-red-400' : 'text-foreground'}`}>
+                        <span className={`text-sm font-bold tabular-nums ${isPaid ? 'text-emerald-400' : isOverdue ? 'text-red-400' : isDueToday ? MES_COR.hoje.text : 'text-foreground'}`}>
                           {fmtBRL(c.amount)}
                         </span>
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col">
-                          <span className="text-xs text-foreground tabular-nums">{fmtDate(c.due_date)}</span>
+                          <span className="text-xs text-foreground tabular-nums">{fmtDue(c.due_date)}</span>
                           {isOverdue && (
                             <span className="text-[10px] text-red-400 font-semibold">{c.days_overdue}d em atraso</span>
                           )}
@@ -750,7 +966,7 @@ export default function BoletosTab({ dentistId }: Props) {
                         <span className="text-[10px] text-muted-foreground">{c.billing_type}</span>
                       </td>
                       <td className="px-3 py-2.5 text-center">
-                        {computedStatusBadge(c.computed_status)}
+                        {computedStatusBadge(c.computed_status, { dueToday: isDueToday, mes: isMes })}
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center justify-center gap-1">

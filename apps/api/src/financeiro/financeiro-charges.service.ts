@@ -15,7 +15,7 @@
  * Nada disso bate em FinancialTransaction — esse fluxo continua o caminho
  * do financeiro avulso/manual da clínica (luz, aluguel, etc).
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 // Onda 18.x — régua ÚNICA de vencido: quem vence HOJE não é atraso (fuso da clínica).
 import { startOfTodayMaceioUtc, endOfTodayMaceioUtc, isOverdueDate, daysOverdueFrom } from '@crm/shared';
@@ -65,6 +65,21 @@ const CANCELLED_STATUSES = ['REFUNDED', 'DELETED', 'CANCELLED'];
 // Teto de linhas do cálculo de KPIs (carteira inteira em memória). Acima disso o
 // resultado sai marcado como truncated — melhor avisar que mentir.
 const KPI_ROW_CAP = 20000;
+// Teto da aba "Do mês" (todas as cobranças que vencem no mês, numa lista só).
+const MONTH_ROW_CAP = 3000;
+// Maceió = UTC-3 fixo.
+const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+/**
+ * Dia (AAAA-MM-DD, fuso da clínica) de um campo de PAGAMENTO. A coluna mistura dois
+ * formatos: o Asaas grava `paid_at = new Date(paymentDate)` → DATA à meia-noite UTC
+ * (o dia é a parte UTC); recebido na clínica grava o instante real (`new Date()`) →
+ * o dia é o de Maceió (−3h). Meia-noite UTC exata = data; o resto = instante.
+ */
+function paidDayMaceio(d: Date): string {
+  const t = d.getTime();
+  const isDate = t % 86_400_000 === 0;
+  return new Date(isDate ? t : t - MACEIO_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 @Injectable()
 export class FinanceiroChargesService {
@@ -446,7 +461,9 @@ export class FinanceiroChargesService {
     // alfabética) — visão "quem está devendo e quanto".
     // 'all_patients': a carteira INTEIRA (inclusive canceladas/apagadas) — a aba "Todos"
     // agrupa por paciente no front, com tudo que ele já negociou.
-    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'negativados' | 'all_patients' | 'all';
+    // 'month': igual ao 'all' (sem canceladas), com teto maior — usado pelo
+    // getMonthCharges com o range do mês em startDate/endDate.
+    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'negativados' | 'all_patients' | 'all' | 'month';
     kind?: string; // SINAL|ENTRADA|INSTALLMENT
     billingType?: string;
     startDate?: string;
@@ -456,7 +473,10 @@ export class FinanceiroChargesService {
   }) {
     const { tenantId, dentistId, patientId, search, status, statusGroup, kind, billingType, startDate, endDate } = opts;
     // Negativados precisa da carteira INTEIRA dos devedores (agrupa no front) — teto maior.
-    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' || statusGroup === 'all_patients' ? 2000 : 500);
+    const limit = Math.min(
+      opts.limit || 100,
+      statusGroup === 'month' ? MONTH_ROW_CAP : statusGroup === 'negativados' || statusGroup === 'all_patients' ? 2000 : 500,
+    );
     const offset = opts.offset || 0;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -593,7 +613,7 @@ export class FinanceiroChargesService {
       where.AND.push(who.length ? { OR: who } : { id: { in: [] } });
     } else if (statusGroup === 'all_patients') {
       // Tudo, sem filtro de status (canceladas/apagadas entram — o front mostra "Cancelado").
-    } else if (!statusGroup || statusGroup === 'all') {
+    } else if (!statusGroup || statusGroup === 'all' || statusGroup === 'month') {
       // Sem filtro — exclui cancelados por padrão
       where.status = { notIn: CANCELLED_STATUSES };
     }
@@ -675,6 +695,107 @@ export class FinanceiroChargesService {
       total,
       limit,
       offset,
+    };
+  }
+
+  /**
+   * "Boletos do mês" (aba Boletos) — TODAS as cobranças com VENCIMENTO no mês
+   * (menos as canceladas), pra a clínica ver de uma vez o que entra no mês, dia a
+   * dia: pagos / vence hoje / a vencer / atrasados. O front agrupa por dia.
+   *
+   * `due_date` é DATA à meia-noite UTC (overdue.util), então o mês é
+   * [dia 1 00:00Z, dia 1 do mês seguinte 00:00Z) — sem deslocar fuso.
+   *
+   * Também devolve o que ENTROU no mês vindo de cobranças de OUTROS meses (atrasado
+   * pago agora, ou adiantado): não aparece na lista (o vencimento é de outro mês),
+   * mas é dinheiro que entrou — o "recebido" do mês não fica escondendo isso.
+   */
+  async getMonthCharges(opts: {
+    tenantId?: string;
+    month?: string; // AAAA-MM; vazio = mês de hoje (Maceió)
+    dentistId?: string;
+    kind?: string;
+    billingType?: string;
+  }) {
+    const { tenantId, dentistId, kind, billingType } = opts;
+    const now = new Date();
+    const todayStart = startOfTodayMaceioUtc(now); // meia-noite UTC do "hoje" de Maceió
+    let y = todayStart.getUTCFullYear();
+    let mo = todayStart.getUTCMonth();
+    if (opts.month) {
+      const m = /^(\d{4})-(\d{2})$/.exec(opts.month);
+      if (!m || +m[2] < 1 || +m[2] > 12) throw new BadRequestException('Mês inválido — use AAAA-MM.');
+      y = +m[1];
+      mo = +m[2] - 1;
+    }
+    const start = new Date(Date.UTC(y, mo, 1));
+    const end = new Date(Date.UTC(y, mo + 1, 1));
+
+    const list = await this.findCharges({
+      tenantId,
+      dentistId,
+      kind,
+      billingType,
+      statusGroup: 'month',
+      startDate: start.toISOString(),
+      endDate: new Date(end.getTime() - 1).toISOString(), // findCharges usa lte
+      limit: MONTH_ROW_CAP,
+    });
+
+    // Entrou no mês (pagamento), mas o vencimento é de OUTRO mês. O banco pega uma
+    // janela folgada (+3h no fim, pros instantes reais da noite do último dia) e o
+    // dia de pagamento de cada uma é decidido aqui (paidDayMaceio: data × instante).
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const monthKey = `${y}-${pad(mo + 1)}`;
+    const wideRange = { gte: start, lt: new Date(end.getTime() + MACEIO_OFFSET_MS) };
+    const otherRows = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        ...(dentistId ? { treatment_plan: { quote: { created_by_user_id: dentistId } } } : {}),
+        ...(kind ? { kind } : {}),
+        ...(billingType ? { billing_type: billingType } : {}),
+        AND: [
+          { OR: [{ status: { in: PAID_STATUSES } }, { received_in_cash: true }] },
+          { OR: [{ due_date: { lt: start } }, { due_date: { gte: end } }] },
+          {
+            // Mesma prioridade do "Pago em" da tela: paid_at → payment_date → received_at.
+            OR: [
+              { paid_at: wideRange },
+              { paid_at: null, payment_date: { gte: start, lt: end } },
+              { paid_at: null, payment_date: null, received_at: wideRange },
+            ],
+          },
+        ],
+      },
+      select: { amount: true, paid_at: true, payment_date: true, received_at: true },
+      take: MONTH_ROW_CAP,
+    });
+    let otherCount = 0;
+    let otherTotal = 0;
+    for (const r of otherRows) {
+      const day = r.paid_at
+        ? paidDayMaceio(r.paid_at)
+        : r.payment_date
+          ? r.payment_date.toISOString().slice(0, 10)
+          : r.received_at
+            ? paidDayMaceio(r.received_at)
+            : '';
+      if (day.slice(0, 7) !== monthKey) continue; // instante da 1ª madrugada = mês anterior
+      otherCount += 1;
+      otherTotal += Number(r.amount) || 0;
+    }
+
+    return {
+      month: monthKey,
+      // "Hoje" no fuso da clínica (AAAA-MM-DD), pra o front marcar o dia sem recalcular fuso.
+      today: todayStart.toISOString().slice(0, 10),
+      data: list.data,
+      total: list.total,
+      truncated: list.total > list.data.length,
+      received_other_months: {
+        count: otherCount,
+        total: Math.round(otherTotal * 100) / 100,
+      },
     };
   }
 
@@ -1095,6 +1216,11 @@ export class FinanceiroChargesService {
     const isCancelled = CANCELLED_STATUSES.includes(r.status);
     const isOverdue = !isPaid && !isCancelled && isOverdueDate(r.due_date, now);
     const daysOverdue = isOverdue ? daysOverdueFrom(r.due_date, now) : 0;
+    // Em aberto e vence HOJE (fuso da clínica) — a tela pinta de amarelo.
+    const dueMs = new Date(r.due_date).getTime();
+    const dueToday =
+      !isPaid && !isCancelled &&
+      dueMs >= startOfTodayMaceioUtc(now).getTime() && dueMs < endOfTodayMaceioUtc(now).getTime();
 
     return {
       id: r.id,
@@ -1118,6 +1244,7 @@ export class FinanceiroChargesService {
       payment_date: r.payment_date,
       received_in_cash: r.received_in_cash,
       days_overdue: daysOverdue,
+      due_today: dueToday,
       description: r.description,
       boleto_url: r.boleto_url,
       pix_qr_code: r.pix_qr_code,

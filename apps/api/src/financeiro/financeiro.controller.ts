@@ -255,6 +255,24 @@ export class FinanceiroController {
     });
   }
 
+  /** "Boletos do mês" — tudo que vence no mês (AAAA-MM), menos canceladas. */
+  @Get('charges/month')
+  monthCharges(
+    @Query('month') month: string,
+    @Query('dentistId') dentistId: string,
+    @Query('kind') kind: string,
+    @Query('billingType') billingType: string,
+    @Request() req: any,
+  ) {
+    return this.chargesService.getMonthCharges({
+      tenantId: req.user.tenant_id,
+      month: month || undefined,
+      dentistId: dentistId || undefined,
+      kind: kind || undefined,
+      billingType: billingType || undefined,
+    });
+  }
+
   @Get('charges')
   findCharges(
     @Query('status') status: string,
