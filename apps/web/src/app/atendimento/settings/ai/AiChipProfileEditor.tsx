@@ -55,6 +55,21 @@ export function AiChipProfileEditor({ purpose, profile, defaultCooldown, onSaved
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Equipe (só no Financeiro): quem pode receber o escalonamento da Carol. Só aparece
+  // quem tem WhatsApp cadastrado no usuário.
+  const [team, setTeam] = useState<{ id: string; name: string; phone?: string | null }[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+  useEffect(() => {
+    if (purpose !== 'FINANCEIRO') return;
+    let alive = true;
+    setLoadingTeam(true);
+    api
+      .get('/users')
+      .then(({ data }) => { if (alive) setTeam(Array.isArray(data) ? data : []); })
+      .catch(() => { if (alive) setTeam([]); })
+      .finally(() => { if (alive) setLoadingTeam(false); });
+    return () => { alive = false; };
+  }, [purpose]);
 
   // Recarregou do servidor (ex.: depois de salvar) → a tela volta pro que está gravado.
   const profileKey = JSON.stringify(profile ? normalizeAiChipProfile(profile) : null);
@@ -242,6 +257,48 @@ export function AiChipProfileEditor({ purpose, profile, defaultCooldown, onSaved
         />
         <span className="text-[10px] text-muted-foreground self-end">{p.instructions.length}/2000</span>
       </label>
+
+      {/* FINANCEIRO: quem recebe o escalonamento da Carol (marca da equipe; fallback nos números padrão) */}
+      {purpose === 'FINANCEIRO' && (
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-semibold text-muted-foreground block">Quem recebe o aviso do financeiro (escalonamento)</span>
+          <p className="text-[11px] text-muted-foreground">
+            Quando a {name} precisa de um responsável (desconto, cancelamento, baixa, etc.), ela manda um resumo do caso pra quem você marcar. Sem ninguém marcado, vai pros números de aviso padrão da clínica.
+          </p>
+          {loadingTeam ? (
+            <p className="text-[11px] text-muted-foreground italic">Carregando equipe…</p>
+          ) : team.filter((u) => u.phone && String(u.phone).trim()).length === 0 ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              Nenhum membro da equipe tem WhatsApp cadastrado. Adicione o telefone do usuário em Equipe pra poder escolher aqui.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {team
+                .filter((u) => u.phone && String(u.phone).trim())
+                .map((u) => {
+                  const on = p.escalationRecipients.includes(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() =>
+                        set({
+                          escalationRecipients: on
+                            ? p.escalationRecipients.filter((x) => x !== u.id)
+                            : [...p.escalationRecipients, u.id],
+                        })
+                      }
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors ${on ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-foreground hover:border-primary/50'}`}
+                    >
+                      {on ? '✓ ' : ''}
+                      {u.name}
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
       <div className="flex flex-wrap items-center justify-end gap-3">

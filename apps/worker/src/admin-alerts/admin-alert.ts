@@ -74,6 +74,13 @@ export interface AdminAlertOptions {
   /** DispatchLog.ref_event_id / ref_patient_id, quando fizer sentido. */
   refEventId?: string | null;
   refPatientId?: string | null;
+  /**
+   * Destinatários EXPLÍCITOS (ex.: membros da equipe escolhidos pra o escalonamento
+   * da Carol). Quando vier com algum número, manda SÓ pra esses (em vez do
+   * VENDA_FEITA_PHONE da clínica). Vazio/ausente = usa os números de aviso padrão.
+   * Os números são normalizados (55) e deduplicados aqui.
+   */
+  phones?: string[] | null;
 }
 
 export interface AdminAlertResult {
@@ -194,7 +201,12 @@ export async function sendAdminAlert(
 ): Promise<AdminAlertResult> {
   const type = (opts.type || 'admin_alert').slice(0, 64);
   const text = String(opts.text || '').trim();
-  const phones = await adminAlertPhones(prisma, tenantId);
+  // Destinatários explícitos (equipe escolhida) têm prioridade; senão, os números
+  // de aviso padrão da clínica (VENDA_FEITA_PHONE). Normaliza (55) e deduplica.
+  const override = Array.isArray(opts.phones)
+    ? [...new Set(opts.phones.filter((p) => p && String(p).trim()).map((p) => toBrazilWhatsappNumber(p)))]
+    : [];
+  const phones = override.length ? override : await adminAlertPhones(prisma, tenantId);
   if (!phones.length) {
     return { sent: 0, failed: 0, phones: [], noPhone: true };
   }

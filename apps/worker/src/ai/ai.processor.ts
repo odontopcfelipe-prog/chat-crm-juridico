@@ -4290,12 +4290,34 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           } else {
             try {
               const resumo = String(financeiro_action.resumo || updates?.notes || aiText || '').slice(0, 500);
+              // Destinatários escolhidos na config do chip Financeiro (equipe) — se
+              // houver, o aviso vai SÓ pra eles; vazio = cai nos números padrão de aviso
+              // da clínica (fallback dentro do sendAdminAlert). IDs resolvidos p/ telefone
+              // só dos usuários DESTE tenant (nunca de outra clínica).
+              let recipPhones: string[] | undefined;
+              try {
+                const row = await (this.prisma as any).tenantSetting.findUnique({
+                  where: { tenant_id_key: { tenant_id: sendTenantId, key: 'AI_FINANCEIRO_ESCALATION_USERS' } },
+                });
+                const ids: string[] = row?.value
+                  ? (JSON.parse(row.value) as any[]).filter((x) => typeof x === 'string' && x.trim())
+                  : [];
+                if (ids.length) {
+                  const us = await this.prisma.user.findMany({
+                    where: { id: { in: ids }, tenant_id: sendTenantId },
+                    select: { phone: true },
+                  });
+                  const ph = us.map((u: any) => u.phone).filter((p: any) => p && String(p).trim());
+                  if (ph.length) recipPhones = ph;
+                }
+              } catch { /* setting ausente/corrompido → números padrão */ }
               const r = await sendAdminAlert(this.prisma, this.settings, sendTenantId, {
                 type: 'carla_escalonamento',
                 text: `🔔 *Financeiro — precisa de você*\nPaciente: ${convo.lead?.name || 'sem nome'} (${convo.lead?.phone || 's/ número'})\n${resumo || '(sem resumo)'}\n\nResponda pelo chat do Financeiro.`,
                 recipientName: convo.lead?.name || null,
+                phones: recipPhones,
               });
-              this.logger.log(`[CARLA] escalonamento → ADMs: sent=${r.sent} failed=${r.failed} noPhone=${r.noPhone}`);
+              this.logger.log(`[CARLA] escalonamento → ADMs (${recipPhones ? 'equipe escolhida' : 'números padrão'}): sent=${r.sent} failed=${r.failed} noPhone=${r.noPhone}`);
             } catch (e: any) {
               this.logger.error(`[CARLA] falha ao avisar os ADMs do escalonamento: ${e?.message}`);
             }

@@ -32,6 +32,13 @@ export interface AiChipProfile {
    * agendar ("ok", "vou pensar"). 0 = desligado. Uma vez por conversa a cada 24h.
    */
   schedulingRetryMin: number;
+  /**
+   * SÓ DA TELA (não existe no @crm/shared): IDs dos membros da equipe que recebem o
+   * escalonamento do Financeiro (Carol). No servidor fica num TenantSetting separado
+   * (AI_FINANCEIRO_ESCALATION_USERS), não no JSON do perfil. Vazio = usa os números
+   * de aviso padrão da clínica.
+   */
+  escalationRecipients: string[];
 }
 
 export const DEFAULT_ASSISTANT_NAME = 'Sophia';
@@ -43,6 +50,7 @@ export const DEFAULT_AI_CHIP_PROFILE: AiChipProfile = {
   responseDelaySec: null,
   instructions: '',
   schedulingRetryMin: 5,
+  escalationRecipients: [],
 };
 
 /** Lê o JSON salvo (ou objeto vindo da tela) e devolve um perfil válido, com defaults. */
@@ -75,6 +83,9 @@ export function normalizeAiChipProfile(raw: unknown): AiChipProfile {
       delayNum === null || !Number.isFinite(delayNum) ? null : Math.min(60, Math.max(0, Math.round(delayNum))),
     instructions: String(o.instructions ?? '').trim().slice(0, 2000),
     schedulingRetryMin: normalizeRetryMin(o.schedulingRetryMin),
+    escalationRecipients: Array.isArray(o.escalationRecipients)
+      ? [...new Set((o.escalationRecipients as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim()))].slice(0, 50)
+      : [],
   };
 }
 

@@ -2179,12 +2179,26 @@ export class SettingsService {
     return this.buildAiProfile(tenantId);
   }
 
-  /** Salva o perfil da IA de UM chip da clínica (+ liga/desliga, se vier). */
+  /** Chave do TenantSetting com os destinatários do escalonamento do Financeiro (Carol). */
+  private static readonly FIN_ESCALATION_USERS_KEY = 'AI_FINANCEIRO_ESCALATION_USERS';
+
+  /** IDs de usuários (equipe) válidos: strings não-vazias, deduplicados, no máx. 50. */
+  private parseRecipientIds(raw: unknown): string[] {
+    let arr: any = raw;
+    if (typeof raw === 'string') {
+      try { arr = JSON.parse(raw); } catch { arr = []; }
+    }
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.filter((x) => typeof x === 'string' && x.trim()).map((x: string) => x.trim()))].slice(0, 50);
+  }
+
+  /** Salva o perfil da IA de UM chip da clínica (+ liga/desliga e, no Financeiro, os
+   *  destinatários do escalonamento da Carol, se vierem). */
   async saveAiChipProfile(
     tenantId: string,
     purpose: string,
-    body: Partial<AiChipProfile> & { enabled?: boolean },
-  ): Promise<AiChipProfile & { enabled: boolean }> {
+    body: Partial<AiChipProfile> & { enabled?: boolean; escalationRecipients?: string[] },
+  ): Promise<AiChipProfile & { enabled: boolean; escalationRecipients?: string[] }> {
     const p = String(purpose || '').toUpperCase();
     if (!isAiChipPurpose(p)) {
       throw new BadRequestException(`chip inválido: ${purpose}`);
@@ -2194,14 +2208,26 @@ export class SettingsService {
       where: { tenant_id_key: { tenant_id: tenantId, key: aiProfileKey(p) } },
       select: { value: true },
     });
-    const { enabled: _enabled, ...fields } = body ?? {};
+    const { enabled: _enabled, escalationRecipients: _recips, ...fields } = body ?? {};
     const profile = normalizeAiChipProfile({ ...normalizeAiChipProfile(savedRow?.value ?? null), ...fields });
     await this.upsertTenantSetting(tenantId, aiProfileKey(p), JSON.stringify(profile));
     if (typeof body?.enabled === 'boolean') {
       await this.setChipAiEnabled(p, body.enabled, tenantId);
     }
+    // Destinatários do escalonamento — só fazem sentido no chip FINANCEIRO (Carol).
+    let escalationRecipients: string[] | undefined;
+    if (p === 'FINANCEIRO' && body && 'escalationRecipients' in body) {
+      escalationRecipients = this.parseRecipientIds(body.escalationRecipients);
+      await this.upsertTenantSetting(tenantId, SettingsService.FIN_ESCALATION_USERS_KEY, JSON.stringify(escalationRecipients));
+    } else if (p === 'FINANCEIRO') {
+      const row = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: SettingsService.FIN_ESCALATION_USERS_KEY } },
+        select: { value: true },
+      });
+      escalationRecipients = this.parseRecipientIds(row?.value ?? null);
+    }
     const enabledMap = await this.getChipAiEnabledMap(tenantId, await this.getWhatsappAiEnabled());
-    return { ...profile, enabled: enabledMap[p] };
+    return { ...profile, enabled: enabledMap[p], ...(p === 'FINANCEIRO' ? { escalationRecipients } : {}) };
   }
 
   /** Monta a resposta de GET /settings/ai-profile (e dos PUTs) — só da clínica `tenantId`. */
@@ -2230,7 +2256,7 @@ export class SettingsService {
       this.prisma.tenantSetting.findMany({
         where: {
           tenant_id: tenantId,
-          key: { in: [AI_CLINIC_HOURS_KEY, ...AI_CHIP_PURPOSES.map(aiProfileKey)] },
+          key: { in: [AI_CLINIC_HOURS_KEY, SettingsService.FIN_ESCALATION_USERS_KEY, ...AI_CHIP_PURPOSES.map(aiProfileKey)] },
         },
         select: { key: true, value: true },
       }),
@@ -2245,6 +2271,10 @@ export class SettingsService {
     for (const p of AI_CHIP_PURPOSES) {
       chips[p] = { ...normalizeAiChipProfile(settingOf(aiProfileKey(p))), enabled: enabledMap[p] };
     }
+    // Destinatários do escalonamento da Carol — só no chip Financeiro (equipe escolhida).
+    (chips.FINANCEIRO as any).escalationRecipients = this.parseRecipientIds(
+      settingOf(SettingsService.FIN_ESCALATION_USERS_KEY),
+    );
     const cooldown = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
 
     return {
