@@ -69,6 +69,49 @@ const KPI_ROW_CAP = 20000;
 const MONTH_ROW_CAP = 3000;
 // Maceió = UTC-3 fixo.
 const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// "Do mês" mostra SÓ as vendas PARCELADAS EM BOLETO (pedido do dono, 14/out/2026):
+// pagamento convencional (PIX/cartão/boleto à vista, venda rápida, recebido no
+// caixa) fica de fora. Entram, sempre em BOLETO:
+//  - parcelas da proposta (kind INSTALLMENT, uma linha por parcela "Parcela n/N");
+//  - a ENTRADA da proposta (kind ENTRADA, ou SINAL quando a entrada inteira foi
+//    emitida como sinal — fluxo "entrada primeiro");
+//  - parcelas do módulo Parcelas (installment_id → Installment da proposta);
+//  - boletos IMPORTADOS do Asaas (carteira antiga): sem kind/plano/parcela/honorário
+//    e sem a tag "[plan:" na descrição (a tag só existe no que o sistema criou — o
+//    boleto à vista do sistema tem kind null mas carrega a tag).
+// Fica fora o parcelamento gravado como cobrança ÚNICA com o valor TOTAL (o
+// "guarda-chuva": "Parcelado (Nx) — …" / "Parcelas Nx R$ … — …"): jogaria o total
+// inteiro num dia só. Esses vão num aviso à parte (getMonthCharges → umbrellas).
+// "1x" no mesmo formato ("Parcelado (1x)" / "Parcelas 1x R$ …") NÃO é guarda-chuva:
+// o valor é o do único boleto, com o vencimento certo — entra como linha normal.
+const UMBRELLA_WHERE = {
+  AND: [
+    { OR: [{ description: { startsWith: 'Parcelado (' } }, { description: { startsWith: 'Parcelas ' } }] },
+    { NOT: { OR: [{ description: { startsWith: 'Parcelado (1x)' } }, { description: { startsWith: 'Parcelas 1x ' } }] } },
+  ],
+};
+const PARCELAS_BOLETO_WHERE = {
+  billing_type: 'BOLETO',
+  OR: [
+    { kind: 'INSTALLMENT', NOT: UMBRELLA_WHERE },
+    { kind: { in: ['ENTRADA', 'SINAL'] } },
+    { installment_id: { not: null } },
+    {
+      gateway: 'ASAAS',
+      kind: null,
+      treatment_plan_id: null,
+      installment_id: null,
+      lead_honorario_payment_id: null,
+      // `NOT contains` descarta description NULL (SQL) — o ramo null vai explícito.
+      // Honorário jurídico legado cujo vínculo foi apagado (SetNull) não é importado.
+      OR: [
+        { description: null },
+        { AND: [{ NOT: { description: { contains: 'plan:' } } }, { NOT: { description: { startsWith: 'Honor' } } }] },
+      ],
+    },
+  ],
+};
 /**
  * Dia (AAAA-MM-DD, fuso da clínica) de um campo de PAGAMENTO. A coluna mistura dois
  * formatos: o Asaas grava `paid_at = new Date(paymentDate)` → DATA à meia-noite UTC
@@ -616,6 +659,8 @@ export class FinanceiroChargesService {
     } else if (!statusGroup || statusGroup === 'all' || statusGroup === 'month') {
       // Sem filtro — exclui cancelados por padrão
       where.status = { notIn: CANCELLED_STATUSES };
+      // "Do mês": só vendas parceladas em boleto (ver PARCELAS_BOLETO_WHERE).
+      if (statusGroup === 'month') where.AND = [...(where.AND || []), PARCELAS_BOLETO_WHERE];
     }
 
     if (startDate || endDate) {
@@ -755,6 +800,7 @@ export class FinanceiroChargesService {
         ...(kind ? { kind } : {}),
         ...(billingType ? { billing_type: billingType } : {}),
         AND: [
+          PARCELAS_BOLETO_WHERE, // mesma régua da lista: só vendas parceladas em boleto
           { OR: [{ status: { in: PAID_STATUSES } }, { received_in_cash: true }] },
           { OR: [{ due_date: { lt: start } }, { due_date: { gte: end } }] },
           {
@@ -785,6 +831,50 @@ export class FinanceiroChargesService {
       otherTotal += Number(r.amount) || 0;
     }
 
+    // Parcelamentos gravados como cobrança ÚNICA (valor TOTAL, "Parcelado (Nx)"):
+    // fora da lista (jogariam o total num dia só). Avisa quais podem ter parcela
+    // neste mês: 1º vencimento até o fim do mês e (1º venc. + N−1 meses) ≥ início.
+    const umbrellaRows = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        ...(dentistId ? { treatment_plan: { quote: { created_by_user_id: dentistId } } } : {}),
+        kind: 'INSTALLMENT',
+        billing_type: 'BOLETO',
+        status: { notIn: CANCELLED_STATUSES },
+        due_date: { lt: end },
+        AND: [UMBRELLA_WHERE],
+      },
+      select: {
+        id: true,
+        amount: true,
+        due_date: true,
+        description: true,
+        treatment_plan: { select: { patient: { select: { id: true, name: true } } } },
+        patient: { select: { id: true, name: true } },
+      },
+      take: 200,
+    });
+    const umbrellas = umbrellaRows
+      .map((u) => {
+        const n = Number(/(\d+)\s*x/i.exec(u.description || '')?.[1]) || 0;
+        const first = new Date(u.due_date);
+        const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + Math.max(n - 1, 0), 1));
+        return { u, n, last };
+      })
+      // Sem N legível → avisa mesmo assim (melhor sobrar aviso que sumir parcela).
+      // 1x não é guarda-chuva (já entra na lista) — defesa caso o texto venha diferente.
+      .filter(({ n, last }) => n !== 1 && (!n || last.getTime() >= start.getTime()))
+      .map(({ u, n }) => {
+        const p = u.treatment_plan?.patient || u.patient || null;
+        return {
+          charge_id: u.id,
+          patient: p ? { id: p.id, name: p.name } : null,
+          installments: n || null,
+          total: Number(u.amount) || 0,
+          first_due: u.due_date,
+        };
+      });
+
     return {
       month: monthKey,
       // "Hoje" no fuso da clínica (AAAA-MM-DD), pra o front marcar o dia sem recalcular fuso.
@@ -796,6 +886,7 @@ export class FinanceiroChargesService {
         count: otherCount,
         total: Math.round(otherTotal * 100) / 100,
       },
+      umbrellas,
     };
   }
 

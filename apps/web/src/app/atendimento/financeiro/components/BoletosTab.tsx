@@ -32,7 +32,7 @@ import { useRole } from '@/lib/useRole';
 import { toBrazilWhatsappNumber } from '@crm/shared';
 import BoletosKpis, { type ChargesKpis } from './BoletosKpis';
 import BoletosMesResumo, {
-  MES_COR, diaDoVencimento, mesAtualMaceio, nomeDoMes, statusDoMes, type MesStatus,
+  MES_COR, diaDoVencimento, mesAtualMaceio, nomeDoMes, statusDoMes, type MesGuardaChuva, type MesStatus,
 } from './BoletosMesResumo';
 
 interface Charge {
@@ -163,6 +163,7 @@ export default function BoletosTab({ dentistId }: Props) {
   const [mes, setMes] = useState<string>(mesAtualMaceio);
   const [mesHoje, setMesHoje] = useState<string | null>(null);
   const [mesOutros, setMesOutros] = useState<{ count: number; total: number } | null>(null);
+  const [mesGuardaChuvas, setMesGuardaChuvas] = useState<MesGuardaChuva[]>([]);
   const [diaSel, setDiaSel] = useState<string | null>(null);
   const [statusSel, setStatusSel] = useState<MesStatus | null>(null);
   // Qual mês está de fato em `charges` (null enquanto carrega outra coisa) — o
@@ -224,7 +225,7 @@ export default function BoletosTab({ dentistId }: Props) {
       if (isMesReq) {
         const params: any = { month: mes };
         if (kind) params.kind = kind;
-        if (billingType) params.billingType = billingType;
+        // Sem billingType: "Do mês" já é só boleto (o seletor de forma fica escondido lá).
         if (dentistId) params.dentistId = dentistId;
         const r = await api.get('/financeiro/charges/month', { params });
         if (!atual()) return;
@@ -232,6 +233,7 @@ export default function BoletosTab({ dentistId }: Props) {
         setTotal(r.data?.total || 0);
         setMesHoje(r.data?.today || null);
         setMesOutros(r.data?.received_other_months || null);
+        setMesGuardaChuvas(r.data?.umbrellas || []);
         setMesCarregado(r.data?.month || mes);
         return;
       }
@@ -266,6 +268,7 @@ export default function BoletosTab({ dentistId }: Props) {
         setCharges([]);
         setTotal(0);
         setMesOutros(null);
+        setMesGuardaChuvas([]);
         setMesErro(true);
       }
     } finally {
@@ -640,6 +643,8 @@ export default function BoletosTab({ dentistId }: Props) {
             <option value="ENTRADA">Entrada</option>
             <option value="INSTALLMENT">Parcela</option>
           </select>
+          {/* "Do mês" já é só boleto — o filtro de forma não se aplica ali. */}
+          {!isMes && (
           <select
             value={billingType}
             onChange={(e) => setBillingType(e.target.value)}
@@ -650,6 +655,7 @@ export default function BoletosTab({ dentistId }: Props) {
             <option value="BOLETO">Boleto</option>
             <option value="CREDIT_CARD">Cartão</option>
           </select>
+          )}
           {/* Onda 18.x — exporta o que está na tela (mesmos filtros) pra conferência
               offline / envio ao contador. Gera no navegador, sem passar pela API. */}
           {visiveis.length > 0 && (
@@ -675,7 +681,7 @@ export default function BoletosTab({ dentistId }: Props) {
             <span className="inline-flex items-center gap-1 normal-case text-amber-600 dark:text-amber-400">
               <AlertTriangle size={11} />
               {isMes
-                ? `lista cortada no limite — o resumo do mês considera só ${charges.length} de ${total} cobranças; use os filtros de tipo/forma`
+                ? `lista cortada no limite — o resumo do mês considera só ${charges.length} de ${total} cobranças; use o filtro de tipo`
                 : `lista cortada no limite — os totais por paciente consideram só ${charges.length} de ${total}; use a busca pra ver um paciente específico`}
             </span>
           )}
@@ -699,6 +705,7 @@ export default function BoletosTab({ dentistId }: Props) {
           pronto={mesCarregado === mes}
           loading={loading}
           recebidoOutrosMeses={mesCarregado === mes ? mesOutros : null}
+          guardaChuvas={mesCarregado === mes ? mesGuardaChuvas : []}
           diaSelecionado={diaSel}
           statusSelecionado={statusSel}
           onMes={trocarMes}

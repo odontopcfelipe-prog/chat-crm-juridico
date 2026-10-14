@@ -13,9 +13,19 @@
  */
 
 import { useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
 
 export type MesStatus = 'pago' | 'hoje' | 'aberto' | 'atrasado';
+
+/** Parcelamento gravado como cobrança ÚNICA (valor total) — fica fora do calendário. */
+export interface MesGuardaChuva {
+  charge_id: string;
+  patient: { id: string; name: string | null } | null;
+  installments: number | null;
+  total: number;
+  first_due: string;
+}
 
 export interface MesCharge {
   id: string;
@@ -122,6 +132,8 @@ interface Props {
   pronto: boolean;
   /** Entrou no mês, mas é de boleto que vence em OUTRO mês. */
   recebidoOutrosMeses: { count: number; total: number } | null;
+  /** Parcelamentos gravados como cobrança única (valor total) que podem ter parcela no mês. */
+  guardaChuvas: MesGuardaChuva[];
   diaSelecionado: string | null;
   statusSelecionado: MesStatus | null;
   onMes: (mes: string) => void;
@@ -130,7 +142,7 @@ interface Props {
 }
 
 export default function BoletosMesResumo({
-  mes, hoje, charges, loading, pronto, recebidoOutrosMeses, diaSelecionado, statusSelecionado, onMes, onDia, onStatus,
+  mes, hoje, charges, loading, pronto, recebidoOutrosMeses, guardaChuvas, diaSelecionado, statusSelecionado, onMes, onDia, onStatus,
 }: Props) {
   const { geral, totalMes, porDia } = useMemo(() => {
     const geral = somaVazia();
@@ -205,6 +217,11 @@ export default function BoletosMesResumo({
         </div>
       </div>
 
+      {/* O que entra nesta aba (fora da linha de navegação — no celular quebrava as setas). */}
+      <p className="-mt-2 text-[11px] text-muted-foreground">
+        Só vendas parceladas em boleto: parcelas e entrada das propostas + boletos importados do Asaas.
+      </p>
+
       {/* Faixa do mês: recebido × o que falta */}
       <div className="space-y-1.5">
         <BarraStatus soma={geral} total={totalMes} alta />
@@ -254,6 +271,40 @@ export default function BoletosMesResumo({
           neste mês de {recebidoOutrosMeses.count} cobrança{recebidoOutrosMeses.count === 1 ? '' : 's'} que vencia
           {recebidoOutrosMeses.count === 1 ? '' : 'm'} em outro mês (atrasada paga agora ou adiantada) — não estão na lista.
         </p>
+      )}
+
+      {pronto && guardaChuvas.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.07] px-3 py-2 text-xs text-foreground">
+          <p className="flex items-start gap-1.5">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              {guardaChuvas.length === 1 ? 'Este parcelamento ficou gravado' : `Estes ${guardaChuvas.length} parcelamentos ficaram gravados`}{' '}
+              como uma cobrança só, com o valor total — por isso <strong>não entram</strong> no previsto nem no calendário.
+              Confira as parcelas na ficha do paciente:
+            </span>
+          </p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5 pl-5">
+            {guardaChuvas.map((g) => (
+              <li key={g.charge_id}>
+                {g.patient ? (
+                  <Link
+                    href={`/atendimento/pacientes/${g.patient.id}?tab=financial`}
+                    className="inline-flex items-center gap-1 rounded-full bg-background border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                  >
+                    {g.patient.name || 'Sem nome'}
+                    <span className="text-muted-foreground">
+                      · {g.installments ? `${g.installments}x · ` : ''}{fmtBRL(g.total)}
+                    </span>
+                  </Link>
+                ) : (
+                  <span className="inline-flex rounded-full bg-background border border-border px-2 py-0.5">
+                    Sem paciente · {fmtBRL(g.total)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Calendário — o que vence em cada dia */}
