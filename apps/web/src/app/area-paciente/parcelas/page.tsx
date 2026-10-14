@@ -29,6 +29,10 @@ const METODO_LABEL: Record<string, string> = {
 const fmtBRL = (v: number | string) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
 
+// Vencimento é DATA gravada à meia-noite UTC (ver overdue.util do shared). No fuso
+// do navegador (UTC-3) ela virava o dia ANTERIOR. Lê em UTC — só pra due_date.
+const fmtDue = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
   ABERTA:    { label: 'Aberta',    cls: 'bg-blue-500/10 text-blue-700 border-blue-500/20' },
   PARCIAL:   { label: 'Parcial',   cls: 'bg-amber-500/10 text-amber-700 border-amber-500/20' },
@@ -94,7 +98,7 @@ export default function AreaPacienteParcelasPage() {
                       Parcela {i.sequence}/{i.total_count}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Vencimento: {due.toLocaleDateString('pt-BR')}
+                      Vencimento: {fmtDue(i.due_date)}
                     </p>
                     {overdue && (
                       <p className="text-[10px] text-destructive mt-0.5 flex items-center gap-1">

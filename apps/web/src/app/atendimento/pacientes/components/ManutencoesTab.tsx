@@ -60,6 +60,12 @@ interface Props {
 const formatDate = (s: string) =>
   new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 
+// due_date é DATA: a manual vem do <input type="date"> → meia-noite UTC, que no
+// fuso do navegador (UTC-3) virava o dia ANTERIOR. Lê em UTC — só pra due_date
+// (completed_at é instante real e segue no formatDate).
+const formatDue = (s: string) =>
+  new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
 const daysLeft = (iso: string): number => {
   const ms = new Date(iso).getTime() - Date.now();
   return Math.floor(ms / (1000 * 60 * 60 * 24));
@@ -174,7 +180,7 @@ export default function ManutencoesTab({ patientId }: Props) {
                   <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                     <span className="flex items-center gap-1">
                       <CalIcon size={11} />
-                      {formatDate(t.due_date)}
+                      {formatDue(t.due_date)}
                     </span>
                     {isPending && dleft >= 0 && (
                       <span className={dleft <= 7 ? 'text-amber-600 font-medium' : ''}>

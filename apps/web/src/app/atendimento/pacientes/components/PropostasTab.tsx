@@ -525,6 +525,12 @@ function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Vencimento de cobrança é DATA (meia-noite/meio-dia UTC, igual ao dueDate do Asaas —
+// ver overdue.util do shared). No fuso do navegador (UTC-3) a meia-noite UTC virava o
+// dia ANTERIOR. Lê em UTC — só pra due_date.
+const fmtDue = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—';
+
 // Hoje em Maceió (UTC-3) como YYYY-MM-DD. Data de vencimento não pode ser no passado —
 // o Asaas recusa (invalid_dueDate). Erro comum: ano digitado errado (ex.: 0206 em vez de 2026).
 const maceioTodayStr = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -9424,7 +9430,7 @@ function BoletosResultPanel({
         {entrada && (
           <BoletoRow
             label="Entrada"
-            sublabel={`1 boleto · vence ${new Date(entrada.due_date).toLocaleDateString('pt-BR')}`}
+            sublabel={`1 boleto · vence ${fmtDue(entrada.due_date)}`}
             amount={entrada.amount}
             url={entrada.boleto_url}
             barcode={entrada.barcode}
@@ -9434,7 +9440,7 @@ function BoletosResultPanel({
         {parcelado && (
           <BoletoRow
             label={`${parcelas}x parceladas`}
-            sublabel={`${parcelas} boletos · primeiro vence ${new Date(parcelado.due_date).toLocaleDateString('pt-BR')}`}
+            sublabel={`${parcelas} boletos · primeiro vence ${fmtDue(parcelado.due_date)}`}
             amount={parcelado.amount}
             url={parcelado.boleto_url}
             barcode={parcelado.barcode}
@@ -9883,13 +9889,6 @@ function ChargesGeneratedDialog({
   // Onda 17.32.18 — Dialog "Cobrar com Asaas Tap" mostra instrucoes pro
   // operador processar o cartao no app Asaas do celular Android.
   const [asaasTapDialog, setAsaasTapDialog] = useState<null | { chargeId: string; asaasChargeId: string; amount: number; invoiceUrl: string | null }>(null);
-  const fmtDate = (iso: string | null) => {
-    if (!iso) return '—';
-    try {
-      const d = new Date(iso);
-      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    } catch { return iso; }
-  };
   const kindLabel = (kind: string | null) =>
     kind === 'SINAL' ? 'Sinal de fechamento' :
     kind === 'ENTRADA' ? 'Entrada' :
@@ -9959,7 +9958,7 @@ function ChargesGeneratedDialog({
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-foreground">{kindLabel(charge.kind)}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Vence em {fmtDate(charge.due_date)}
+                        Vence em {fmtDue(charge.due_date)}
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">

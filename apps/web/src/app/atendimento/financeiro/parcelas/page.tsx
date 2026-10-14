@@ -27,6 +27,10 @@ interface Installment {
   _count?: { collection_attempts: number };
 }
 
+// Vencimento é DATA gravada à meia-noite UTC (ver overdue.util do shared). No fuso
+// do navegador (UTC-3) ela virava o dia ANTERIOR. Lê em UTC — só pra due_date.
+const fmtDue = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
 interface PaymentCharge {
   id: string;
   external_id: string;
@@ -236,7 +240,7 @@ export default function ParcelasPage() {
                       {i.sequence}/{i.total_count}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {due.toLocaleDateString('pt-BR')}
+                      {fmtDue(i.due_date)}
                       {overdue && (
                         <div className="text-[10px] text-destructive">{daysLate}d em atraso</div>
                       )}
@@ -369,7 +373,7 @@ function PayModal({
             <p className="font-medium">{installment.patient.name}</p>
             <p className="text-xs text-muted-foreground">
               Parcela {installment.sequence}/{installment.total_count} · venc.{' '}
-              {new Date(installment.due_date).toLocaleDateString('pt-BR')}
+              {fmtDue(installment.due_date)}
             </p>
             <p className="text-xs mt-1">
               Saldo devedor: <span className="font-mono font-bold">{fmt(remaining)}</span>
@@ -529,7 +533,7 @@ function ChargeModal({
             <p className="font-medium">{installment.patient.name}</p>
             <p className="text-xs text-muted-foreground">
               Parcela {installment.sequence}/{installment.total_count} · venc.{' '}
-              {new Date(installment.due_date).toLocaleDateString('pt-BR')}
+              {fmtDue(installment.due_date)}
             </p>
             <p className="text-xs mt-1">
               Valor: <span className="font-mono font-bold">{fmt(remaining)}</span>

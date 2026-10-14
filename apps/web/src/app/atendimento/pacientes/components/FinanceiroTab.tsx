@@ -131,6 +131,14 @@ const fmtDate = (iso: string | null) => {
   return new Date(iso).toLocaleDateString('pt-BR');
 };
 
+// Vencimento é DATA (meia-noite/meio-dia UTC, igual ao dueDate do Asaas — ver
+// overdue.util do shared). No fuso do navegador (UTC-3) a meia-noite UTC virava o
+// dia ANTERIOR. Lê em UTC — só pra due_date; paid_at/created_at seguem no fmtDate.
+const fmtDue = (iso: string | null) => {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
+
 // Onda 18.x — data+hora pro rastro do cancelamento ("18/08/2026 14:30").
 const fmtDateTime = (iso?: string | null) => {
   if (!iso) return '—';
@@ -494,7 +502,7 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Vencimento: {fmtDate(it.due_date)}
+                    Vencimento: {fmtDue(it.due_date)}
                     {it.paid_at && ` · Pago em: ${fmtDate(it.paid_at)}`}
                   </p>
                 </div>
@@ -1801,7 +1809,7 @@ function ParcelaLinha({
           </span>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Vencimento {fmtDate(p.dueDate)} · via {methodLabel}
+          Vencimento {fmtDue(p.dueDate)} · via {methodLabel}
         </p>
       </div>
       <p className="text-sm font-bold tabular-nums text-foreground text-right shrink-0">
@@ -1966,7 +1974,7 @@ function ChargeViewerModal({
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Vencimento {fmtDate(p.dueDate)} · {fmtBRL(p.value)}
+              Vencimento {fmtDue(p.dueDate)} · {fmtBRL(p.value)}
             </p>
           </div>
           <button
@@ -2494,7 +2502,7 @@ function CancelledChargesSection({ charges }: { charges: Charge[] }) {
                       {verbo}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
-                      Vencia {fmtDate(c.due_date)}
+                      Vencia {fmtDue(c.due_date)}
                     </span>
                   </div>
                   {c.description && (
@@ -2649,7 +2657,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
           </span>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Vencimento: {fmtDate(c.due_date)}
+          Vencimento: {fmtDue(c.due_date)}
           {c.paid_at && ` · Pago em: ${fmtDate(c.paid_at)}`}
           {c.description && ` · ${c.description.replace(/\[plan:[^\]]+\]/, '').trim()}`}
         </p>
@@ -3227,7 +3235,7 @@ function ProposalDetailModal({
                                 {isPaid ? 'Pago' : c.status === 'OVERDUE' ? 'Vencido' : 'Pendente'}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
-                                Vence {fmtDate(c.due_date)}
+                                Vence {fmtDue(c.due_date)}
                               </span>
                             </div>
                             <span className="text-sm font-bold tabular-nums">{fmtBRL(Number(c.amount))}</span>
@@ -3297,7 +3305,7 @@ function ProposalDetailModal({
                                         {subPaid ? 'Pago' : subOverdue ? 'Vencido' : 'Pendente'}
                                       </span>
                                       <span className="text-muted-foreground">
-                                        Vence {fmtDate(s.due_date)}
+                                        Vence {fmtDue(s.due_date)}
                                         {s.payment_date && ` · Pago em ${fmtDate(s.payment_date)}`}
                                       </span>
                                     </div>
