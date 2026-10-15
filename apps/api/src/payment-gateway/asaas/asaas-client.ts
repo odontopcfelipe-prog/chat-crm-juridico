@@ -310,7 +310,9 @@ export class AsaasClient {
         access_token: config.apiKey,
         'User-Agent': 'LexCRM/1.0',
       },
-      timeout: 30000,
+      // Carnê de 24 parcelas o Asaas demora pra gerar — 30s estourava e o envio caía
+      // nos links. (Se ainda falhar, o envio monta o carnê localmente.)
+      timeout: 60000,
     });
     return Buffer.from(res.data as ArrayBuffer);
   }

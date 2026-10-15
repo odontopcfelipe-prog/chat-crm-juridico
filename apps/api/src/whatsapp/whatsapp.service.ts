@@ -230,6 +230,10 @@ export class WhatsappService {
      *  puro (sem prefixo data:...). Evolution precisa saber o tipo MIME
      *  pra processar o arquivo. Default: deduz por mediaType. */
     mimetype?: string,
+    /** Tempo limite do envio (padrão 15s). Documento grande em base64 (ex.: carnê
+     *  com 24 boletos) pode passar disso e a Evolution entrega mesmo assim — o 408
+     *  fazia o retry mandar o carnê de novo. */
+    timeoutMs?: number,
   ) {
     const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
 
@@ -271,7 +275,7 @@ export class WhatsappService {
       caption: caption || '',
       ...(fileName ? { fileName } : {}),
       ...(resolvedMimetype ? { mimetype: resolvedMimetype } : {}),
-    });
+    }, timeoutMs ?? 15000);
   }
 
   // --- MENSAGENS INTERATIVAS ---

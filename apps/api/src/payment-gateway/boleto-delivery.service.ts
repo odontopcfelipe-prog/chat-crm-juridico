@@ -4,6 +4,8 @@ import { buildCondicoesBlock } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import axios from 'axios';
+import { montarCarneLocal } from './carne-local';
 
 /**
  * Parte 2 — ENVIO DOS BOLETOS no dia seguinte à apresentação (Central de Disparos).
@@ -46,6 +48,9 @@ export class BoletoDeliveryService {
    *  marca a venda como abandonada (sai da fila); a recepção corrige o telefone e
    *  reenvia manualmente ("enviar boleto"). A falha fica visível no DispatchLog. */
   private static readonly MAX_ATTEMPTS = 8;
+  /** Envio do carnê (PDF grande em base64): 15s estourava e o 408 fazia o retry mandar
+   *  o carnê de novo, mesmo a Evolution tendo entregue. */
+  private static readonly CARNE_SEND_TIMEOUT_MS = 90_000;
   /** Gap ENTRE clientes (não dentro de um cliente): dentro de UM cliente os boletos
    *  saem imediatos (texto+carnê+entrada); entre clientes DIFERENTES espera um tempo
    *  pra não disparar pra várias pessoas ao mesmo tempo. Chip dedicado → gap curto. */
@@ -108,7 +113,7 @@ export class BoletoDeliveryService {
       return { ok: false, detail: 'Esta venda não tem boleto em aberto para enviar (já quitado ou recebido na clínica).' };
     }
     const name = anyCharge.treatment_plan?.patient?.name || 'Paciente';
-    const ok = await this.sendBoletos(planId, tenantId, name, phone, { dedup: false });
+    const ok = await this.sendBoletos(planId, tenantId, name, phone, { dedup: false, ultimaTentativa: true });
     return {
       ok,
       detail: ok
@@ -205,7 +210,11 @@ export class BoletoDeliveryService {
         this.logger.warn(`[BOLETO_DELIVERY] Plano ${target.planId} sem telefone — pulando (retry na janela).`);
         return;
       }
-      const ok = await this.sendBoletos(target.planId, target.tenantId, plan.patient.name, phone);
+      // Última tentativa antes de desistir: só nela o carnê pode ir como links.
+      const tentativasAntes = await this.countAttempts(target.planId);
+      const ok = await this.sendBoletos(target.planId, target.tenantId, plan.patient.name, phone, {
+        ultimaTentativa: tentativasAntes + 1 >= BoletoDeliveryService.MAX_ATTEMPTS,
+      });
       if (ok) {
         await this.logDelivered(target.planId, target.tenantId, 'sent');
         this.logger.log(`[BOLETO_DELIVERY] Boletos enviados (plano ${target.planId}).`);
@@ -298,7 +307,14 @@ export class BoletoDeliveryService {
    *  Dedup POR PEÇA (retry reenvia só o que falhou, sem duplicar) + checagem do
    *  sucesso REAL (a Evolution não lança — devolve {statusCode,error} em falha).
    *  Retorna true só se TODAS as peças foram entregues (agora ou antes). */
-  private async sendBoletos(planId: string, tenantId: string, name: string, phone: string, opts?: { dedup?: boolean }): Promise<boolean> {
+  private async sendBoletos(
+    planId: string,
+    tenantId: string,
+    name: string,
+    phone: string,
+    /** ultimaTentativa: só nela o carnê pode cair em links (antes, tenta o PDF de novo). */
+    opts?: { dedup?: boolean; ultimaTentativa?: boolean },
+  ): Promise<boolean> {
     const dedup = opts?.dedup !== false; // teste passa dedup:false → força reenvio, sem marcar
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
@@ -366,32 +382,77 @@ export class BoletoDeliveryService {
     );
     if (!textOk) allOk = false;
 
-    // 2) Carnê das parcelas (1 PDF com todas). Fallback: links num texto.
+    // 2) Carnê das parcelas (1 PDF com todas). Plano A: o carnê do Asaas. Plano B:
+    // carnê montado AQUI com o PDF de cada parcela. Links só em último caso (o dono
+    // quer os boletos em PDF — "link gera desconfiança").
     if (parcelas.length > 0) {
+      // Parcelas que não couberam no carnê montado aqui (download falhou) — vão como
+      // link numa peça SEPARADA, depois que o carnê saiu (falha dela não derruba o carnê).
+      let faltandoLinks: string[] = [];
       const carneOk = await this.sendPiece(`${planId}:carne`, tenantId, async () => {
         let installmentId: string | null = null;
         try {
           installmentId = await this.resolveInstallmentId(parcelas, tenantId);
         } catch {
-          /* cai no fallback de links */
+          /* segue pro carnê montado aqui */
         }
         if (installmentId) {
+          // Só a BUSCA do carnê cai no plano B. O ENVIO fica fora do try: se ele der erro
+          // de rede depois de a Evolution já ter mandado, o plano B mandaria 2º carnê.
+          let pdfAsaas: Buffer | null = null;
           try {
-            const pdf = await this.asaas.getInstallmentPaymentBook(installmentId, tenantId);
-            return await this.whatsapp.sendMedia(
-              phone, 'document', pdf.toString('base64'),
-              `Carnê — ${parcelas.length} parcelas`, instance, 'carne-boletos.pdf', 'application/pdf',
-            );
+            pdfAsaas = await this.asaas.getInstallmentPaymentBook(installmentId, tenantId);
           } catch (e: any) {
-            this.logger.warn(`[BOLETO_DELIVERY] Carnê falhou p/ plano ${planId}: ${e?.message || e} — fallback links.`);
+            this.logger.warn(`[BOLETO_DELIVERY] Carnê do Asaas falhou p/ plano ${planId}: ${e?.message || e} — monta o carnê aqui.`);
           }
+          if (pdfAsaas) {
+            return await this.whatsapp.sendMedia(
+              phone, 'document', pdfAsaas.toString('base64'),
+              `Carnê — ${parcelas.length} parcelas`, instance, 'carne-boletos.pdf', 'application/pdf',
+              BoletoDeliveryService.CARNE_SEND_TIMEOUT_MS,
+            );
+          }
+        } else {
+          this.logger.warn(`[BOLETO_DELIVERY] Plano ${planId}: parcelas sem parcelamento no Asaas — monta o carnê aqui.`);
         }
-        // Fallback: os links das parcelas num único texto.
-        const linhas = parcelas.map((p, i) => (p.boleto_url ? `Parcela ${i + 1}: ${p.boleto_url}` : '')).filter(Boolean);
+        // Plano B: baixa o PDF de cada parcela e junta num PDF só.
+        const fontes = await this.parcelasParaCarne(parcelas, installmentId, tenantId);
+        try {
+          const local = await montarCarneLocal(fontes.map((f) => f.url), (u) => this.baixarPdf(u));
+          const r = await this.whatsapp.sendMedia(
+            phone, 'document', local.pdf.toString('base64'),
+            `Carnê — ${local.incluidas} parcelas`, instance, 'carne-boletos.pdf', 'application/pdf',
+            BoletoDeliveryService.CARNE_SEND_TIMEOUT_MS,
+          );
+          if (local.faltando.length) {
+            faltandoLinks = local.faltando
+              .map((i) => (fontes[i].url ? `${fontes[i].rotulo}: ${fontes[i].url}` : ''))
+              .filter(Boolean);
+            this.logger.warn(
+              `[BOLETO_DELIVERY] Plano ${planId}: ${local.faltando.length} parcela(s) fora do carnê montado — ` +
+              `${faltandoLinks.length} vão como link` +
+              (faltandoLinks.length < local.faltando.length ? `, ${local.faltando.length - faltandoLinks.length} sem PDF nem link (conferir no Asaas)` : '') + '.',
+            );
+          }
+          return r;
+        } catch (e: any) {
+          this.logger.warn(`[BOLETO_DELIVERY] Carnê montado aqui também falhou p/ plano ${planId}: ${e?.message || e}`);
+        }
+        // Os dois carnês falharam (Asaas fora do ar, em geral). Links SÓ na última
+        // tentativa — antes disso a peça falha e a próxima rodada tenta o PDF de novo
+        // (o dono quer PDF; e link pro Asaas fora do ar também não abre).
+        if (!opts?.ultimaTentativa) throw new Error('carnê indisponível agora — tenta o PDF na próxima rodada');
+        const linhas = fontes.map((f) => (f.url ? `${f.rotulo}: ${f.url}` : '')).filter(Boolean);
         if (linhas.length === 0) throw new Error('sem carnê e sem links de parcela');
         return await this.whatsapp.sendText(phone, `Aqui estão os boletos das suas parcelas:\n\n${linhas.join('\n')}`, instance);
       }, dedup);
       if (!carneOk) allOk = false;
+      if (carneOk && faltandoLinks.length) {
+        const linksOk = await this.sendPiece(`${planId}:carne-faltando`, tenantId, () =>
+          this.whatsapp.sendText(phone, `E estes boletos seguem pelo link:\n\n${faltandoLinks.join('\n')}`, instance), dedup,
+        );
+        if (!linksOk) this.logger.warn(`[BOLETO_DELIVERY] Plano ${planId}: links das parcelas fora do carnê não saíram.`);
+      }
     }
 
     // 3) Entrada/sinal (boletos avulsos) — PDF direto pela URL pública do Asaas.
@@ -426,6 +487,69 @@ export class BoletoDeliveryService {
     }
 
     return allOk;
+  }
+
+  /** Baixa o PDF público de um boleto (bankSlipUrl do Asaas). */
+  private async baixarPdf(url: string): Promise<Buffer> {
+    const res = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 20000,
+      maxRedirects: 5,
+      maxContentLength: 5 * 1024 * 1024, // boleto tem ~100KB; teto contra resposta absurda
+      headers: { 'User-Agent': 'LexCRM/1.0', Accept: 'application/pdf' },
+    });
+    return Buffer.from(res.data as ArrayBuffer);
+  }
+
+  /**
+   * Parcelas que vão no carnê montado aqui, na ordem. Com o parcelamento do Asaas, a
+   * lista AO VIVO dele: só as em aberto (paga com webhook perdido não entra) e com o
+   * PDF de cada uma — cobre também a cobrança "guarda-chuva" (1 linha no banco com o
+   * total). Sem parcelamento (ou se a consulta falhar), as parcelas do banco; a que não
+   * tem PDF salvo busca o bankSlipUrl no Asaas.
+   */
+  private async parcelasParaCarne(
+    parcelas: { external_id: string | null; boleto_url: string | null; description: string | null }[],
+    installmentId: string | null,
+    tenantId: string,
+  ): Promise<{ url: string | null; rotulo: string }[]> {
+    if (installmentId) {
+      try {
+        const list: any = await this.asaas.listCharges({ installment: installmentId, limit: 100 }, tenantId);
+        const abertas = ((list?.data || []) as any[])
+          .filter((c) => !c.deleted && ['PENDING', 'OVERDUE'].includes(String(c.status || '').toUpperCase()))
+          .sort((a, b) => (a.installmentNumber ?? 0) - (b.installmentNumber ?? 0) || String(a.dueDate).localeCompare(String(b.dueDate)));
+        if (abertas.length) {
+          const fontes: { url: string | null; rotulo: string }[] = [];
+          for (const c of abertas) {
+            let url: string | null = c.bankSlipUrl || null;
+            if (!url && c.id) {
+              try { url = (await this.asaas.getCharge(c.id, tenantId))?.bankSlipUrl || null; } catch { /* vira link/falta */ }
+            }
+            fontes.push({ url, rotulo: `Parcela ${c.installmentNumber ?? fontes.length + 1}` });
+          }
+          return fontes;
+        }
+      } catch (e: any) {
+        this.logger.warn(`[BOLETO_DELIVERY] Lista do parcelamento ${installmentId} falhou (${e?.message || e}) — usa as parcelas do banco.`);
+      }
+    }
+    const fontes: { url: string | null; rotulo: string }[] = [];
+    for (let i = 0; i < parcelas.length; i++) {
+      const p = parcelas[i];
+      let url = p.boleto_url;
+      if (!url && p.external_id) {
+        try { url = (await this.asaas.getCharge(p.external_id, tenantId))?.bankSlipUrl || null; } catch { /* vira falta */ }
+      }
+      fontes.push({ url, rotulo: this.rotuloParcela(p, i) });
+    }
+    return fontes;
+  }
+
+  /** "Parcela n" pelo número real da descrição ("Parcela 3/24 — …"); senão a posição. */
+  private rotuloParcela(p: { description: string | null }, i: number): string {
+    const m = /Parcela\s+(\d+)\s*\/\s*\d+/i.exec(p.description || '');
+    return `Parcela ${m ? m[1] : i + 1}`;
   }
 
   /** Resolve o id do GRUPO de parcelamento do Asaas — não é salvo; getCharge de
