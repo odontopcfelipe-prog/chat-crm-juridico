@@ -340,6 +340,26 @@ export default function BoletosTab({ dentistId }: Props) {
   // A forma (espécie/PIX/cartão) é escolhida na hora — vai pro caixa e pro
   // comprovante; antes ia tudo como "dinheiro".
   const handleMarkCash = async (c: Charge) => {
+    // Venda no CARTÃO "a receber" (cobrança local `cash-…-CARTAO-…`): confirma como CARTÃO.
+    // Antes ia pro mark-cash-received, que ignorava a forma e não lançava a receita.
+    if ((c.external_id || '').includes('-CARTAO-')) {
+      if (!window.confirm(
+        `Confirmar que o cartão de ${c.patient?.name || 'paciente'} foi passado na maquineta (${fmtBRL(c.amount)})?\n\n` +
+        `Marca a venda como RECEBIDA e lança nas Entradas como CARTÃO.`,
+      )) return;
+      setMarkingCash(c.id);
+      try {
+        await api.post(`/payment-gateway/charges/${c.id}/confirm-cartao`);
+        showSuccess('Recebimento no cartão confirmado');
+        fetchData({ silencioso: true });
+        fetchKpis();
+      } catch (e: any) {
+        showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento no cartão');
+      } finally {
+        setMarkingCash(null);
+      }
+      return;
+    }
     const METHODS = [
       { key: 'DINHEIRO', label: 'Espécie (dinheiro)' },
       { key: 'PIX', label: 'PIX da clínica' },

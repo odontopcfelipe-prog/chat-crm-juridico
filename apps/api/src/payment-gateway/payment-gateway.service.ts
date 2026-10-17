@@ -135,13 +135,15 @@ export class PaymentGatewayService {
   async confirmCartaoReceipt(chargeId: string, tenantId: string, userId?: string) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { id: chargeId, tenant_id: tenantId },
-      select: { id: true, external_id: true, status: true, received_in_cash: true },
+      select: { id: true, external_id: true, status: true, received_in_cash: true, description: true },
     });
     if (!charge) throw new NotFoundException('Cobrança não encontrada');
     if (charge.received_in_cash || charge.status === 'RECEIVED' || charge.status === 'CONFIRMED') {
       return { ok: true, already: true, charge_id: charge.id };
     }
-    return this.registerClinicReceipt(charge.external_id, { paymentMethod: 'CARTAO', userId });
+    // Nº de parcelas da operadora (só informativo na receita): "(cartão 3x · a receber)".
+    const nx = Number(/cart[ãa]o\s+(\d+)\s*x/i.exec(charge.description || '')?.[1]) || undefined;
+    return this.registerClinicReceipt(charge.external_id, { paymentMethod: 'CARTAO', userId, installments: nx });
   }
 
   /** Onda 17.41 — billing_type da cobrança → forma de pagamento do caixa. */

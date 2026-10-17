@@ -562,7 +562,15 @@ export class DownPaymentFlowService {
     const { QuotesService } = require('./quotes.service');
     const quotesService: any = this.moduleRef.get(QuotesService, { strict: false });
 
+    // Venda no CARTÃO (maquineta) nunca gera boletos de parcela: o cartão é passado na
+    // clínica. Parâmetros de boleto que sobraram de uma emissão anterior (entrada pelo
+    // modal do Boleto antes de trocar pra cartão) geravam boletos que venciam/cobravam.
+    const vendaNoCartao = String(plan.quote?.chosen_payment_key || '').startsWith('cartao-');
+    if (vendaNoCartao) {
+      this.logger.log(`[DOWN-PAYMENT] Plano ${planId}: venda no CARTÃO — não gera boletos de parcela.`);
+    }
     const hasParams =
+      !vendaNoCartao &&
       plan.installment_count != null && plan.installment_count > 0 &&
       plan.installment_value != null && Number(plan.installment_value) > 0;
 
@@ -707,12 +715,16 @@ export class DownPaymentFlowService {
   ) {
     const plan = await this.prisma.treatmentPlan.findFirst({
       where: { quote_id: quoteId },
-      include: { patient: true },
+      include: { patient: true, quote: { select: { chosen_payment_key: true } } },
     });
     if (!plan) {
       throw new BadRequestException('Plano nao encontrado pra esta proposta.');
     }
     if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    // Venda no CARTÃO (maquineta) não tem boletos de parcela.
+    if (String((plan as any).quote?.chosen_payment_key || '').startsWith('cartao-')) {
+      throw new BadRequestException('Esta venda foi no CARTÃO (maquineta) — não gera boletos de parcela.');
+    }
 
     // Idempotencia — pelo marcador OU pela existencia de parcela ATIVA. O fechamento
     // UPFRONT (createFinancingCharges) cria INSTALLMENT sem carimbar installments_generated_at,

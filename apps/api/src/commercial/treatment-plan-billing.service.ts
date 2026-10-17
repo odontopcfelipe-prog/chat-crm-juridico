@@ -603,9 +603,16 @@ export class TreatmentPlanBillingService {
     // receiveNow=false (CARTÃO na maquineta, sem integração): cria "a receber" e NÃO lança
     // no caixa agora — o Financeiro confirma depois num clique (registerClinicReceipt → CARTAO).
     const receiveNow = options.receiveNow !== false;
+    const isCartao = options.paymentMethod === 'CARTAO';
     const nx = options.installments && options.installments > 1 ? ` ${options.installments}x` : '';
-    const externalId = `cash-${planId}-${receiveNow ? 'AVISTA' : 'CARTAO'}-${Date.now()}`;
-    const descLabel = receiveNow ? 'recebido na clínica' : `cartão${nx} · a receber`;
+    // Marcador -CARTAO- no external_id identifica a venda no cartão (a tela do Financeiro
+    // usa ele) — vale também quando o cartão já foi passado na hora.
+    const externalId = `cash-${planId}-${isCartao || !receiveNow ? 'CARTAO' : 'AVISTA'}-${Date.now()}`;
+    const descLabel = !receiveNow
+      ? `cartão${nx} · a receber`
+      : isCartao
+        ? `cartão${nx} na maquineta · recebido na clínica`
+        : 'recebido na clínica';
     const description = `Plano de tratamento — ${plan.patient.name} (${descLabel}) [plan:${planId}]`;
     const charge = await this.prisma.paymentGatewayCharge.create({
       data: {
@@ -633,6 +640,8 @@ export class TreatmentPlanBillingService {
     const receipt = await this.paymentGateway.registerClinicReceipt(externalId, {
       paymentMethod: options.paymentMethod,
       userId: options.userId,
+      // Cartão Nx: o nº de parcelas da operadora vai na descrição da receita.
+      installments: isCartao ? options.installments : undefined,
     });
     this.logger.log(
       `[MANUAL-RECEIPT] Plan ${planId}: ${options.paymentMethod} R$ ${options.value} → caixa`,

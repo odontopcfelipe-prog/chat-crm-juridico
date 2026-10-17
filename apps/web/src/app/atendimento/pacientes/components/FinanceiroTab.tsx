@@ -763,7 +763,7 @@ function ProposalFinancialCard({
       return;
     }
     const reason = window.prompt(
-      `CANCELAR esta cobrança (R$ ${fmtBRL(p.value)})?\n\n` +
+      `CANCELAR esta cobrança (${fmtBRL(p.value)})?\n\n` +
       `Apaga o boleto NO ASAAS (o link/QR para de funcionar) e tira da inadimplência,\n` +
       `MAS ela FICA REGISTRADA no cadastro como "Cancelado", com quem/quando/motivo —\n` +
       `pra eventual revisão até judicial. O paciente NÃO é avisado.\n\n` +
@@ -791,13 +791,32 @@ function ProposalFinancialCard({
   };
   const handleRegistrar = async (p: ParcelaItem) => {
     if (registeringId) return; // evita duplo-clique
+    // Venda no CARTÃO "a receber" (cobrança local `cash-…-CARTAO-…`, sem Asaas): confirma
+    // como CARTÃO. Antes caía no receive-in-cash e lançava a venda como DINHEIRO.
+    if ((p.asaasId || '').includes('-CARTAO-')) {
+      if (!window.confirm(
+        `Confirmar que o cartão foi passado na maquineta (${fmtBRL(p.value)})?\n\n` +
+        `Isso marca a venda como RECEBIDA e lança a receita nas Entradas como CARTÃO.`,
+      )) return;
+      setRegisteringId(p.asaasId);
+      try {
+        await api.post(`/payment-gateway/charges/${p.chargeId}/confirm-cartao`);
+        showSuccess('Recebimento no cartão confirmado — receita lançada como cartão.');
+        onReload?.();
+      } catch (e: any) {
+        showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento no cartão.');
+      } finally {
+        setRegisteringId(null);
+      }
+      return;
+    }
     if (!p.asaasId) {
       showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.');
       return;
     }
     const metodo = p.method === 'PIX' ? 'PIX' : p.method === 'CREDIT_CARD' ? 'cartão' : 'dinheiro/espécie';
     if (!window.confirm(
-      `Marcar como RECEBIDO (R$ ${fmtBRL(p.value)})?\n\n` +
+      `Marcar como RECEBIDO (${fmtBRL(p.value)})?\n\n` +
       `Use só se o paciente JÁ pagou por fora (${metodo}).\n\n` +
       `Isso vai:\n` +
       `• Fechar a cobrança no Asaas (o link/QR para de funcionar)\n` +
@@ -1529,7 +1548,8 @@ function ProposalFinancialCard({
               )}
             </button>
           ) : null}
-          {isPartialFinancing && hasPermission('manage_financial') && (
+          {/* Venda no CARTÃO (maquineta) não tem boletos de parcela pra gerar. */}
+          {isPartialFinancing && !String(quoteDetail?.chosen_payment_key || '').startsWith('cartao-') && hasPermission('manage_financial') && (
             <button
               type="button"
               onClick={(e) => {

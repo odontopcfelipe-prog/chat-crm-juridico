@@ -830,7 +830,22 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     setLoadingDetail(true);
     setItemsExpanded(false);
     api.get<QuoteDetailLite>(`/quotes/${selectedId}`)
-      .then(({ data }) => { if (!cancelled) setSelectedDetail(data); })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setSelectedDetail(data);
+        // A forma SALVA na proposta manda. Antes a tela abria com a forma da sessão
+        // (padrão "pix") e o "Aprovar venda" podia fechar uma proposta salva como
+        // CARTÃO como PIX/boleto parcelado (gerando boletos por parcela). Trocar a
+        // forma depois, na tela, continua valendo.
+        const salva = data?.chosen_payment_key;
+        if (salva) {
+          const o = buildPaymentOptions(
+            data.avista_discount_enabled ? Number(data.avista_discount_pct) || 0 : 0,
+            !!data.sem_juros_enabled,
+          );
+          if ([...o.avista, ...o.cartao, ...o.parcelado].some((x) => x.key === salva)) setActivePaymentKey(salva);
+        }
+      })
       .catch((err) => {
         if (cancelled) return;
         const e = err as { response?: { data?: { message?: string } } };
@@ -1362,8 +1377,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       billingType = 'PIX';
       valueToCharge = calc.finalValue; // com desconto
     } else if (activeOpt.variant === 'cartao') {
-      // Cartão da maquineta (SEM integração): NÃO gera Asaas. Registra como venda no
-      // cartão A RECEBER; o Financeiro confirma depois num clique (cai no caixa como cartão).
+      // Cartão da MAQUINETA, passado na hora (decisão do dono, 17/out/2026): NÃO gera
+      // Asaas nem parcelas — entra como RECEBIDO no cartão (Entradas/caixa), Nx na descrição.
       billingType = 'CREDIT_CARD';
       installmentCount = activeOpt.installments;
       valueToCharge = calc.finalValue; // com juros se houver
@@ -1412,8 +1427,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         `Valor total: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
         `Isso vai:\n` +
         `• Aceitar o orçamento + ativar o plano\n` +
-        `• Registrar a venda no cartão como A RECEBER (sem Asaas)\n` +
-        `• O Financeiro confirma o recebimento depois num clique (cai no caixa como cartão)`
+        `• Registrar como RECEBIDO no cartão (passado na maquineta agora) — entra nas Entradas como cartão\n` +
+        `• Sem boleto, sem cobrança no Asaas e sem parcelas vencendo`
       : `Aprovar proposta?\n\n` +
         `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
         `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
@@ -1448,7 +1463,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       showSuccess(manualPixMethod
         ? `Encaminhado — ${manualLabel} lançado no caixa.`
         : cartaoManual
-        ? 'Venda no cartão registrada — a receber. Confirme o recebimento no Financeiro.'
+        ? 'Venda no cartão registrada como recebida (maquineta).'
         : 'Proposta aprovada e cobrança gerada!');
       // NÃO fecha o painel nem abre o arquivamento AGORA: o modal de resultado (QR do
       // PIX) precisa ficar na tela até o operador fechar. Guarda o arquivamento pendente

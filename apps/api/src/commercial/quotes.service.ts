@@ -924,6 +924,22 @@ export class QuotesService {
       // 3. Cria cobranca (ou registra recebimento manual no caixa, sem Asaas).
       // Se estourar DEPOIS do aceite, DESFAZ o aceite — senão sobrava um contrato
       // ACEITO e SEM COBRANÇA no Financeiro (e o operador via só um erro na tela).
+      // CARTÃO = passado na MAQUINETA, na clínica, NA HORA (decisão do dono, 17/out/2026).
+      // Também quem chega SEM manual_payment_method (tela antiga em cache, outra rota):
+      // antes isso virava cartão PARCELADO no Asaas — N cobranças com link que ninguém
+      // pagava (o cartão já tinha sido passado), venciam, a régua cobrava e o Asaas
+      // avisava o paciente. Cartão online pelo Asaas só se a clínica ligar
+      // CARTAO_ONLINE_ASAAS_<tenant>='true'.
+      if (!data.manual_payment_method && data.billing_type === 'CREDIT_CARD') {
+        const online = await this.prisma.globalSetting
+          .findUnique({ where: { key: `CARTAO_ONLINE_ASAAS_${tenantId}` } })
+          .catch(() => null);
+        if (online?.value !== 'true') {
+          (data as any).manual_payment_method = 'CARTAO';
+          this.logger.log(`[APPROVE-AND-BILL] cartão → maquineta (recebido na clínica), sem Asaas`);
+        }
+      }
+
       let result;
       try {
         if (data.manual_payment_method) {
@@ -932,9 +948,9 @@ export class QuotesService {
             value: data.value,
             paymentMethod: data.manual_payment_method,
             userId,
-            // CARTÃO na maquineta: cria "a receber" (o Financeiro confirma depois num
-            // clique). PIX/PIX_MAQUININHA/DINHEIRO seguem recebendo na hora.
-            receiveNow: data.manual_payment_method !== 'CARTAO',
+            // Tudo recebe NA HORA (PIX/PIX_MAQUININHA/DINHEIRO e o CARTÃO da maquineta):
+            // receita no caixa/Entradas já na aprovação — nada fica "a receber" vencendo.
+            receiveNow: true,
             installments: data.installment_count,
           });
         } else {
@@ -976,12 +992,8 @@ export class QuotesService {
         this.logger.warn(`[APPROVE-AND-BILL] comissão de venda falhou: ${e?.message}`);
       }
 
-      const isCartaoReceber = data.manual_payment_method === 'CARTAO';
-      if (isCartaoReceber) {
-        // CARTÃO na maquineta a RECEBER: não dispara nada ao paciente agora (não há
-        // boleto nem pagamento confirmado). O Financeiro confirma depois num clique.
-        this.logger.log(`[APPROVE-AND-BILL] cartão a receber (plano ${plan.id}) — sem disparo ao paciente.`);
-      } else if (data.received_in_clinic || data.manual_payment_method) {
+      // (CARTÃO agora é recebido na hora → segue o mesmo comprovante de quem pagou na clínica.)
+      if (data.received_in_clinic || data.manual_payment_method) {
         // Venda PAGA na clínica na hora (espécie/PIX — venda rápida OU recibo
         // manual da aba Propostas): NÃO há boleto — manda um COMPROVANTE (compra +
         // valor pago + forma), não a negociação-com-boletos. A forma sai do
