@@ -252,10 +252,12 @@ export class WhatsappService {
     }
 
     if (mediaType === 'audio') {
+      // A Evolution baixa o áudio, converte (ffmpeg) e só então responde — 15s
+      // estourava em áudio mais longo e marcava "erro" num envio que saía.
       return this.request('POST', `message/sendWhatsAppAudio/${targetInstance}`, {
         number: target,
         audio: mediaUrl,
-      });
+      }, timeoutMs ?? 60000);
     }
 
     // Onda 14.42 — Auto-detecta mimetype baseado em mediaType + extensao

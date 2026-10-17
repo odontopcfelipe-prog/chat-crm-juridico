@@ -4,10 +4,10 @@ import { useEffect, useState, useRef, useCallback, useMemo, Fragment } from 'rea
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { MessageSquare, Send, Download, Mic, FileText, Bot, BotOff, Paperclip, X, CheckCheck, Check, Eye, XCircle, Trash2, Reply, UserCheck, PanelLeftOpen, CornerDownLeft, Inbox, Pencil, Search, ChevronDown, ClipboardList, ArrowLeft, MoreVertical, Clock, StickyNote } from 'lucide-react';
+import { MessageSquare, Send, Download, Mic, FileText, Bot, BotOff, Paperclip, X, CheckCheck, Check, Eye, XCircle, Trash2, Reply, UserCheck, PanelLeftOpen, CornerDownLeft, Inbox, Pencil, Search, ChevronDown, ClipboardList, ArrowLeft, MoreVertical, Clock, StickyNote, Camera } from 'lucide-react';
 import FichaTrabalhista from '@/components/FichaTrabalhista';
 import { EventModal, type UserOption } from '@/components/EventModal';
-import { AudioRecorder } from '@/components/AudioRecorder';
+import { useAudioRecorder, RecordingWave } from '@/components/AudioRecorder';
 import { useRole } from '@/lib/useRole';
 import { AuthAudioPlayer } from '@/components/AuthAudioPlayer';
 import { EmojiPickerButton } from '@/components/EmojiPickerButton';
@@ -305,6 +305,7 @@ export default function Dashboard() {
   const socketRef = useRef(sharedSocket);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const lawyerDropdownRef = useRef<HTMLDivElement>(null);
   const lawyerDropdownRef2 = useRef<HTMLDivElement>(null); // Segundo ref para sidebar (evita conflito com ChatHeader)
@@ -316,6 +317,20 @@ export default function Dashboard() {
   const shownTransferIdsRef = useRef<Set<string>>(new Set());
   // Debounce de sync por conversa: guarda timestamp do último sync (ms) por conversation_id
   const lastSyncRef = useRef<Map<string, number>>(new Map());
+
+  // Gravador do botão de microfone da barra de envio (como no WhatsApp).
+  const audioRec = useAudioRecorder({
+    conversationId: selectedId && !selectedId.startsWith('demo-') ? selectedId : null,
+    onSent: (msg) => {
+      // Trocou de conversa durante o envio: o socket entrega a bolha lá.
+      if (msg.conversation_id !== selectedIdRef.current) return;
+      setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+    },
+    onRecordingStart: () => {
+      const convId = selectedIdRef.current;
+      if (convId) api.post(`/conversations/${convId}/presence`, { presence: 'recording' }).catch(() => {});
+    },
+  });
 
   // Cache client-side da lista de conversas por aba (viewMode: leads|clients|financial).
   // Ao trocar de setor, mostra a lista cacheada NA HORA e revalida em background
@@ -2309,12 +2324,11 @@ export default function Dashboard() {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+    // Copia ANTES de limpar o input: o FileList é o mesmo objeto e o Chrome o
+    // esvazia no `value = ''` — a foto escolhida sumia e nada era anexado.
+    const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    for (let i = 0; i < files.length; i++) {
-      addFileToPending(files[i]);
-    }
+    files.forEach(addFileToPending);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -2374,6 +2388,15 @@ export default function Dashboard() {
     setText(result);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
+
+  // Caixa de texto cresce com o conteúdo (até ~6 linhas, depois rola) — vale
+  // também pro texto que entra sem digitar (sugestão, SophIA, rascunho).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text, selectedId]);
 
   // Clicar na área de mensagens foca o textarea
   const handleChatAreaClick = useCallback((e: React.MouseEvent) => {
@@ -3321,14 +3344,20 @@ export default function Dashboard() {
               </div>
             )}
 
-            <footer className="px-3 md:px-6 pt-2 pb-2 md:pt-2 md:pb-3 bg-background shrink-0">
+            {/* ── Barra de envio no estilo do WhatsApp: uma "pílula" só (emoji,
+                texto, anexo/câmera) + botão redondo que é microfone com a caixa
+                vazia e vira "enviar" quando há texto ou anexo. ────────────── */}
+            <footer className="wa-composer px-2 md:px-4 pt-1.5 pb-2 md:pb-2.5 shrink-0">
               {/* Reply bar */}
               {replyingTo && !isClosed && (
-                <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-xl">
-                  <Reply size={13} className="text-primary shrink-0" />
-                  <p className="text-xs text-muted-foreground line-clamp-1 flex-1">{replyingTo.text || '[mídia]'}</p>
-                  <button onClick={() => setReplyingTo(null)} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="Cancelar resposta">
-                    <X size={13} />
+                <div className="max-w-4xl mx-auto mb-1.5 flex items-stretch gap-2 wa-composer-pill rounded-xl overflow-hidden">
+                  <div className="w-1 wa-accent-bg shrink-0" />
+                  <div className="flex-1 min-w-0 py-1.5">
+                    <p className="text-[11px] font-semibold wa-accent-text flex items-center gap-1"><Reply size={11} /> Respondendo</p>
+                    <p className="text-xs text-muted-foreground line-clamp-1">{replyingTo.text || '[mídia]'}</p>
+                  </div>
+                  <button onClick={() => setReplyingTo(null)} className="px-3 text-muted-foreground hover:text-foreground shrink-0" aria-label="Cancelar resposta">
+                    <X size={16} />
                   </button>
                 </div>
               )}
@@ -3339,7 +3368,7 @@ export default function Dashboard() {
                 const tpl = STAGE_TEMPLATES[stage];
                 if (!tpl || dismissedQuickReply.has(selectedId) || text.length > 0) return null;
                 return (
-                  <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-3 py-2 bg-accent/40 border border-border/60 rounded-xl">
+                  <div className="max-w-4xl mx-auto mb-1.5 flex items-center gap-2 px-3 py-2 wa-composer-pill rounded-xl">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0">Sugestão</span>
                     <button
                       onClick={() => {
@@ -3363,42 +3392,12 @@ export default function Dashboard() {
               })()}
 
               {isClosed ? (
-                <div className="max-w-4xl mx-auto text-center text-sm text-muted-foreground py-3 border border-border rounded-xl bg-card/50">
+                <div className="max-w-4xl mx-auto text-center text-sm text-muted-foreground py-3 wa-composer-pill rounded-xl">
                   Conversa encerrada. Não é possível enviar mensagens.
                 </div>
               ) : (
-                <div className="max-w-4xl mx-auto flex gap-2 md:gap-3 items-end">
-
-                  {/* Desktop: clip button inline */}
-                  {!isMobile && (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={!isRealConvo || uploadingFile}
-                      title="Enviar arquivo"
-                      aria-label="Anexar arquivo"
-                      className="p-2 md:p-2.5 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shrink-0 mb-0.5"
-                    >
-                      {uploadingFile
-                        ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                        : <Paperclip size={20} />}
-                    </button>
-                  )}
-                  {/* Botão notas da conversa */}
-                  {!isMobile && isRealConvo && (
-                    <button
-                      onClick={() => setNotesPanelOpen(true)}
-                      title="Notas da conversa — visíveis para a equipe"
-                      className={`relative p-2 md:p-2.5 rounded-xl border transition-colors shrink-0 mb-0.5 ${selected?.hasNotes ? 'bg-sky-500/20 border-sky-500/40 text-sky-400' : 'bg-card border-border text-muted-foreground hover:text-sky-400 hover:border-sky-500/30 hover:bg-sky-500/10'}`}
-                    >
-                      <StickyNote size={20} />
-                      {selected?.hasNotes && (
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
-                      )}
-                    </button>
-                  )}
-                  {/* Busca e quick snooze removidos da toolbar — acessíveis via Ctrl+F e botão Adiar no header */}
-
-                  {/* Hidden file input */}
+                <>
+                  {/* Inputs escondidos: anexo (galeria/arquivos) e câmera do celular */}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -3407,189 +3406,215 @@ export default function Dashboard() {
                     className="hidden"
                     onChange={handleFileSelect}
                   />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
 
                   {/* ── Arquivos pendentes (preview antes de enviar) ── */}
                   {pendingFiles.length > 0 && (
-                    <div className="flex items-center gap-2 p-2 bg-accent/20 border border-border rounded-xl mb-2 flex-wrap">
+                    <div className="max-w-4xl mx-auto mb-1.5 wa-composer-pill rounded-2xl p-2 flex items-center gap-2 flex-wrap">
                       {pendingFiles.map((pf, idx) => (
                         <div key={idx} className="relative group">
                           {pf.preview ? (
                             <img src={pf.preview} alt="" className="w-16 h-16 object-cover rounded-lg border border-border" />
                           ) : (
-                            <div className="w-16 h-16 flex items-center justify-center bg-accent/40 rounded-lg border border-border">
-                              <span className="text-[9px] text-muted-foreground text-center leading-tight px-1 truncate">{pf.file.name.slice(-12)}</span>
+                            <div className="w-16 h-16 flex flex-col items-center justify-center gap-1 bg-accent/40 rounded-lg border border-border">
+                              <FileText size={18} className="text-muted-foreground" />
+                              <span className="text-[9px] text-muted-foreground text-center leading-tight px-1 truncate max-w-full">{pf.file.name.slice(-12)}</span>
                             </div>
                           )}
                           <button
                             onClick={() => removePendingFile(idx)}
-                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            aria-label="Remover anexo"
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                           >
                             ×
                           </button>
                         </div>
                       ))}
-                      <button
-                        onClick={handleSend}
-                        disabled={uploadingFile}
-                        title={text.trim() ? 'O texto digitado vai como legenda do arquivo' : undefined}
-                        className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 disabled:opacity-50"
-                      >
-                        {uploadingFile ? (
-                          <span>Enviando...</span>
-                        ) : (
-                          <>Enviar {pendingFiles.length} arquivo{pendingFiles.length > 1 ? 's' : ''}</>
-                        )}
-                      </button>
+                      <p className="ml-auto text-[11px] text-muted-foreground text-right leading-snug">
+                        {pendingFiles.length} anexo{pendingFiles.length > 1 ? 's' : ''} — toque em <Send size={11} className="inline -mt-0.5" /> para enviar
+                        {text.trim() ? <><br />o texto vai como legenda</> : null}
+                      </p>
                     </div>
                   )}
 
-                  {/* ── Textarea + ícones internos ──────────────────── */}
-                  <div className="relative flex-1">
-
-                    {/* Slash command picker — renderizado via portal (evita clipping por overflow-hidden) */}
-
-                    <textarea
-                      ref={inputRef}
-                      rows={1}
-                      value={text}
-                      onPaste={handlePaste}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setText(val);
-                        setSlashMenuIndex(0); // reset seleção ao digitar
-                        e.target.style.height = 'auto';
-                        e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-
-                        // ── Auto-disable AI upon typing ──
-                        if (aiMode && val.trim().length > 0 && selectedId) {
-                          setAiMode(false); // Optimistic UI previne chamadas duplicadas
-                          (async () => {
-                            try {
-                              await api.patch(`/conversations/${selectedId}/ai-mode`, { ai_mode: false });
-                              setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, aiMode: false } : c));
-                              setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, aiMode: false } : c));
-                              showSuccess('👤 IA pausada automaticamente pela digitação.');
-                            } catch (error) {
-                              setAiMode(true); // Rollback
-                              console.error('Failed to auto-disable AI:', error);
-                            }
-                          })();
-                        }
-
-                        // Emit typing indicator (debounced 2s)
-                        if (selectedId && socketRef.current) {
-                          socketRef.current.emit('typing', { conversationId: selectedId, isTyping: true });
-                          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                          typingTimeoutRef.current = setTimeout(() => {
-                            socketRef.current?.emit('typing', { conversationId: selectedId, isTyping: false });
-                          }, 2000);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (showSlashMenu) {
-                          if (e.key === 'ArrowDown') {
-                            e.preventDefault();
-                            setSlashMenuIndex(i => Math.min(i + 1, filteredSlashCommands.length - 1));
-                            return;
-                          }
-                          if (e.key === 'ArrowUp') {
-                            e.preventDefault();
-                            setSlashMenuIndex(i => Math.max(i - 1, 0));
-                            return;
-                          }
-                          if (e.key === 'Escape') {
-                            e.preventDefault();
-                            setText('');
-                            return;
-                          }
-                        }
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSend();
-                        }
-                      }}
-                      placeholder={isRealConvo ? "Digite sua mensagem..." : "Selecione uma conversa..."}
-                      disabled={!isRealConvo || sending}
-                      className={`w-full border rounded-2xl py-2.5 md:py-3 focus:outline-none focus:ring-2 shadow-sm disabled:opacity-50 text-sm md:text-base resize-none leading-normal overflow-hidden pl-4 ${
-                        isRealConvo ? (isMobile ? 'pr-[7rem]' : 'pr-24') : 'pr-4'
-                      } bg-card border-border focus:ring-primary text-foreground`}
-                    />
-                    {/* Contador de caracteres */}
-                    {text.length > 4500 && (
-                      <div className={`absolute -top-5 right-2 text-[10px] font-medium ${text.length > 5000 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                        {text.length}/5000
-                      </div>
-                    )}
-                    {/* Ícones internos (direita) */}
-                    {isRealConvo && (
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5">
-                        {/* Clip — mobile */}
-                        {isMobile && (
+                  <div className="max-w-4xl mx-auto flex items-end gap-2">
+                    <div className="wa-composer-pill wa-input flex-1 min-w-0 flex items-end rounded-[22px] pl-1 pr-1 min-h-[44px] shadow-sm">
+                      {audioRec.status === 'recording' ? (
+                        <div className="flex items-center gap-1 flex-1 min-w-0 h-11 pr-3">
                           <button
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={uploadingFile}
-                            title="Arquivo"
-                            aria-label="Anexar arquivo"
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                            onClick={audioRec.cancel}
+                            title="Descartar áudio"
+                            aria-label="Descartar áudio"
+                            className="p-2 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
                           >
-                            {uploadingFile
-                              ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                              : <Paperclip size={17} />}
+                            <Trash2 size={20} />
                           </button>
-                        )}
-                        {/* Emoji */}
-                        <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
-                        {/* SophIA correção */}
-                        <SophIAButton text={text} onResult={handleSophIAResult} compact />
-                        {/* Áudio — quando não há texto */}
-                        {!text.trim() && (
-                          <AudioRecorder
-                            conversationId={selectedId!}
-                            disabled={!isRealConvo}
-                            onSent={(msg) => {
-                              setMessages((prev) => {
-                                if (prev.find((m) => m.id === msg.id)) return prev;
-                                return [...prev, msg];
-                              });
+                          <RecordingWave stream={audioRec.stream} startedAt={audioRec.startedAt} />
+                        </div>
+                      ) : audioRec.status === 'sending' ? (
+                        <div className="flex items-center gap-2 flex-1 min-w-0 h-11 px-3 text-sm text-muted-foreground">
+                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Enviando áudio…
+                        </div>
+                      ) : (
+                        <>
+                          <div className="h-11 flex items-center shrink-0">
+                            <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
+                          </div>
+                          <textarea
+                            ref={inputRef}
+                            rows={1}
+                            value={text}
+                            onPaste={handlePaste}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setText(val);
+                              setSlashMenuIndex(0); // reset seleção ao digitar
+
+                              // ── Auto-disable AI upon typing ──
+                              if (aiMode && val.trim().length > 0 && selectedId) {
+                                setAiMode(false); // Optimistic UI previne chamadas duplicadas
+                                (async () => {
+                                  try {
+                                    await api.patch(`/conversations/${selectedId}/ai-mode`, { ai_mode: false });
+                                    setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, aiMode: false } : c));
+                                    setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, aiMode: false } : c));
+                                    showSuccess('👤 IA pausada automaticamente pela digitação.');
+                                  } catch (error) {
+                                    setAiMode(true); // Rollback
+                                    console.error('Failed to auto-disable AI:', error);
+                                  }
+                                })();
+                              }
+
+                              // Emit typing indicator (debounced 2s)
+                              if (selectedId && socketRef.current) {
+                                socketRef.current.emit('typing', { conversationId: selectedId, isTyping: true });
+                                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                                typingTimeoutRef.current = setTimeout(() => {
+                                  socketRef.current?.emit('typing', { conversationId: selectedId, isTyping: false });
+                                }, 2000);
+                              }
                             }}
+                            onKeyDown={(e) => {
+                              if (showSlashMenu) {
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  setSlashMenuIndex(i => Math.min(i + 1, filteredSlashCommands.length - 1));
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  setSlashMenuIndex(i => Math.max(i - 1, 0));
+                                  return;
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setText('');
+                                  return;
+                                }
+                              }
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSend();
+                              }
+                            }}
+                            placeholder={isRealConvo ? 'Digite uma mensagem' : 'Selecione uma conversa...'}
+                            disabled={!isRealConvo || sending}
+                            className="flex-1 min-w-0 bg-transparent border-0 outline-none focus:outline-none focus:ring-0 resize-none py-[11px] px-1.5 text-[15px] leading-[22px] max-h-40 overflow-y-auto custom-scrollbar text-foreground placeholder:text-muted-foreground disabled:opacity-50"
                           />
-                        )}
-                      </div>
-                    )}
-                    {/* Desktop: emoji + SophIA (se não estão no ícones internos) */}
-                    {!isMobile && isRealConvo && false && (
-                      <div className="absolute bottom-3 md:bottom-4 right-3 flex items-center gap-1">
-                        <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
-                        <SophIAButton text={text} onResult={handleSophIAResult} compact />
-                      </div>
-                    )}
+                          {isRealConvo && (
+                            <div className="h-11 flex items-center shrink-0">
+                              {/* SophIA (correção/tom) — só faz sentido com texto */}
+                              {text.trim() && (
+                                <SophIAButton text={text} onResult={handleSophIAResult} compact menuAlign="right" />
+                              )}
+                              {/* Notas da conversa — visíveis para a equipe */}
+                              {!isMobile && (
+                                <button
+                                  onClick={() => setNotesPanelOpen(true)}
+                                  title="Notas da conversa — visíveis para a equipe"
+                                  aria-label="Notas da conversa"
+                                  className={`relative p-2 rounded-full transition-colors ${selected?.hasNotes ? 'text-sky-500' : 'text-muted-foreground hover:text-foreground'}`}
+                                >
+                                  <StickyNote size={20} />
+                                  {selected?.hasNotes && (
+                                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                                  )}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={uploadingFile}
+                                title="Anexar foto, vídeo ou documento"
+                                aria-label="Anexar arquivo"
+                                className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                              >
+                                {uploadingFile
+                                  ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                  : <Paperclip size={20} />}
+                              </button>
+                              {/* Câmera — no celular, com a caixa vazia (igual ao WhatsApp) */}
+                              {isMobile && !text.trim() && (
+                                <button
+                                  onClick={() => cameraInputRef.current?.click()}
+                                  disabled={uploadingFile}
+                                  title="Tirar foto"
+                                  aria-label="Tirar foto"
+                                  className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                >
+                                  <Camera size={20} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Botão redondo: microfone com a caixa vazia → enviar com texto/anexo/gravando */}
+                    {(() => {
+                      const recording = audioRec.status === 'recording';
+                      const busy = audioRec.status === 'sending' || uploadingFile || sending;
+                      const hasPayload = !!text.trim() || pendingFiles.length > 0;
+                      const showMic = !recording && !hasPayload;
+                      const label = recording
+                        ? 'Enviar áudio'
+                        : pendingFiles.length > 0
+                          ? 'Enviar arquivo'
+                          : hasPayload ? 'Enviar mensagem' : 'Gravar áudio';
+                      return (
+                        <button
+                          onClick={recording ? audioRec.stopAndSend : showMic ? audioRec.start : handleSend}
+                          disabled={!isRealConvo || busy || (!recording && text.length > 5000)}
+                          aria-label={label}
+                          title={pendingFiles.length > 0 && text.trim() ? 'Enviar o arquivo com o texto como legenda' : label}
+                          className="wa-send-btn w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white shadow-md transition-transform active:scale-95 disabled:opacity-60"
+                        >
+                          {busy
+                            ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            : showMic
+                              ? <Mic size={22} />
+                              : <Send size={20} className="translate-x-[1px]" />}
+                        </button>
+                      );
+                    })()}
                   </div>
 
-                  {/* Desktop: audio recorder inline */}
-                  {!isMobile && isRealConvo && !text.trim() && false && (
-                    <AudioRecorder
-                      conversationId={selectedId!}
-                      disabled={!isRealConvo}
-                      onSent={(msg) => {
-                        setMessages((prev) => {
-                          if (prev.find((m) => m.id === msg.id)) return prev;
-                          return [...prev, msg];
-                        });
-                      }}
-                    />
+                  {/* Contador de caracteres */}
+                  {text.length > 4500 && (
+                    <div className={`max-w-4xl mx-auto pr-14 pt-0.5 text-right text-[10px] font-medium ${text.length > 5000 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                      {text.length}/5000
+                    </div>
                   )}
-
-                  {/* Botão Enviar */}
-                  <button
-                    onClick={handleSend}
-                    disabled={!isRealConvo || sending || uploadingFile || text.length > 5000 || (!text.trim() && pendingFiles.length === 0)}
-                    aria-label={pendingFiles.length > 0 ? 'Enviar arquivo' : 'Enviar mensagem'}
-                    title={pendingFiles.length > 0 ? (text.trim() ? 'Enviar o arquivo com o texto como legenda' : 'Enviar o arquivo') : undefined}
-                    className="bg-gradient-to-r from-primary to-ring p-2 md:p-2.5 rounded-xl shadow-lg disabled:opacity-50 hover:-translate-y-1 transition-transform shrink-0 mb-0.5"
-                  >
-                    <Send size={18} className="text-primary-foreground md:w-5 md:h-5" />
-                  </button>
-                </div>
+                </>
               )}
             </footer>
           </>

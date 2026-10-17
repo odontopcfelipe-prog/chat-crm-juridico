@@ -102,7 +102,9 @@ export class MessagesController {
     return this.messagesService.sendMessage(dto.conversationId, dto.text.trim(), dto.replyToId, req.user?.id, dto.isInternal, req.user?.tenant_id);
   }
 
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  // A cota é por IP e a clínica toda sai pelo mesmo IP (atrás do proxy, todos
+  // os atendentes juntos) — 10/min travava foto/áudio num dia movimentado.
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
   @Post('send-audio')
   @UseInterceptors(FileInterceptor('audio', {
     limits: { fileSize: 25 * 1024 * 1024 },
@@ -122,7 +124,7 @@ export class MessagesController {
     return this.messagesService.sendAudio(conversationId, file, req.user?.id, req.user?.tenant_id);
   }
 
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
   @Post('send-file')
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 50 * 1024 * 1024 },

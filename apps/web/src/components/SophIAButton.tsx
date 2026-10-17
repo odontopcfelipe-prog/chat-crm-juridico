@@ -17,9 +17,11 @@ interface Props {
   onResult: (result: string) => void;
   disabled?: boolean;
   compact?: boolean;
+  /** Lado em que o menu abre — 'right' quando o botão fica perto da borda direita. */
+  menuAlign?: 'left' | 'right';
 }
 
-export function SophIAButton({ text, onResult, disabled, compact }: Props) {
+export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'left' }: Props) {
   const [open, setOpen] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -79,7 +81,7 @@ export function SophIAButton({ text, onResult, disabled, compact }: Props) {
       </button>
 
       {open && (
-        <div className="absolute bottom-14 left-0 z-50 w-52 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden py-1">
+        <div className={`absolute bottom-14 ${menuAlign === 'right' ? 'right-0' : 'left-0'} z-50 w-52 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden py-1`}>
           <div className="px-3 py-2 border-b border-border mb-0.5">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Sparkles size={10} className="text-violet-400" />
