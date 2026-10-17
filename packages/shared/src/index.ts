@@ -35,3 +35,5 @@ export * from './reativacao-leads';
 export * from './nao-paciente';
 // Chip do disparo de paciente/lead pela FUNÇÃO (Comercial↔Clínica, nunca Financeiro)
 export * from './chip-paciente';
+// Disparos de retorno de manutenção (chip da Clínica): catálogo, janelas e textos
+export * from './retorno-disparos';

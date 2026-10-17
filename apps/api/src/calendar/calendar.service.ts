@@ -4,7 +4,15 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 // Onda 18.x — régua única de vencido (vence hoje NÃO bloqueia agendamento).
-import { startOfTodayMaceioUtc, isCobrancaStage } from '@crm/shared';
+import {
+  startOfTodayMaceioUtc,
+  isCobrancaStage,
+  isRetornoDisparoId,
+  parseRetornoDisparoId,
+  retornoTemplateKey,
+  DEFAULT_RETORNO_TEMPLATES,
+  RETORNO_FAMILIA_TEXTO,
+} from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -2236,6 +2244,15 @@ export class CalendarService {
       // Recall de revisão — exemplo do procedimento (senão sairia vazio no teste).
       procedimento: 'Limpeza',
     };
+    // Retorno de manutenção — exemplos de tempo/datas e o procedimento DO TOQUE testado.
+    if (isRetornoDisparoId(disparo)) {
+      Object.assign(V, {
+        tempo: '6 meses',
+        data_ultima: '13/07/2026',
+        data_prevista: '13/01/2027',
+        procedimento: RETORNO_FAMILIA_TEXTO[parseRetornoDisparoId(disparo).familia],
+      });
+    }
     const apply = (t: string) =>
       (t || '')
         .replace(/\{local_line\}/g, V.local ? `📍 ${V.local}\n` : '')
@@ -2309,6 +2326,21 @@ export class CalendarService {
       default:
         // Recall de revisão: sem texto da tela, testa o texto SALVO (mesma
         // resolução do worker: TenantSetting → GlobalSetting global → default).
+        // Retorno de manutenção: sem texto da tela, testa o SALVO da clínica (ou o padrão),
+        // a mesma resolução do motor (RetornoDisparosService.templateDe).
+        if (isRetornoDisparoId(disparo)) {
+          let tpl = DEFAULT_RETORNO_TEMPLATES[disparo];
+          try {
+            const ts = tenant_id
+              ? await this.prisma.tenantSetting.findUnique({
+                  where: { tenant_id_key: { tenant_id, key: retornoTemplateKey(disparo) } },
+                })
+              : null;
+            if (ts?.value?.trim()) tpl = ts.value;
+          } catch { /* padrão */ }
+          msg = apply(tpl);
+          break;
+        }
         if (disparo === 'recall_preventivo') {
           const { DEFAULT_RECALL_TEMPLATE } = await import('@crm/shared');
           let tpl = DEFAULT_RECALL_TEMPLATE;

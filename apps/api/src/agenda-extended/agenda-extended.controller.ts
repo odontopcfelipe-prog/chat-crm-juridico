@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Body,
   Param,
@@ -17,6 +18,7 @@ import { RoomsService } from './rooms.service';
 import { MarkersService } from './markers.service';
 import { ConfirmationsService } from './confirmations.service';
 import { ReturnAlertsService } from './return-alerts.service';
+import { RetornoDisparosService } from './retorno-disparos.service';
 import { CreateRoomDto, UpdateRoomDto } from './dto/room.dto';
 import { CreateMarkerDto, UpdateMarkerDto } from './dto/marker.dto';
 import { CreateConfirmationDto, RespondConfirmationDto } from './dto/confirmation.dto';
@@ -39,6 +41,7 @@ export class AgendaExtendedController {
     private readonly markers: MarkersService,
     private readonly confirmations: ConfirmationsService,
     private readonly returnAlerts: ReturnAlertsService,
+    private readonly retornoDisparos: RetornoDisparosService,
   ) {}
 
   // ─── Rooms ────────────────────────────────────────────────
@@ -234,6 +237,31 @@ export class AgendaExtendedController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.returnAlerts.getRecallConfig(tenantId);
+  }
+
+  /** Disparos de retorno (Central de Disparos): texto do toque. DEVE vir antes de :id. */
+  @Get('return-alerts/disparos/:disparo/template')
+  getRetornoTemplate(@Param('disparo') disparo: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.retornoDisparos.getTemplate(tenantId, disparo);
+  }
+
+  /** Salva o texto do toque (vazio = volta ao padrão). Só ADMIN. */
+  @Roles('ADMIN')
+  @Put('return-alerts/disparos/:disparo/template')
+  setRetornoTemplate(@Param('disparo') disparo: string, @Body() body: { template?: string }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.retornoDisparos.setTemplate(tenantId, disparo, body?.template);
+  }
+
+  /** Quem está na janela deste toque hoje e a situação de cada um (na fila, agendado...). */
+  @Get('return-alerts/disparos/:disparo/previstos')
+  getRetornoPrevistos(@Param('disparo') disparo: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.retornoDisparos.previstos(tenantId, disparo);
   }
 
   /** Ajusta o padrão da clínica (meses). Só ADMIN. DEVE vir antes de :id. */

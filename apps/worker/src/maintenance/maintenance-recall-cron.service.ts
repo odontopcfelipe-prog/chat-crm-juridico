@@ -127,6 +127,25 @@ export class MaintenanceRecallCronService {
     });
     if (claim.count === 0) return 'empty'; // outra execucao ja reivindicou — nao duplica
 
+    // Disparo de RETORNO (Central › Retorno de manutenção, motor na API) já falou do
+    // retorno com este paciente nos últimos 30 dias → este recall repetiria o assunto.
+    // Fica marcado (a claim acima) e não envia; a fila segue no próximo tick.
+    if (await this.retornoJaAvisou(task.patient.tenant_id, task.patient.id)) {
+      this.logger.log(`[RECALL] task ${task.id}: paciente já recebeu o disparo de retorno — recall pulado`);
+      return 'empty';
+    }
+
+    // Vez do chip no marca-passo COMPARTILHADO (WhatsappChipPacer, o mesmo da régua e do
+    // retorno): o chip da Clínica nunca recebe dois disparos automáticos colados. Não é a
+    // vez → devolve a task pra fila e tenta no próximo tick.
+    const chipDaVez = await this.resolveClinicaInstance(task.patient.tenant_id);
+    if (chipDaVez && !(await this.reservarVezDoChip(chipDaVez))) {
+      await (this.prisma as any).maintenanceTask
+        .updateMany({ where: { id: task.id }, data: { reminder_sent_at: null } })
+        .catch(() => undefined);
+      return 'cooldown';
+    }
+
     const dueDateStr = new Date(task.due_date).toLocaleDateString('pt-BR', {
       day: '2-digit', month: 'long',
     });
@@ -153,7 +172,7 @@ export class MaintenanceRecallCronService {
     // numero invalido nao trava os proximos recalls.
     await this.markAttempted(task.id, typeof messageId === 'string' ? messageId : null);
     // Central 2.0 — registro unificado (métrica + resumo "pra quem mandou").
-    await this.logDispatchUnificado(task.patient.tenant_id, task.patient.name, task.patient.phone, messageId);
+    await this.logDispatchUnificado(task.patient.tenant_id, task.patient.name, task.patient.phone, messageId, task.patient.id);
     this.lastRecallSentAt = nowMs;
     this.nextGapMs = this.randomGapMs();
 
@@ -187,6 +206,7 @@ export class MaintenanceRecallCronService {
     name: string,
     phone: string,
     sendResult: string | boolean | 'NO_CONFIG',
+    patientId?: string,
   ): Promise<void> {
     try {
       await this.prisma.dispatchLog.create({
@@ -199,11 +219,54 @@ export class MaintenanceRecallCronService {
           status: sendResult === false ? 'FAILED' : 'SENT',
           error: sendResult === false ? 'Evolution recusou o envio (número/chip)' : null,
           external_message_id: typeof sendResult === 'string' ? sendResult : null,
+          // Paciente no registro: o disparo de retorno (API) não repete o assunto por cima.
+          ref_patient_id: patientId ?? null,
           sent_at: new Date(),
         },
       });
     } catch (e: any) {
       this.logger.warn(`[DISPATCH-LOG] recall_preventivo não registrou: ${e?.message}`);
+    }
+  }
+
+  /** O disparo de retorno (Central) já avisou este paciente nos últimos 30 dias? Erro = não. */
+  private async retornoJaAvisou(tenantId: string, patientId: string): Promise<boolean> {
+    if (!tenantId || !patientId) return false;
+    try {
+      const n = await this.prisma.dispatchLog.count({
+        where: {
+          tenant_id: tenantId,
+          ref_patient_id: patientId,
+          type: { startsWith: 'retorno_' },
+          status: 'SENT',
+          sent_at: { gte: new Date(Date.now() - 30 * 864e5) },
+        },
+      });
+      return n > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Reserva a vez do chip no marca-passo do banco (atômico, vale entre serviços): só
+   * quem move next_allowed_at envia. Tabela ausente/erro → segue (fica só o marca-passo
+   * em memória deste cron, o comportamento antigo).
+   */
+  private async reservarVezDoChip(chip: string): Promise<boolean> {
+    try {
+      const agora = new Date();
+      await this.prisma.whatsappChipPacer.createMany({
+        data: [{ instance_name: chip, next_allowed_at: new Date(0) }],
+        skipDuplicates: true,
+      });
+      const vez = await this.prisma.whatsappChipPacer.updateMany({
+        where: { instance_name: chip, next_allowed_at: { lte: agora } },
+        data: { next_allowed_at: new Date(agora.getTime() + this.randomGapMs()) },
+      });
+      return vez.count > 0;
+    } catch {
+      return true;
     }
   }
 

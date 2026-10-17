@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
-  Briefcase, Wallet, Users, RotateCcw,
+  Briefcase, Wallet, Users, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -31,6 +31,7 @@ import { VendaFeitaEditor } from './VendaFeitaEditor';
 import { ReativacaoConfigEditor } from './ReativacaoConfigEditor';
 import { ReativacaoColunaEditor } from './ReativacaoColunaEditor';
 import { TesteEnvio } from './TesteEnvio';
+import { RetornoEditor } from './RetornoEditor';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
@@ -38,6 +39,7 @@ const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   reativacao_leads: RotateCcw,
   financeiro: Receipt,
   pos_consulta: Heart,
+  retorno_manutencao: RefreshCw,
   datas: Cake,
   recuperacao: TrendingUp,
   clinico: Stethoscope,
@@ -584,6 +586,9 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'resumo_diario' && <ResumoDiarioEditor />}
         {openItem.editor === 'venda_feita' && <VendaFeitaEditor />}
         {openItem.editor === 'reativacao' && <ReativacaoConfigEditor />}
+        {openItem.editor === 'retorno' && openItem.retornoId && (
+          <RetornoEditor id={openItem.retornoId} onCurrentTextChange={setLiveText} />
+        )}
         {openItem.editor === 'reativacao_coluna' && openItem.reativacaoColuna && (
           <ReativacaoColunaEditor
             key={openItem.id}

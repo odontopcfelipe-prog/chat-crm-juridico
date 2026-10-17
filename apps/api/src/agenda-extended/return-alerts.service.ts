@@ -42,6 +42,7 @@ type Recall = {
   months: number;
   executed_by_name: string | null; // dentista que concluiu o procedimento (execução mais recente)
   source?: 'plano' | 'agenda'; // de onde veio a data (plano executado ou consulta comparecida)
+  family?: string; // chave do grupo (RECALL_FAMILIES.key, ex.: 'limpeza'; 'proc:<id>' fora de família) — usado pelos disparos de retorno
 };
 
 // Uma ABA do quadro por procedimento: família (limpeza, clareamento...) ou procedimento ligado
@@ -335,7 +336,7 @@ export class ReturnAlertsService {
         if (!p) continue; // paciente de outro tenant/apagado — nunca entra
         out.push({
           kind: 'procedure', type: g.home.name, patient: p, last_date: l.date, return_date: l.return_date,
-          months: g.home.default_revisit_months as number, executed_by_name: l.by_name, source: l.source,
+          months: g.home.default_revisit_months as number, executed_by_name: l.by_name, source: l.source, family: g.fam.key,
         });
       }
     });

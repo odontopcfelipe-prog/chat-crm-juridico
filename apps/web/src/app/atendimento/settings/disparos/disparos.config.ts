@@ -8,9 +8,13 @@ import {
   REATIVACAO_COLUNAS, REATIVACAO_COLUNA_LABEL, REATIVACAO_MIN_DIAS_PARADO, reativacaoToquesResumo,
   type ReativacaoColuna,
 } from '@/lib/reativacao';
+import {
+  RETORNO_DISPARO_IDS, RETORNO_ETAPA_LABEL, RETORNO_FAMILIA_LABEL, parseRetornoDisparoId, retornoGatilho,
+  type RetornoDisparoId,
+} from '@crm/shared';
 
 export type DisparoCategoria =
-  | 'agendamento' | 'agendamento_comercial' | 'reativacao_leads' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
+  | 'agendamento' | 'agendamento_comercial' | 'reativacao_leads' | 'pos_consulta' | 'retorno_manutencao' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
 
 export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[] = [
   { id: 'agendamento',  label: 'Agendamento',            color: '#7C5CF0' },
@@ -22,6 +26,9 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
   { id: 'reativacao_leads', label: 'Reativação de leads (follow-up Comercial)', color: '#DB2777' },
   { id: 'financeiro',   label: 'Financeiro (cobrança)',  color: '#10B981' },
   { id: 'pos_consulta', label: 'Pós-consulta',           color: '#14A38B' },
+  // Retorno de MANUTENÇÃO (limpeza, clareamento, facetas em resina, lentes de porcelana):
+  // 3 toques em volta da data prevista do quadro Retornos. Tudo começa DESLIGADO.
+  { id: 'retorno_manutencao', label: 'Retorno de manutenção', color: '#0EA5E9' },
   { id: 'datas',        label: 'Datas e relacionamento', color: '#E8902B' },
   { id: 'recuperacao',  label: 'Recuperação de receita', color: '#F26C1B' },
   { id: 'clinico',      label: 'Clínico e operacional',  color: '#2D7FF9' },
@@ -52,6 +59,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
   agendamento_comercial: 'comercial',
   reativacao_leads: 'comercial',
   pos_consulta: 'clinica',
+  retorno_manutencao: 'clinica',
   datas:        'clinica',
   clinico:      'clinica',
   recuperacao:  'comercial',
@@ -62,7 +70,9 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
 export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'sem_agendamento_orto' | 'resumo_diario' | 'venda_feita'
   // Régua de reativação: card geral (teto/freios) e cards de coluna (textos por toque).
-  | 'reativacao' | 'reativacao_coluna' | null;
+  | 'reativacao' | 'reativacao_coluna'
+  // Retorno de manutenção: como funciona + quem está na janela + texto do toque.
+  | 'retorno' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -115,7 +125,9 @@ export type OperacionalKey =
   // Régua de reativação de leads (chip Comercial) — ids = REATIVACAO_TOGGLE_IDS do
   // shared. 'reativacao_leads' = ENVIO de verdade; cada coluna = entra nos Previstos.
   | 'reativacao_leads'
-  | 'reativacao_novo' | 'reativacao_conversa' | 'reativacao_convite' | 'reativacao_agendado' | 'reativacao_orcamento';
+  | 'reativacao_novo' | 'reativacao_conversa' | 'reativacao_convite' | 'reativacao_agendado' | 'reativacao_orcamento'
+  // Retorno de manutenção (chip da Clínica) — ids = RETORNO_DISPARO_IDS do shared.
+  | RetornoDisparoId;
 
 export interface DisparoItem {
   id: string;
@@ -144,6 +156,8 @@ export interface DisparoItem {
   requerOrtoFluxo?: boolean;
   /** Card de COLUNA da régua de reativação (abre o editor de textos por toque). */
   reativacaoColuna?: ReativacaoColuna;
+  /** Card de um toque do Retorno de manutenção (abre o RetornoEditor). */
+  retornoId?: RetornoDisparoId;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
 
@@ -366,8 +380,24 @@ export const DISPAROS: DisparoItem[] = [
   // convida o paciente a agendar. Antes o card dizia "Em breve" — mentira útil zero.
   // Default LIGADO (o motor sempre rodou); o toggle permite desligar.
   { id: 'recall_preventivo', nome: 'Recall de revisão (limpeza etc.)', categoria: 'clinico',
-    gatilho: 'Revisão do procedimento chegando (até 7 dias) · convida a agendar', canal: 'WhatsApp', tags: ['Template'],
+    gatilho: 'Revisão do procedimento chegando (até 7 dias) · convida a agendar · não repete pra quem recebeu o Retorno de manutenção', canal: 'WhatsApp', tags: ['Template'],
     editor: 'recall', operacionalKey: 'recall_preventivo' },
+
+  // ── Retorno de manutenção (4 tipos × 15 dias antes · no dia · 15 dias depois) ──
+  ...RETORNO_DISPARO_IDS.map((rid): DisparoItem => {
+    const { familia, etapa } = parseRetornoDisparoId(rid);
+    return {
+      id: rid,
+      nome: `${RETORNO_FAMILIA_LABEL[familia]} · ${RETORNO_ETAPA_LABEL[etapa]}`,
+      categoria: 'retorno_manutencao',
+      gatilho: retornoGatilho(etapa),
+      canal: 'WhatsApp',
+      tags: ['Template'],
+      editor: 'retorno',
+      operacionalKey: rid,
+      retornoId: rid,
+    };
+  }),
 
   // ── Clínico e operacional ──
   { id: 'resumo_dentista', nome: 'Resumo diário do dentista', categoria: 'clinico',

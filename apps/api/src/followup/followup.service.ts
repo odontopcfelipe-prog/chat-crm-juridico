@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -200,6 +200,15 @@ export class FollowupService {
     const reativacaoSettings = await this.prisma.globalSetting
       .findMany({
         where: { key: { in: REATIVACAO_TOGGLE_IDS.map((id) => reativacaoToggleKey(id, tenantId)) } },
+        select: { key: true, value: true },
+      })
+      .catch(() => [] as { key: string; value: string }[]);
+
+    // Retorno de manutenção (4 tipos × 3 toques, chip da Clínica): 1 query, FORA do
+    // Promise.all posicional. Default DESLIGADO (só 'true' liga). A API (motor) lê as mesmas keys.
+    const retornoSettings = await this.prisma.globalSetting
+      .findMany({
+        where: { key: { in: RETORNO_DISPARO_IDS.map((id) => retornoToggleKey(id, tenantId)) } },
         select: { key: true, value: true },
       })
       .catch(() => [] as { key: string; value: string }[]);
@@ -409,6 +418,13 @@ export class FollowupService {
           { enabled: reativacaoSettings.find((r) => r.key === reativacaoToggleKey(id, tenantId))?.value === 'true' },
         ]),
       ),
+      // Retorno de manutenção — retorno_<tipo>_<antes|no_dia|depois>. Default OFF.
+      ...Object.fromEntries(
+        RETORNO_DISPARO_IDS.map((id) => [
+          id,
+          { enabled: retornoSettings.find((r) => r.key === retornoToggleKey(id, tenantId))?.value === 'true' },
+        ]),
+      ),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
       // Onda 18.x — à vista: toggle próprio; sem valor salvo, HERDA o de cima.
@@ -467,6 +483,13 @@ export class FollowupService {
       admin_agendamento: 'Aviso aos ADMs: novo agendamento',
       nao_paciente_handoff: 'Triagem não-paciente (aviso aos ADMs)',
       nao_paciente_anexo: 'Arquivo de não-paciente (aos ADMs)',
+      // Retorno de manutenção (chip da Clínica) — 1 DispatchLog por toque, type = id.
+      ...Object.fromEntries(
+        RETORNO_DISPARO_IDS.map((id) => {
+          const { familia, etapa } = parseRetornoDisparoId(id);
+          return [id, `Retorno: ${RETORNO_FAMILIA_LABEL[familia]} · ${RETORNO_ETAPA_LABEL[etapa]}`];
+        }),
+      ),
     };
 
     const rows: DisparoRow[] = [];
@@ -622,6 +645,8 @@ export class FollowupService {
       // Régua de reativação — card geral (Envio). Os cards de COLUNA leem o
       // LeadDispatch (ramo abaixo): o DispatchLog não guarda a coluna.
       reativacao_leads: ['reativacao_lead'],
+      // Retorno de manutenção — cada card lê o próprio toque.
+      ...Object.fromEntries(RETORNO_DISPARO_IDS.map((id) => [id, [id]])),
     };
 
     // Lembretes clínicos → faixa de antecedência no EventReminder.
@@ -995,6 +1020,13 @@ export class FollowupService {
         // Mesma key que o worker (planejador/despachante) lê; só 'true' liga.
         if (isReativacaoToggleId(which)) {
           const key = reativacaoToggleKey(which, tenantId);
+          const value = String(enabled);
+          await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+          break;
+        }
+        // Retorno de manutenção — retorno_<tipo>_<etapa>. Mesma key que o motor lê; só 'true' liga.
+        if (isRetornoDisparoId(which)) {
+          const key = retornoToggleKey(which, tenantId);
           const value = String(enabled);
           await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
           break;
