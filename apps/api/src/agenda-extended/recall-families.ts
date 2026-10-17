@@ -1,5 +1,5 @@
 // Retornos (Manutenção) — FAMÍLIAS de procedimento. A aba de uma família (limpeza,
-// clareamento) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
+// clareamento, faceta de resina) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
 // de plano do procedimento exato da aba: o catálogo costuma ter vários ("Limpeza",
 // "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos arquivados...).
 // Funções puras (testáveis) usadas pelo getMaintenanceBoard em return-alerts.service.ts.
@@ -40,6 +40,15 @@ export const RECALL_FAMILIES: RecallFamily[] = [
     exclude: /clareamento\s+(de\s+|da\s+|das\s+)?(pele|axilas?|virilha|manchas?|facial|intimo|olheiras?|melasma)/,
     category: null,
     agendaTerms: ['clareamento'],
+  },
+  {
+    // Faceta de RESINA (direta). "Faceta" sem material conta como resina; porcelana/cerâmica/
+    // lente é outro tratamento, e remoção/retirada não deixa faceta pra manter.
+    key: 'faceta_resina',
+    match: /faceta/,
+    exclude: /porcelana|ceramica|dissilicato|e-?max|zirconia|lente|remocao|retirada/,
+    category: null,
+    agendaTerms: ['faceta'],
   },
 ];
 

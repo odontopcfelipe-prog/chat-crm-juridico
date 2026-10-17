@@ -161,7 +161,7 @@ export class ReturnAlertsService {
     // backfill). defaultMonths abaixo é só o rótulo do retorno pós-tratamento (Concluído).
     const defaultMonths = await this.getDefaultRecallMonths(tenantId);
 
-    // FAMÍLIAS (limpeza, clareamento): o catálogo costuma ter vários procedimentos do mesmo
+    // FAMÍLIAS (limpeza, clareamento, faceta de resina): o catálogo costuma ter vários procedimentos do mesmo
     // tipo ("Limpeza", "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos
     // arquivados...). Cada família cai numa ÚNICA aba — a do procedimento dela com retorno
     // ligado (home) — junto com quem só tem a consulta comparecida na agenda. Família sem
@@ -206,7 +206,7 @@ export class ReturnAlertsService {
       const p = it.treatment_plan?.patient;
       const proc = it.procedure;
       if (!p?.id || !proc?.name || !it.executed_at) continue;
-      if (familyIds.has(proc.id)) continue; // família (limpeza/clareamento) → bloco 1b
+      if (familyIds.has(proc.id)) continue; // família (RECALL_FAMILIES) → bloco 1b
       // Opt-in: só gera retorno o procedimento com intervalo ATIVADO (>=1). Sem intervalo
       // (null/0) → não gera retorno (o admin escolhe quais precisam em Configurações → Retornos).
       const cfg = proc.default_revisit_months;
@@ -257,7 +257,7 @@ export class ReturnAlertsService {
   }
 
   /**
-   * Retornos de uma FAMÍLIA (limpeza, clareamento) na aba da home, com a próxima vinda
+   * Retornos de uma FAMÍLIA (limpeza, clareamento, faceta...) na aba da home, com a próxima vinda
    * calculada da execução MAIS RECENTE + N meses da home. Duas evidências:
    *   - item de plano DONE de QUALQUER procedimento da família (ativo ou arquivado), mesma
    *     regra de concluído por DENTISTA;

@@ -9,6 +9,7 @@ import {
 
 const LIMPEZA = RECALL_FAMILIES.find((f) => f.key === 'limpeza')!;
 const CLAREAMENTO = RECALL_FAMILIES.find((f) => f.key === 'clareamento')!;
+const FACETA = RECALL_FAMILIES.find((f) => f.key === 'faceta_resina')!;
 
 describe('recall-families', () => {
   it('limpeza: reconhece limpeza dental e deixa a estética de fora', () => {
@@ -33,6 +34,19 @@ describe('recall-families', () => {
     expect(isFamilyText(CLAREAMENTO, 'Clareamento de manchas')).toBe(false);
     expect(isFamilyText(CLAREAMENTO, 'Clareamento íntimo')).toBe(false);
     expect(isFamilyText(CLAREAMENTO, 'Limpeza')).toBe(false);
+  });
+
+  it('faceta de resina: resina/direta/sem material entra; porcelana, lente e remoção não', () => {
+    expect(isFamilyText(FACETA, 'Faceta de Resina (PREMIUM)')).toBe(true);
+    expect(isFamilyText(FACETA, 'Faceta em resina simples')).toBe(true);
+    expect(isFamilyText(FACETA, 'Facetas diretas')).toBe(true);
+    expect(isFamilyText(FACETA, 'Faceta')).toBe(true);
+    expect(isFamilyText(FACETA, 'Reparo de faceta')).toBe(true);
+    expect(isFamilyText(FACETA, 'Faceta de porcelana')).toBe(false);
+    expect(isFamilyText(FACETA, 'Faceta cerâmica (e.max)')).toBe(false);
+    expect(isFamilyText(FACETA, 'Lente de contato / faceta')).toBe(false);
+    expect(isFamilyText(FACETA, 'Remoção de faceta')).toBe(false);
+    expect(isFamilyText(FACETA, 'Restauração em resina')).toBe(false);
   });
 
   it('procedimento da família = categoria da família ou nome; estética facial nunca', () => {
