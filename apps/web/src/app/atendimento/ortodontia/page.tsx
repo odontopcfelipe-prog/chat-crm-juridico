@@ -14,6 +14,7 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
+import { AgendarOrtoModal } from './AgendarOrtoModal';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'standby' | 'concluido' | 'saiu';
 
@@ -88,6 +89,8 @@ export default function OrtodontiaPage() {
   const [view, setView] = useState<ViewKey>('todos');
   // ✓ Finalizar tratamento — resolve os procedimentos em aberto (ou dá alta sem plano)
   const [finalizeCard, setFinalizeCard] = useState<OrthoCard | null>(null);
+  // "Agendar" abre o modal aqui mesmo (sem ir pra agenda); "Abrir na agenda" é o atalho.
+  const [scheduleCard, setScheduleCard] = useState<OrthoCard | null>(null);
   const [dentists, setDentists] = useState<{ id: string; name: string; ortho_days?: number[] }[]>([]);
   const [migrating, setMigrating] = useState<string | null>(null);
   const role = useRole(); // só admin define o dia do ortodontista direto no quadro
@@ -379,10 +382,7 @@ export default function OrtodontiaPage() {
                       onFinalize={() => setFinalizeCard(c)}
                       onToggleStandby={() => toggleStandby(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
-                      onSchedule={() => router.push(
-                        `/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA` +
-                        `&patient_name=${encodeURIComponent(c.patient.name || '')}&from=${encodeURIComponent('/atendimento/ortodontia')}`,
-                      )}
+                      onSchedule={() => setScheduleCard(c)}
                       onMigrate={(did) => migrate(c.patient.id, did)}
                     />
                   ))
@@ -404,6 +404,21 @@ export default function OrtodontiaPage() {
           patientName={finalizeCard.patient.name || 'Paciente'}
           planIds={finalizeCard.plan_ids}
           nextAppointmentAt={finalizeCard.next_appointment_at}
+        />
+      )}
+      {scheduleCard && (
+        <AgendarOrtoModal
+          patient={scheduleCard.patient}
+          dentist={scheduleCard.dentist}
+          weekday={scheduleCard.weekday}
+          dentists={dentists}
+          isAdmin={role.isAdmin || role.isSuperAdmin}
+          onClose={() => setScheduleCard(null)}
+          onDone={load}
+          onOpenAgenda={() => router.push(
+            `/atendimento/agenda?new=1&patient_id=${scheduleCard.patient.id}&type=ORTODONTIA` +
+            `&patient_name=${encodeURIComponent(scheduleCard.patient.name || '')}&from=${encodeURIComponent('/atendimento/ortodontia')}`,
+          )}
         />
       )}
     </div>
