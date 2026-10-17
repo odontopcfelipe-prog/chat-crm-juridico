@@ -10,6 +10,7 @@ import {
 const LIMPEZA = RECALL_FAMILIES.find((f) => f.key === 'limpeza')!;
 const CLAREAMENTO = RECALL_FAMILIES.find((f) => f.key === 'clareamento')!;
 const FACETA = RECALL_FAMILIES.find((f) => f.key === 'faceta_resina')!;
+const LENTES = RECALL_FAMILIES.find((f) => f.key === 'lentes_porcelana')!;
 
 describe('recall-families', () => {
   it('limpeza: reconhece limpeza dental e deixa a estética de fora', () => {
@@ -47,6 +48,21 @@ describe('recall-families', () => {
     expect(isFamilyText(FACETA, 'Lente de contato / faceta')).toBe(false);
     expect(isFamilyText(FACETA, 'Remoção de faceta')).toBe(false);
     expect(isFamilyText(FACETA, 'Restauração em resina')).toBe(false);
+    expect(isFamilyText(FACETA, 'Lente de resina')).toBe(true); // lente de RESINA é resina
+  });
+
+  it('lentes de porcelana: lente de contato e faceta de porcelana/cerâmica; resina, coroa e remoção não', () => {
+    expect(isFamilyText(LENTES, 'Lente de contato dental')).toBe(true);
+    expect(isFamilyText(LENTES, 'LENTES DE PORCELANA')).toBe(true);
+    expect(isFamilyText(LENTES, 'Faceta de porcelana')).toBe(true);
+    expect(isFamilyText(LENTES, 'Faceta cerâmica (e.max)')).toBe(true);
+    expect(isFamilyText(LENTES, 'Porcelana - faceta unitária')).toBe(true);
+    expect(isFamilyText(LENTES, 'Lente de contato / faceta')).toBe(true);
+    expect(isFamilyText(LENTES, 'Lente de resina')).toBe(false);
+    expect(isFamilyText(LENTES, 'Faceta de Resina (PREMIUM)')).toBe(false);
+    expect(isFamilyText(LENTES, 'Coroa de porcelana')).toBe(false);
+    expect(isFamilyText(LENTES, 'Coroa em zircônia')).toBe(false);
+    expect(isFamilyText(LENTES, 'Remoção de lentes')).toBe(false);
   });
 
   it('procedimento da família = categoria da família ou nome; estética facial nunca', () => {

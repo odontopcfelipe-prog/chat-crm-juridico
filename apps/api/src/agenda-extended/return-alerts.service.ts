@@ -161,7 +161,7 @@ export class ReturnAlertsService {
     // backfill). defaultMonths abaixo é só o rótulo do retorno pós-tratamento (Concluído).
     const defaultMonths = await this.getDefaultRecallMonths(tenantId);
 
-    // FAMÍLIAS (limpeza, clareamento, faceta de resina): o catálogo costuma ter vários procedimentos do mesmo
+    // FAMÍLIAS (limpeza, clareamento, faceta de resina, lentes): o catálogo costuma ter vários procedimentos do mesmo
     // tipo ("Limpeza", "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos
     // arquivados...). Cada família cai numa ÚNICA aba — a do procedimento dela com retorno
     // ligado (home) — junto com quem só tem a consulta comparecida na agenda. Família sem

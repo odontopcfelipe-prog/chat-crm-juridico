@@ -1,5 +1,5 @@
 // Retornos (Manutenção) — FAMÍLIAS de procedimento. A aba de uma família (limpeza,
-// clareamento, faceta de resina) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
+// clareamento, faceta de resina, lentes de porcelana) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
 // de plano do procedimento exato da aba: o catálogo costuma ter vários ("Limpeza",
 // "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos arquivados...).
 // Funções puras (testáveis) usadas pelo getMaintenanceBoard em return-alerts.service.ts.
@@ -42,13 +42,24 @@ export const RECALL_FAMILIES: RecallFamily[] = [
     agendaTerms: ['clareamento'],
   },
   {
-    // Faceta de RESINA (direta). "Faceta" sem material conta como resina; porcelana/cerâmica/
-    // lente é outro tratamento, e remoção/retirada não deixa faceta pra manter.
+    // Faceta de RESINA (direta). "Faceta" sem material conta como resina; "lente de resina"
+    // também. Porcelana/cerâmica/lente sem resina é a família de lentes, e remoção/retirada
+    // não deixa faceta pra manter.
     key: 'faceta_resina',
-    match: /faceta/,
-    exclude: /porcelana|ceramica|dissilicato|e-?max|zirconia|lente|remocao|retirada/,
+    match: /faceta|lente/,
+    exclude: /porcelana|ceramica|dissilicato|e-?max|zirconia|remocao|retirada|^(?!.*resina).*lente/,
     category: null,
-    agendaTerms: ['faceta'],
+    agendaTerms: ['faceta', 'lente'],
+  },
+  {
+    // LENTES DE PORCELANA: lente de contato dental, ou faceta de porcelana/cerâmica/e.max/
+    // dissilicato/zircônia. Coroa/prótese de porcelana NÃO (não tem faceta nem lente no nome).
+    key: 'lentes_porcelana',
+    match: /lente|faceta.*(porcelana|ceramica|dissilicato|e-?max|zirconia)|(porcelana|ceramica|dissilicato|e-?max|zirconia).*faceta/,
+    exclude: /resina|remocao|retirada/,
+    category: null,
+    // ILIKE do banco não ignora acento: "cerâmica" e "ceramica" vão os dois.
+    agendaTerms: ['lente', 'porcelana', 'cerâmica', 'ceramica', 'e.max', 'emax', 'dissilicato', 'zircônia', 'zirconia'],
   },
 ];
 
