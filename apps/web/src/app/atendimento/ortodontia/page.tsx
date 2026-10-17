@@ -23,6 +23,7 @@ interface OrthoCard {
   status: OrthoStatus;
   weekday: number | null;
   next_appointment_at: string | null;
+  next_appointment_type?: string | null; // tipo na agenda (CONSULTA, RETORNO…) — conta como agendado
   last_visit_at: string | null;
   last_ortho_at?: string | null; // última consulta de ortô já passada (backend)
   archived: boolean;
@@ -56,6 +57,7 @@ const VIEWS: Array<{ key: ViewKey; label: string }> = [
 ];
 const ORTHO_WEEKDAYS = [1, 2, 3, 4, 5, 6]; // Seg–Sáb
 const WD_LABEL: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
+const APPT_TYPE_LABEL: Record<string, string> = { CONSULTA: 'Consulta', PROCEDIMENTO: 'Procedimento', RETORNO: 'Retorno' };
 const WD_FULL: Record<number, string> = { 0: 'Domingo', 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado' };
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
@@ -74,8 +76,10 @@ const byPriority = (a: OrthoCard, b: OrthoCard) => {
   if (a.status === 'agendado') return ms(a.next_appointment_at) - ms(b.next_appointment_at);
   return (a.patient.name || '').localeCompare(b.patient.name || '');
 };
+// start_at da agenda é naive-UTC (hora de Maceió gravada no campo UTC) → formata em
+// UTC, igual a agenda. Sem isso a "Próxima" saía 3h antes (09:20 virava 06:20).
 const fmtDateTime = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '';
 
 export default function OrtodontiaPage() {
   const router = useRouter();
@@ -375,7 +379,10 @@ export default function OrtodontiaPage() {
                       onFinalize={() => setFinalizeCard(c)}
                       onToggleStandby={() => toggleStandby(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
-                      onSchedule={() => router.push(`/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA`)}
+                      onSchedule={() => router.push(
+                        `/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA` +
+                        `&patient_name=${encodeURIComponent(c.patient.name || '')}&from=${encodeURIComponent('/atendimento/ortodontia')}`,
+                      )}
                       onMigrate={(did) => migrate(c.patient.id, did)}
                     />
                   ))
@@ -465,6 +472,11 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onT
       {card.status === 'agendado' && card.next_appointment_at ? (
         <div className="text-xs text-blue-500 flex items-center gap-1">
           <CalendarClock size={12} /> Próxima: {fmtDateTime(card.next_appointment_at)}
+          {card.next_appointment_type && card.next_appointment_type !== 'ORTODONTIA' && (
+            <span className="text-muted-foreground" title="Marcada na agenda com outro tipo (não Ortodontia)">
+              · {APPT_TYPE_LABEL[card.next_appointment_type] || card.next_appointment_type}
+            </span>
+          )}
         </div>
       ) : (
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">

@@ -565,14 +565,19 @@ export default function AgendaPage() {
       const patientId = params.get('patient_id') as string;
       const patientName = params.get('patient_name') || '';
       const patientPhone = params.get('phone') || '';
+      // ?type= (ex.: "Agendar" da Ortodontia manda ORTODONTIA). Antes era ignorado e o
+      // evento saía como CONSULTA "Avaliação" — o quadro de ortô não o reconhecia.
+      const presetType = EVENT_TYPES.find((t) => t.id === params.get('type'));
+      const titleBase = presetType && presetType.id !== 'CONSULTA' ? presetType.label : 'Avaliação';
       // Espera o formData inicializar antes de abrir o modal (mount completo)
       setTimeout(() => {
         openCreateModal();
-        // Pre-preenche paciente + titulo sugestivo
+        // Pre-preenche paciente + tipo + titulo sugestivo
         setFormData((f) => ({
           ...f,
+          ...(presetType ? { type: presetType.id } : {}),
           patient_id: patientId,
-          title: patientName ? `Avaliação — ${patientName}` : 'Avaliação',
+          title: patientName ? `${titleBase} — ${patientName}` : titleBase,
         }));
         // Limpa URL pra nao re-abrir em reload
         window.history.replaceState({}, '', '/atendimento/agenda');

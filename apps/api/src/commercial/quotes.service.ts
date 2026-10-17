@@ -4023,7 +4023,8 @@ export class QuotesService {
    * nas consultas de ortô (fallback: dentista principal do paciente).
    *
    * Status (precedência): concluído (plano COMPLETED / alta) > agendado (tem consulta
-   * de ortô futura) > saiu (arquivado OU inativo 12m) > não agendado (sem próxima).
+   * futura na agenda, de qualquer tipo de atendimento) > saiu (arquivado OU inativo
+   * 12m) > não agendado (sem próxima).
    */
   async getOrthoBoard(tenantId: string) {
     const nowMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000); // fuso Maceió (start_at é naive-UTC)
@@ -4067,14 +4068,43 @@ export class QuotesService {
       where: { id: { in: ids }, tenant_id: tenantId },
       select: {
         id: true, name: true, phone: true, avatar_url: true, status: true,
-        last_visit_at: true, created_at: true, ortho_dentist_id: true,
+        last_visit_at: true, created_at: true, ortho_dentist_id: true, lead_id: true,
         primary_dentist: { select: { id: true, name: true } },
       },
     });
 
-    // 4. Dentista responsável (mais frequente nas consultas de ortô) + próxima consulta
+    // 3b. Próxima consulta de QUALQUER tipo de atendimento (não só ORTODONTIA). A IA
+    // marca sempre CONSULTA e o "Agendar" do quadro abria a agenda como Consulta →
+    // o paciente ficava "Não agendado" com horário marcado na agenda. Casa também
+    // pelo lead (evento marcado no contato antes de ligar ao paciente). Dentista e
+    // dia da semana continuam saindo SÓ das consultas de ortô (passo 4).
+    const patientByLead = new Map<string, string>();
+    for (const p of patients) if (p.lead_id) patientByLead.set(p.lead_id, p.id);
+    const upcomingAppts = patients.length
+      ? await this.prisma.calendarEvent.findMany({
+          where: {
+            tenant_id: tenantId,
+            type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
+            start_at: { gte: nowMaceio },
+            status: { notIn: ['CANCELADO', 'NO_SHOW'] },
+            OR: [
+              { patient_id: { in: patients.map((p) => p.id) } },
+              ...(patientByLead.size ? [{ lead_id: { in: Array.from(patientByLead.keys()) } }] : []),
+            ],
+          },
+          select: { patient_id: true, lead_id: true, start_at: true, type: true },
+          orderBy: { start_at: 'asc' },
+        })
+      : [];
+    const nextAnyByPatient = new Map<string, { at: Date; type: string }>();
+    for (const e of upcomingAppts) {
+      const pid = (e.patient_id && patientIds.has(e.patient_id) ? e.patient_id : null)
+        ?? (e.lead_id ? patientByLead.get(e.lead_id) : undefined);
+      if (pid && !nextAnyByPatient.has(pid)) nextAnyByPatient.set(pid, { at: e.start_at, type: e.type }); // asc → 1ª é a próxima
+    }
+
+    // 4. Dentista responsável (mais frequente nas consultas de ortô) + dia da semana
     const dentistCount = new Map<string, Map<string, number>>();
-    const nextApptByPatient = new Map<string, Date>();
     const lastOrthoByPatient = new Map<string, Date>(); // última consulta de ortô já passada
     const lastOrthoCreatedByPatient = new Map<string, Date>(); // última consulta de ortô MARCADA (created_at)
     const weekdayCount = new Map<string, Map<number, number>>(); // ortô é fixo no dia da semana
@@ -4102,10 +4132,6 @@ export class QuotesService {
       const wm = weekdayCount.get(e.patient_id) ?? new Map<number, number>();
       wm.set(wd, (wm.get(wd) || 0) + 1);
       weekdayCount.set(e.patient_id, wm);
-      if (e.start_at >= nowMaceio && e.status !== 'CANCELADO' && e.status !== 'NO_SHOW') {
-        const cur = nextApptByPatient.get(e.patient_id);
-        if (!cur || e.start_at < cur) nextApptByPatient.set(e.patient_id, e.start_at);
-      }
     }
 
     // Alta de ortodontia SEM plano (markOrthoAlta) — a mais recente por paciente.
@@ -4175,7 +4201,8 @@ export class QuotesService {
         dentist = p.primary_dentist;
       }
 
-      const nextAppt = nextApptByPatient.get(p.id) || null;
+      const next = nextAnyByPatient.get(p.id) ?? null;
+      const nextAppt = next?.at ?? null;
       const plan = planByPatient.get(p.id);
       const archived = p.status === 'ARCHIVED';
       // Atividade mais recente entre: visita registrada (ou cadastro), última consulta
@@ -4219,6 +4246,7 @@ export class QuotesService {
         status,
         weekday,
         next_appointment_at: nextAppt,
+        next_appointment_type: next?.type ?? null, // ≠ ORTODONTIA → o card mostra o tipo
         last_visit_at: p.last_visit_at,
         last_ortho_at: lastOrtho, // naive-UTC Maceió (start_at da agenda)
         archived,
