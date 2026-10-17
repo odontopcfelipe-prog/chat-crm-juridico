@@ -1,7 +1,9 @@
 // Retornos (Manutenção) — FAMÍLIAS de procedimento. A aba de uma família (limpeza,
-// clareamento, faceta de resina, lentes, implante, protocolo) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
-// de plano do procedimento exato da aba: o catálogo costuma ter vários ("Limpeza",
-// "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos arquivados...).
+// clareamento, faceta de resina, lentes, implante, protocolo) junta TODO paciente que fez
+// aquele tipo de procedimento, não só quem tem item de plano do procedimento exato da aba: o
+// catálogo costuma ter vários ("Limpeza", "Profilaxia (limpeza + raspagem)", "Clareamento
+// caseiro", antigos arquivados...). Procedimento ligado FORA de família vira uma família de
+// um só (procedureFamily) — toda aba segue a mesma regra (plano + agenda).
 // Funções puras (testáveis) usadas pelo getMaintenanceBoard em return-alerts.service.ts.
 
 const norm = (s: string | null | undefined) =>
@@ -88,6 +90,33 @@ export function isFamilyText(fam: RecallFamily, s: string | null | undefined): b
   const t = norm(s);
   if (fam.exclude.test(t)) return false;
   return fam.match.test(t);
+}
+
+/**
+ * Família de UM procedimento só (ligado em Retornos, fora das famílias): a consulta conta se o
+ * título/tipo trouxer o nome dele (sem acento/caixa) ou se estiver vinculada ao item dele.
+ */
+export function procedureFamily(p: { id: string; name: string }): RecallFamily {
+  const n = norm(p.name).trim();
+  return {
+    key: `proc:${p.id}`,
+    match: n ? new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : /(?!)/,
+    exclude: /(?!)/, // nunca casa
+    category: null,
+    // ILIKE do banco não ignora acento: vai o nome como está e sem acento.
+    agendaTerms: Array.from(new Set([p.name.trim(), n])),
+  };
+}
+
+/**
+ * Consulta SÓ de avaliação/orçamento/planejamento ("Avaliação para clareamento") não prova
+ * que o procedimento foi FEITO. Com junção ("Avaliação + limpeza", "avaliação e limpeza")
+ * os dois foram feitos na mesma visita, então conta.
+ */
+export function isEvaluationOnly(title: string | null | undefined): boolean {
+  const t = norm(title);
+  if (!/avaliac|orcamento|planejamento/.test(t)) return false;
+  return !/\+|&|\/|,|\s+e\s+/.test(t);
 }
 
 /** Procedimento do catálogo que é dessa família (categoria da família ou nome). */

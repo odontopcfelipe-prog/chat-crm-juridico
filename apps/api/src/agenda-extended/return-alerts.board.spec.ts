@@ -1,9 +1,9 @@
 import { ReturnAlertsService } from './return-alerts.service';
 
 // Quadro de Retornos com banco FALSO: confere que cada FAMÍLIA (limpeza, clareamento, faceta, lentes,
-// implante, protocolo) junta
-// todos os procedimentos dela (outros nomes, arquivados) + consultas comparecidas na agenda
-// numa aba só, e que o resto do quadro não muda.
+// implante, protocolo) junta todos os procedimentos dela (outros nomes, arquivados) +
+// consultas comparecidas na agenda numa aba só, e que procedimento ligado FORA de família
+// segue a mesma regra (plano + agenda).
 const T = '00000000-0000-0000-0000-000000000000';
 const d = (s: string) => new Date(`${s}T12:00:00Z`);
 const pat = (id: string) => ({ id, name: `Paciente ${id}`, phone: null, avatar_url: null });
@@ -13,7 +13,7 @@ type Ev = { start_at: Date; title: string; patient_id: string | null; lead_id: s
 
 function fakePrisma(catalog: Proc[]) {
   const P = Object.fromEntries(catalog.map((p) => [p.id, p]));
-  const patients = ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R'].map((id) => ({ ...pat(id), lead_id: id === 'E' ? 'L1' : null }));
+  const patients = ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'].map((id) => ({ ...pat(id), lead_id: id === 'E' ? 'L1' : null }));
   // Itens DONE concluídos por dentista (o fake não emula o filtro de dentista).
   const items = [
     { pid: 'A', proc: 'p1', date: '2026-07-13', by: 'Dra. Suellen' },
@@ -21,7 +21,7 @@ function fakePrisma(catalog: Proc[]) {
     { pid: 'D', proc: 'p3', date: '2025-03-01', by: 'Dr. X' },
     { pid: 'B', proc: 'p4', date: '2026-08-12', by: 'Dra. Suellen' },
     { pid: 'H', proc: 'p6', date: '2026-09-01', by: 'Dra. Suellen' }, // clareamento caseiro (retorno desligado)
-    { pid: 'I', proc: 'p10', date: '2026-02-01', by: 'Dr. X' }, // restauração (fora de família)
+    { pid: 'I', proc: 'p10', date: '2026-02-01', by: 'Dr. X' }, // restauração (fora de família, ligada)
     { pid: 'J', proc: 'p8', date: '2026-07-20', by: 'Dra. Suellen' }, // faceta resina simples (desligada)
     { pid: 'K', proc: 'p9', date: '2026-07-21', by: 'Dra. Suellen' }, // faceta de porcelana → lentes
     { pid: 'L', proc: 'p12', date: '2026-06-30', by: 'Dra. Suellen' }, // lente de resina → faceta de resina
@@ -42,6 +42,9 @@ function fakePrisma(catalog: Proc[]) {
     { start_at: d('2026-07-10'), title: 'Manutenção protocolo - remoção para higienização', patient_id: 'N', lead_id: null, appointment_type: null, assigned_user: { name: 'Dr. X' } },
     { start_at: d('2026-09-15'), title: 'Cirurgia de implante', patient_id: 'Q', lead_id: null, appointment_type: null, assigned_user: { name: 'Dr. X' } },
     { start_at: d('2026-09-16'), title: 'Avaliação para implante', patient_id: 'R', lead_id: null, appointment_type: null, assigned_user: { name: 'Dr. X' } },
+    { start_at: d('2026-09-17'), title: 'Avaliação para clareamento', patient_id: 'S', lead_id: null, appointment_type: null, assigned_user: { name: 'Dra. Suellen' } },
+    { start_at: d('2026-09-18'), title: 'Avaliação + limpeza', patient_id: 'T', lead_id: null, appointment_type: null, assigned_user: { name: 'Dra. Ana' } },
+    { start_at: d('2026-09-19'), title: 'Restauracao em resina - 36', patient_id: 'U', lead_id: null, appointment_type: null, assigned_user: { name: 'Dr. X' } },
     { start_at: d('2026-10-02'), title: 'Clareamento de axilas', patient_id: 'F', lead_id: null, appointment_type: null, assigned_user: null },
   ];
   const ilike = (s: string | null | undefined, t: string) => (s || '').toLowerCase().includes(t.toLowerCase());
@@ -50,11 +53,10 @@ function fakePrisma(catalog: Proc[]) {
     treatmentPlanItem: {
       findMany: jest.fn(async (args: any) =>
         items
-          .filter((it) =>
-            args.where.procedure_id ? args.where.procedure_id.in.includes(it.proc) : P[it.proc].active, // bloco geral: procedure.active
-          )
+          .filter((it) => args.where.procedure_id.in.includes(it.proc))
           .map((it) => ({
             executed_at: d(it.date),
+            procedure_id: it.proc,
             executed_by: { name: it.by },
             procedure: { id: it.proc, name: P[it.proc].name, default_revisit_months: P[it.proc].default_revisit_months },
             treatment_plan: { patient_id: it.pid, patient: pat(it.pid) },
@@ -73,7 +75,7 @@ function fakePrisma(catalog: Proc[]) {
               : !!e.tpi_proc && ids.includes(e.tpi_proc),
             ),
           )
-          .map(({ tpi_proc, ...e }) => ({ ...e, treatment_plan_items: tpi_proc && ids.includes(tpi_proc) ? [{ id: 'tpi' }] : [] }));
+          .map(({ tpi_proc, ...e }) => ({ ...e, treatment_plan_items: tpi_proc && ids.includes(tpi_proc) ? [{ procedure_id: tpi_proc }] : [] }));
       }),
     },
     patient: {
@@ -126,7 +128,7 @@ describe('ReturnAlertsService.getMaintenanceBoard — famílias (limpeza, clarea
 
     // LIMPEZA
     const limp = tab('Profilaxia (limpeza + raspagem)');
-    expect(Object.keys(limp).sort()).toEqual(['A', 'C', 'D', 'E', 'G']); // F (limpeza de pele) fora
+    expect(Object.keys(limp).sort()).toEqual(['A', 'C', 'D', 'E', 'G', 'T']); // F (limpeza de pele) fora; T = avaliação + limpeza
     expect(limp.A.source).toBe('agenda'); // plano 13/07, mas veio na agenda em 20/09 → a mais recente
     expect(limp.A.executed_by_name).toBe('Dra. Ana');
     expect(iso(limp.A.return_date)).toBe('2027-03-20');
@@ -137,7 +139,7 @@ describe('ReturnAlertsService.getMaintenanceBoard — famílias (limpeza, clarea
 
     // CLAREAMENTO
     const clar = tab('Clareamento de Consultorio');
-    expect(Object.keys(clar).sort()).toEqual(['B', 'G', 'H', 'P']); // F (clareamento de axilas) fora; P = protocolo de clareamento
+    expect(Object.keys(clar).sort()).toEqual(['B', 'G', 'H', 'P']); // F (axilas) e S (só avaliação) fora; P = protocolo de clareamento
     expect(iso(clar.B.return_date)).toBe('2027-08-12');
     expect(clar.H.months).toBe(12); // caseiro (desligado) entra com os 12 meses da aba
     expect(iso(clar.H.return_date)).toBe('2027-09-01');
@@ -174,7 +176,14 @@ describe('ReturnAlertsService.getMaintenanceBoard — famílias (limpeza, clarea
 
     // Nada com o nome dos procedimentos absorvidos; resto do quadro igual (restauração do I).
     expect(board.recalls.some((r) => ['Limpeza', 'Limpeza antiga', 'Clareamento caseiro', 'Faceta de resina simples', 'Faceta de porcelana', 'Lente de resina', 'Coroa sobre implante', 'Protocolo cerâmica', 'Remoção de implante', 'Protocolo de clareamento'].includes(r.type))).toBe(false);
-    expect(Object.keys(tab('Restauração em resina'))).toEqual(['I']);
+    // Procedimento ligado FORA de família: plano (I) + consulta com o nome dele, sem acento (U).
+    const res = tab('Restauração em resina');
+    expect(Object.keys(res).sort()).toEqual(['I', 'U']);
+    expect(res.U.source).toBe('agenda');
+    expect(iso(res.U.return_date)).toBe('2027-09-19');
+    // Poucas queries: 1 busca de itens e 1 de agenda pra TODAS as abas.
+    expect(prisma.treatmentPlanItem.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.calendarEvent.findMany).toHaveBeenCalledTimes(1);
 
     // A consulta à agenda é só do tenant, só clínica, só comparecido.
     for (const [args] of (prisma.calendarEvent.findMany as jest.Mock).mock.calls) {
@@ -195,7 +204,6 @@ describe('ReturnAlertsService.getMaintenanceBoard — famílias (limpeza, clarea
     const prisma = fakePrisma(cat);
     const board = await new ReturnAlertsService(prisma as any).getMaintenanceBoard(T);
     expect(board.procedures).toEqual(['Limpeza de pele', 'Restauração em resina']);
-    expect(prisma.calendarEvent.findMany).not.toHaveBeenCalled();
-    expect(board.recalls.map((r) => r.type)).toEqual(['Restauração em resina']);
+    expect(Array.from(new Set(board.recalls.map((r) => r.type)))).toEqual(['Restauração em resina']);
   });
 });

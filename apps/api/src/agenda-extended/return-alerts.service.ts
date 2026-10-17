@@ -10,10 +10,12 @@ import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.h
 import { ATTENDED_STATUSES } from '../leads/clinic-transfer-guard';
 import {
   RECALL_FAMILIES,
+  isEvaluationOnly,
   isFamilyProcedure,
   isFamilyText,
   latestPerPatient,
   pickFamilyHome,
+  procedureFamily,
   type FamilyEvidence,
   type FamilyProc,
   type RecallFamily,
@@ -41,6 +43,10 @@ type Recall = {
   executed_by_name: string | null; // dentista que concluiu o procedimento (execução mais recente)
   source?: 'plano' | 'agenda'; // de onde veio a data (plano executado ou consulta comparecida)
 };
+
+// Uma ABA do quadro por procedimento: família (limpeza, clareamento...) ou procedimento ligado
+// sozinho. home = procedimento da aba (nome + meses); ids = procedimentos que contam nela.
+type RecallGroup = { fam: RecallFamily; home: FamilyProc; ids: string[] };
 
 @Injectable()
 export class ReturnAlertsService {
@@ -161,66 +167,31 @@ export class ReturnAlertsService {
     // backfill). defaultMonths abaixo é só o rótulo do retorno pós-tratamento (Concluído).
     const defaultMonths = await this.getDefaultRecallMonths(tenantId);
 
-    // FAMÍLIAS (RECALL_FAMILIES: limpeza, clareamento, faceta, lentes, implante, protocolo): o catálogo costuma ter vários procedimentos do mesmo
-    // tipo ("Limpeza", "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos
-    // arquivados...). Cada família cai numa ÚNICA aba — a do procedimento dela com retorno
-    // ligado (home) — junto com quem só tem a consulta comparecida na agenda. Família sem
-    // nenhum procedimento ligado → nada muda (opt-in).
+    // 1) Por PROCEDIMENTO — TODA aba segue a MESMA regra: junta quem FEZ (item de plano DONE
+    // concluído por dentista + consulta comparecida na agenda), 1 por paciente = a execução mais
+    // RECENTE, retorno = essa data + N meses do procedimento da aba.
+    // FAMÍLIAS (RECALL_FAMILIES: limpeza, clareamento, faceta, lentes, implante, protocolo): o
+    // catálogo costuma ter vários procedimentos do mesmo tipo ("Limpeza", "Profilaxia (limpeza +
+    // raspagem)", "Clareamento caseiro", antigos arquivados...). Cada família cai numa ÚNICA aba
+    // — a do procedimento dela com retorno ligado (home). Família sem nenhum ligado → sem aba
+    // (opt-in). Procedimento ligado fora de família = grupo de um só (procedureFamily).
     const catalog = await this.prisma.procedure.findMany({
       where: { tenant_id: tenantId },
       select: { id: true, name: true, category: true, active: true, default_revisit_months: true },
     });
-    const families = RECALL_FAMILIES.flatMap((fam) => {
+    const familyGroups: RecallGroup[] = RECALL_FAMILIES.flatMap((fam) => {
       const procs = catalog.filter((p) => isFamilyProcedure(fam, p));
       const home = pickFamilyHome(fam, procs);
       return home ? [{ fam, home, ids: procs.map((p) => p.id) }] : [];
     });
-    const familyIds = new Set(families.flatMap((f) => f.ids));
-    const homeIds = new Set(families.map((f) => f.home.id));
-
-    // 1) Por PROCEDIMENTO — só os ATIVADOS (default_revisit_months >= 1) geram retorno,
-    // N meses após a execução; conta a partir da execução, mesmo no meio do tratamento.
-    const items = await this.prisma.treatmentPlanItem.findMany({
-      where: {
-        status: 'DONE',
-        executed_at: { not: null },
-        treatment_plan: { patient: { tenant_id: tenantId } },
-        // Só procedimento ATIVO gera retorno (consistente com a config, que lista só
-        // ativos). Procedimento arquivado NÃO vira aba órfã no quadro — mesmo tendo
-        // execuções antigas com retorno ligado.
-        procedure: { active: true },
-        // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção).
-        executed_by: EXECUTED_BY_DENTIST,
-      },
-      select: {
-        executed_at: true,
-        procedure: { select: { id: true, name: true, default_revisit_months: true } },
-        executed_by: { select: { name: true } },
-        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true, avatar_url: true } } } },
-      },
-      orderBy: { executed_at: 'desc' },
-      take: 5000,
-    });
-    const seen = new Set<string>(); // 1 por (paciente, procedimento) = execução mais recente
-    for (const it of items) {
-      const p = it.treatment_plan?.patient;
-      const proc = it.procedure;
-      if (!p?.id || !proc?.name || !it.executed_at) continue;
-      if (familyIds.has(proc.id)) continue; // família (RECALL_FAMILIES) → bloco 1b
-      // Opt-in: só gera retorno o procedimento com intervalo ATIVADO (>=1). Sem intervalo
-      // (null/0) → não gera retorno (o admin escolhe quais precisam em Configurações → Retornos).
-      const cfg = proc.default_revisit_months;
-      if (cfg == null || cfg <= 0) continue;
-      const key = `${p.id}|${proc.name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const ret = new Date(it.executed_at);
-      ret.setMonth(ret.getMonth() + cfg);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg, executed_by_name: it.executed_by?.name ?? null, source: 'plano' });
-    }
-
-    // 1b) FAMÍLIAS — todo paciente que fez o procedimento, numa aba só por família.
-    for (const f of families) recalls.push(...(await this.familyRecalls(tenantId, f.fam, f.home, f.ids)));
+    const familyIds = new Set(familyGroups.flatMap((g) => g.ids));
+    // Opt-in: só procedimento ATIVO com retorno ligado (>=1) gera aba. Arquivado não vira aba
+    // órfã (mas, dentro de uma família, as execuções dele contam na aba da família).
+    const soloGroups: RecallGroup[] = catalog
+      .filter((p) => p.active && (p.default_revisit_months ?? 0) >= 1 && !familyIds.has(p.id))
+      .map((p) => ({ fam: procedureFamily(p), home: p, ids: [p.id] }));
+    const groups = [...familyGroups, ...soloGroups];
+    recalls.push(...(await this.groupRecalls(tenantId, groups)));
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
     const completions = await this.prisma.maintenanceTask.findMany({
@@ -241,9 +212,7 @@ export class ReturnAlertsService {
     // abas). Une com os tipos que já têm recall (garantia). Uma aba de selecionado sem
     // paciente aparece vazia ("ninguém fez esse procedimento ainda").
     // Os outros procedimentos ligados de uma família não viram aba própria: estão na home.
-    const selectedProcs = catalog.filter(
-      (p) => p.active && (p.default_revisit_months ?? 0) >= 1 && (!familyIds.has(p.id) || homeIds.has(p.id)),
-    );
+    const selectedProcs = groups.map((g) => g.home);
     const procedureTabs = Array.from(
       new Set<string>([
         ...selectedProcs.map((s) => s.name),
@@ -257,31 +226,35 @@ export class ReturnAlertsService {
   }
 
   /**
-   * Retornos de uma FAMÍLIA (limpeza, clareamento, faceta...) na aba da home, com a próxima vinda
-   * calculada da execução MAIS RECENTE + N meses da home. Duas evidências:
-   *   - item de plano DONE de QUALQUER procedimento da família (ativo ou arquivado), mesma
-   *     regra de concluído por DENTISTA;
-   *   - consulta clínica na agenda (título/tipo de consulta com o termo da família, ou
-   *     vinculada a um item da família) em que o paciente COMPARECEU.
+   * Retornos de TODAS as abas em lote (poucas queries, não uma por aba). Evidências de que o
+   * paciente FEZ o procedimento de um grupo:
+   *   - item de plano DONE de qualquer procedimento do grupo (ativo ou arquivado), concluído
+   *     por DENTISTA;
+   *   - consulta clínica COMPARECIDA vinculada a um item do grupo, ou com o termo do grupo no
+   *     título/tipo — mas consulta SÓ de avaliação ("Avaliação para clareamento") não conta.
+   * 1 por paciente por aba = a mais recente; retorno = essa data + N meses do home.
    */
-  private async familyRecalls(tenantId: string, fam: RecallFamily, home: FamilyProc, ids: string[]): Promise<Recall[]> {
-    const months = home.default_revisit_months as number;
-    const [famItems, famEvents] = await Promise.all([
+  private async groupRecalls(tenantId: string, groups: RecallGroup[]): Promise<Recall[]> {
+    if (!groups.length) return [];
+    const allIds = Array.from(new Set(groups.flatMap((g) => g.ids)));
+    const terms = Array.from(new Set(groups.flatMap((g) => g.fam.agendaTerms)));
+    const [items, events] = await Promise.all([
       this.prisma.treatmentPlanItem.findMany({
         where: {
           status: 'DONE',
           executed_at: { not: null },
-          procedure_id: { in: ids },
+          procedure_id: { in: allIds },
           treatment_plan: { patient: { tenant_id: tenantId } },
           executed_by: EXECUTED_BY_DENTIST,
         },
         select: {
           executed_at: true,
+          procedure_id: true,
           executed_by: { select: { name: true } },
           treatment_plan: { select: { patient_id: true } },
         },
         orderBy: { executed_at: 'desc' },
-        take: 5000,
+        take: 10000,
       }),
       this.prisma.calendarEvent.findMany({
         where: {
@@ -289,11 +262,11 @@ export class ReturnAlertsService {
           type: { in: CLINICAL_EVENT_TYPES },
           status: { in: ATTENDED_STATUSES },
           OR: [
-            ...fam.agendaTerms.flatMap((t): Prisma.CalendarEventWhereInput[] => [
+            ...terms.flatMap((t): Prisma.CalendarEventWhereInput[] => [
               { title: { contains: t, mode: 'insensitive' } },
               { appointment_type: { name: { contains: t, mode: 'insensitive' } } },
             ]),
-            { treatment_plan_items: { some: { procedure_id: { in: ids } } } },
+            { treatment_plan_items: { some: { procedure_id: { in: allIds } } } },
           ],
         },
         select: {
@@ -303,24 +276,15 @@ export class ReturnAlertsService {
           lead_id: true,
           appointment_type: { select: { name: true } },
           assigned_user: { select: { name: true } },
-          treatment_plan_items: { where: { procedure_id: { in: ids } }, select: { id: true }, take: 1 },
+          treatment_plan_items: { where: { procedure_id: { in: allIds } }, select: { procedure_id: true } },
         },
         orderBy: { start_at: 'desc' },
-        take: 5000,
+        take: 10000,
       }),
     ]);
 
-    const evidences: FamilyEvidence[] = [];
-    for (const it of famItems) {
-      if (!it.executed_at || !it.treatment_plan?.patient_id) continue;
-      evidences.push({ patient_id: it.treatment_plan.patient_id, date: it.executed_at, by_name: it.executed_by?.name ?? null, source: 'plano' });
-    }
-    // O ILIKE do banco também pega "limpeza de pele"/"clareamento de pele" — o filtro fino é aqui.
-    const evs = famEvents.filter(
-      (e) => e.treatment_plan_items.length > 0 || isFamilyText(fam, e.title) || isFamilyText(fam, e.appointment_type?.name),
-    );
     // Consulta só com lead (sem patient_id): acha o paciente pelo Patient.lead_id.
-    const leadIds = Array.from(new Set(evs.filter((e) => !e.patient_id && e.lead_id).map((e) => e.lead_id as string)));
+    const leadIds = Array.from(new Set(events.filter((e) => !e.patient_id && e.lead_id).map((e) => e.lead_id as string)));
     const leadToPatient = new Map<string, string>();
     if (leadIds.length) {
       const ps = await this.prisma.patient.findMany({
@@ -329,26 +293,52 @@ export class ReturnAlertsService {
       });
       for (const p of ps) if (p.lead_id) leadToPatient.set(p.lead_id, p.id);
     }
-    for (const e of evs) {
+
+    const perGroup: FamilyEvidence[][] = groups.map(() => []);
+    for (const it of items) {
+      const pid = it.treatment_plan?.patient_id;
+      if (!pid || !it.executed_at) continue;
+      groups.forEach((g, gi) => {
+        if (g.ids.includes(it.procedure_id)) {
+          perGroup[gi].push({ patient_id: pid, date: it.executed_at as Date, by_name: it.executed_by?.name ?? null, source: 'plano' });
+        }
+      });
+    }
+    for (const e of events) {
       const pid = e.patient_id || (e.lead_id ? leadToPatient.get(e.lead_id) : undefined);
       if (!pid) continue;
-      evidences.push({ patient_id: pid, date: e.start_at, by_name: e.assigned_user?.name ?? null, source: 'agenda' });
+      const linked = new Set(e.treatment_plan_items.map((t) => t.procedure_id));
+      const evalOnly = isEvaluationOnly(e.title);
+      groups.forEach((g, gi) => {
+        // O ILIKE do banco também pega "limpeza de pele"/"clareamento de pele" — o fino é aqui.
+        const byLink = g.ids.some((id) => linked.has(id));
+        const byText = !evalOnly && (isFamilyText(g.fam, e.title) || isFamilyText(g.fam, e.appointment_type?.name));
+        if (byLink || byText) {
+          perGroup[gi].push({ patient_id: pid, date: e.start_at, by_name: e.assigned_user?.name ?? null, source: 'agenda' });
+        }
+      });
     }
 
-    const latest = latestPerPatient(evidences, months);
-    const pats = latest.length
+    const latest = groups.map((g, gi) => latestPerPatient(perGroup[gi], g.home.default_revisit_months as number));
+    const patientIds = Array.from(new Set(latest.flat().map((l) => l.patient_id)));
+    const pats = patientIds.length
       ? await this.prisma.patient.findMany({
-          where: { tenant_id: tenantId, id: { in: latest.map((l) => l.patient_id) } },
+          where: { tenant_id: tenantId, id: { in: patientIds } },
           select: { id: true, name: true, phone: true, avatar_url: true },
         })
       : [];
     const byId = new Map(pats.map((p) => [p.id, p]));
     const out: Recall[] = [];
-    for (const l of latest) {
-      const p = byId.get(l.patient_id);
-      if (!p) continue; // paciente de outro tenant/apagado — nunca entra
-      out.push({ kind: 'procedure', type: home.name, patient: p, last_date: l.date, return_date: l.return_date, months, executed_by_name: l.by_name, source: l.source });
-    }
+    groups.forEach((g, gi) => {
+      for (const l of latest[gi]) {
+        const p = byId.get(l.patient_id);
+        if (!p) continue; // paciente de outro tenant/apagado — nunca entra
+        out.push({
+          kind: 'procedure', type: g.home.name, patient: p, last_date: l.date, return_date: l.return_date,
+          months: g.home.default_revisit_months as number, executed_by_name: l.by_name, source: l.source,
+        });
+      }
+    });
     return out;
   }
 

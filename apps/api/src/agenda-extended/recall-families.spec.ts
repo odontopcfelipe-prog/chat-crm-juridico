@@ -1,9 +1,11 @@
 import {
   RECALL_FAMILIES,
+  isEvaluationOnly,
   isFamilyProcedure,
   isFamilyText,
   latestPerPatient,
   pickFamilyHome,
+  procedureFamily,
   type FamilyProc,
 } from './recall-families';
 
@@ -90,6 +92,26 @@ describe('recall-families', () => {
     expect(isFamilyText(PROTOCOLO, 'Protocolo de clareamento')).toBe(false);
     expect(isFamilyText(PROTOCOLO, 'Protocolo ortodôntico')).toBe(false);
     expect(isFamilyText(PROTOCOLO, 'Implante dentário')).toBe(false);
+  });
+
+  it('consulta só de avaliação não prova que fez; com junção (+, e) conta', () => {
+    expect(isEvaluationOnly('Avaliação para clareamento')).toBe(true);
+    expect(isEvaluationOnly('Avaliação implante')).toBe(true);
+    expect(isEvaluationOnly('Orçamento lentes')).toBe(true);
+    expect(isEvaluationOnly('Avaliação + limpeza')).toBe(false);
+    expect(isEvaluationOnly('Avaliação e limpeza')).toBe(false);
+    expect(isEvaluationOnly('Limpeza')).toBe(false);
+    expect(isEvaluationOnly(null)).toBe(false);
+  });
+
+  it('procedimento fora de família: casa o nome dele, com ou sem acento', () => {
+    const fam = procedureFamily({ id: 'x', name: 'Restauração em resina' });
+    expect(isFamilyText(fam, 'Restauração em resina')).toBe(true);
+    expect(isFamilyText(fam, 'RESTAURACAO EM RESINA - dente 36')).toBe(true);
+    expect(isFamilyText(fam, 'Restauração')).toBe(false);
+    expect(fam.agendaTerms).toEqual(['Restauração em resina', 'restauracao em resina']);
+    const paren = procedureFamily({ id: 'y', name: 'Faceta (PREMIUM)' });
+    expect(isFamilyText(paren, 'faceta (premium)')).toBe(true); // parênteses não quebram o regex
   });
 
   it('procedimento da família = categoria da família ou nome; estética facial nunca', () => {
