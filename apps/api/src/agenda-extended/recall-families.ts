@@ -1,5 +1,5 @@
 // Retornos (Manutenção) — FAMÍLIAS de procedimento. A aba de uma família (limpeza,
-// clareamento, faceta de resina, lentes de porcelana) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
+// clareamento, faceta de resina, lentes, implante, protocolo) junta TODO paciente que fez aquele tipo de procedimento, não só quem tem item
 // de plano do procedimento exato da aba: o catálogo costuma ter vários ("Limpeza",
 // "Profilaxia (limpeza + raspagem)", "Clareamento caseiro", antigos arquivados...).
 // Funções puras (testáveis) usadas pelo getMaintenanceBoard em return-alerts.service.ts.
@@ -60,6 +60,26 @@ export const RECALL_FAMILIES: RecallFamily[] = [
     category: null,
     // ILIKE do banco não ignora acento: "cerâmica" e "ceramica" vão os dois.
     agendaTerms: ['lente', 'porcelana', 'cerâmica', 'ceramica', 'e.max', 'emax', 'dissilicato', 'zircônia', 'zirconia'],
+  },
+  {
+    // IMPLANTE (unitário, coroa/prótese sobre implante, manutenção). Protocolo é família
+    // própria; remoção/explante não deixa implante; avaliação/planejamento/enxerto/tomografia
+    // é antes do implante (o item do implante em si entra separado).
+    key: 'implante',
+    match: /implante|implantossuport/,
+    exclude: /protocolo|all.?on|branemark|remocao|retirada|explante|avaliacao|planejamento|enxerto|tomografia|orcamento/,
+    category: null,
+    agendaTerms: ['implante', 'implantossuport'],
+  },
+  {
+    // PROTOCOLO (prótese fixa sobre implantes), cerâmica OU resina. "Protocolo" também é
+    // palavra genérica ("protocolo de clareamento") — esses ficam fora. Remoção do protocolo
+    // pra higienização É a manutenção, então conta.
+    key: 'protocolo',
+    match: /protocolo|all.?on.?(4|6|four|six|quatro|seis)|branemark/,
+    exclude: /clareamento|ortodont|toxina|botox|harmoniza|preenchimento|bioestimul|peeling|dessensibiliz|fluor/,
+    category: null,
+    agendaTerms: ['protocolo', 'all on', 'all-on', 'branemark'],
   },
 ];
 

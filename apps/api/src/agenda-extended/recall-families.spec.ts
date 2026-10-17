@@ -11,6 +11,8 @@ const LIMPEZA = RECALL_FAMILIES.find((f) => f.key === 'limpeza')!;
 const CLAREAMENTO = RECALL_FAMILIES.find((f) => f.key === 'clareamento')!;
 const FACETA = RECALL_FAMILIES.find((f) => f.key === 'faceta_resina')!;
 const LENTES = RECALL_FAMILIES.find((f) => f.key === 'lentes_porcelana')!;
+const IMPLANTE = RECALL_FAMILIES.find((f) => f.key === 'implante')!;
+const PROTOCOLO = RECALL_FAMILIES.find((f) => f.key === 'protocolo')!;
 
 describe('recall-families', () => {
   it('limpeza: reconhece limpeza dental e deixa a estética de fora', () => {
@@ -63,6 +65,31 @@ describe('recall-families', () => {
     expect(isFamilyText(LENTES, 'Coroa de porcelana')).toBe(false);
     expect(isFamilyText(LENTES, 'Coroa em zircônia')).toBe(false);
     expect(isFamilyText(LENTES, 'Remoção de lentes')).toBe(false);
+  });
+
+  it('implante: implante/coroa/prótese sobre implante; protocolo, remoção e antes-do-implante não', () => {
+    expect(isFamilyText(IMPLANTE, 'Implante dentário')).toBe(true);
+    expect(isFamilyText(IMPLANTE, 'Coroa sobre implante')).toBe(true);
+    expect(isFamilyText(IMPLANTE, 'Prótese implantossuportada unitária')).toBe(true);
+    expect(isFamilyText(IMPLANTE, 'Manutenção de implantes')).toBe(true);
+    expect(isFamilyText(IMPLANTE, 'Implante para protocolo')).toBe(false);
+    expect(isFamilyText(IMPLANTE, 'Implantes all-on-4')).toBe(false);
+    expect(isFamilyText(IMPLANTE, 'Remoção de implante')).toBe(false);
+    expect(isFamilyText(IMPLANTE, 'Avaliação para implante')).toBe(false);
+    expect(isFamilyText(IMPLANTE, 'Enxerto ósseo pré-implante')).toBe(false);
+    expect(isFamilyText(IMPLANTE, 'Implantodontia')).toBe(false);
+  });
+
+  it('protocolo: cerâmica ou resina, all-on, manutenção; protocolo de clareamento não', () => {
+    expect(isFamilyText(PROTOCOLO, 'Protocolo em resina')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'Protocolo cerâmico superior')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'Prótese protocolo (Branemark)')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'All-on-4')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'All on six')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'Remoção do protocolo para higienização')).toBe(true);
+    expect(isFamilyText(PROTOCOLO, 'Protocolo de clareamento')).toBe(false);
+    expect(isFamilyText(PROTOCOLO, 'Protocolo ortodôntico')).toBe(false);
+    expect(isFamilyText(PROTOCOLO, 'Implante dentário')).toBe(false);
   });
 
   it('procedimento da família = categoria da família ou nome; estética facial nunca', () => {
