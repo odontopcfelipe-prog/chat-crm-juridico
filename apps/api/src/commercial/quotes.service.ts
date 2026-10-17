@@ -3704,9 +3704,11 @@ export class QuotesService {
    * Journey Board — pipeline PÓS-VENDA (Jornada do paciente → "Progresso").
    * Cada venda FECHADA (Quote status=ACCEPTED) vira um card, classificado pela
    * ETAPA do tratamento pra a clínica não perder o paciente depois de fechar:
-   *   A_AGENDAR     — fechou mas SEM consulta clínica futura marcada  ⚠
-   *   AGENDADO      — tem consulta clínica futura (não-cancelada)
-   *   EM_TRATAMENTO — já tem ≥1 procedimento executado (item DONE)
+   *   A_AGENDAR     — "Fechamentos": fechou e NUNCA teve a 1ª consulta (nem futura,
+   *                   nem passada não-desmarcada)  ⚠
+   *   AGENDADO      — tem consulta clínica futura (não-cancelada), de qualquer tipo
+   *   EM_TRATAMENTO — já tem ≥1 procedimento executado (item DONE) ou consulta depois
+   *                   do fechamento que já passou/foi atendida
    *   CONCLUIDO     — plano COMPLETED, ou todos os itens DONE/CANCELLED
    * Precedência: Concluído > Em tratamento > Agendado > A agendar.
    *
@@ -3730,6 +3732,7 @@ export class QuotesService {
         patient: {
           select: {
             id: true, name: true, phone: true, avatar_url: true,
+            lead_id: true, // consulta marcada no contato (lead) também conta
             // dentista que está atendendo (editável no card do Progresso)
             primary_dentist: { select: { id: true, name: true } },
           },
@@ -3750,7 +3753,9 @@ export class QuotesService {
       },
       // accepted_at pode ser null em quotes ACCEPTED antigos → nulls last
       orderBy: [{ accepted_at: { sort: 'desc', nulls: 'last' } }],
-      take: 500,
+      // Era 500: passando disso, os fechamentos MAIS ANTIGOS sumiam — justo quem fechou
+      // há tempo e nunca agendou (o que mais precisa de atenção em "Fechamentos").
+      take: 5000,
     });
 
     // Venda rápida (balcão, feito na hora) NÃO entra no Progresso — não tem pipeline
@@ -3776,47 +3781,71 @@ export class QuotesService {
     const patientIds = Array.from(
       new Set(quotes.map((q) => q.patient?.id).filter((id): id is string => !!id)),
     );
+    // Consulta marcada só no CONTATO (lead_id, sem patient_id) também é do paciente —
+    // sem isso o card ficava em "Fechamentos" com o horário já na agenda.
+    const patientByLead = new Map<string, string>();
+    for (const q of quotes) {
+      if (q.patient?.lead_id) patientByLead.set(q.patient.lead_id, q.patient.id);
+    }
+    const patientIdSet = new Set(patientIds);
+    const ownerOf = (e: { patient_id: string | null; lead_id: string | null }) =>
+      (e.patient_id && patientIdSet.has(e.patient_id) ? e.patient_id : null)
+      ?? (e.lead_id ? patientByLead.get(e.lead_id) ?? null : null);
+    const belongsToPatients = {
+      OR: [
+        { patient_id: { in: patientIds } },
+        ...(patientByLead.size ? [{ lead_id: { in: Array.from(patientByLead.keys()) } }] : []),
+      ],
+    };
+
     const nextApptByPatient = new Map<string, Date>();
     if (patientIds.length > 0) {
       const events = await this.prisma.calendarEvent.findMany({
         where: {
           tenant_id: tenantId,
-          patient_id: { in: patientIds },
+          ...belongsToPatients,
           type: { in: CLINICAL_TYPES },
           status: { notIn: ['CANCELADO', 'NO_SHOW'] },
           start_at: { gte: nowMaceio },
         },
         orderBy: { start_at: 'asc' }, // primeira ocorrência = próxima consulta
-        select: { patient_id: true, start_at: true },
+        select: { patient_id: true, lead_id: true, start_at: true },
       });
       for (const e of events) {
-        if (e.patient_id && !nextApptByPatient.has(e.patient_id)) {
-          nextApptByPatient.set(e.patient_id, e.start_at);
-        }
+        const pid = ownerOf(e);
+        if (pid && !nextApptByPatient.has(pid)) nextApptByPatient.set(pid, e.start_at);
       }
     }
 
     // "Chegou/atendido" — paciente compareceu a uma consulta clínica (status
-    // COMPARECEU/EM_ATENDIMENTO/CONCLUIDO). Promove pra "Em tratamento" e evita
-    // regredir pra "a agendar" depois que a consulta passa; guarda a data mais
-    // recente (base do "parado há X dias").
+    // COMPARECEU/EM_ATENDIMENTO/CONCLUIDO) OU teve consulta que JÁ PASSOU sem ser
+    // desmarcada/falta (a recepção nem sempre marca "Chegou"). Promove pra "Em
+    // tratamento" e evita voltar pra "Fechamentos" depois que a 1ª consulta passa —
+    // Fechamentos fica só com quem fechou e NUNCA teve a 1ª consulta. Guarda a data
+    // mais recente (base do "parado há X dias").
     const ATTENDED_STATUSES = ['COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO'];
     const lastAttendedByPatient = new Map<string, Date>();
     if (patientIds.length > 0) {
       const attended = await this.prisma.calendarEvent.findMany({
         where: {
           tenant_id: tenantId,
-          patient_id: { in: patientIds },
           type: { in: CLINICAL_TYPES },
-          status: { in: ATTENDED_STATUSES },
+          AND: [
+            belongsToPatients,
+            {
+              OR: [
+                { status: { in: ATTENDED_STATUSES } },
+                { status: { notIn: ['CANCELADO', 'NO_SHOW'] }, start_at: { lt: nowMaceio } },
+              ],
+            },
+          ],
         },
         orderBy: { start_at: 'desc' }, // primeira = comparecimento mais recente
-        select: { patient_id: true, start_at: true },
+        select: { patient_id: true, lead_id: true, start_at: true },
       });
       for (const e of attended) {
-        if (e.patient_id && !lastAttendedByPatient.has(e.patient_id)) {
-          lastAttendedByPatient.set(e.patient_id, e.start_at);
-        }
+        const pid = ownerOf(e);
+        if (pid && !lastAttendedByPatient.has(pid)) lastAttendedByPatient.set(pid, e.start_at);
       }
     }
 
@@ -3894,10 +3923,13 @@ export class QuotesService {
 
       const nextAppt = nextApptByPatient.get(patientId) ?? null;
       const lastAttended = lastAttendedByPatient.get(patientId) ?? null;
-      // compareceu/foi atendido DEPOIS que começou a tratar (1º fechamento)
+      // compareceu/foi atendido DEPOIS que começou a tratar (1º fechamento). start_at é
+      // naive (hora de Maceió no campo UTC) e accepted_at é instante real → leva o
+      // fechamento pro mesmo relógio (-3h); senão o atendimento no MESMO dia, logo
+      // depois de fechar, ficava "antes" do fechamento e não contava.
       const attended =
         !!lastAttended && earliestAcceptedMs != null &&
-        lastAttended.getTime() >= earliestAcceptedMs;
+        lastAttended.getTime() >= earliestAcceptedMs - 3 * 60 * 60 * 1000;
 
       // Concluído só quando TODO o trabalho do paciente terminou (todos os
       // contratos): todos os itens DONE/CANCELLED (com ≥1 DONE) OU todo plano COMPLETED.

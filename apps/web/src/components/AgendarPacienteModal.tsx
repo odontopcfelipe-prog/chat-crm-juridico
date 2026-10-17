@@ -1,9 +1,10 @@
 'use client';
 
-// Agendar ortodontia SEM sair do quadro. Faz o mesmo que o "Novo evento" da agenda:
-// POST /calendar/events tipo ORTODONTIA + lembretes padrão da clínica, checagem de
-// conflito do dentista e bloqueio de devedor (admin libera com motivo). Mostra a agenda
-// do dentista no dia escolhido pra achar um horário livre sem trocar de tela.
+// Agendar o paciente SEM sair do quadro (Progresso, Ortodontia). Faz o mesmo que o
+// "Novo evento" da agenda: POST /calendar/events (Consulta/Procedimento/Retorno/
+// Ortodontia) + lembretes padrão da clínica, checagem de conflito do dentista e bloqueio
+// de devedor (admin libera com motivo). Mostra a agenda do dentista no dia escolhido pra
+// achar um horário livre sem trocar de tela. Se o save da agenda mudar, mudar aqui também.
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, ExternalLink, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
@@ -43,12 +44,14 @@ const hhmm = (iso: string) => { const d = new Date(iso); return `${p2(d.getUTCHo
 const naiveIso = (date: string, time: string) => `${date}T${time}:00.000Z`;
 const weekdayOf = (date: string) => new Date(`${date}T12:00:00.000Z`).getUTCDay();
 
-/** Próximo dia (a partir de amanhã, fuso Maceió) que cai num dos dias da semana. */
+/** Próximo dia (a partir de amanhã, fuso Maceió) que cai num dos dias da semana;
+ *  sem dia definido, o próximo dia útil (seg–sáb — domingo a clínica não abre). */
 function nextDateOn(days: number[]): string {
+  const want = days.length ? days : [1, 2, 3, 4, 5, 6];
   const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
   for (let i = 0; i < 7; i++) {
     d.setUTCDate(d.getUTCDate() + 1);
-    if (!days.length || days.includes(d.getUTCDay())) break;
+    if (want.includes(d.getUTCDay())) break;
   }
   return ymd(d);
 }
@@ -59,23 +62,33 @@ function addMinutes(time: string, minutes: number): string {
   return `${p2(Math.floor(total / 60))}:${p2(total % 60)}`;
 }
 
-export function AgendarOrtoModal({
-  patient, dentist, weekday, dentists, isAdmin, onClose, onDone, onOpenAgenda,
+export type ApptType = 'CONSULTA' | 'PROCEDIMENTO' | 'RETORNO' | 'ORTODONTIA';
+const APPT_TYPES: ApptType[] = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+
+export function AgendarPacienteModal({
+  patient, dentist, defaultType, weekday = null, dentists, isAdmin, onClose, onDone, onOpenAgenda,
 }: {
   patient: { id: string; name: string | null };
   dentist: { id: string; name: string } | null;
-  weekday: number | null; // dia em que o paciente costuma vir
+  defaultType: ApptType;
+  weekday?: number | null; // dia em que o paciente costuma vir (ortô)
   dentists: Dentist[];
   isAdmin: boolean;
   onClose: () => void;
   onDone: () => void;
   onOpenAgenda: () => void;
 }) {
+  const [type, setType] = useState<ApptType>(defaultType);
   const [dentistId, setDentistId] = useState(dentist?.id || '');
   const selected = dentists.find((d) => d.id === dentistId);
-  const orthoDays = selected?.ortho_days || [];
+  // Dias de ortodontia do dentista — só valem (sugestão/aviso) pra consulta de ortô.
+  const orthoDays = type === 'ORTODONTIA' ? selected?.ortho_days || [] : [];
   const [date, setDate] = useState(() =>
-    nextDateOn(weekday != null ? [weekday] : (dentists.find((d) => d.id === dentist?.id)?.ortho_days || [])),
+    nextDateOn(
+      weekday != null ? [weekday]
+        : defaultType === 'ORTODONTIA' ? (dentists.find((d) => d.id === dentist?.id)?.ortho_days || [])
+          : [],
+    ),
   );
   const [time, setTime] = useState('');
   const [duration, setDuration] = useState(30);
@@ -121,7 +134,7 @@ export function AgendarOrtoModal({
       // Conflito é decidido no backend (ortô "por ordem de chegada" não conflita).
       try {
         const c = await api.get('/calendar/conflicts', {
-          params: { userId: dentistId, start: start_at, end: end_at, type: 'ORTODONTIA' }, timeout: 8000,
+          params: { userId: dentistId, start: start_at, end: end_at, type }, timeout: 8000,
         });
         if (c.data?.length > 0) {
           const ev = c.data[0];
@@ -133,8 +146,8 @@ export function AgendarOrtoModal({
       // Lembretes que ainda cabem até a consulta (string sem "Z" = hora local de Maceió).
       const minutesUntil = Math.floor((new Date(`${date}T${time}:00`).getTime() - Date.now()) / 60_000);
       const payload: any = {
-        type: 'ORTODONTIA',
-        title: `Ortodontia — ${patient.name || 'Paciente'}`,
+        type,
+        title: `${TYPE_LABEL[type]} — ${patient.name || 'Paciente'}`,
         start_at,
         end_at,
         all_day: false,
@@ -174,7 +187,7 @@ export function AgendarOrtoModal({
       open
       onClose={() => { if (!saving) onClose(); }}
       size="md"
-      title="Agendar ortodontia"
+      title={type === 'ORTODONTIA' ? 'Agendar ortodontia' : 'Agendar consulta'}
       subtitle={patient.name || 'Paciente'}
       footer={
         <div className="flex items-center justify-between gap-2">
@@ -197,6 +210,23 @@ export function AgendarOrtoModal({
       }
     >
       <div className="space-y-3">
+        <div>
+          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Tipo</label>
+          <div className="flex flex-wrap gap-1.5">
+            {APPT_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setType(t)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                  type === t ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {TYPE_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        </div>
         <div>
           <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Dentista</label>
           <select value={dentistId} onChange={(e) => setDentistId(e.target.value)} className={field}>

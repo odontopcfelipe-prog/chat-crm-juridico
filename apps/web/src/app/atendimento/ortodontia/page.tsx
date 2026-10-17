@@ -14,7 +14,7 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
-import { AgendarOrtoModal } from './AgendarOrtoModal';
+import { AgendarPacienteModal } from '@/components/AgendarPacienteModal';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'standby' | 'concluido' | 'saiu';
 
@@ -407,9 +407,10 @@ export default function OrtodontiaPage() {
         />
       )}
       {scheduleCard && (
-        <AgendarOrtoModal
+        <AgendarPacienteModal
           patient={scheduleCard.patient}
           dentist={scheduleCard.dentist}
+          defaultType="ORTODONTIA"
           weekday={scheduleCard.weekday}
           dentists={dentists}
           isAdmin={role.isAdmin || role.isSuperAdmin}

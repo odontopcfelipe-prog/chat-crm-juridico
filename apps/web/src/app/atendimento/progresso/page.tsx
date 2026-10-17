@@ -4,14 +4,15 @@
  * Progresso — Jornada do paciente PÓS-VENDA (central de vendas / pipeline).
  *
  * Cada venda FECHADA (orçamento aceito) vira um card e caminha por 4 etapas.
- * O ponto é NÃO PERDER o paciente depois que ele fecha: a coluna "A agendar"
- * grita quem fechou e ainda não tem consulta marcada.
+ * O ponto é NÃO PERDER o paciente depois que ele fecha: a coluna "Fechamentos"
+ * (etapa A_AGENDAR) grita quem fechou e NUNCA teve a 1ª consulta marcada. "Agendar"
+ * abre o agendamento aqui mesmo (AgendarPacienteModal); a etapa vem da agenda.
  *
  *  ┌─ KPIs ───────────────────────────────────────────────────────┐
- *  │ ⚠ A agendar | Em aberto | Fechado no mês | Ticket médio      │
+ *  │ ⚠ Fechamentos | Em aberto | Parados | Stand by | Concluídos │
  *  └───────────────────────────────────────────────────────────────┘
  *  ┌──────────────┬───────────┬───────────────┬───────────────────┐
- *  │ A agendar ⚠  │ Agendado  │ Em tratamento │ Concluído          │
+ *  │ Fechamentos ⚠│ Agendado  │ Em tratamento │ Concluído          │
  *  ├──────────────┼───────────┼───────────────┼───────────────────┤
  *  │  cards…       │  cards…   │  cards…       │  cards…            │
  *  └──────────────┴───────────┴───────────────┴───────────────────┘
@@ -31,6 +32,8 @@ import { showError } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento';
 import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
+import { AgendarPacienteModal } from '@/components/AgendarPacienteModal';
+import { useRole } from '@/lib/useRole';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +42,7 @@ type StageKey = 'A_AGENDAR' | 'AGENDADO' | 'EM_TRATAMENTO' | 'CONCLUIDO' | 'STAN
 interface Dentist {
   id: string;
   name: string;
+  ortho_days?: number[];
 }
 
 interface JourneyCard {
@@ -55,6 +59,7 @@ interface JourneyCard {
   has_future_appt: boolean;
   standby: boolean; // tratamento pausado (PAUSED) por adm/dentista
   is_venda_rapida?: boolean; // todos os contratos do paciente são balcão (venda rápida)
+  is_ortho_only?: boolean; // todo item é ortodontia → agenda como Ortodontia
   days_stalled: number | null;
   items_done: number;
   items_total: number;
@@ -84,7 +89,7 @@ const EMPTY_BOARD: BoardData = {
 };
 
 // Ordem dentro de cada coluna — quem está SEM agendamento sobe (é o que pede ação):
-//  • A agendar: quem espera há mais tempo primeiro; venda rápida (balcão) no fim.
+//  • Fechamentos (A agendar): quem espera há mais tempo primeiro; venda rápida (balcão) no fim.
 //  • Agendado: consulta mais próxima primeiro.
 //  • Em tratamento: parados (sem próxima consulta) no topo, mais parado primeiro
 //    (balcão no fim deles); depois os com consulta, a mais próxima primeiro.
@@ -119,7 +124,7 @@ const COLUMNS: Array<{
   accent: string; // header (borda + fundo + texto)
   urgent?: boolean;
 }> = [
-  { key: 'A_AGENDAR', label: 'A agendar', icon: CalendarPlus, accent: 'border-amber-400 bg-amber-50 text-amber-900', urgent: true },
+  { key: 'A_AGENDAR', label: 'Fechamentos', icon: CalendarPlus, accent: 'border-amber-400 bg-amber-50 text-amber-900', urgent: true },
   { key: 'AGENDADO', label: 'Agendado', icon: CalendarClock, accent: 'border-sky-400 bg-sky-50 text-sky-900' },
   { key: 'EM_TRATAMENTO', label: 'Em tratamento', icon: Activity, accent: 'border-violet-400 bg-violet-50 text-violet-900' },
   { key: 'STANDBY', label: 'Stand by', icon: PauseCircle, accent: 'border-slate-400 bg-slate-100 text-slate-800' },
@@ -325,6 +330,9 @@ export default function ProgressoPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Modal de procedimentos (feito / falta fazer) por card — aberto pela engrenagem.
   const [procModal, setProcModal] = useState<{ planIds: string[]; patientName: string } | null>(null);
+  // "Agendar" abre o modal AQUI (sem ir pra agenda); "Abrir na agenda" é o atalho.
+  const [scheduleCard, setScheduleCard] = useState<JourneyCard | null>(null);
+  const role = useRole();
   const [finalizeTarget, setFinalizeTarget] = useState<{ patientId: string; patientName: string; planIds: string[]; nextAppointmentAt: string | null } | null>(null);
   // Dentistas do tenant, pro seletor "quem está atendendo".
   const [dentists, setDentists] = useState<Dentist[]>([]);
@@ -396,10 +404,11 @@ export default function ProgressoPage() {
   const goToPatient = (c: JourneyCard) =>
     router.push(`/atendimento/pacientes/${c.patient.id}?tab=tratamento`);
 
-  // "Agendar" abre a agenda com o paciente já pré-preenchido (deep-link
-  // suportado pela agenda: ?new=1&patient_id=…&patient_name=…&phone=…).
-  const goToSchedule = (c: JourneyCard) => {
+  // "Abrir na agenda" (dentro do modal de agendar) — agenda com o paciente já
+  // pré-preenchido (deep-link: ?new=1&patient_id=…&patient_name=…&phone=…&type=…).
+  const goToAgenda = (c: JourneyCard) => {
     const params = new URLSearchParams({ new: '1', patient_id: c.patient.id });
+    if (c.is_ortho_only) params.set('type', 'ORTODONTIA');
     if (c.patient.name) params.set('patient_name', c.patient.name);
     if (c.patient.phone) params.set('phone', c.patient.phone);
     params.set('from', '/atendimento/progresso'); // botão "Voltar" na agenda
@@ -502,9 +511,9 @@ export default function ProgressoPage() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard
           icon={AlertTriangle}
-          label="A agendar"
+          label="Fechamentos"
           value={String(summary.to_schedule_count)}
-          sub={summary.to_schedule_count > 0 ? 'aguardando agenda' : 'tudo agendado'}
+          sub={summary.to_schedule_count > 0 ? 'aguardando a 1ª consulta' : 'todos agendados'}
           accent={summary.to_schedule_count > 0 ? 'text-amber-600' : 'text-emerald-600'}
           highlight={summary.to_schedule_count > 0 ? 'amber' : undefined}
         />
@@ -583,7 +592,7 @@ export default function ProgressoPage() {
                       key={c.patient.id}
                       card={c}
                       onOpen={() => goToPatient(c)}
-                      onSchedule={() => goToSchedule(c)}
+                      onSchedule={() => setScheduleCard(c)}
                       onProcedures={() => (c.plan_ids?.length ?? 0) > 0 && setProcModal({ planIds: c.plan_ids, patientName: c.patient.name || 'Paciente' })}
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
@@ -607,6 +616,20 @@ export default function ProgressoPage() {
           patientName={finalizeTarget.patientName}
           planIds={finalizeTarget.planIds}
           nextAppointmentAt={finalizeTarget.nextAppointmentAt}
+        />
+      )}
+
+      {scheduleCard && (
+        <AgendarPacienteModal
+          patient={scheduleCard.patient}
+          dentist={scheduleCard.primary_dentist || scheduleCard.dentist}
+          // 1ª consulta depois de fechar = começar o tratamento (Procedimento); só-ortô = Ortodontia
+          defaultType={scheduleCard.is_ortho_only ? 'ORTODONTIA' : 'PROCEDIMENTO'}
+          dentists={dentists}
+          isAdmin={role.isAdmin || role.isSuperAdmin}
+          onClose={() => setScheduleCard(null)}
+          onDone={load}
+          onOpenAgenda={() => goToAgenda(scheduleCard)}
         />
       )}
 
@@ -670,7 +693,7 @@ function JourneyCardItem({
         isToSchedule ? 'border-amber-300' : isStalled ? 'border-red-300' : 'border-border'
       }`}
     >
-      {/* Nome + miniatura vermelha de dias sem agendamento (só "A agendar") */}
+      {/* Nome + miniatura vermelha de dias sem agendamento (só "Fechamentos") */}
       <div className="flex items-center gap-2">
         <button
           onClick={onOpen}
@@ -803,7 +826,7 @@ function JourneyCardItem({
         <button
           onClick={onSchedule}
           className="w-full mt-2.5 text-xs px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-amber-950 font-medium flex items-center justify-center gap-1.5 transition-colors"
-          title="Abrir a agenda com este paciente já selecionado"
+          title="Agendar a 1ª consulta deste paciente"
         >
           <CalendarPlus size={13} /> Agendar
         </button>
