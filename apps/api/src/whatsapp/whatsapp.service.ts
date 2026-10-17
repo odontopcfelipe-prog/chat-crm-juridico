@@ -29,6 +29,30 @@ export function evolutionSendFailed(res: any): boolean {
   return false;
 }
 
+/** Motivo curto (pt-BR) de um envio que a Evolution recusou — pra mostrar ao
+ *  atendente em vez de só "não enviada". */
+export function describeEvolutionFailure(res: any): string {
+  if (!res) return 'sem resposta do servidor do WhatsApp';
+  // O corpo do erro chega como TEXTO em res.error (o stringify escaparia as aspas).
+  const raw = typeof res.error === 'string' ? res.error : '';
+  try {
+    if (/"exists"\s*:\s*false/.test(raw) || /"exists"\s*:\s*false/.test(JSON.stringify(res))) return 'este número não tem WhatsApp';
+  } catch { /* ignore */ }
+  if (res.statusCode === 408) return 'o WhatsApp demorou a responder (confira no celular se saiu)';
+  if (res.statusCode === 404) return 'chip do WhatsApp não encontrado — confira a conexão do número';
+  let detail = '';
+  try {
+    const body = typeof res.error === 'string' ? JSON.parse(res.error) : res.error;
+    const m = body?.response?.message ?? body?.message ?? body?.error;
+    detail = Array.isArray(m) ? m.map((x: any) => (typeof x === 'string' ? x : JSON.stringify(x))).join('; ') : String(m ?? '');
+  } catch {
+    detail = String(res.error ?? '');
+  }
+  detail = detail.replace(/\s+/g, ' ').trim().slice(0, 180);
+  const code = res.statusCode ? `erro ${res.statusCode}` : 'erro';
+  return detail ? `${code}: ${detail}` : code;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);

@@ -2265,6 +2265,10 @@ export default function Dashboard() {
           return [...prev, res.data];
         });
       }
+      // Gravou no chat, mas o WhatsApp recusou: diz o motivo (a bolha fica "não enviada").
+      if (res.data?.status === 'erro') {
+        showError(`"${file.name}" não saiu pelo WhatsApp${res.data.send_error ? `: ${res.data.send_error}` : ''}`);
+      }
       return true;
     } catch (e: any) {
       console.error('Falha ao enviar arquivo', e);

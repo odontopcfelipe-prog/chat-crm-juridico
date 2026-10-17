@@ -179,6 +179,9 @@ export function useAudioRecorder({ conversationId, onSent, onRecordingStart }: U
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         if (res.data?.id) onSentRef.current(res.data);
+        if (res.data?.status === 'erro') {
+          showError(`O áudio não saiu pelo WhatsApp${res.data.send_error ? `: ${res.data.send_error}` : ''}`);
+        }
       } catch (e) {
         console.error('[AUDIO] Falha ao enviar áudio:', e);
         showError(uploadErrorMessage(e));

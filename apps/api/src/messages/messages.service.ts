@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException,
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
+import { WhatsappService, evolutionSendFailed, describeEvolutionFailure } from '../whatsapp/whatsapp.service';
 import { toBrazilWhatsappNumber, brazilPhoneMatchVariants } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { MediaS3Service } from '../media/s3.service';
@@ -471,24 +471,27 @@ export class MessagesService {
       },
     });
 
-    // 4. URL pública que a Evolution API vai baixar (prioridade: banco → env → fallback)
-    const resolvedApiUrl = await this.resolvePublicApiUrl();
-    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}?${this.mediaSign.signedQuery(msg.id)}`;
-    this.logger.log(`[AUDIO] Enviando áudio via Evolution: ${resolvedApiUrl}/media/${msg.id}`);
+    // 4. O áudio vai DENTRO do pedido (base64), como o áudio da IA e os avisos
+    //    aos ADMs — a URL pública fazia a Evolution baixar de volta pelo
+    //    Cloudflare e o envio voltava "não enviada".
+    const media = await this.outgoingMediaPayload(msg.id, file);
+    this.logger.log(`[AUDIO] Enviando áudio via Evolution (${media.startsWith('http') ? 'url' : 'base64'}, ${file.size}B) msg=${msg.id}`);
 
     // 5. Enviar via Evolution API
     let audioSendStatus = 'enviado';
+    let sendError: string | null = null;
     try {
       const result = await this.whatsapp.sendMedia(
         convo.lead.phone,
         'audio',
-        mediaUrl,
+        media,
         undefined,
         await this.resolveDispatchInstance(convo),
       );
-      if (result?.statusCode >= 400 || result?.error) {
-        this.logger.error(`Evolution API erro ao enviar áudio: ${JSON.stringify(result)}`);
+      if (evolutionSendFailed(result)) {
+        this.logger.error(`Evolution API erro ao enviar áudio: ${JSON.stringify(result)?.slice(0, 1000)}`);
         audioSendStatus = 'erro';
+        sendError = describeEvolutionFailure(result);
       } else {
         const extId = result?.key?.id;
         if (extId) {
@@ -501,6 +504,7 @@ export class MessagesService {
     } catch (e) {
       this.logger.error(`Exceção ao enviar áudio: ${e.message}`);
       audioSendStatus = 'erro';
+      sendError = `sem conexão com o servidor do WhatsApp (${e.message})`;
     }
 
     if (audioSendStatus === 'erro') {
@@ -532,7 +536,8 @@ export class MessagesService {
     this.chatGateway.emitNewMessage(convo.id, msgWithMedia);
     this.chatGateway.emitConversationsUpdate(null);
 
-    return msgWithMedia;
+    // send_error: motivo da recusa, só na resposta (a tela mostra no aviso).
+    return sendError ? { ...msgWithMedia, send_error: sendError } : msgWithMedia;
   }
 
   async sendFile(
@@ -553,20 +558,25 @@ export class MessagesService {
 
     const { msg, mediaType } = await this.persistOutgoingFile(convo.id, file, caption);
 
-    const resolvedApiUrl = await this.resolvePublicApiUrl();
-    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}?${this.mediaSign.signedQuery(msg.id)}`;
-    this.logger.log(`[FILE] Enviando ${mediaType} via Evolution: ${resolvedApiUrl}/media/${msg.id}`);
+    // Arquivo vai DENTRO do pedido (base64), como o PDF do orçamento e o carnê —
+    // ver sendAudio. Só arquivo grande demais segue pela URL pública.
+    const media = await this.outgoingMediaPayload(msg.id, file);
+    this.logger.log(`[FILE] Enviando ${mediaType} via Evolution (${media.startsWith('http') ? 'url' : 'base64'}, ${file.size}B) msg=${msg.id}`);
+    let sendError: string | null = null;
     try {
       const result = await this.whatsapp.sendMedia(
         convo.lead.phone,
         mediaType,
-        mediaUrl,
+        media,
         caption,
         await this.resolveDispatchInstance(convo),
         file.originalname,
+        file.mimetype,
+        90000,
       );
-      if (result?.statusCode >= 400 || result?.error) {
-        this.logger.error(`Evolution API erro ao enviar arquivo: ${JSON.stringify(result)}`);
+      if (evolutionSendFailed(result)) {
+        this.logger.error(`Evolution API erro ao enviar arquivo: ${JSON.stringify(result)?.slice(0, 1000)}`);
+        sendError = describeEvolutionFailure(result);
         await this.prisma.message.update({
           where: { id: msg.id },
           data: { status: 'erro' },
@@ -582,6 +592,7 @@ export class MessagesService {
       }
     } catch (e) {
       this.logger.error(`Exceção ao enviar arquivo via WhatsApp: ${e.message}`);
+      sendError = `sem conexão com o servidor do WhatsApp (${e.message})`;
       await this.prisma.message.update({
         where: { id: msg.id },
         data: { status: 'erro' },
@@ -606,7 +617,19 @@ export class MessagesService {
     this.chatGateway.emitNewMessage(convo.id, msgWithMedia);
     this.chatGateway.emitConversationsUpdate(null);
 
-    return msgWithMedia;
+    return sendError ? { ...msgWithMedia, send_error: sendError } : msgWithMedia;
+  }
+
+  /** O que vai no campo de mídia da Evolution: o próprio arquivo em base64 (até
+   *  20MB — o caminho que já funciona no áudio da IA, nos avisos e nos PDFs) ou,
+   *  acima disso, a URL pública assinada (evita segurar centenas de MB em memória). */
+  private async outgoingMediaPayload(
+    messageId: string,
+    file: Pick<Express.Multer.File, 'buffer' | 'size'>,
+  ): Promise<string> {
+    if (file.size <= 20 * 1024 * 1024) return file.buffer.toString('base64');
+    const base = await this.resolvePublicApiUrl();
+    return `${base}/media/${messageId}?${this.mediaSign.signedQuery(messageId)}`;
   }
 
   /** Grava a mensagem de saída + o arquivo (filesystem + Media) ANTES de enviar.
