@@ -373,26 +373,25 @@ export function ChatPopup({ leadId, leadName, conversationId: initialConvId, cas
     const items: React.ReactNode[] = [];
     let lastDateKey = '';
 
-    messages.forEach((msg) => {
+    messages.forEach((msg, idx) => {
       const dateKey = getDateKey(msg.created_at);
-      if (dateKey !== lastDateKey) {
+      const newDay = dateKey !== lastDateKey;
+      if (newDay) {
         lastDateKey = dateKey;
         items.push(
-          <div key={`date-${dateKey}`} className="flex items-center gap-3 my-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-[11px] text-muted-foreground font-medium px-2 py-0.5 rounded-full bg-muted">
-              {formatDateLabel(msg.created_at)}
-            </span>
-            <div className="flex-1 h-px bg-border" />
+          <div key={`date-${dateKey}`} className="flex justify-center mt-3 mb-1">
+            <span className="wa-date-chip">{formatDateLabel(msg.created_at)}</span>
           </div>,
         );
       }
+      const prev = messages[idx - 1];
 
       items.push(
         <MessageBubble
           key={msg.id}
           msg={msg}
           isOut={msg.direction === 'out'}
+          isFirstInGroup={newDay || !prev || prev.direction !== msg.direction}
           editingMsg={editingMsg}
           transcribing={transcribing}
           onReply={setReplyTo}
@@ -479,7 +478,7 @@ export function ChatPopup({ leadId, leadName, conversationId: initialConvId, cas
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto px-6 py-4 min-h-0"
+            className="flex-1 overflow-y-auto px-6 py-4 min-h-0 wa-skin wa-wallpaper"
           >
             {/* Loading */}
             {loading && (

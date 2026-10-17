@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo, Fragment } from 'rea
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { MessageSquare, Send, Download, Mic, FileText, Bot, BotOff, Paperclip, X, CheckCheck, Check, Eye, XCircle, Trash2, Reply, UserCheck, PanelLeftOpen, CornerDownLeft, Inbox, Pencil, Search, ChevronDown, ClipboardList, ArrowLeft, MoreVertical, Clock, StickyNote, Camera } from 'lucide-react';
+import { MessageSquare, Send, Download, Mic, FileText, Bot, BotOff, Paperclip, X, CheckCheck, Check, Eye, XCircle, Trash2, Reply, UserCheck, PanelLeftOpen, CornerDownLeft, Inbox, Pencil, Search, ChevronDown, ClipboardList, ArrowLeft, MoreVertical, Clock, StickyNote, Camera, Plus, SendHorizontal, Image as ImageIcon } from 'lucide-react';
 import FichaTrabalhista from '@/components/FichaTrabalhista';
 import { EventModal, type UserOption } from '@/components/EventModal';
 import { useAudioRecorder, RecordingWave } from '@/components/AudioRecorder';
@@ -229,6 +229,7 @@ export default function Dashboard() {
   const [csatOnClose, setCsatOnClose] = useState(false);
   // Modo nota interna (mensagem não enviada ao cliente)
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false); // menu do "+" da barra de envio
   // Chave para forçar re-fetch de mensagens (incrementada no reconnect do socket)
   const [msgRefreshKey, setMsgRefreshKey] = useState(0);
   // Modal de criação rápida de tarefa a partir do chat
@@ -306,6 +307,7 @@ export default function Dashboard() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const lawyerDropdownRef = useRef<HTMLDivElement>(null);
   const lawyerDropdownRef2 = useRef<HTMLDivElement>(null); // Segundo ref para sidebar (evita conflito com ChatHeader)
@@ -610,6 +612,7 @@ export default function Dashboard() {
     setMsgSearchOpen(false);
     setMsgSearchQuery('');
     setNotesPanelOpen(false);
+    setAttachMenuOpen(false);
   }, [selectedId]);
 
   // Busca: focar input ao abrir
@@ -2633,7 +2636,7 @@ export default function Dashboard() {
 
       {/* MAIN CHAT PANEL */}
       <main
-        className={`flex-1 min-w-0 flex flex-col bg-background relative ${isMobile && !selectedId && splitMode === 1 ? 'hidden' : ''}`}
+        className={`flex-1 min-w-0 flex flex-col relative ${splitMode === 1 ? 'wa-skin' : 'bg-background'} ${isMobile && !selectedId && splitMode === 1 ? 'hidden' : ''}`}
         onDragEnter={splitMode === 1 ? handleDragEnter : undefined}
         onDragLeave={splitMode === 1 ? handleDragLeave : undefined}
         onDragOver={splitMode === 1 ? handleDragOver : undefined}
@@ -2897,8 +2900,9 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-            <div className={`absolute inset-0 px-1 sm:px-6 md:px-8 py-3 sm:py-5 md:py-8 overflow-y-auto custom-scrollbar chat-wallpaper ${openQuestions.length > 0 ? 'pt-12' : ''}`} ref={scrollRef} onClick={handleChatAreaClick}>
-              <div className="flex flex-col gap-3 md:gap-4 max-w-4xl mx-auto pb-4 relative z-10">
+            <div className={`absolute inset-0 px-3 sm:px-6 md:px-10 pt-2 pb-3 overflow-y-auto custom-scrollbar wa-wallpaper ${openQuestions.length > 0 ? 'pt-12' : ''}`} ref={scrollRef} onClick={handleChatAreaClick}>
+              {/* Sem gap: o espaço vem de cada linha (12px entre lados, 2px na mesma sequência) */}
+              <div className="flex flex-col max-w-4xl mx-auto pb-2 relative z-10">
                 {/* Skeleton de carregamento de mensagens */}
                 {loadingMessages && (
                   <div className="flex flex-col gap-4 py-8">
@@ -2929,25 +2933,28 @@ export default function Dashboard() {
                       seen.add(m.id);
                       return true;
                     });
+                    // Sequência do mesmo lado = bolhas coladas; só a 1ª tem "rabinho".
+                    const isBubble = (m?: MessageItem) => !!m && m.type !== 'transfer_event' && m.type !== 'internal_note';
                     return uniqueMessages.map((msg, msgIdx) => {
                       const isOut = msg.direction === 'out';
                       const msgDateKey = msg.created_at ? getDateKey(msg.created_at) : `__nodate__${msgIdx}`;
                       const showMsgDateSep = msgDateKey !== lastMsgDateKey;
                       if (showMsgDateSep) lastMsgDateKey = msgDateKey;
+                      const prev = uniqueMessages[msgIdx - 1];
+                      const isFirstInGroup = showMsgDateSep || !isBubble(prev) || prev.direction !== msg.direction;
                       return (
                         <Fragment key={msg.id || msgIdx}>
                           {showMsgDateSep && (
-                            <div className="flex items-center gap-3 my-3 select-none">
-                              <div className="flex-1 h-px bg-muted-foreground/30" />
-                              <span className="text-[11px] font-bold text-foreground/70 px-3 py-1 rounded-full border border-muted-foreground/20 bg-muted capitalize whitespace-nowrap">
+                            <div className="flex justify-center mt-3 mb-1 select-none sticky top-1 z-20">
+                              <span className="wa-date-chip whitespace-nowrap">
                                 {msg.created_at ? formatDateLabel(msg.created_at) : '(sem data)'}
                               </span>
-                              <div className="flex-1 h-px bg-muted-foreground/30" />
                             </div>
                           )}
                       <MessageBubble
                         msg={msg}
                         isOut={isOut}
+                        isFirstInGroup={isFirstInGroup}
                         editingMsg={editingMsg}
                         transcribing={transcribing}
                         onReply={(m) => { setReplyingTo(m); inputRef.current?.focus(); }}
@@ -3351,7 +3358,7 @@ export default function Dashboard() {
             {/* ── Barra de envio no estilo do WhatsApp: uma "pílula" só (emoji,
                 texto, anexo/câmera) + botão redondo que é microfone com a caixa
                 vazia e vira "enviar" quando há texto ou anexo. ────────────── */}
-            <footer className="wa-composer px-2 md:px-4 pt-1.5 pb-2 md:pb-2.5 shrink-0">
+            <footer className="wa-composer wa-wallpaper px-2 md:px-4 pt-1 pb-2.5 md:pb-3 shrink-0">
               {/* Reply bar */}
               {replyingTo && !isClosed && (
                 <div className="max-w-4xl mx-auto mb-1.5 flex items-stretch gap-2 wa-composer-pill rounded-xl overflow-hidden">
@@ -3401,11 +3408,19 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <>
-                  {/* Inputs escondidos: anexo (galeria/arquivos) e câmera do celular */}
+                  {/* Inputs escondidos do menu "+": documento, fotos/vídeos e câmera do celular */}
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                  <input
+                    ref={mediaInputRef}
+                    type="file"
+                    accept="image/*,video/*"
                     multiple
                     className="hidden"
                     onChange={handleFileSelect}
@@ -3448,28 +3463,70 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  <div className="max-w-4xl mx-auto flex items-end gap-2">
-                    <div className="wa-composer-pill wa-input flex-1 min-w-0 flex items-end rounded-[22px] pl-1 pr-1 min-h-[44px] shadow-sm">
+                  <div className="max-w-4xl mx-auto">
+                    <div className="wa-composer-pill wa-input relative flex items-end rounded-[26px] pl-1.5 pr-1.5 min-h-[52px]">
                       {audioRec.status === 'recording' ? (
-                        <div className="flex items-center gap-1 flex-1 min-w-0 h-11 pr-3">
+                        <div className="flex items-center gap-1 flex-1 min-w-0 h-[52px] pr-2">
                           <button
                             onClick={audioRec.cancel}
                             title="Descartar áudio"
                             aria-label="Descartar áudio"
-                            className="p-2 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+                            className="wa-icon-btn p-2 rounded-full hover:!text-red-500 transition-colors shrink-0"
                           >
                             <Trash2 size={20} />
                           </button>
                           <RecordingWave stream={audioRec.stream} startedAt={audioRec.startedAt} />
                         </div>
                       ) : audioRec.status === 'sending' ? (
-                        <div className="flex items-center gap-2 flex-1 min-w-0 h-11 px-3 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2 flex-1 min-w-0 h-[52px] px-3 text-[15px] text-[#667781]">
                           <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                           Enviando áudio…
                         </div>
                       ) : (
                         <>
-                          <div className="h-11 flex items-center shrink-0">
+                          {/* "+" do WhatsApp: menu de anexos */}
+                          <div className="h-[52px] flex items-center shrink-0 relative">
+                            <button
+                              onClick={() => setAttachMenuOpen(v => !v)}
+                              disabled={!isRealConvo || uploadingFile}
+                              title="Anexar"
+                              aria-label="Anexar"
+                              aria-expanded={attachMenuOpen}
+                              className={`wa-icon-btn p-2 rounded-full transition-transform disabled:opacity-50 ${attachMenuOpen ? 'rotate-45' : ''}`}
+                            >
+                              {uploadingFile
+                                ? <span className="block w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                : <Plus size={24} />}
+                            </button>
+                            {attachMenuOpen && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setAttachMenuOpen(false)} />
+                                <div className="wa-menu absolute bottom-full left-0 mb-2 z-50 w-56">
+                                  <button
+                                    className="wa-menu-item"
+                                    onClick={() => { setAttachMenuOpen(false); fileInputRef.current?.click(); }}
+                                  >
+                                    <FileText size={20} className="text-[#7f66ff]" /> Documento
+                                  </button>
+                                  <button
+                                    className="wa-menu-item"
+                                    onClick={() => { setAttachMenuOpen(false); mediaInputRef.current?.click(); }}
+                                  >
+                                    <ImageIcon size={20} className="text-[#007bfc]" /> Fotos e vídeos
+                                  </button>
+                                  {isMobile && (
+                                    <button
+                                      className="wa-menu-item"
+                                      onClick={() => { setAttachMenuOpen(false); cameraInputRef.current?.click(); }}
+                                    >
+                                      <Camera size={20} className="text-[#ff2e74]" /> Câmera
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          <div className="h-[52px] flex items-center shrink-0 wa-icon-btn">
                             <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
                           </div>
                           <textarea
@@ -3532,10 +3589,10 @@ export default function Dashboard() {
                             }}
                             placeholder={isRealConvo ? 'Digite uma mensagem' : 'Selecione uma conversa...'}
                             disabled={!isRealConvo || sending}
-                            className="flex-1 min-w-0 bg-transparent border-0 outline-none focus:outline-none focus:ring-0 resize-none py-[11px] px-1.5 text-[15px] leading-[22px] max-h-40 overflow-y-auto custom-scrollbar text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+                            className="flex-1 min-w-0 bg-transparent border-0 outline-none focus:outline-none focus:ring-0 resize-none py-4 px-2 max-h-40 overflow-y-auto custom-scrollbar disabled:opacity-50"
                           />
                           {isRealConvo && (
-                            <div className="h-11 flex items-center shrink-0">
+                            <div className="h-[52px] flex items-center shrink-0">
                               {/* SophIA (correção/tom) — só faz sentido com texto */}
                               {text.trim() && (
                                 <SophIAButton text={text} onResult={handleSophIAResult} compact menuAlign="right" />
@@ -3546,7 +3603,7 @@ export default function Dashboard() {
                                   onClick={() => setNotesPanelOpen(true)}
                                   title="Notas da conversa — visíveis para a equipe"
                                   aria-label="Notas da conversa"
-                                  className={`relative p-2 rounded-full transition-colors ${selected?.hasNotes ? 'text-sky-500' : 'text-muted-foreground hover:text-foreground'}`}
+                                  className={`relative p-2 rounded-full transition-colors ${selected?.hasNotes ? 'text-sky-500' : 'wa-icon-btn'}`}
                                 >
                                   <StickyNote size={20} />
                                   {selected?.hasNotes && (
@@ -3554,25 +3611,14 @@ export default function Dashboard() {
                                   )}
                                 </button>
                               )}
-                              <button
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={uploadingFile}
-                                title="Anexar foto, vídeo ou documento"
-                                aria-label="Anexar arquivo"
-                                className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                              >
-                                {uploadingFile
-                                  ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                                  : <Paperclip size={20} />}
-                              </button>
                               {/* Câmera — no celular, com a caixa vazia (igual ao WhatsApp) */}
-                              {isMobile && !text.trim() && (
+                              {isMobile && !text.trim() && pendingFiles.length === 0 && (
                                 <button
                                   onClick={() => cameraInputRef.current?.click()}
                                   disabled={uploadingFile}
                                   title="Tirar foto"
                                   aria-label="Tirar foto"
-                                  className="p-2 rounded-full text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                  className="wa-icon-btn p-2 rounded-full transition-colors disabled:opacity-50"
                                 >
                                   <Camera size={20} />
                                 </button>
@@ -3581,35 +3627,39 @@ export default function Dashboard() {
                           )}
                         </>
                       )}
-                    </div>
 
-                    {/* Botão redondo: microfone com a caixa vazia → enviar com texto/anexo/gravando */}
-                    {(() => {
-                      const recording = audioRec.status === 'recording';
-                      const busy = audioRec.status === 'sending' || uploadingFile || sending;
-                      const hasPayload = !!text.trim() || pendingFiles.length > 0;
-                      const showMic = !recording && !hasPayload;
-                      const label = recording
-                        ? 'Enviar áudio'
-                        : pendingFiles.length > 0
-                          ? 'Enviar arquivo'
-                          : hasPayload ? 'Enviar mensagem' : 'Gravar áudio';
-                      return (
-                        <button
-                          onClick={recording ? audioRec.stopAndSend : showMic ? audioRec.start : handleSend}
-                          disabled={!isRealConvo || busy || (!recording && text.length > 5000)}
-                          aria-label={label}
-                          title={pendingFiles.length > 0 && text.trim() ? 'Enviar o arquivo com o texto como legenda' : label}
-                          className="wa-send-btn w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white shadow-md transition-transform active:scale-95 disabled:opacity-60"
-                        >
-                          {busy
-                            ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            : showMic
-                              ? <Mic size={22} />
-                              : <Send size={20} className="translate-x-[1px]" />}
-                        </button>
-                      );
-                    })()}
+                      {/* Direita da pílula: microfone com a caixa vazia → bolinha verde de enviar */}
+                      {(() => {
+                        const recording = audioRec.status === 'recording';
+                        const busy = audioRec.status === 'sending' || uploadingFile || sending;
+                        const hasPayload = !!text.trim() || pendingFiles.length > 0;
+                        const showMic = !recording && !hasPayload && !busy;
+                        const label = recording
+                          ? 'Enviar áudio'
+                          : pendingFiles.length > 0
+                            ? 'Enviar arquivo'
+                            : hasPayload ? 'Enviar mensagem' : 'Gravar áudio';
+                        return (
+                          <div className="h-[52px] flex items-center shrink-0">
+                            <button
+                              onClick={recording ? audioRec.stopAndSend : showMic ? audioRec.start : handleSend}
+                              disabled={!isRealConvo || busy || (!recording && text.length > 5000)}
+                              aria-label={label}
+                              title={pendingFiles.length > 0 && text.trim() ? 'Enviar o arquivo com o texto como legenda' : label}
+                              className={showMic
+                                ? 'wa-icon-btn p-2 rounded-full transition-colors disabled:opacity-50'
+                                : 'wa-send-btn w-10 h-10 rounded-full flex items-center justify-center transition-transform active:scale-95 disabled:opacity-60'}
+                            >
+                              {busy
+                                ? <span className="block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                : showMic
+                                  ? <Mic size={24} />
+                                  : <SendHorizontal size={20} />}
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   {/* Contador de caracteres */}

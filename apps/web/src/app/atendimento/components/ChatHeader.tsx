@@ -228,7 +228,7 @@ export function ChatHeader({
 
   return (
     <div className="shrink-0 relative z-40">
-    <header className="min-h-[52px] md:min-h-[56px] py-1.5 md:py-2 px-3 md:px-6 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between">
+    <header className="wa-header py-1.5 px-3 md:px-4 flex items-center justify-between">
       <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1">
         {/* Botão Voltar - mobile only */}
         {isMobile && (
@@ -243,7 +243,7 @@ export function ChatHeader({
         <ContactAvatar
           src={selected.profile_picture_url}
           name={selected.contactName}
-          sizeClass="w-10 h-10 md:w-12 md:h-12"
+          sizeClass="w-10 h-10"
           onClick={(url) => onLightbox(url)}
         />
         <div
@@ -257,12 +257,12 @@ export function ChatHeader({
           }}
         >
           <div className="flex items-center gap-1">
-            <h3 className="font-bold text-sm md:text-base leading-tight truncate">{selected.contactName || selected.contactPhone}</h3>
+            <h3 className="wa-header-name truncate">{selected.contactName || selected.contactPhone}</h3>
             <ChevronRight size={14} className="text-muted-foreground shrink-0" />
           </div>
-          <div className="flex items-center gap-1 mt-0.5 md:mt-1">
-            <span className="text-[11px] md:text-xs text-muted-foreground uppercase tracking-wider font-semibold truncate">
-              {selected.channel} <span className="mx-1">•</span> {selected.contactPhone}
+          <div className="flex items-center gap-1">
+            <span className="wa-header-sub truncate">
+              {selected.contactPhone}
             </span>
             {selected.contactPhone && (
               <button
@@ -281,7 +281,7 @@ export function ChatHeader({
             )}
           </div>
           {contactPresence && contactPresence !== 'unavailable' && (
-            <span className="text-[10px] font-medium text-emerald-400">
+            <span className="wa-header-sub !text-[#00a884]">
               {contactPresence === 'composing' ? 'digitando...' : 'online'}
             </span>
           )}

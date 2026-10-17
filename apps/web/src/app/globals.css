@@ -861,38 +861,272 @@
   background-image: url('/chat-doodle-dark.svg');
 }
 
-/* Barra de envio do chat (estilo WhatsApp) — mesmos seletores de tema do
- * papel de parede, pra faixa e a pílula casarem com o fundo da conversa. */
+/* ═══════════════════════════════════════════════════════════════════
+ * PELE DO WHATSAPP — painel da conversa do atendimento.
+ * Cores, fonte, tamanhos e espaçamentos do WhatsApp Web (claro), FIXOS:
+ * iguais pra todas as clínicas e nenhum tema (noturno/cyber/violet/coral)
+ * nem efeito (clay/neon/solid) muda nada aqui dentro.
+ *
+ * Como: `.wa-skin` redefine as variáveis do Tailwind (--color-*) e as dos
+ * temas (--bg-*, --text-*, --accent-*) só pros descendentes; as peças do
+ * chat usam classes `wa-*` próprias (fora de @layer = vencem utilitários e
+ * os overrides de tema). Os tokens --wa-* ficam no :root (nenhum tema os
+ * redefine), então as classes `wa-*` funcionam em qualquer tela.
+ * ═══════════════════════════════════════════════════════════════════ */
+:root {
+  --wa-chat-bg: #efeae2;
+  --wa-panel: #f0f2f5;
+  --wa-white: #ffffff;
+  --wa-bubble-in: #ffffff;
+  --wa-bubble-out: #d9fdd3;
+  --wa-quote-in: #f5f6f6;
+  --wa-quote-out: #d1f4cc;
+  --wa-text: #111b21;
+  --wa-text-2: #3b4a54;
+  --wa-meta: #667781;
+  --wa-icon: #54656f;
+  --wa-icon-soft: #8696a0;
+  --wa-border: #e9edef;
+  --wa-hover: #f5f6f6;
+  --wa-green: #00a884;
+  --wa-green-dark: #008069;
+  --wa-tick-read: #53bdeb;
+  --wa-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  --wa-font: "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif;
+}
+
+.wa-skin {
+  --color-background: var(--wa-white);
+  --color-foreground: var(--wa-text);
+  --color-card: var(--wa-white);
+  --color-card-foreground: var(--wa-text);
+  --color-popover: var(--wa-white);
+  --color-popover-foreground: var(--wa-text);
+  --color-primary: var(--wa-green);
+  --color-primary-foreground: #ffffff;
+  --color-ring: var(--wa-green);
+  --color-secondary: var(--wa-panel);
+  --color-secondary-foreground: var(--wa-text);
+  --color-muted: var(--wa-panel);
+  --color-muted-foreground: var(--wa-meta);
+  --color-accent: var(--wa-hover);
+  --color-accent-foreground: var(--wa-text);
+  --color-border: var(--wa-border);
+  --bg-primary: var(--wa-white);
+  --bg-secondary: var(--wa-white);
+  --bg-tertiary: var(--wa-panel);
+  --bg-elevated: var(--wa-white);
+  --bg-hover: var(--wa-hover);
+  --text-primary: var(--wa-text);
+  --text-secondary: var(--wa-text-2);
+  --text-muted: var(--wa-meta);
+  --accent-primary: var(--wa-green);
+  --accent-secondary: var(--wa-green-dark);
+  --accent-glow: 0, 168, 132;
+  --border-subtle: var(--wa-border);
+  --border-default: var(--wa-border);
+  --glass-bg: var(--wa-white);
+  --glass-border: var(--wa-border);
+  --gradient-accent: linear-gradient(135deg, var(--wa-green) 0%, var(--wa-green) 100%);
+  background-color: var(--wa-chat-bg);
+  color: var(--wa-text);
+  font-family: var(--wa-font);
+  color-scheme: light;
+}
+
+/* Efeitos de tema (neon = vidro/transparência) não entram no chat. */
+[data-fx] .wa-skin .bg-background { background-color: var(--color-background) !important; }
+[data-fx] .wa-skin .bg-card { background-color: var(--color-card) !important; }
+[data-fx] .wa-skin .bg-secondary { background-color: var(--color-secondary) !important; }
+[data-fx] .wa-skin .bg-muted { background-color: var(--color-muted) !important; }
+[data-fx] .wa-skin .bg-muted\/50 { background-color: color-mix(in oklab, var(--color-muted) 50%, transparent) !important; }
+[data-fx] .wa-skin .border-border { border-color: var(--color-border) !important; }
+[data-fx] .wa-skin :is(.bg-background, .bg-card, .bg-secondary, .bg-muted, .bg-muted\/50) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Fundo da conversa (rabiscos autorais, não o asset da Meta) */
+.wa-wallpaper {
+  background-color: var(--wa-chat-bg);
+  background-image: url('/chat-doodle-light.svg');
+  background-repeat: repeat;
+  background-size: 360px 360px;
+}
+
+/* Cabeçalho da conversa */
+.wa-header {
+  background-color: var(--wa-panel);
+  border-bottom: 1px solid var(--wa-border);
+  min-height: 59px;
+}
+.wa-header-name {
+  font-size: 16px;
+  line-height: 21px;
+  font-weight: 400;
+  color: var(--wa-text);
+}
+.wa-header-sub {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--wa-meta);
+}
+
+/* Etiqueta de data ("Hoje") e avisos do sistema no meio da conversa */
+.wa-date-chip,
+.wa-system-chip {
+  display: inline-block;
+  background-color: var(--wa-white);
+  color: var(--wa-icon);
+  font-size: 12.5px;
+  line-height: 21px;
+  padding: 5px 12px 6px;
+  border-radius: 7.5px;
+  box-shadow: var(--wa-shadow);
+  text-align: center;
+}
+
+/* Bolhas */
+.wa-row-first { margin-top: 12px; }
+.wa-row { margin-top: 2px; }
+.wa-bubble {
+  position: relative;
+  border-radius: 7.5px;
+  box-shadow: var(--wa-shadow);
+  color: var(--wa-text);
+  font-size: 14.2px;
+  line-height: 19px;
+  padding: 6px 7px 8px 9px;
+  min-width: 64px;
+  overflow-wrap: anywhere;
+}
+.wa-bubble-in { background-color: var(--wa-bubble-in); }
+.wa-bubble-out { background-color: var(--wa-bubble-out); }
+.wa-bubble-in.wa-tail { border-top-left-radius: 0; }
+.wa-bubble-out.wa-tail { border-top-right-radius: 0; }
+.wa-bubble.wa-tail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 13px;
+}
+.wa-bubble-in.wa-tail::before {
+  left: -8px;
+  background-color: var(--wa-bubble-in);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.wa-bubble-out.wa-tail::before {
+  right: -8px;
+  background-color: var(--wa-bubble-out);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.wa-bubble-media { padding: 3px 3px 6px; }
+.wa-bubble-media .wa-caption { padding: 4px 4px 0 6px; }
+
+/* Hora + tiques no canto da bolha (o espaçador invisível reserva o lugar
+   na última linha do texto, igual ao WhatsApp) */
+.wa-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--wa-meta);
+  white-space: nowrap;
+}
+.wa-meta-float {
+  position: absolute;
+  right: 7px;
+  bottom: 3px;
+}
+.wa-meta-spacer {
+  visibility: hidden;
+  margin-left: 8px;
+  vertical-align: bottom;
+}
+.wa-tick { color: var(--wa-icon-soft); }
+.wa-tick-read { color: var(--wa-tick-read); }
+
+/* Citação (resposta) */
+.wa-quote {
+  border-left: 4px solid var(--wa-green);
+  border-radius: 7.5px;
+  padding: 5px 8px 6px 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-size: 13.2px;
+  line-height: 18px;
+  color: var(--wa-meta);
+}
+.wa-bubble-in .wa-quote { background-color: var(--wa-quote-in); }
+.wa-bubble-out .wa-quote { background-color: var(--wa-quote-out); }
+.wa-quote-label { color: var(--wa-green-dark); font-weight: 500; font-size: 12.8px; }
+
+/* Documento dentro da bolha */
+.wa-doc {
+  border-radius: 6px;
+  padding: 10px;
+}
+.wa-bubble-in .wa-doc { background-color: var(--wa-quote-in); }
+.wa-bubble-out .wa-doc { background-color: var(--wa-quote-out); }
+
+/* Reações (pílula branca colada embaixo da bolha) */
+.wa-reaction {
+  background-color: var(--wa-white);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(11, 20, 26, 0.16);
+  padding: 1px 6px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Barra de envio — pílula flutuando sobre o fundo da conversa */
 .wa-composer {
-  background-color: #f0f2f5;
-  --wa-accent: #00a884;
+  background-color: var(--wa-chat-bg);
 }
 .wa-composer-pill {
-  background-color: #ffffff;
+  background-color: var(--wa-white);
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.10);
 }
 .wa-composer .wa-input button > svg {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
+.wa-composer textarea {
+  font-family: var(--wa-font);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--wa-text);
+}
+.wa-composer textarea::placeholder { color: var(--wa-meta); opacity: 1; }
+.wa-icon-btn { color: var(--wa-icon); }
+.wa-icon-btn:not(:disabled):hover { color: var(--wa-text); }
 .wa-send-btn {
-  background-color: var(--wa-accent, #00a884);
+  background-color: var(--wa-green);
+  color: #ffffff;
 }
-.wa-send-btn:not(:disabled):hover {
-  filter: brightness(1.08);
+.wa-send-btn:not(:disabled):hover { background-color: #06cf9c; }
+.wa-accent-bg { background-color: var(--wa-green); }
+.wa-accent-text { color: var(--wa-green-dark); }
+.wa-menu {
+  background-color: var(--wa-white);
+  border-radius: 16px;
+  box-shadow: 0 2px 5px rgba(11, 20, 26, 0.26), 0 2px 10px rgba(11, 20, 26, 0.16);
+  padding: 8px 0;
 }
-.wa-accent-bg { background-color: var(--wa-accent, #00a884); }
-.wa-accent-text { color: var(--wa-accent, #00a884); }
+.wa-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 9px 20px;
+  font-size: 14.5px;
+  color: var(--wa-text);
+  text-align: left;
+}
+.wa-menu-item:hover { background-color: var(--wa-hover); }
 .wa-wave-bar {
-  background-color: #8696a0;
+  background-color: var(--wa-icon-soft);
   transition: height 90ms linear;
-}
-.dark .wa-composer,
-[data-theme="noturno"] .wa-composer,
-[data-theme="cyber"] .wa-composer {
-  background-color: #202c33;
-}
-.dark .wa-composer-pill,
-[data-theme="noturno"] .wa-composer-pill,
-[data-theme="cyber"] .wa-composer-pill {
-  background-color: #2a3942;
 }
