@@ -7,6 +7,26 @@ import {
   ContactReturnAlertDto,
 } from './dto/return-alert.dto';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
+import { ATTENDED_STATUSES } from '../leads/clinic-transfer-guard';
+import {
+  isLimpezaProcedure,
+  isLimpezaText,
+  latestLimpezaPerPatient,
+  pickLimpezaHome,
+  type LimpezaEvidence,
+} from './limpeza-recall';
+
+// Quem concluiu o item conta como DENTISTA: mesma definição de "profissional clínico" do
+// findLawyers (DENTIST, OU ADMIN com especialidade). Item sem executor (null) não casa.
+const EXECUTED_BY_DENTIST: Prisma.UserWhereInput = {
+  OR: [
+    { roles: { has: 'DENTIST' } },
+    { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
+  ],
+};
+// Tipos de evento clínico (mesma lista do isClinicalEvent da agenda) — TAREFA "ligar pra
+// marcar limpeza" concluída NÃO é limpeza feita.
+const CLINICAL_EVENT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
 
 @Injectable()
 export class ReturnAlertsService {
@@ -127,6 +147,7 @@ export class ReturnAlertsService {
       return_date: Date;
       months: number;
       executed_by_name: string | null; // dentista que concluiu o procedimento (execução mais recente)
+      source?: 'plano' | 'agenda'; // de onde veio a data (plano executado ou consulta comparecida)
     };
     const recalls: Recall[] = [];
     // OPT-IN: só geram retorno os procedimentos que o admin ATIVOU em Configurações →
@@ -135,6 +156,18 @@ export class ReturnAlertsService {
     // VIVO, então ativar/desativar/mudar o tempo reorganiza o quadro no próximo load (sem
     // backfill). defaultMonths abaixo é só o rótulo do retorno pós-tratamento (Concluído).
     const defaultMonths = await this.getDefaultRecallMonths(tenantId);
+
+    // LIMPEZA é uma família: o catálogo costuma ter mais de um procedimento de limpeza
+    // ("Limpeza", "Profilaxia (limpeza + raspagem)", antigos arquivados...). Todos caem numa
+    // ÚNICA aba — a da limpeza com retorno ligado (limpezaHome) — junto com quem só tem a
+    // consulta de limpeza comparecida na agenda. Sem limpeza ligada → nada muda (opt-in).
+    const catalog = await this.prisma.procedure.findMany({
+      where: { tenant_id: tenantId },
+      select: { id: true, name: true, category: true, active: true, default_revisit_months: true },
+    });
+    const limpezaProcs = catalog.filter(isLimpezaProcedure);
+    const limpezaHome = pickLimpezaHome(limpezaProcs);
+    const limpezaIds = new Set(limpezaHome ? limpezaProcs.map((p) => p.id) : []);
 
     // 1) Por PROCEDIMENTO — só os ATIVADOS (default_revisit_months >= 1) geram retorno,
     // N meses após a execução; conta a partir da execução, mesmo no meio do tratamento.
@@ -147,19 +180,12 @@ export class ReturnAlertsService {
         // ativos). Procedimento arquivado NÃO vira aba órfã no quadro — mesmo tendo
         // execuções antigas com retorno ligado.
         procedure: { active: true },
-        // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção). Mesma
-        // definição de "profissional clínico" do findLawyers: DENTIST OU ADMIN com
-        // especialidade. Item sem executor (null) não casa o filtro → fica de fora.
-        executed_by: {
-          OR: [
-            { roles: { has: 'DENTIST' } },
-            { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
-          ],
-        },
+        // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção).
+        executed_by: EXECUTED_BY_DENTIST,
       },
       select: {
         executed_at: true,
-        procedure: { select: { name: true, default_revisit_months: true } },
+        procedure: { select: { id: true, name: true, default_revisit_months: true } },
         executed_by: { select: { name: true } },
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true, avatar_url: true } } } },
       },
@@ -171,6 +197,7 @@ export class ReturnAlertsService {
       const p = it.treatment_plan?.patient;
       const proc = it.procedure;
       if (!p?.id || !proc?.name || !it.executed_at) continue;
+      if (limpezaIds.has(proc.id)) continue; // limpeza → bloco 1b (aba única de limpeza)
       // Opt-in: só gera retorno o procedimento com intervalo ATIVADO (>=1). Sem intervalo
       // (null/0) → não gera retorno (o admin escolhe quais precisam em Configurações → Retornos).
       const cfg = proc.default_revisit_months;
@@ -180,7 +207,100 @@ export class ReturnAlertsService {
       seen.add(key);
       const ret = new Date(it.executed_at);
       ret.setMonth(ret.getMonth() + cfg);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg, executed_by_name: it.executed_by?.name ?? null });
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg, executed_by_name: it.executed_by?.name ?? null, source: 'plano' });
+    }
+
+    // 1b) LIMPEZA — todo paciente que fez limpeza, numa aba só, com a próxima vinda calculada
+    // da limpeza MAIS RECENTE + N meses da aba. Duas evidências:
+    //   - item de plano DONE de QUALQUER procedimento de limpeza (ativo ou arquivado), mesma
+    //     regra de concluído por DENTISTA;
+    //   - consulta de limpeza na agenda (título/tipo de consulta com limpeza/profilaxia, ou
+    //     vinculada a um item de limpeza) em que o paciente COMPARECEU.
+    if (limpezaHome) {
+      const months = limpezaHome.default_revisit_months as number;
+      const ids = Array.from(limpezaIds);
+      const [limpItems, limpEvents] = await Promise.all([
+        this.prisma.treatmentPlanItem.findMany({
+          where: {
+            status: 'DONE',
+            executed_at: { not: null },
+            procedure_id: { in: ids },
+            treatment_plan: { patient: { tenant_id: tenantId } },
+            executed_by: EXECUTED_BY_DENTIST,
+          },
+          select: {
+            executed_at: true,
+            executed_by: { select: { name: true } },
+            treatment_plan: { select: { patient_id: true } },
+          },
+          orderBy: { executed_at: 'desc' },
+          take: 5000,
+        }),
+        this.prisma.calendarEvent.findMany({
+          where: {
+            tenant_id: tenantId,
+            type: { in: CLINICAL_EVENT_TYPES },
+            status: { in: ATTENDED_STATUSES },
+            OR: [
+              { title: { contains: 'limpeza', mode: 'insensitive' } },
+              { title: { contains: 'profilaxia', mode: 'insensitive' } },
+              { appointment_type: { name: { contains: 'limpeza', mode: 'insensitive' } } },
+              { appointment_type: { name: { contains: 'profilaxia', mode: 'insensitive' } } },
+              { treatment_plan_items: { some: { procedure_id: { in: ids } } } },
+            ],
+          },
+          select: {
+            start_at: true,
+            title: true,
+            patient_id: true,
+            lead_id: true,
+            appointment_type: { select: { name: true } },
+            assigned_user: { select: { name: true } },
+            treatment_plan_items: { where: { procedure_id: { in: ids } }, select: { id: true }, take: 1 },
+          },
+          orderBy: { start_at: 'desc' },
+          take: 5000,
+        }),
+      ]);
+
+      const evidences: LimpezaEvidence[] = [];
+      for (const it of limpItems) {
+        if (!it.executed_at || !it.treatment_plan?.patient_id) continue;
+        evidences.push({ patient_id: it.treatment_plan.patient_id, date: it.executed_at, by_name: it.executed_by?.name ?? null, source: 'plano' });
+      }
+      // O ILIKE do banco também pega "limpeza de pele" — o filtro fino (estética fora) é aqui.
+      const evs = limpEvents.filter(
+        (e) => e.treatment_plan_items.length > 0 || isLimpezaText(e.title) || isLimpezaText(e.appointment_type?.name),
+      );
+      // Consulta só com lead (sem patient_id): acha o paciente pelo Patient.lead_id.
+      const leadIds = Array.from(new Set(evs.filter((e) => !e.patient_id && e.lead_id).map((e) => e.lead_id as string)));
+      const leadToPatient = new Map<string, string>();
+      if (leadIds.length) {
+        const ps = await this.prisma.patient.findMany({
+          where: { tenant_id: tenantId, lead_id: { in: leadIds } },
+          select: { id: true, lead_id: true },
+        });
+        for (const p of ps) if (p.lead_id) leadToPatient.set(p.lead_id, p.id);
+      }
+      for (const e of evs) {
+        const pid = e.patient_id || (e.lead_id ? leadToPatient.get(e.lead_id) : undefined);
+        if (!pid) continue;
+        evidences.push({ patient_id: pid, date: e.start_at, by_name: e.assigned_user?.name ?? null, source: 'agenda' });
+      }
+
+      const latest = latestLimpezaPerPatient(evidences, months);
+      const pats = latest.length
+        ? await this.prisma.patient.findMany({
+            where: { tenant_id: tenantId, id: { in: latest.map((l) => l.patient_id) } },
+            select: { id: true, name: true, phone: true, avatar_url: true },
+          })
+        : [];
+      const byId = new Map(pats.map((p) => [p.id, p]));
+      for (const l of latest) {
+        const p = byId.get(l.patient_id);
+        if (!p) continue; // paciente de outro tenant/apagado — nunca entra
+        recalls.push({ kind: 'procedure', type: limpezaHome.name, patient: p, last_date: l.date, return_date: l.return_date, months, executed_by_name: l.by_name, source: l.source });
+      }
     }
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
@@ -201,10 +321,13 @@ export class ReturnAlertsService {
     // MESMO sem paciente ainda — o quadro EXPÕE o que foi configurado (associa a config às
     // abas). Une com os tipos que já têm recall (garantia). Uma aba de selecionado sem
     // paciente aparece vazia ("ninguém fez esse procedimento ainda").
-    const selectedProcs = await this.prisma.procedure.findMany({
-      where: { tenant_id: tenantId, active: true, default_revisit_months: { gte: 1 } },
-      select: { name: true },
-    });
+    // As outras limpezas ligadas não viram aba própria: estão todas dentro da limpezaHome.
+    const selectedProcs = catalog.filter(
+      (p) =>
+        p.active &&
+        (p.default_revisit_months ?? 0) >= 1 &&
+        (!limpezaIds.has(p.id) || p.id === limpezaHome?.id),
+    );
     const procedureTabs = Array.from(
       new Set<string>([
         ...selectedProcs.map((s) => s.name),

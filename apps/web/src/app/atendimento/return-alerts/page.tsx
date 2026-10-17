@@ -18,6 +18,7 @@ interface Recall {
   return_date: string;
   months: number;
   executed_by_name: string | null;
+  source?: 'plano' | 'agenda'; // agenda = consulta comparecida (sem item de plano executado)
 }
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -186,7 +187,7 @@ export default function ReturnAlertsPage() {
                           {r.last_date && <span>Feito em {new Date(r.last_date).toLocaleDateString('pt-BR')}</span>}
                           {r.executed_by_name && (
                             <span className="flex items-center gap-1">
-                              <Stethoscope size={11} /> Concluído por {r.executed_by_name}
+                              <Stethoscope size={11} /> {r.source === 'agenda' ? 'Atendido por' : 'Concluído por'} {r.executed_by_name}
                             </span>
                           )}
                         </div>
