@@ -17,6 +17,7 @@ import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
 import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
+import { ThemeMenuButton } from '@/components/ThemeMenuButton';
 // Onda 5c (Fase 25) — NotificationToggle removido da sidebar (duplicava o
 // NotificationCenter). Toggle DND continua disponivel dentro do popover do
 // Center quando user clica no sininho.
@@ -1250,6 +1251,28 @@ export function Sidebar() {
           legibilidade ou usabilidade do toque. */}
       <div className="mt-auto flex flex-col gap-0.5 w-full px-2 pt-2 border-t border-primary-foreground/20">
 
+        {/* ─── Notificações + Aparência (+ conta com a barra recolhida) ───
+            Voltaram pra cá quando a barra do topo saiu (pedido: "não usamos
+            essa barra"). Recolhida, o card de nome/conta some — o ícone de
+            conta abre o mesmo menu (Meu perfil / Trocar de usuário / Sair). */}
+        <div className={`w-full flex items-center rounded-lg py-1 bg-card text-foreground ${expanded ? 'gap-1 px-1.5' : 'flex-col gap-0.5'}`}>
+          <NotificationCenter />
+          <ThemeMenuButton variant="icon" />
+          {!expanded && (
+            <button
+              ref={userBtnRef}
+              type="button"
+              onClick={() => setShowUserMenu(v => !v)}
+              title="Conta (perfil, trocar de usuário, sair)"
+              aria-label="Menu da conta"
+              aria-expanded={showUserMenu}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+            >
+              <LogOut size={14} />
+            </button>
+          )}
+        </div>
+
         {/* ─── Avatar do usuário (card branco) ─── */}
         <div className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
           {/* Input de arquivo oculto */}
@@ -1366,10 +1389,6 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Onda 15.8 — Notificacoes / Aparencia / Sair removidos do rodape
-            da sidebar. Notificacoes e Aparencia agora vivem no header global
-            (atendimento/layout.tsx). Sair foi movido pro menu dropdown que
-            abre ao clicar no avatar (logo acima). */}
       </div>
 
       {/* ─── Fixed tooltip portal ────────────────────────────────────── */}
@@ -1384,10 +1403,7 @@ export function Sidebar() {
         document.body
       )}
 
-      {/* Onda 15.8 — Popup de tema removido da Sidebar.
-          Onda 14.55 — Estilo "Massinha" (claymorphism) agora vive no
-          ThemeMenuButton renderizado no header global (atendimento/layout).
-          Aqui não há mais UI de tema. */}
+      {/* Tema: o popup é o do ThemeMenuButton (variant="icon", no rodapé acima). */}
 
       {/* ─── Menu de avatar (portal) ─────────────────────────────────── */}
       {mounted && showAvatarMenu && avatarBtnRef.current && createPortal(

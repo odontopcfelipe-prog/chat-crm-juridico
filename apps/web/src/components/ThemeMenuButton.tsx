@@ -21,8 +21,9 @@ import { useVisualMode } from '@/components/VisualModeProvider';
 import { THEMES } from '@/components/ThemeSwitcher';
 
 interface Props {
-  /** Variante visual do botao. 'header' = compacto pra topbar, 'sidebar' = card branco. */
-  variant?: 'header' | 'sidebar';
+  /** Variante visual do botao. 'header' = compacto pra topbar, 'sidebar' = card branco,
+      'icon' = só o ícone pequeno (rodapé da barra lateral; o popup abre à direita). */
+  variant?: 'header' | 'sidebar' | 'icon';
   /** Posicionamento do popup. 'right' (default) = abre pra esquerda do botao,
       'left' = abre pra direita. */
   align?: 'right' | 'left';
@@ -72,6 +73,15 @@ export function ThemeMenuButton({ variant = 'header', align = 'right' }: Props) 
     const POPUP_W = 280;
     const POPUP_H = 360;
     const MARGIN = 8;
+    if (variant === 'icon') {
+      // Rodapé da barra lateral: abre pra DIREITA do botão, subindo se precisar.
+      setPos({
+        top: Math.max(MARGIN, Math.min(rect.top, window.innerHeight - POPUP_H - MARGIN)),
+        left: Math.min(rect.right + MARGIN, window.innerWidth - POPUP_W - MARGIN),
+      });
+      setOpen(true);
+      return;
+    }
     const top = Math.min(rect.bottom + MARGIN, window.innerHeight - POPUP_H - MARGIN);
     const left =
       align === 'right'
@@ -88,7 +98,9 @@ export function ThemeMenuButton({ variant = 'header', align = 'right' }: Props) 
       ? `inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md ${
           open ? 'bg-[var(--glass-bg)] backdrop-blur-md' : ''
         }`
-      : `w-full flex items-center gap-2 rounded-lg px-2.5 py-2 bg-card text-foreground hover:bg-accent transition-colors`;
+      : variant === 'icon'
+        ? `p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all ${open ? 'bg-accent text-foreground' : ''}`
+        : `w-full flex items-center gap-2 rounded-lg px-2.5 py-2 bg-card text-foreground hover:bg-accent transition-colors`;
 
   return (
     <>
@@ -99,7 +111,7 @@ export function ThemeMenuButton({ variant = 'header', align = 'right' }: Props) 
         title="Aparência"
         aria-label="Aparência"
       >
-        <Palette size={variant === 'header' ? 18 : 16} className="shrink-0 text-primary" />
+        <Palette size={variant === 'header' ? 18 : variant === 'icon' ? 14 : 16} className={`shrink-0 ${variant === 'icon' ? '' : 'text-primary'}`} />
         {variant === 'sidebar' && <span className="text-[13px] font-medium">Aparência</span>}
       </button>
 

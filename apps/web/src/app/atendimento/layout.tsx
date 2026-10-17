@@ -328,9 +328,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // mensagem). Top bar redundante so ocupa espaco vertical valioso.
           const isWhatsAppRoot = pathname === '/atendimento' || pathname === '/atendimento/';
           const hideSearch = hideByPrefix || insideSpecificPatient || isWhatsAppRoot;
-          // Onda 15.8 — header sempre renderiza (mesmo que esconda search) pra
-          // que os icones de Notificacoes + Aparencia no canto direito fiquem
-          // SEMPRE visiveis. Antes o header inteiro sumia em algumas paginas.
+          // Com a barra lateral (admin), Notificacoes + Aparencia + conta ficam no
+          // rodape dela (Sidebar.tsx). Sem a busca, o header so tinha esses icones
+          // — pedido: "nao usamos essa barra, pode remover pra ganhar espaco".
+          // Papeis sem barra lateral continuam com o header (Inicio + icones).
+          if (showSidebar && hideSearch) return null;
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-1.5 border-b border-border bg-card shrink-0">
               {/* Onda 17.50 — Botao "Inicio" aparece quando a barra lateral
@@ -364,14 +366,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                 </button>
               )}
               <div className="flex-1" />
-              {/* Onda 15.8 — Notificacoes + Aparencia fixos no canto direito */}
-              <div className="flex items-center gap-1 shrink-0">
-                <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
-                  <NotificationCenter />
+              {/* Notificacoes + Aparencia + conta no canto direito — so pra quem
+                  NAO tem a barra lateral (la eles ficam no rodape). */}
+              {!showSidebar && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
+                    <NotificationCenter />
+                  </div>
+                  <ThemeMenuButton variant="header" align="right" />
+                  <AccountMenu />
                 </div>
-                <ThemeMenuButton variant="header" align="right" />
-                <AccountMenu />
-              </div>
+              )}
             </header>
           );
         })()}

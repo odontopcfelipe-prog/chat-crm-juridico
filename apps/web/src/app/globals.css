@@ -1231,7 +1231,8 @@
   height: 32px;
   padding: 0 12px;
   border-radius: 999px;
-  background-color: var(--wa-panel);
+  background-color: var(--wa-white);
+  border: 1px solid #d1d7db;
   color: var(--wa-icon);
   font-size: 14px;
   line-height: 20px;
@@ -1239,8 +1240,9 @@
   flex-shrink: 0;
   cursor: pointer;
 }
-.wa-chip:hover { background-color: var(--wa-border); }
-.wa-chip.wa-on { background-color: var(--wa-bubble-out); color: var(--wa-green-dark); }
+.wa-chip:hover { background-color: var(--wa-hover); }
+/* Selecionado = cinza preenchido (como no WhatsApp Web atual) */
+.wa-chip.wa-on { background-color: #e9edef; border-color: #e9edef; color: var(--wa-text); }
 .wa-chip-count { font-size: 12px; font-weight: 600; opacity: 0.8; }
 .wa-chip-sm { height: 26px; padding: 0 6px 0 10px; font-size: 13px; }
 .wa-chip-x {
@@ -1303,12 +1305,14 @@
   overflow: hidden;
 }
 
-/* Linha da conversa: 72px, avatar 49px, divisória só sob o texto */
+/* Linha da conversa: 72px, avatar 49px, sem divisória — destaque cinza arredondado (WhatsApp Web atual) */
 .wa-chat-row {
   position: relative;
   display: flex;
   align-items: stretch;
   min-height: 72px;
+  margin: 0 8px;
+  border-radius: 10px;
   cursor: pointer;
   background-color: var(--wa-white);
 }
@@ -1341,8 +1345,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 8px 15px 8px 0;
-  border-bottom: 1px solid var(--wa-border);
+  padding: 8px 12px 8px 0;
 }
 .wa-chat-name {
   font-size: 17px;
@@ -1357,7 +1360,8 @@
   line-height: 20px;
   color: var(--wa-meta);
 }
-.wa-chat-time.wa-unread { color: var(--wa-green); font-weight: 500; }
+/* Não lida: hora escura em negrito (o verde fica só na bolinha) */
+.wa-chat-time.wa-unread { color: var(--wa-text); font-weight: 600; }
 .wa-chat-preview {
   font-size: 14px;
   line-height: 20px;
@@ -1369,7 +1373,7 @@
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background-color: var(--wa-green);
+  background-color: #1daa61;
   color: #ffffff;
   font-size: 12px;
   line-height: 20px;
