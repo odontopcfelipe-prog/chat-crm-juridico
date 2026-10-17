@@ -116,6 +116,40 @@ export function AgendarPacienteModal({
     return () => { alive = false; };
   }, [dentistId, date]);
 
+  // Horários LIVRES — mesmo cálculo do painel de agendar do chat (expediente cadastrado
+  // do dentista − consultas do dia − feriado, no tamanho da duração escolhida).
+  const [freeSlots, setFreeSlots] = useState<{ start: string; end: string }[] | null>(null);
+  useEffect(() => {
+    if (!dentistId || !date) { setFreeSlots(null); return; }
+    let alive = true;
+    setFreeSlots(null);
+    const t = setTimeout(() => {
+      api.get<{ start: string; end: string }[]>(`/calendar/availability/${dentistId}`, { params: { date, duration } })
+        .then((r) => { if (alive) setFreeSlots(Array.isArray(r.data) ? r.data : []); })
+        .catch(() => { if (alive) setFreeSlots([]); });
+    }, 200);
+    return () => { alive = false; clearTimeout(t); };
+  }, [dentistId, date, duration]);
+  // Dias com expediente cadastrado — distingue "agenda cheia" de "sem expediente".
+  const [shiftDays, setShiftDays] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!dentistId) { setShiftDays(null); return; }
+    let alive = true;
+    api.get<{ day_of_week: number }[]>(`/calendar/schedule/${dentistId}`)
+      .then((r) => { if (alive) setShiftDays(new Set((r.data || []).map((s) => s.day_of_week))); })
+      .catch(() => { if (alive) setShiftDays(null); });
+    return () => { alive = false; };
+  }, [dentistId]);
+  // Hoje: esconde horário que já passou (relógio de Maceió, naive).
+  const visibleSlots = useMemo(() => {
+    if (!freeSlots) return null;
+    const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    if (date !== ymd(now)) return freeSlots;
+    const nowHm = `${p2(now.getUTCHours())}:${p2(now.getUTCMinutes())}`;
+    return freeSlots.filter((s) => s.start > nowHm);
+  }, [freeSlots, date]);
+  const semExpediente = !!date && !!shiftDays && !shiftDays.has(weekdayOf(date));
+
   const endTime = time ? addMinutes(time, duration) : '';
   const foraDoDia = !!date && orthoDays.length > 0 && !orthoDays.includes(weekdayOf(date));
   const choque = useMemo(() => {
@@ -271,9 +305,45 @@ export function AgendarPacienteModal({
         {dentistId && date && (
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-              Agenda de {selected?.name || 'dentista'} · {WD_SHORT[weekdayOf(date)]} {date.split('-').reverse().slice(0, 2).join('/')}
+              Horários livres · {WD_SHORT[weekdayOf(date)]} {date.split('-').reverse().slice(0, 2).join('/')}
             </div>
-            <div className="rounded-lg border border-border max-h-48 overflow-y-auto divide-y divide-border">
+            {visibleSlots === null ? (
+              <div className="py-2 flex items-center text-xs text-muted-foreground">
+                <Loader2 size={13} className="animate-spin mr-1.5" /> Buscando horários…
+              </div>
+            ) : visibleSlots.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                {semExpediente
+                  ? `${selected?.name || 'O dentista'} não tem expediente cadastrado ${WD_SHORT[weekdayOf(date)]} — digite o horário acima ou troque o dia.`
+                  : 'Nenhum horário livre nesse dia (agenda cheia ou feriado) — troque o dia ou digite o horário.'}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                {visibleSlots.map((s) => (
+                  <button
+                    key={s.start}
+                    type="button"
+                    onClick={() => setTime(s.start)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold tabular-nums border transition-colors ${
+                      time === s.start
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {s.start}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {dentistId && date && (
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+              Ocupados · agenda de {selected?.name || 'dentista'}
+            </div>
+            <div className="rounded-lg border border-border max-h-40 overflow-y-auto divide-y divide-border">
               {dayEvents === null ? (
                 <div className="py-3 flex items-center justify-center text-xs text-muted-foreground">
                   <Loader2 size={13} className="animate-spin mr-1.5" /> Carregando…

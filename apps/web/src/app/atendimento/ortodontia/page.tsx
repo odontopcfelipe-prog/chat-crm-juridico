@@ -442,7 +442,9 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onT
   const meta = STATUS_META[card.status];
   return (
     <div className="bg-card border border-border rounded-lg p-3 space-y-2">
-      <div className="flex items-center gap-2">
+      {/* Nome numa linha só dele (até 2 linhas, sem cortar) e os selos embaixo — antes
+          dividia a linha com dia + status + botões e virava "C." na coluna estreita. */}
+      <div className="flex items-start gap-2">
         <button onClick={onOpen} className="shrink-0 rounded-full" title="Abrir ficha">
           <PatientAvatar
             patientId={card.patient.id}
@@ -452,13 +454,22 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onT
             shape="circle"
           />
         </button>
-        <button onClick={onOpen} className="font-semibold text-sm text-foreground hover:text-primary text-left truncate flex-1">
-          {card.patient.name || 'Sem nome'}
-        </button>
-        {card.weekday != null && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-primary/10 text-primary" title="Dia de atendimento">{WD_LABEL[card.weekday]}</span>
-        )}
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${meta.badge}`}>{meta.label}</span>
+        <div className="min-w-0 flex-1">
+          <button
+            onClick={onOpen}
+            title={card.patient.name || 'Sem nome'}
+            className="block w-full text-left font-semibold text-sm leading-snug text-foreground hover:text-primary break-words line-clamp-2"
+          >
+            {card.patient.name || 'Sem nome'}
+          </button>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {card.weekday != null && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary" title="Dia de atendimento">{WD_LABEL[card.weekday]}</span>
+            )}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${meta.badge}`}>{meta.label}</span>
+          </div>
+        </div>
+        <div className="flex items-center shrink-0 -mr-1">
         {card.status !== 'concluido' && (
           <button
             onClick={onToggleStandby}
@@ -477,6 +488,7 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onT
             <CheckCircle2 size={14} />
           </button>
         )}
+        </div>
       </div>
 
       {showDentist && card.dentist && (
