@@ -21,6 +21,16 @@ import { useVisualMode } from '@/components/VisualModeProvider';
  */
 export const THEMES = [
   {
+    // Padrão do sistema (out/2026): cores do WhatsApp Web claro.
+    id: 'whatsapp',
+    name: 'WhatsApp',
+    gradient: 'linear-gradient(180deg, #f0f2f5 0%, #f0f2f5 100%)',
+    accent: 'linear-gradient(135deg, #008069 0%, #00a884 100%)',
+    solidBg: '#f0f2f5',
+    color: '#f0f2f5',
+    dark: false,
+  },
+  {
     id: 'noturno',
     name: 'Noturno Gold',
     gradient: 'radial-gradient(ellipse at top, #1a1208 0%, #000000 65%)',

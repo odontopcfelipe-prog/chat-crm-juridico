@@ -4,16 +4,18 @@ import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { ReactNode } from 'react';
 import { VisualModeProvider } from '@/components/VisualModeProvider';
 
-// Onda 17.32.101 — Default trocado de "noturno" pra "violet" pra
-// unificar com a identidade do funil de venda (/lp, /cadastrar,
-// /atendimento/login). "glacier" mantido na lista por compatibilidade
-// com sessoes antigas — agora vira alias do violet (mesmo CSS).
+// Out/2026 — padrão = "whatsapp" (cores do WhatsApp Web claro), pedido do dono:
+// "deixe a cor do sistema padronizada com a do WhatsApp original". A chave
+// nova (`storageKey`) faz TODO MUNDO começar no WhatsApp uma vez — quem tinha
+// violet/noturno salvo na chave antiga ("theme") cai no padrão; depois disso a
+// escolha em Aparência volta a ser respeitada. "glacier" segue como alias do violet.
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <NextThemesProvider
       attribute="data-theme"
-      defaultTheme="violet"
-      themes={['violet', 'noturno', 'cyber', 'glacier', 'coral']}
+      defaultTheme="whatsapp"
+      storageKey="theme-wa"
+      themes={['whatsapp', 'violet', 'noturno', 'cyber', 'glacier', 'coral']}
       enableSystem={false}
     >
       <VisualModeProvider>

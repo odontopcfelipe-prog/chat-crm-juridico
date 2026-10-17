@@ -173,6 +173,34 @@
     --glass-border: rgba(249, 115, 22, 0.32);
   }
 
+  /* ══ WHATSAPP — padrão do sistema (out/2026, pedido do dono: "cor do
+     WhatsApp original"). Paleta do WhatsApp Web claro: fundo #f0f2f5,
+     cartões brancos, texto #111b21/#667781, verde #008069 (botões e barra
+     lateral — contraste bom com texto branco) e #00a884. Sem gradientes. ══ */
+  [data-theme="whatsapp"] {
+    --bg-primary: #f0f2f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f0f2f5;
+    --bg-elevated: #ffffff;
+    --bg-hover: #f5f6f6;
+
+    --accent-primary: #008069;
+    --accent-secondary: #00a884;
+    --accent-glow: 0, 128, 105;
+
+    --text-primary: #111b21;
+    --text-secondary: #3b4a54;
+    --text-muted: #667781;
+
+    --border-subtle: #e9edef;
+    --border-default: #d1d7db;
+
+    --gradient-bg: linear-gradient(180deg, #f0f2f5 0%, #f0f2f5 100%);
+    --gradient-accent: linear-gradient(135deg, #008069 0%, #00a884 100%);
+    --glass-bg: rgba(0, 128, 105, 0.06);
+    --glass-border: #d1d7db;
+  }
+
   /* ══ CLAY — Claymorphism "Massinha 3D" (Onda 14.55) ═══════════════════
      ESTILO VISUAL (não tema de cor). Aplicado via [data-fx="clay"] no
      <html>, paralelo ao data-theme. Combina com qualquer um dos 4 temas
