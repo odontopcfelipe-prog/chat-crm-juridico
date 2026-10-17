@@ -47,6 +47,29 @@ export interface ConversationSummary {
   } | null;
 }
 
+/** Conversas com mensagem não lida em cada filtro da lista (Tudo/Minhas/Espera/Adiados). */
+export interface UnreadFilterCounts { all: number; mine: number; waiting: number; adiado: number }
+
+/** GET /conversations/unread-summary — quantas CONVERSAS (não mensagens) estão não lidas. */
+export interface UnreadSummary {
+  leads: number;
+  clients: number;
+  financial: number;
+  /** Ausente em API antiga (antes do deploy) — aí os chips ficam sem número. */
+  filters?: Record<'leads' | 'clients' | 'financial', UnreadFilterCounts>;
+}
+
+export function parseUnreadSummary(data: unknown): UnreadSummary {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const f = d.filters as UnreadSummary['filters'] | undefined;
+  return {
+    leads: Number(d.leads) || 0,
+    clients: Number(d.clients) || 0,
+    financial: Number(d.financial) || 0,
+    ...(f && typeof f === 'object' ? { filters: f } : {}),
+  };
+}
+
 export interface MessageReaction {
   id: string;
   message_id: string;

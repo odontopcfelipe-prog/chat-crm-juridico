@@ -10,7 +10,7 @@ import { showSuccess } from '@/lib/toast';
 import { normalizeStage } from '@/lib/crmStages';
 import { useRole } from '@/lib/useRole';
 import { formatChatListTime } from '@/lib/chatUtils';
-import type { ConversationSummary } from '../types';
+import type { ConversationSummary, UnreadSummary } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 
 // ─── Saved Filters Type ──────────────────────────────────────
@@ -255,8 +255,9 @@ export interface InboxSidebarProps {
   userInboxes: { id: string; name: string }[];
   pendingTransfers: { conversationId: string; contactName: string; fromUserName: string; reason: string | null; audioIds?: string[] }[];
   unreadCounts: Record<string, number>;
-  /** Totais globais de não-lidas por categoria (Leads/Clientes), independentes do clientMode ativo. */
-  unreadSummary: { leads: number; clients: number; financial: number };
+  /** Conversas não lidas por aba (Leads/Clientes/Financeiro) e por filtro — vêm do backend,
+   *  independentes do clientMode ativo e da paginação da lista. */
+  unreadSummary: UnreadSummary;
   currentUserId: string | null;
   // State
   selectedId: string | null;
@@ -305,7 +306,6 @@ export interface InboxSidebarProps {
 
 export const InboxSidebar = memo(function InboxSidebar({
   conversations,
-  adiadoConversations,
   filteredConversations,
   userInboxes,
   pendingTransfers,
@@ -382,6 +382,9 @@ export const InboxSidebar = memo(function InboxSidebar({
   const unreadLeadsCount = unreadSummary.leads;
   const unreadClientsCount = unreadSummary.clients;
   const unreadFinancialCount = unreadSummary.financial;
+  // Números dos filtros = conversas NÃO LIDAS da aba ativa (do backend). Antes
+  // contavam as conversas já carregadas (página de 50) — "Tudo 50" não era real.
+  const unreadByFilter = unreadSummary.filters?.[financialMode ? 'financial' : clientMode ? 'clients' : 'leads'];
 
   // ─── Saved Filters ────────────────────────────────────────────
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
@@ -604,22 +607,23 @@ export const InboxSidebar = memo(function InboxSidebar({
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
             {[
               // "Tudo" só visível para ADMIN — outros usuários veem apenas suas conversas
-              ...(isAdmin ? [{ value: '', label: 'Tudo', count: conversations.filter(c => normalizeStage(c.leadStage) !== 'PERDIDO').length }] : []),
-              { value: 'MINE', label: 'Minhas', count: conversations.filter(c => c.assignedAgentId === currentUserId && !c.aiMode && c.status !== 'CLOSED' && normalizeStage(c.leadStage) !== 'PERDIDO').length },
-              { value: 'WAITING', label: 'Espera', count: conversations.filter(c => c.status === 'WAITING' && normalizeStage(c.leadStage) !== 'PERDIDO').length },
+              ...(isAdmin ? [{ value: '', label: 'Tudo', count: unreadByFilter?.all ?? 0 }] : []),
+              { value: 'MINE', label: 'Minhas', count: unreadByFilter?.mine ?? 0 },
+              { value: 'WAITING', label: 'Espera', count: unreadByFilter?.waiting ?? 0 },
               // Aba "SophIA" (filtro BOT) removida pra dar mais espaço na barra — as
               // conversas em modo IA seguem visíveis em "Tudo"/"Minhas".
-              { value: 'ADIADO', label: 'Adiados', count: adiadoConversations.filter(c => normalizeStage(c.leadStage) !== 'PERDIDO').length },
+              { value: 'ADIADO', label: 'Adiados', count: unreadByFilter?.adiado ?? 0 },
             ].map((tab) => (
               <button
                 key={tab.value}
                 onClick={() => onSetLeadFilter(tab.value)}
                 className={`wa-chip ${leadFilter === tab.value ? 'wa-on' : ''}`}
                 aria-pressed={leadFilter === tab.value}
+                title={tab.count > 0 ? `${tab.count} conversa${tab.count > 1 ? 's' : ''} não lida${tab.count > 1 ? 's' : ''}` : undefined}
               >
                 {tab.label}
                 {tab.count > 0 && (
-                  <span className="wa-chip-count">{tab.count > 99 ? '99+' : tab.count}</span>
+                  <span className="wa-unread-badge wa-sm">{tab.count > 99 ? '99+' : tab.count}</span>
                 )}
               </button>
             ))}

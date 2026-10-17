@@ -1026,7 +1026,9 @@ export class ConversationsService {
    * Retorna a contagem real de mensagens não lidas por conversa (fonte: banco de dados).
    *
    * Regra de negócio (notificações — badges alinhados com o ding recebido via socket):
-   *  - ADMIN: badges apenas das conversas atribuídas a ele (assigned_user_id)
+   *  - ADMIN: TODAS as conversas que aparecem na lista dele (a clínica inteira) —
+   *    out/2026, pedido "números reais"; antes eram só as atribuídas a ele e os
+   *    números da lista não batiam com o que ele via
    *  - DENTIST: badges apenas de clientes atribuídos como dentista (assigned_dentist_id, is_client=true)
    *  - OPERADOR: conversas atribuídas + POOL do inbox (assigned_user_id=null nos inboxes dele) —
    *              espelha o ding que ele recebe via room inbox:{id} (FIX #6)
@@ -1034,13 +1036,9 @@ export class ConversationsService {
    *  - Exclui leads PERDIDO/FINALIZADO
    *
    * Nota: findAll() controla VISIBILIDADE (o que aparece na lista).
-   *       getUnreadCounts() controla NOTIFICAÇÃO (o que mostra badge vermelho).
-   *       Admin pode ver todas as conversas mas só recebe badge das suas — evita
-   *       poluição visual com o pool inteiro do tenant.
+   *       getUnreadCounts() controla o número de não-lidas por conversa.
    */
   async getUnreadCounts(tenantId?: string, userId?: string) {
-    let conversationIds: string[] | undefined;
-
     if (userId) {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -1056,6 +1054,13 @@ export class ConversationsService {
       const isAdminUser = userRoles.includes('ADMIN');
       const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
 
+      // ADMIN vê a clínica inteira na lista, então conta os não-lidos de TODAS as
+      // conversas que aparecem nela (pedido do dono: "números reais", como no
+      // WhatsApp). "Só as minhas" é o filtro Minhas (getUnreadSummary.filters).
+      if (isAdminUser) {
+        return this.groupUnreadMessages({ conversation: this.unreadListVisibleWhere(tenantId) });
+      }
+
       // Filtro base: tenant + exclui leads PERDIDO/FINALIZADO
       const convWhere: any = {
         ...(tenantId ? { tenant_id: tenantId } : {}),
@@ -1064,36 +1069,22 @@ export class ConversationsService {
 
       const orConditions: any[] = [];
 
-      // ADMIN: badge apenas das conversas atribuídas diretamente a ele
-      if (isAdminUser) {
-        orConditions.push({ assigned_user_id: userId });
-        // Admin que também é dentista: clientes atribuídos como dentista
-        if (isDentistUser) {
-          orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
-        }
-      } else {
-        // DENTIST: badge apenas de CLIENTES onde é dentista responsável
-        if (isDentistUser) {
-          orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
-        }
-
-        // Conversas atribuídas diretamente (qualquer role)
-        orConditions.push({ assigned_user_id: userId });
-
-        // OPERADOR: também inclui pool do inbox (conversas sem operador nos
-        // seus inboxes). Alinha o badge visual com o ding que ele recebe via
-        // room inbox:{id} (FIX #6) — antes ouvia som mas contador nao mostrava.
-        if (isOperadorUser && userInboxIds.length > 0) {
-          orConditions.push({
-            inbox_id: { in: userInboxIds },
-            assigned_user_id: null,
-          });
-        }
+      // DENTIST: badge apenas de CLIENTES onde é dentista responsável
+      if (isDentistUser) {
+        orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
       }
 
-      // Fallback (estagiário puro, financeiro)
-      if (orConditions.length === 0) {
-        orConditions.push({ assigned_user_id: userId });
+      // Conversas atribuídas diretamente (qualquer role)
+      orConditions.push({ assigned_user_id: userId });
+
+      // OPERADOR: também inclui pool do inbox (conversas sem operador nos
+      // seus inboxes). Alinha o badge visual com o ding que ele recebe via
+      // room inbox:{id} (FIX #6) — antes ouvia som mas contador nao mostrava.
+      if (isOperadorUser && userInboxIds.length > 0) {
+        orConditions.push({
+          inbox_id: { in: userInboxIds },
+          assigned_user_id: null,
+        });
       }
 
       convWhere.OR = orConditions;
@@ -1102,93 +1093,107 @@ export class ConversationsService {
         where: convWhere,
         select: { id: true },
       });
-      conversationIds = convs.map(c => c.id);
+      // Etapa 2: conta mensagens não lidas apenas nessas conversas
+      return this.groupUnreadMessages({ conversation_id: { in: convs.map(c => c.id) } });
     }
 
-    // Etapa 2: conta mensagens não lidas apenas nessas conversas
-    const where: any = {
-      direction: 'in',
-      status: { in: ['recebido', 'entregue'] },
-    };
+    // Fallback sem userId (chamadas internas sem contexto de usuário)
+    return this.groupUnreadMessages(tenantId ? { conversation: { tenant_id: tenantId } } : {});
+  }
 
-    if (conversationIds !== undefined) {
-      where.conversation_id = { in: conversationIds };
-    } else if (tenantId) {
-      // Fallback sem userId (chamadas internas/admin sem contexto de usuário)
-      where.conversation = { tenant_id: tenantId };
-    }
-
+  /** Mensagens recebidas ainda não lidas, por conversa: { conversationId: n }. */
+  private async groupUnreadMessages(scope: Record<string, any>): Promise<Record<string, number>> {
     const counts = await this.prisma.message.groupBy({
       by: ['conversation_id'],
-      where,
+      where: { direction: 'in', status: { in: ['recebido', 'entregue'] }, ...scope },
       _count: { id: true },
     });
-
     const result: Record<string, number> = {};
     for (const c of counts) {
-      if (c.conversation_id) {
-        result[c.conversation_id] = c._count.id;
-      }
+      if (c.conversation_id) result[c.conversation_id] = c._count.id;
     }
     return result;
   }
 
   /**
-   * Resumo global de não-lidas agrupado por lead.is_client.
-   * Usado pelos badges das abas Leads/Clientes da InboxSidebar, que precisam
-   * mostrar o total de cada categoria INDEPENDENTE do clientMode ativo
-   * (a lista de conversas só traz uma aba por vez; o badge é global).
+   * Conversas que aparecem na lista do admin (união das abas do findAll):
+   * Financeiro = inbox FINANCEIRO; Clientes = is_client fora do Financeiro;
+   * Leads = não-cliente fora do Financeiro, sem PERDIDO/FINALIZADO. Nunca o
+   * resíduo ENCERRADO do dedup. PERDIDO o front também esconde.
    */
-  async getUnreadSummary(tenantId?: string, userId?: string): Promise<{ leads: number; clients: number; financial: number }> {
+  private unreadListVisibleWhere(tenantId?: string) {
+    const notFinanceiro = { NOT: { inbox: { purpose: 'FINANCEIRO' } } };
+    return {
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+      status: { not: 'ENCERRADO' },
+      OR: [
+        { inbox: { purpose: 'FINANCEIRO' }, lead: { stage: { notIn: ['PERDIDO'] } } },
+        // stage é nullable: `not` sozinho descartaria cliente sem etapa
+        { ...notFinanceiro, lead: { is_client: true, OR: [{ stage: null }, { stage: { not: 'PERDIDO' } }] } },
+        { ...notFinanceiro, lead: { is_client: false, stage: { notIn: ['PERDIDO', 'FINALIZADO'] } } },
+      ],
+    };
+  }
+
+  /**
+   * Resumo de não-lidas da lista: quantas CONVERSAS têm mensagem não lida
+   * (não quantas mensagens — "conversa não aberta", como no WhatsApp).
+   *  - leads/clients/financial: badge de cada aba (independe da aba ativa);
+   *  - filters: o mesmo número por filtro (Tudo/Minhas/Espera/Adiados), com as
+   *    MESMAS regras do filtro do front (atendimento/page.tsx) — antes os chips
+   *    contavam só as conversas já carregadas (página de 50).
+   */
+  async getUnreadSummary(tenantId?: string, userId?: string): Promise<{
+    leads: number;
+    clients: number;
+    financial: number;
+    filters: Record<'leads' | 'clients' | 'financial', { all: number; mine: number; waiting: number; adiado: number }>;
+  }> {
+    const empty = () => ({ all: 0, mine: 0, waiting: 0, adiado: 0 });
+    const filters = { leads: empty(), clients: empty(), financial: empty() };
     const counts = await this.getUnreadCounts(tenantId, userId);
     const convIds = Object.keys(counts);
-    if (convIds.length === 0) return { leads: 0, clients: 0, financial: 0 };
+    if (convIds.length === 0) return { leads: 0, clients: 0, financial: 0, filters };
 
     const convs = await this.prisma.conversation.findMany({
       where: { id: { in: convIds } },
       select: {
         id: true,
+        status: true,
+        ai_mode: true,
+        assigned_user_id: true,
+        assigned_dentist_id: true,
         lead: { select: { is_client: true } },
         inbox: { select: { purpose: true } },
       },
     });
 
-    let leads = 0;
-    let clients = 0;
-    let financial = 0;
     for (const c of convs) {
-      const n = counts[c.id] || 0;
       // Onda 18.7 — conversas do inbox FINANCEIRO contam pra aba Financeiro
       // (não pra Leads/Clientes), independente de is_client.
-      if ((c as any).inbox?.purpose === 'FINANCEIRO') financial += n;
-      else if ((c as any).lead?.is_client) clients += n;
-      else leads += n;
+      const tab = (c as any).inbox?.purpose === 'FINANCEIRO' ? 'financial'
+        : (c as any).lead?.is_client ? 'clients'
+        : 'leads';
+      const f = filters[tab];
+      f.all += 1;
+      // Minhas: minha (operador ou dentista), sem IA, não fechada
+      if ((c.assigned_user_id === userId || c.assigned_dentist_id === userId) && !c.ai_mode && c.status !== 'FECHADO') f.mine += 1;
+      // Espera: sem IA e sem operador (nem fechada/adiada)
+      if (c.status !== 'FECHADO' && c.status !== 'ADIADO' && !c.ai_mode && !c.assigned_user_id) f.waiting += 1;
+      if (c.status === 'ADIADO') f.adiado += 1;
     }
-    return { leads, clients, financial };
+    return {
+      leads: filters.leads.all,
+      clients: filters.clients.all,
+      financial: filters.financial.all,
+      filters,
+    };
   }
 
   async markAsRead(conversationId: string, userId?: string) {
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
-    });
-
-    if (!convo || !convo.lead?.phone || !convo.instance_name) {
-      // Mesmo sem phone/instance (conversa demo ou incompleta), sincroniza o sino
-      if (userId) {
-        await this.notificationsService.markByConversation(userId, conversationId).catch(() => {});
-      }
-      return { marked: 0 };
-    }
-
-    const unreadMessages = await this.prisma.message.findMany({
-      where: {
-        conversation_id: conversationId,
-        direction: 'in',
-        status: { in: ['recebido', 'entregue'] },
-        external_message_id: { not: null },
-      },
-      select: { id: true, external_message_id: true },
     });
 
     // Marca notificacoes do sino relacionadas a esta conversa como lidas —
@@ -1198,20 +1203,36 @@ export class ConversationsService {
     if (userId) {
       await this.notificationsService.markByConversation(userId, conversationId).catch(() => {});
     }
+    if (!convo) return { marked: 0 };
+
+    // Abriu = lida no sistema, SEMPRE. Antes, conversa sem chip/número (ex.: presa
+    // no chip morto) ou mensagem sem id do WhatsApp nunca saía de "não lida" e o
+    // contador da lista ficava inflado pra sempre.
+    const unreadMessages = await this.prisma.message.findMany({
+      where: {
+        conversation_id: conversationId,
+        direction: 'in',
+        status: { in: ['recebido', 'entregue'] },
+      },
+      select: { id: true, external_message_id: true },
+    });
 
     if (unreadMessages.length === 0) return { marked: 0 };
 
-    const remoteJid = convo.external_id || `${convo.lead.phone}@s.whatsapp.net`;
-    const readPayload = unreadMessages.map((m) => ({
-      remoteJid,
-      fromMe: false as const,
-      id: m.external_message_id!,
-    }));
-
-    try {
-      await this.whatsappService.markAsRead(convo.instance_name, readPayload);
-    } catch (e) {
-      this.logger.warn(`Falha ao enviar markAsRead via Evolution: ${e?.message}`);
+    // Tique azul pro contato: só dá pra mandar com chip + número + id do WhatsApp.
+    const receipts = unreadMessages.filter((m) => !!m.external_message_id);
+    if (convo.instance_name && convo.lead?.phone && receipts.length > 0) {
+      const remoteJid = convo.external_id || `${convo.lead.phone}@s.whatsapp.net`;
+      const readPayload = receipts.map((m) => ({
+        remoteJid,
+        fromMe: false as const,
+        id: m.external_message_id!,
+      }));
+      try {
+        await this.whatsappService.markAsRead(convo.instance_name, readPayload);
+      } catch (e) {
+        this.logger.warn(`Falha ao enviar markAsRead via Evolution: ${e?.message}`);
+      }
     }
 
     await this.prisma.message.updateMany({

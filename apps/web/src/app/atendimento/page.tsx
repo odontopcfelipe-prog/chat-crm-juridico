@@ -26,7 +26,8 @@ import { activeConversationRef } from '@/lib/activeConversation';
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
 import { showError, showSuccess } from '@/lib/toast';
-import type { ConversationSummary, MessageItem } from './types';
+import type { ConversationSummary, MessageItem, UnreadSummary } from './types';
+import { parseUnreadSummary } from './types';
 import { MessageBubble } from './components/MessageBubble';
 import { TransferModals } from './components/TransferModals';
 import { CommandPalette } from './components/CommandPalette';
@@ -273,7 +274,7 @@ export default function Dashboard() {
   });
   // Badges globais Leads/Clientes — independentes do clientMode ativo (a lista
   // só contém a aba ativa, mas os badges do topo da sidebar mostram as duas).
-  const [unreadSummary, setUnreadSummary] = useState<{ leads: number; clients: number; financial: number }>({ leads: 0, clients: 0, financial: 0 });
+  const [unreadSummary, setUnreadSummary] = useState<UnreadSummary>({ leads: 0, clients: 0, financial: 0 });
   // Current user ID decoded from JWT (lazy init, never changes)
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -918,11 +919,7 @@ export default function Dashboard() {
         api.get('/conversations/unread-summary', { _silent401: true } as any)
           .then(r => {
             if (r.data && typeof r.data === 'object') {
-              setUnreadSummary({
-                leads: Number(r.data.leads) || 0,
-                clients: Number(r.data.clients) || 0,
-                financial: Number(r.data.financial) || 0,
-              });
+              setUnreadSummary(parseUnreadSummary(r.data));
             }
           })
           .catch(() => {});
@@ -1056,11 +1053,7 @@ export default function Dashboard() {
       api.get('/conversations/unread-summary', { _silent401: true } as any)
         .then(r => {
           if (r.data && typeof r.data === 'object') {
-            setUnreadSummary({
-              leads: Number(r.data.leads) || 0,
-              clients: Number(r.data.clients) || 0,
-              financial: Number(r.data.financial) || 0,
-            });
+            setUnreadSummary(parseUnreadSummary(r.data));
           }
         })
         .catch(() => {});
@@ -1113,11 +1106,7 @@ export default function Dashboard() {
     api.get('/conversations/unread-summary', { _silent401: true } as any)
       .then(r => {
         if (r.data && typeof r.data === 'object') {
-          setUnreadSummary({
-            leads: Number(r.data.leads) || 0,
-            clients: Number(r.data.clients) || 0,
-            financial: Number(r.data.financial) || 0,
-          });
+          setUnreadSummary(parseUnreadSummary(r.data));
         }
       })
       .catch(() => {});
