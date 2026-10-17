@@ -2626,11 +2626,11 @@ export default function Dashboard() {
       {!inboxOpen && !isMobile && (
         <button
           onClick={() => setInboxOpen(true)}
-          className="shrink-0 w-10 flex flex-col items-center justify-start gap-2 pt-4 bg-card border-r border-border z-40 hover:bg-accent/50 transition-all"
+          className="wa-skin wa-list wa-list-rail rounded-none shrink-0 w-10 flex flex-col items-center justify-start gap-2 pt-4 z-40 transition-all"
           title="Abrir painel de inbox"
           aria-label="Abrir painel de inbox"
         >
-          <PanelLeftOpen size={18} className="text-muted-foreground" />
+          <PanelLeftOpen size={18} className="text-[#54656f]" />
         </button>
       )}
 

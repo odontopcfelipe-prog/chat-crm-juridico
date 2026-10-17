@@ -20,6 +20,22 @@ export function formatTime(dateStr?: string): string {
   return new Date(dateStr).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Hora da lista de conversas no padrão do WhatsApp: hoje = "14:32",
+ *  ontem = "Ontem", últimos 7 dias = dia da semana, antes = "dd/mm/aaaa". */
+export function formatChatListTime(dateStr?: string): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const dayMs = 86400000;
+  if (date >= startOfToday) return formatTime(dateStr);
+  if (date >= new Date(startOfToday.getTime() - dayMs)) return 'Ontem';
+  if (date >= new Date(startOfToday.getTime() - 6 * dayMs)) {
+    return date.toLocaleDateString('pt-BR', { weekday: 'long' });
+  }
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export function getInitial(name?: string): string {
   return (name || 'V')[0].toUpperCase();
 }

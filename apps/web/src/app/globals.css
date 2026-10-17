@@ -1130,3 +1130,285 @@
   background-color: var(--wa-icon-soft);
   transition: height 90ms linear;
 }
+
+/* ─── Lista de conversas (InboxSidebar) ──────────────────────────────
+ * Mesma pele: `wa-skin wa-list` no <section> da lista. Tudo aqui é px fixo
+ * (a base rem do <html> muda com a tela) e fora de @layer, então vence os
+ * utilitários e as regras de clay/neon/solid. */
+.wa-list {
+  background-color: var(--wa-white);
+  border-right: 1px solid var(--wa-border);
+}
+.wa-list button:active { box-shadow: none; transform: none; }
+.wa-list ::-webkit-scrollbar { width: 6px; }
+.wa-list ::-webkit-scrollbar-thumb { background: rgba(11, 20, 26, 0.2); border-radius: 0; box-shadow: none; }
+.wa-list ::-webkit-scrollbar-thumb:hover { background: rgba(11, 20, 26, 0.32); box-shadow: none; }
+.wa-list-rail:hover { background-color: var(--wa-hover); }
+
+.wa-list-title {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: normal;
+  color: var(--wa-green);
+}
+.wa-list-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: var(--wa-icon);
+  flex-shrink: 0;
+}
+.wa-list-iconbtn:hover { background-color: var(--wa-panel); color: var(--wa-text); }
+.wa-list-iconbtn.wa-on { background-color: var(--wa-bubble-out); color: var(--wa-green-dark); }
+.wa-list-iconbtn-sm { width: 24px; height: 24px; }
+
+/* Abas Leads / Clientes / Financeiro — sublinhado verde, como no app */
+.wa-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--wa-border);
+}
+.wa-tab {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 42px;
+  border-radius: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--wa-meta);
+  white-space: nowrap;
+}
+.wa-tab:hover { color: var(--wa-text); background-color: var(--wa-hover); }
+.wa-tab.wa-on { color: var(--wa-green-dark); }
+.wa-tab.wa-on::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background-color: var(--wa-green-dark);
+}
+
+/* Busca em pílula */
+.wa-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 10px 0 14px;
+  border-radius: 999px;
+  background-color: var(--wa-panel);
+  color: var(--wa-icon);
+}
+.wa-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-family: var(--wa-font);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--wa-text);
+}
+.wa-search input::placeholder { color: var(--wa-meta); opacity: 1; }
+
+/* Filtros em chips */
+.wa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background-color: var(--wa-panel);
+  color: var(--wa-icon);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.wa-chip:hover { background-color: var(--wa-border); }
+.wa-chip.wa-on { background-color: var(--wa-bubble-out); color: var(--wa-green-dark); }
+.wa-chip-count { font-size: 12px; font-weight: 600; opacity: 0.8; }
+.wa-chip-sm { height: 26px; padding: 0 6px 0 10px; font-size: 13px; }
+.wa-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: var(--wa-icon-soft);
+}
+.wa-chip-x:hover { background-color: rgba(11, 20, 26, 0.08); color: var(--wa-text); }
+
+/* Botões em pílula (salvar filtro, barra de seleção) */
+.wa-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.wa-pill-green { background-color: var(--wa-green); color: #ffffff; }
+.wa-pill-green:hover { background-color: var(--wa-green-dark); }
+.wa-pill-red { color: #ea0038; border: 1px solid rgba(234, 0, 56, 0.35); background-color: var(--wa-white); }
+.wa-pill-red:hover { background-color: #fdecef; }
+.wa-pill-gray { color: var(--wa-icon); border: 1px solid var(--wa-border); background-color: var(--wa-white); }
+.wa-pill-gray:hover { background-color: var(--wa-hover); }
+.wa-round-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Avisos no topo da lista */
+.wa-banner-red {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: #ffe5e8;
+  color: #c4001d;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.wa-banner-amber {
+  border-radius: 8px;
+  background-color: #fff6e0;
+  border: 1px solid #f6d78f;
+  overflow: hidden;
+}
+
+/* Linha da conversa: 72px, avatar 49px, divisória só sob o texto */
+.wa-chat-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 72px;
+  cursor: pointer;
+  background-color: var(--wa-white);
+}
+.wa-chat-row:hover { background-color: var(--wa-hover); }
+.wa-chat-row.wa-on { background-color: var(--wa-panel); }
+.wa-chat-row.wa-picked { background-color: #e7f8f3; }
+.wa-chat-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 15px 0 13px;
+  flex-shrink: 0;
+}
+.wa-avatar {
+  background-color: #dfe5e7;
+  border: 0;
+  box-shadow: none;
+}
+.wa-avatar > span { color: var(--wa-icon); font-size: 20px; font-weight: 500; }
+.wa-chat-check {
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  z-index: 10;
+}
+.wa-chat-check input { width: 16px; height: 16px; accent-color: var(--wa-green); cursor: pointer; }
+.wa-chat-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 15px 8px 0;
+  border-bottom: 1px solid var(--wa-border);
+}
+.wa-chat-name {
+  font-size: 17px;
+  line-height: 21px;
+  font-weight: 400;
+  color: var(--wa-text);
+}
+.wa-chat-time {
+  flex-shrink: 0;
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--wa-meta);
+}
+.wa-chat-time.wa-unread { color: var(--wa-green); font-weight: 500; }
+.wa-chat-preview {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--wa-meta);
+}
+.wa-unread-badge {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: var(--wa-green);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 600;
+  text-align: center;
+}
+.wa-unread-badge.wa-sm { min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; line-height: 18px; }
+.wa-chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--wa-meta);
+}
+.wa-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+  background-color: var(--wa-panel);
+  color: var(--wa-icon);
+}
+.wa-tag-green { background-color: var(--wa-bubble-out); color: var(--wa-green-dark); }
+.wa-tag-amber { background-color: #fff3d6; color: #8f5300; }
+.wa-tag-orange { background-color: #ffe9dc; color: #b4460c; }
+.wa-tag-red { background-color: #ffe5e8; color: #c4001d; }
+.wa-tag-blue { background-color: #e1f3fb; color: #02729f; }
+.wa-tag-muted { color: var(--wa-icon-soft); }
+.wa-list-note {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--wa-meta);
+}
