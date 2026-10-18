@@ -9,9 +9,11 @@
  *
  * - GET /calendar/events já devolve só os eventos do próprio dentista (o
  *   backend força assigned_user_id = ele).
- * - "Atendido" = valida o atendimento (POST /events/:id/validate: CONCLUIDO +
- *   validado + última visita + vira paciente). Se já estava validado ou o
- *   evento não tem dentista atribuído, cai no PATCH de status.
+ * - "Atendido" abre a CONFIRMAÇÃO (ConfirmarAtendimentoModal): o dentista escreve o
+ *   que fez + marca os procedimentos do plano → evolução no prontuário + itens
+ *   executados + atendimento validado. Agenda e validação num passo só (out/2026).
+ * - Atendimentos de dias anteriores sem confirmação aparecem no topo (antes era a
+ *   tela separada "Confirmar atendimentos").
  * - Demais status = PATCH /calendar/events/:id/status (mesmo da agenda).
  * - Sem telefone/WhatsApp do paciente (a API já apaga o contato pro dentista).
  * - Agenda é naive-UTC: hora de Maceió nos campos UTC → tudo lido via getUTC* e
@@ -27,6 +29,9 @@ import {
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
+// Out/2026 — agenda + validação juntas: "Atendido" abre a confirmação com o que
+// foi feito (vai pro prontuário) e os procedimentos do plano executados.
+import { ConfirmarAtendimentoModal } from './ConfirmarAtendimentoModal';
 
 // Mesmas cores/rótulos da agenda (EVENT_STATUSES em agenda/page.tsx — Onda 17.61).
 const STATUSES = [
@@ -99,6 +104,26 @@ export default function MinhaAgendaPage() {
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const today = maceioTodayStr();
   const reqRef = useRef(0);
+  const [confirming, setConfirming] = useState<AgendaEvent | null>(null);
+  // Atendimentos de DIAS ANTERIORES ainda não confirmados (antes era a tela
+  // separada "Confirmar atendimentos" — agora fica aqui, junto da agenda).
+  const [pendentes, setPendentes] = useState<AgendaEvent[]>([]);
+
+  const loadPendentes = useCallback(async () => {
+    try {
+      const { data } = await api.get<AgendaEvent[]>('/calendar/events/pending-validation', { params: { daysBack: 30 } });
+      const hoje0 = `${maceioTodayStr()}T00:00:00.000Z`;
+      setPendentes(
+        (Array.isArray(data) ? data : [])
+          .filter((e) => PATIENT_TYPES.includes(e.type) && e.start_at < hoje0)
+          .map((e) => ({ ...e, assigned_user_id: e.assigned_user_id ?? null }))
+          .sort((a, b) => b.start_at.localeCompare(a.start_at)),
+      );
+    } catch {
+      /* sem pendentes visíveis — a lista do dia segue funcionando */
+    }
+  }, []);
+  useEffect(() => { loadPendentes(); }, [loadPendentes]);
 
   const load = useCallback(async (silent = false) => {
     const reqId = ++reqRef.current;
@@ -122,9 +147,9 @@ export default function MinhaAgendaPage() {
   useEffect(() => { load(); }, [load]);
   // Atualiza sozinho (recepção pode marcar "Chegou" enquanto o dentista olha a lista).
   useEffect(() => {
-    const t = setInterval(() => load(true), 60_000);
+    const t = setInterval(() => { load(true); loadPendentes(); }, 60_000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, loadPendentes]);
   // Fecha o menu de status ao clicar fora.
   useEffect(() => {
     if (!menuFor) return;
@@ -133,27 +158,31 @@ export default function MinhaAgendaPage() {
     return () => document.removeEventListener('click', close);
   }, [menuFor]);
 
+  const patchLocal = (id: string, patch: Partial<AgendaEvent>) => {
+    setEvents((list) => list.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  };
+
+  // "Atendido" = confirmar o atendimento (o que foi feito + procedimentos → prontuário).
+  // Já confirmado antes: só ajusta o status.
+  const pedirAtendido = (ev: AgendaEvent) => {
+    setMenuFor(null);
+    if (ev.validated_at) { setStatus(ev, 'CONCLUIDO'); return; }
+    setConfirming(ev);
+  };
+
   const setStatus = async (ev: AgendaEvent, status: string) => {
     if (savingId) return;
     setMenuFor(null);
     setSavingId(ev.id);
     const prev = ev.status;
-    setEvents((list) => list.map((e) => (e.id === ev.id ? { ...e, status } : e)));
+    patchLocal(ev.id, { status });
     try {
-      let validated = false;
-      if (status === 'CONCLUIDO' && !ev.validated_at && ev.assigned_user_id) {
-        try {
-          await api.post(`/calendar/events/${ev.id}/validate`, {});
-          validated = true;
-        } catch { /* cai no PATCH de status abaixo */ }
-      }
-      if (!validated) await api.patch(`/calendar/events/${ev.id}/status`, { status });
-      if (validated) {
-        setEvents((list) => list.map((e) => (e.id === ev.id ? { ...e, validated_at: new Date().toISOString() } : e)));
-      }
+      await api.patch(`/calendar/events/${ev.id}/status`, { status });
+      // Falta/desmarcou não precisa confirmar: sai da lista de pendentes.
+      if (['NO_SHOW', 'CANCELADO'].includes(status)) setPendentes((l) => l.filter((e) => e.id !== ev.id));
       toast.success(`${STATUS_BY_ID[status]?.label ?? status} ✓`, { id: `st-${ev.id}` });
     } catch {
-      setEvents((list) => list.map((e) => (e.id === ev.id ? { ...e, status: prev } : e)));
+      patchLocal(ev.id, { status: prev });
       toast.error('Não consegui salvar. Tente de novo.');
     } finally {
       setSavingId(null);
@@ -250,6 +279,44 @@ export default function MinhaAgendaPage() {
           <Chip label={counts.faltas === 1 ? 'faltou' : 'faltaram'} value={counts.faltas} color={STATUS_BY_ID.NO_SHOW.color} />
         </div>
 
+        {/* Dias anteriores ainda sem confirmação — confirma aqui mesmo. */}
+        {pendentes.length > 0 && (
+          <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
+              ⚠ {pendentes.length === 1 ? '1 atendimento de dias anteriores' : `${pendentes.length} atendimentos de dias anteriores`} a confirmar
+            </p>
+            <ul className="space-y-1.5">
+              {pendentes.map((ev) => {
+                const nomeP = ev.patient?.name || ev.lead?.name || ev.title || 'Paciente';
+                return (
+                  <li key={ev.id} className="flex flex-wrap items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
+                    <span className="text-xs font-bold tabular-nums text-muted-foreground w-[92px] shrink-0">
+                      {ev.start_at.slice(8, 10)}/{ev.start_at.slice(5, 7)} · {hhmm(ev.start_at)}
+                    </span>
+                    <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-[120px]">{nomeP}</span>
+                    <button
+                      type="button"
+                      onClick={() => pedirAtendido(ev)}
+                      className="h-8 px-3 inline-flex items-center gap-1 rounded-lg text-xs font-semibold text-white"
+                      style={{ background: STATUS_BY_ID.CONCLUIDO.color }}
+                    >
+                      <Check size={14} /> Confirmar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatus(ev, 'NO_SHOW')}
+                      className="h-8 px-3 inline-flex items-center gap-1 rounded-lg text-xs font-semibold border"
+                      style={{ color: STATUS_BY_ID.NO_SHOW.color, borderColor: `${STATUS_BY_ID.NO_SHOW.color}66` }}
+                    >
+                      <X size={14} /> Faltou
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
         {loading && events.length === 0 ? (
           <div className="p-12 flex items-center justify-center text-muted-foreground">
             <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
@@ -326,7 +393,7 @@ export default function MinhaAgendaPage() {
                       <button
                         type="button"
                         disabled={busy || (isDone && !needsConfirm)}
-                        onClick={() => setStatus(ev, 'CONCLUIDO')}
+                        onClick={() => pedirAtendido(ev)}
                         className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-semibold border transition-colors disabled:cursor-default"
                         style={isDone
                           ? { background: STATUS_BY_ID.CONCLUIDO.color, color: '#fff', borderColor: STATUS_BY_ID.CONCLUIDO.color }
@@ -367,7 +434,7 @@ export default function MinhaAgendaPage() {
                               <button
                                 key={s.id}
                                 type="button"
-                                onClick={() => setStatus(ev, s.id)}
+                                onClick={() => (s.id === 'CONCLUIDO' ? pedirAtendido(ev) : setStatus(ev, s.id))}
                                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent ${s.id === ev.status ? 'font-bold' : ''}`}
                               >
                                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
@@ -386,6 +453,18 @@ export default function MinhaAgendaPage() {
           </ul>
         )}
       </div>
+      {confirming && (
+        <ConfirmarAtendimentoModal
+          event={confirming}
+          onClose={() => setConfirming(null)}
+          onConfirmed={(patch) => {
+            const id = confirming.id;
+            patchLocal(id, patch);
+            setPendentes((l) => l.filter((e) => e.id !== id));
+            setConfirming(null);
+          }}
+        />
+      )}
     </div>
   );
 }

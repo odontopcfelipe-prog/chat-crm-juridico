@@ -285,8 +285,8 @@ export const SECTORS: SectorMeta[] = [
       // Tratamento) — a lista de orçamentos (/orcamentos) mostra valores.
       // Quadrantes com dados SÓ dele (badges my_* em home-module-badges.service).
       actions: [
-        { lucide: 'Calendar',       icon: '📅', label: 'Minha agenda',           desc: 'Seus pacientes de hoje — marque atendido ou faltou.', href: '/atendimento/minha-agenda',        badgeKey: 'my_agenda_today',          tone: 'violet'  },
-        { lucide: 'ClipboardCheck', icon: '✅', label: 'Confirmar atendimentos', desc: 'Consultas passadas que você ainda não confirmou.',     href: '/atendimento/validacoes',          badgeKey: 'my_pending_validation',    tone: 'amber'   },
+        // Agenda + confirmação juntas (out/2026): o badge mostra hoje E os pendentes.
+        { lucide: 'Calendar',       icon: '📅', label: 'Minha agenda',           desc: 'Seus pacientes do dia — confirme o atendimento e registre o que foi feito.', href: '/atendimento/minha-agenda', badgeKey: 'my_agenda_today', tone: 'violet'  },
         { lucide: 'Users',          icon: '👥', label: 'Meus pacientes',         desc: 'Prontuário, avaliação e plano de tratamento.',         href: '/atendimento/pacientes',           badgeKey: 'my_patients_total',        tone: 'sky'     },
         { lucide: 'Activity',       icon: '🦷', label: 'Em tratamento',          desc: 'Seus pacientes com plano de tratamento ativo.',        href: '/atendimento/pacientes?plano=ativo', badgeKey: 'my_patients_in_treatment', tone: 'emerald' },
         // Out/2026 — com o profissional NÃO se fala em comissão (risco trabalhista):

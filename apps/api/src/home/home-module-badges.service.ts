@@ -28,7 +28,7 @@ const SECTOR_BADGES: Record<string, string[]> = {
   // Out/2026 — quadrantes do dentista com dados SÓ dele (agenda, atendimentos a
   // confirmar, carteira, em tratamento e a pontuação do "Meu jogo") — nada da clínica
   // toda e nada em R$ (com o profissional não se fala em comissão).
-  dentista:   ['my_agenda_today', 'my_pending_validation', 'my_patients_total', 'my_patients_in_treatment', 'my_game_points'],
+  dentista:   ['my_agenda_today', 'my_patients_total', 'my_patients_in_treatment', 'my_game_points'],
   acd_asb:    ['agenda_today', 'patients_total'],
   crc:        ['crc_queue', 'marketing_active', 'returns_pending', 'proposals_sent', 'whatsapp_open'],
   financeiro: ['financeiro_today', 'proposals_sent', 'reports_pct'],
@@ -70,24 +70,16 @@ export class HomeModuleBadgesService {
               ],
             },
           }));
-        return n == null ? null : { value: `Hoje ${n}`, tone: 'violet' };
+        if (n == null) return null;
+        // Agenda + confirmação juntas: pendentes de confirmar entram no MESMO badge.
+        const p = await this.pendingValidation(tenantId, userId);
+        return p
+          ? { value: `Hoje ${n} · ${p} a confirmar`, tone: 'amber' }
+          : { value: `Hoje ${n}`, tone: 'violet' };
       }
       case 'my_pending_validation': {
         if (!userId) return null;
-        // Mesmo critério da tela Validações (listPendingValidation, últimos 30 dias),
-        // mas "agora" no naive-UTC — consulta das próximas horas não conta.
-        const naiveNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
-        const n = await this.safe('my_pending_validation', () =>
-          this.prisma.calendarEvent.count({
-            where: {
-              tenant_id: tenantId,
-              assigned_user_id: userId,
-              type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
-              validated_at: null,
-              start_at: { gte: new Date(naiveNow.getTime() - 30 * 24 * 60 * 60 * 1000), lte: naiveNow },
-              status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
-            },
-          }));
+        const n = await this.pendingValidation(tenantId, userId);
         if (n == null) return null;
         return { value: n === 0 ? 'Em dia' : `${n} a confirmar`, tone: n === 0 ? 'emerald' : 'amber' };
       }
@@ -189,6 +181,27 @@ export class HomeModuleBadgesService {
       default:
         return null;
     }
+  }
+
+  /**
+   * Atendimentos do dentista a CONFIRMAR (últimos 30 dias, já passaram, sem
+   * validação). Mesmo critério da lista "dias anteriores" da Minha agenda /
+   * listPendingValidation, mas "agora" no naive-UTC (consulta das próximas horas
+   * não conta). null = falhou (badge some sem derrubar a home).
+   */
+  private pendingValidation(tenantId: string, userId: string): Promise<number | null> {
+    const naiveNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    return this.safe('pending_validation', () =>
+      this.prisma.calendarEvent.count({
+        where: {
+          tenant_id: tenantId,
+          assigned_user_id: userId,
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+          validated_at: null,
+          start_at: { gte: new Date(naiveNow.getTime() - 30 * 24 * 60 * 60 * 1000), lte: naiveNow },
+          status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
+        },
+      }));
   }
 
   /** Dia de Maceió no modelo naive-UTC da agenda. */
