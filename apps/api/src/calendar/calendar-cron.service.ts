@@ -122,7 +122,7 @@ export class CalendarCronService {
         if (!cfg.enabled) continue;
         // Compara so a hora — minutos sao ignorados pra simplicidade
         // (cron roda no minuto 0 entao send_at "07:30" ainda dispara as 07:00).
-        const sendHH = String(cfg.send_at || '07:00').split(':')[0].padStart(2, '0');
+        const sendHH = String(cfg.send_at || '08:00').split(':')[0].padStart(2, '0');
         if (sendHH !== maceioHH) continue;
 
         // Extrai tenant_id da chave (DENTIST_DAILY_SUMMARY_<tenant>)

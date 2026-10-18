@@ -96,10 +96,9 @@ export async function findEvaluationAppointmentTypeId(prisma: any, tenantId?: st
  *  1. Cria CalendarEvent (type=CONSULTA, created_by_ai=true) para o dentista atribuído.
  *  2. Cria EventReminders de 30min (lembrete principal), 60min e 1440min (antecedência).
  *  3. Enfileira jobs na fila 'calendar-reminders' (canal WHATSAPP) para todos os lembretes.
- *  4. Dispara notificação IMEDIATA ao dentista via WhatsApp ("Novo agendamento pela IA").
  *
- * Os lembretes viajam pelo ReminderProcessor existente, que já sabe enviar para
- * event.lead.phone (cliente) e event.assigned_user.phone (dentista).
+ * Os lembretes viajam pelo ReminderProcessor existente (vão pro event.lead.phone, o
+ * paciente). O dentista NÃO é avisado por paciente — recebe o "Resumo diário do dentista".
  */
 export class BookAppointmentHandler implements ToolHandler {
   name = 'book_appointment';
@@ -479,12 +478,9 @@ export class BookAppointmentHandler implements ToolHandler {
       this.logger.warn('[book_appointment] reminderQueue indisponível — lembretes NÃO foram enfileirados');
     }
 
-    // Notificação imediata ao dentista via WhatsApp
-    try {
-      await this.notifyDentist(event, prisma);
-    } catch (e: any) {
-      this.logger.warn(`[book_appointment] Falha ao notificar dentista: ${e.message}`);
-    }
+    // Sem aviso imediato ao dentista: era 1 WhatsApp POR paciente marcado, a qualquer
+    // hora (a IA marca de madrugada). A agenda do dentista chega numa mensagem só, o
+    // "Resumo diário do dentista"; os ADMs têm o aviso próprio (admin-alerts, opt-in).
 
     // Onda 5e v18 (Fase 25, A.3) — confirmacao FORMAL imediata ao paciente
     // (data, hora, dentista, endereco, aviso de lembrete). A IA tambem
@@ -507,8 +503,7 @@ export class BookAppointmentHandler implements ToolHandler {
       date: params.date,
       time: params.time,
       duration_minutes: durationMinutes,
-      dentist_notified: !!event.assigned_user?.phone,
-      message: `Avaliacao agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min. Dentista e paciente notificados via WhatsApp.`,
+      message: `Avaliacao agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min.`,
     };
   }
 
@@ -570,53 +565,6 @@ export class BookAppointmentHandler implements ToolHandler {
 
     this.logger.log(
       `[book_appointment] Confirmacao formal enviada ao paciente ${event.lead.name} (${event.lead.phone})`,
-    );
-  }
-
-  // ─── Notificação imediata ao dentista responsável ────────────────────
-  private async notifyDentist(event: any, prisma: any): Promise<void> {
-    if (!event.assigned_user?.phone) {
-      this.logger.warn(`[book_appointment] Dentista ${event.assigned_user_id} sem telefone — notificação pulada`);
-      return;
-    }
-
-    const apiUrlRow = await prisma.globalSetting.findUnique({ where: { key: 'EVOLUTION_API_URL' } });
-    const apiKeyRow = await prisma.globalSetting.findUnique({ where: { key: 'EVOLUTION_GLOBAL_APIKEY' } });
-
-    let apiUrl = apiUrlRow?.value || process.env.EVOLUTION_API_URL || '';
-    const apiKey = apiKeyRow?.value || process.env.EVOLUTION_GLOBAL_APIKEY || '';
-    if (!apiUrl) {
-      this.logger.warn('[book_appointment] EVOLUTION_API_URL ausente — notificação ao dentista pulada');
-      return;
-    }
-    if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
-    apiUrl = apiUrl.replace(/\/+$/, '');
-
-    const instance = process.env.EVOLUTION_INSTANCE_NAME || '';
-    const dateStr = this.formatDate(event.start_at);
-    const timeStr = this.formatTime(event.start_at);
-    const endTimeStr = event.end_at ? this.formatTime(event.end_at) : null;
-
-    const lines = [
-      `📅 *Novo agendamento pela IA*`,
-      ``,
-      `*Cliente:* ${event.lead?.name || 'Não identificado'}`,
-      `*Telefone:* ${event.lead?.phone || 'N/A'}`,
-      `*Data:* ${dateStr}`,
-      `*Horário:* ${timeStr}${endTimeStr ? ` - ${endTimeStr}` : ''}`,
-      `*Assunto:* ${event.title}`,
-    ];
-    if (event.description) lines.push(`*Obs:* ${event.description}`);
-    lines.push('', '_Agendado automaticamente pela assistente virtual._');
-
-    await axios.post(
-      `${apiUrl}/message/sendText/${instance}`,
-      { number: event.assigned_user.phone, text: lines.join('\n') },
-      { headers: { apikey: apiKey }, timeout: 15000 },
-    );
-
-    this.logger.log(
-      `[book_appointment] Notificação enviada ao dentista ${event.assigned_user.name} (${event.assigned_user.phone})`,
     );
   }
 

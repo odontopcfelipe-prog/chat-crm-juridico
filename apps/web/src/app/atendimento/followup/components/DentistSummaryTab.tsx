@@ -39,7 +39,7 @@ export function DentistSummaryTab() {
   const [sending, setSending] = useState(false);
   const [config, setConfig] = useState<DentistDailySummaryConfig>({
     enabled: false,
-    send_at: '07:00',
+    send_at: '08:00',
     channel: 'WHATSAPP',
     template: DEFAULT_TEMPLATE,
   });
@@ -52,7 +52,7 @@ export function DentistSummaryTab() {
         if (!cancelled && res.data) {
           setConfig({
             enabled: !!res.data.enabled,
-            send_at: res.data.send_at || '07:00',
+            send_at: res.data.send_at || '08:00',
             channel: res.data.channel === 'PUSH' ? 'PUSH' : 'WHATSAPP',
             template: res.data.template || DEFAULT_TEMPLATE,
           });

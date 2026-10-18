@@ -42,3 +42,5 @@ export * from './retorno-disparos';
 export * from './campanha-manual';
 // Anexos (fotos/áudio) nos disparos automáticos da Central
 export * from './disparo-anexos';
+// Disparos internos à equipe: quem recebe (cadastro da equipe → User.disparos_off)
+export * from './disparos-equipe';

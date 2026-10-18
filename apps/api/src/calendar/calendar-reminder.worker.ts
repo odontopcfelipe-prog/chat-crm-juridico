@@ -147,56 +147,6 @@ function templateClienteConsulta(
   });
 }
 
-function templateAdvogado(event: any, minutesBefore: number): string {
-  const prazo = minutesLabel(minutesBefore);
-  const dateStr = formatDateTime(event.start_at);
-  const tipo = event.type;
-  const caseNum = event.title;
-  const advNome = (event.assigned_user?.name || 'Advogado').split(' ').slice(0, 2).join(' ');
-
-  if (tipo === 'AUDIENCIA') {
-    return (
-      `⚖️ *Lembrete de Audiência — ${prazo} antes*\n\n` +
-      `Olá, ${advNome}!\n\n` +
-      `📋 *Processo:* ${caseNum}\n` +
-      `📅 *Data/Hora:* ${dateStr}\n` +
-      (event.location ? `📍 *Local:* ${event.location}\n` : '') +
-      (event.lead?.name ? `👤 *Cliente:* ${event.lead.name}\n` : '') +
-      `\n_Lembrete automático do CRM Jurídico_`
-    );
-  }
-  if (tipo === 'PERICIA') {
-    return (
-      `🔬 *Lembrete de Perícia — ${prazo} antes*\n\n` +
-      `Olá, ${advNome}!\n\n` +
-      `📋 *Processo:* ${caseNum}\n` +
-      `📅 *Data/Hora:* ${dateStr}\n` +
-      (event.location ? `📍 *Local:* ${event.location}\n` : '') +
-      (event.lead?.name ? `👤 *Cliente:* ${event.lead.name}\n` : '') +
-      (event.description ? `📝 *Obs:* ${event.description}\n` : '') +
-      `\n_Lembrete automático do CRM Jurídico_`
-    );
-  }
-  if (tipo === 'PRAZO') {
-    return (
-      `⏰ *Lembrete de Prazo — ${prazo} restantes*\n\n` +
-      `Olá, ${advNome}!\n\n` +
-      `📋 *Prazo:* ${event.title}\n` +
-      `📅 *Vencimento:* ${dateStr}\n` +
-      (caseNum ? `🔢 *Processo:* ${caseNum}\n` : '') +
-      `\n_Lembrete automático do CRM Jurídico_`
-    );
-  }
-  // O título é o PROCEDIMENTO ("Avaliação", "Restauração"…) — sem o nome de quem vem.
-  // Mostra o paciente (ficha) ou o lead, senão o dentista não sabe quem é.
-  const pacienteNome = event.patient?.name || event.lead?.name;
-  return (
-    `📅 *Lembrete — ${prazo} antes*\n\nOlá, ${advNome}!\n\n*${event.title}*\n` +
-    (pacienteNome ? `👤 *Paciente:* ${pacienteNome}\n` : '') +
-    `📅 ${dateStr}\n\n_Lembrete automático do CRM Jurídico_`
-  );
-}
-
 // ─── Montagem do contexto para a IA ──────────────────────────────────────────
 
 function buildContext(event: any, memory: any, legalCase: any, ficha: any, djenPubs?: any[]): string {
@@ -331,7 +281,7 @@ export class CalendarReminderWorker extends WorkerHost {
     }
 
     // ── Lembretes antes do evento (fluxo original) ────────────────────────────
-    const { reminderId, eventId, channel, resend } = job.data;
+    const { reminderId, eventId, channel } = job.data;
 
     if (channel !== 'WHATSAPP' && channel !== 'EMAIL') {
       this.logger.warn(`Worker: canal desconhecido "${channel}" para reminder ${reminderId}`);
@@ -448,7 +398,7 @@ export class CalendarReminderWorker extends WorkerHost {
         sent = false;
       } else {
         try {
-          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before, { pularDentista: !!resend });
+          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before);
           capturedExternalMsgId = result.externalMsgId;
           sent = true;
         } catch (e: any) {
@@ -545,14 +495,13 @@ export class CalendarReminderWorker extends WorkerHost {
   // ─── Orquestra os envios ──────────────────────────────────────────────────
 
   /**
-   * Envia mensagem WhatsApp pro paciente + dentista.
+   * Envia o lembrete WhatsApp pro paciente (o dentista recebe só o resumo diário).
    * v25: retorna { externalMsgId } da mensagem enviada AO PACIENTE pra
    * salvar no EventReminder e habilitar delivery tracking via webhook.
    */
   private async sendWhatsAppReminders(
     event: any,
     minutesBefore: number,
-    opts: { pularDentista?: boolean } = {},
   ): Promise<{ externalMsgId: string | null }> {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
     // Onda 17.61 — lembretes pra TODOS os atendimentos da agenda: CONSULTA +
@@ -576,31 +525,12 @@ export class CalendarReminderWorker extends WorkerHost {
     const tenantId: string | null =
       event.tenant_id || event.lead?.tenant_id || event.patient?.tenant_id || null;
 
-    // ── 1. Mensagem para o Dentista/Advogado (sempre — menos no "Reenviar" manual,
-    //       que é só do paciente: o dentista já recebeu na 1ª tentativa) ──────────
-    if (event.assigned_user?.phone && !opts.pularDentista) {
-      const advPhone = event.assigned_user.phone.replace(/\D/g, '');
-      // Dentista/Advogado recebe template rico — sem precisar de IA
-      const advMsg = templateAdvogado(event, minutesBefore);
-      // Aviso interno sai pelo chip CLINICA da clínica (na falta, o COMERCIAL). Antes
-      // ia sem instância e sem tenant → default global ('whatsapp', que nem existe mais
-      // na Evolution) e o log dizia "enviado" mesmo com o 404.
-      const advInstance = tenantId ? await this.resolveTenantInstance(tenantId, 'CLINICA') : null;
-      if (!advInstance) {
-        this.logger.warn(`[REMINDER] Aviso ao dentista ${advPhone} NÃO enviado — ${tenantId ? `clínica ${tenantId} sem chip Clínica/Comercial` : 'evento sem clínica (tenant)'} (evento ${event.id})`);
-      } else {
-        try {
-          const advResult = await this.whatsapp.sendText(advPhone, advMsg, advInstance, undefined, tenantId);
-          if (evolutionSendFailed(advResult)) {
-            this.logger.warn(`[REMINDER] FALHA ao enviar para dentista/advogado ${advPhone} pelo chip ${advInstance}: ${String(advResult?.statusCode ?? '')} ${String(advResult?.error ?? 'número sem WhatsApp').slice(0, 200)}`);
-          } else {
-            this.logger.log(`[REMINDER] WhatsApp enviado para dentista/advogado ${advPhone} (chip ${advInstance})`);
-          }
-        } catch (e: any) {
-          this.logger.warn(`[REMINDER] Erro ao enviar para dentista/advogado ${advPhone}: ${e.message}`);
-        }
-      }
-    }
+    // Dentista NÃO recebe mais cópia de cada lembrete. Antes cada consulta mandava
+    // 1 aviso ao dentista POR antecedência (48h/24h/1h/15min), na hora exata do
+    // lembrete — desde que passou a sair pelo chip CLINICA (4ce2d462) isso entregava
+    // N pacientes × 3–4 mensagens, inclusive fora do expediente (consulta das 7h →
+    // aviso às 6h). A agenda do dentista vai numa mensagem só: o "Resumo diário do
+    // dentista" (Central de Disparos, toda manhã no horário configurado).
 
     // v25: retorna externalMsgId pra worker salvar no EventReminder
     let returnedMsgId: string | null = null;

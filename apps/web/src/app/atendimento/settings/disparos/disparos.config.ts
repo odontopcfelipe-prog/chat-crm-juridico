@@ -401,7 +401,12 @@ export const DISPAROS: DisparoItem[] = [
 
   // ── Clínico e operacional ──
   { id: 'resumo_dentista', nome: 'Resumo diário do dentista', categoria: 'clinico',
-    gatilho: 'Toda manhã · agenda do dia', canal: 'WhatsApp', tags: [],
+    gatilho: 'Todo dia às 8h · agenda do dia · 1 mensagem por dentista', canal: 'WhatsApp', tags: ['Interno'],
+    descricao:
+      'Às 8h (horário ajustável aqui), cada dentista recebe UMA mensagem com todos os atendimentos do dia dele ' +
+      '(consulta, procedimento, retorno e ortodontia). É o único aviso de agenda que vai pro dentista: ' +
+      'ele não recebe mensagem por paciente nem a cada lembrete do paciente. ' +
+      'Quem recebe: os dentistas com telefone no cadastro — dá pra tirar alguém em Equipe → editar → "Disparos que recebe".',
     editor: 'dentista', operacionalKey: 'dentista' },
   { id: 'retorno_especifico', nome: 'Lembrete de retorno específico', categoria: 'clinico',
     gatilho: 'Data marcada · ortô/implante', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },

@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import axios from 'axios';
+import { recebeDisparoEquipe } from '@crm/shared';
 
 /**
  * Worker cron para alertas de tarefas:
@@ -33,7 +34,7 @@ export class TaskAlertsCronService {
           due_at: { gte: now, lte: thirtyMinFromNow },
         },
         include: {
-          assigned_user: { select: { id: true, name: true, phone: true } },
+          assigned_user: { select: { id: true, name: true, phone: true, disparos_off: true } },
           lead: { select: { name: true } },
         },
       });
@@ -46,7 +47,7 @@ export class TaskAlertsCronService {
           start_at: { gte: now, lte: thirtyMinFromNow },
         },
         include: {
-          assigned_user: { select: { id: true, name: true, phone: true } },
+          assigned_user: { select: { id: true, name: true, phone: true, disparos_off: true } },
           lead: { select: { name: true } },
         },
       });
@@ -64,6 +65,8 @@ export class TaskAlertsCronService {
       const enabledCache = new Map<string, boolean>();
       for (const task of dueSoon) {
         if (!task.user?.phone) continue;
+        // Cadastro da equipe → "Disparos que recebe": desligou os alertas de tarefa.
+        if (!recebeDisparoEquipe(task.user, 'task_alerts')) continue;
 
         // Toggle da Central (card "Alertas de tarefa" · Equipe). Default LIGADO.
         const tid = task.tenantId || '';
@@ -109,7 +112,7 @@ export class TaskAlertsCronService {
           due_at: { lt: now },
         },
         include: {
-          assigned_user: { select: { id: true, name: true, phone: true } },
+          assigned_user: { select: { id: true, name: true, phone: true, disparos_off: true } },
           lead: { select: { name: true } },
         },
         orderBy: { due_at: 'asc' },
@@ -124,7 +127,7 @@ export class TaskAlertsCronService {
           start_at: { lt: now },
         },
         include: {
-          assigned_user: { select: { id: true, name: true, phone: true } },
+          assigned_user: { select: { id: true, name: true, phone: true, disparos_off: true } },
           lead: { select: { name: true } },
         },
         orderBy: { start_at: 'asc' },
@@ -146,6 +149,7 @@ export class TaskAlertsCronService {
       for (const item of overdue) {
         const userId = item.user?.id;
         if (!userId || !item.user?.phone) continue;
+        if (!recebeDisparoEquipe(item.user, 'task_alerts')) continue;
         if (!byUser.has(userId)) byUser.set(userId, { user: item.user, tenantId: item.tenantId, items: [] });
         byUser.get(userId)!.items.push(item);
       }

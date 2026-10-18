@@ -6,6 +6,8 @@ import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, C
 import api from '@/lib/api';
 // Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
 import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
+// Disparos internos (WhatsApp da pessoa): o que cada um recebe, por papel.
+import { disparosEquipeDoPapel } from '@crm/shared';
 import { SectorHomePreview } from '@/components/home/SectorHomePreview';
 // Out/2026 — pontuação do "Meu jogo" por profissional (só pra quem atende como dentista).
 import {
@@ -140,6 +142,8 @@ interface UserForm {
   sector: Sector | '';
   extra_grants: Permission[];
   extra_revokes: Permission[];
+  // Disparos internos que a pessoa NÃO recebe (ids de DISPAROS_EQUIPE)
+  disparos_off: string[];
 }
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
@@ -150,7 +154,7 @@ const ORTHO_WEEKDAYS = [
   { value: 4, label: 'Qui' }, { value: 5, label: 'Sex' }, { value: 6, label: 'Sáb' },
 ];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], ortho_days: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [] };
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], ortho_days: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [], disparos_off: [] };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -288,6 +292,7 @@ export default function UsersSettingsPage() {
       sector: (user.sector || '') as Sector | '',
       extra_grants:  (user.extra_grants  || []) as Permission[],
       extra_revokes: (user.extra_revokes || []) as Permission[],
+      disparos_off: user.disparos_off || [],
     });
     setSpecialtyInput('');
     setError('');
@@ -392,6 +397,7 @@ export default function UsersSettingsPage() {
           sector:        form.sector || null,
           extra_grants:  form.extra_grants,
           extra_revokes: form.extra_revokes,
+          disparos_off: form.disparos_off,
         };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editingId}`, payload);
@@ -418,6 +424,7 @@ export default function UsersSettingsPage() {
           sector:        form.sector || null,
           extra_grants:  form.extra_grants,
           extra_revokes: form.extra_revokes,
+          disparos_off: form.disparos_off,
         });
         savedUserId = res.data?.id;
         // Salvar vínculo de supervisores para novo usuário
@@ -1044,6 +1051,50 @@ export default function UsersSettingsPage() {
                   </p>
                 </div>
               )}
+
+              {/* Disparos internos que esta pessoa recebe no WhatsApp dela (telefone acima).
+                  A clínica liga o disparo inteiro na Central; aqui é por pessoa. */}
+              {(() => {
+                const disparos = disparosEquipeDoPapel(form);
+                if (disparos.length === 0) return null;
+                const semTelefone = !form.phone.trim();
+                return (
+                  <div className="space-y-1.5">
+                    <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
+                      📲 Disparos que recebe
+                    </label>
+                    <div className="space-y-1.5 p-3 border border-border rounded-xl bg-background/50">
+                      {disparos.map((d) => {
+                        const on = !form.disparos_off.includes(d.id);
+                        return (
+                          <label key={d.id} className="flex items-start gap-2.5 cursor-pointer min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={(e) => setForm((f) => ({
+                                ...f,
+                                disparos_off: e.target.checked
+                                  ? f.disparos_off.filter((x) => x !== d.id)
+                                  : [...f.disparos_off, d.id],
+                              }))}
+                              className="mt-0.5 w-4 h-4 shrink-0 rounded border-border text-primary focus:ring-primary/20"
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-[13px] font-semibold text-foreground">{d.nome}</span>
+                              <span className="block text-[11px] text-muted-foreground">{d.descricao}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground ml-1">
+                      {semTelefone
+                        ? 'Sem telefone no cadastro — essa pessoa não recebe nenhum disparo.'
+                        : 'Chega no WhatsApp do telefone acima. O disparo também precisa estar ligado na Central de Disparos.'}
+                    </p>
+                  </div>
+                );
+              })()}
 
               </div>{/* fim da coluna 1 — form principal */}
 

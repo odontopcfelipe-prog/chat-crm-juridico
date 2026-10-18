@@ -33,7 +33,7 @@ const COLOR: Record<string, string> = {
 
 // "07:00" -> "7h00"
 const fmtHora = (hhmm: string): string => {
-  const [h, m] = (hhmm || '07:00').split(':');
+  const [h, m] = (hhmm || '08:00').split(':');
   return `${parseInt(h, 10)}h${m ?? '00'}`;
 };
 

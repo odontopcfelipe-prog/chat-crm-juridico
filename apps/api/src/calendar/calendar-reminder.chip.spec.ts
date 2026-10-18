@@ -130,13 +130,14 @@ describe('CalendarReminderWorker — chip do lembrete (blindagem)', () => {
     };
   }
 
-  it('paciente: lembrete e aviso ao dentista saem pelo CLINICA da clínica, com tenantId', async () => {
+  it('paciente: lembrete sai pelo CLINICA da clínica, com tenantId — e o dentista NÃO recebe cópia', async () => {
     const { worker, sendText, prisma } = build();
     await (worker as any).sendWhatsAppReminders(evento(), 60);
 
+    // Só o paciente: o dentista recebe a agenda no "Resumo diário do dentista", nunca
+    // 1 mensagem por paciente × antecedência (era a enxurrada, até fora do expediente).
     const chamadas = sendText.mock.calls.map((c: any[]) => ({ to: c[0], inst: c[2], tenant: c[4] }));
     expect(chamadas).toEqual([
-      { to: '82999990000', inst: 't00000000-2', tenant: TENANT }, // dentista
       { to: '82988887777', inst: 't00000000-2', tenant: TENANT }, // paciente
     ]);
     // Toda busca de chip foi escopada pela clínica do evento.
@@ -189,7 +190,6 @@ describe('CalendarReminderWorker — chip do lembrete (blindagem)', () => {
 
   it('Evolution recusa (404 do chip) → falha, não arquiva como enviado', async () => {
     const sendText = jest.fn()
-      .mockResolvedValueOnce({ key: { id: 'ok-dentista' } }) // dentista
       .mockResolvedValueOnce({ statusCode: 404, error: 'instance does not exist' }); // paciente
     const { worker, prisma } = build({ sendText });
     await expect((worker as any).sendWhatsAppReminders(evento(), 60)).rejects.toThrow(/Evolution recusou/);
@@ -198,14 +198,13 @@ describe('CalendarReminderWorker — chip do lembrete (blindagem)', () => {
 
   it('exists:false (número sem WhatsApp) também é falha', async () => {
     const sendText = jest.fn()
-      .mockResolvedValueOnce({ key: { id: 'ok-dentista' } })
       .mockResolvedValueOnce({ key: { id: 'x' }, response: { message: [{ exists: false, number: '5582988887777' }] } });
     const { worker, prisma } = build({ sendText });
     await expect((worker as any).sendWhatsAppReminders(evento(), 60)).rejects.toThrow(/Evolution recusou o envio .*número sem WhatsApp/);
     expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
-  it('"Reenviar" manual (resend) manda só pro paciente — o dentista não recebe de novo', async () => {
+  it('"Reenviar" manual (resend) manda só pro paciente', async () => {
     const { worker, sendText, prisma } = build();
     prisma.calendarEvent.findUnique.mockResolvedValue(evento());
     await worker.process({ name: 'send-reminder', id: 'j3', data: { reminderId: 'r1', eventId: 'ev-1', channel: 'WHATSAPP', resend: true } } as any);
@@ -218,7 +217,6 @@ describe('CalendarReminderWorker — chip do lembrete (blindagem)', () => {
 
   it('process(): falha de envio grava FAILED (sent_at volta a null + last_error), não "enviado"', async () => {
     const sendText = jest.fn()
-      .mockResolvedValueOnce({ key: { id: 'ok-dentista' } })
       .mockResolvedValueOnce({ statusCode: 404, error: 'instance does not exist' });
     const { worker, prisma } = build({ sendText });
     prisma.calendarEvent.findUnique.mockResolvedValue(evento());
@@ -228,6 +226,16 @@ describe('CalendarReminderWorker — chip do lembrete (blindagem)', () => {
     expect(updates).toHaveLength(1);
     expect(updates[0].sent_at).toBeNull();
     expect(updates[0].last_error).toMatch(/Evolution recusou/);
+  });
+
+  it('nenhuma antecedência (48h/24h/1h/15min) manda mensagem ao dentista', async () => {
+    for (const min of [2880, 1440, 60, 15]) {
+      const { worker, sendText, prisma } = build();
+      prisma.eventReminder.findUnique.mockResolvedValue({ id: 'r1', sent_at: null, minutes_before: min });
+      prisma.calendarEvent.findUnique.mockResolvedValue(evento({ reminders: [{ minutes_before: min }] }));
+      await worker.process({ name: 'send-reminder', id: `j-${min}`, data: { reminderId: 'r1', eventId: 'ev-1', channel: 'WHATSAPP' } } as any);
+      expect(sendText.mock.calls.map((c: any[]) => c[0])).not.toContain('82999990000');
+    }
   });
 
   it('aviso de audiência agendada: chip CLINICA da clínica + tenantId (antes: conversa de qualquer caixa)', async () => {

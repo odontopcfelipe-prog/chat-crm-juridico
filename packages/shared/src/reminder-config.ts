@@ -215,7 +215,7 @@ export function pickTemplateKey(minutesBefore: number): keyof ReminderTemplates 
 export interface DentistDailySummaryConfig {
   /** Liga/desliga o disparo automatico diario */
   enabled: boolean;
-  /** Horario do disparo no formato "HH:MM" (default 07:00) */
+  /** Horario do disparo no formato "HH:MM" (default 08:00) */
   send_at: string;
   /** Canal de entrega — WHATSAPP usa Evolution API, PUSH via WebSocket */
   channel: 'WHATSAPP' | 'PUSH';
@@ -225,7 +225,7 @@ export interface DentistDailySummaryConfig {
 
 export const DEFAULT_DENTIST_DAILY_SUMMARY: DentistDailySummaryConfig = {
   enabled: false,
-  send_at: '07:00',
+  send_at: '08:00',
   channel: 'WHATSAPP',
   template:
     'Bom dia, {nome}! 👋\n\n' +

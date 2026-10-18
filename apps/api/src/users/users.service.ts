@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
 import { FileStorageService } from '../media/filesystem.service';
 import { MailService, publicWebUrl } from '../common/mail/mail.service';
-import { Prisma, User } from '@crm/shared';
+import { Prisma, User, normalizarDisparosOff } from '@crm/shared';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
@@ -107,7 +107,7 @@ export class UsersService {
     return result;
   }
 
-  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; ortho_days?: number[] }): Promise<Omit<User, 'password_hash'>> {
+  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; ortho_days?: number[]; disparos_off?: string[] }): Promise<Omit<User, 'password_hash'>> {
     // Onda 17.32.79 — Valida limite do plano antes de criar.
     // Lazy import pra evitar ciclo de dependencia.
     if (data.tenant_id) {
@@ -145,6 +145,7 @@ export class UsersService {
           roles: normalizedRoles,
           specialties: data.specialties ?? [],
           ortho_days: data.ortho_days ?? [],
+          disparos_off: normalizarDisparosOff(data.disparos_off),
           cro_number: data.cro_number || null,
           cro_uf: data.cro_uf || null,
           tenant_id: data.tenant_id,
@@ -277,7 +278,7 @@ export class UsersService {
     return { ok: true, sent: true };
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; ortho_days?: number[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; ortho_days?: number[]; disparos_off?: string[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
@@ -313,6 +314,8 @@ export class UsersService {
     if (data.daily_rate !== undefined) (updateData as any).daily_rate = toNum(data.daily_rate, 'Diária');
     // Dias de atendimento de ortodontia (0=dom..6=sáb) — alimenta o quadro de Ortodontia.
     if (data.ortho_days !== undefined) (updateData as any).ortho_days = { set: (data.ortho_days || []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) };
+    // Disparos internos que a pessoa NÃO recebe (cadastro da equipe → "Disparos que recebe").
+    if (data.disparos_off !== undefined) (updateData as any).disparos_off = { set: normalizarDisparosOff(data.disparos_off) };
 
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {

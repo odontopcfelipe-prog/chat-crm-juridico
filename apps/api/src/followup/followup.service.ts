@@ -220,7 +220,7 @@ export class FollowupService {
     const reminderEnabled = reminderCfg?.enabled !== false;
     const posEnabled = posCfg?.enabled !== false;
     const dentEnabled = dentCfg?.enabled === true;
-    const dentSendAt = (dentCfg?.send_at as string) || '07:00';
+    const dentSendAt = (dentCfg?.send_at as string) || '08:00';
     // Onda 17.61 — aniversário tem 3 mensagens (clássica + desejo + presente). A
     // linha do Operacional fica "ligada" se QUALQUER uma estiver ativa.
     const birthdayEnabled = birthdayCfg?.enabled === true || birthdayCfg?.message2_enabled === true || birthdayCfg?.message3_enabled === true;

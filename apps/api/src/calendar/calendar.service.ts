@@ -14,6 +14,7 @@ import {
   retornoTemplateKey,
   DEFAULT_RETORNO_TEMPLATES,
   RETORNO_FAMILIA_TEXTO,
+  recebeDisparoEquipe,
 } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
@@ -1716,7 +1717,7 @@ export class CalendarService {
     } catch {}
     await this.reminderQueue.add(
       'send-reminder',
-      // resend: o dentista já recebeu o aviso na 1ª tentativa — o reenvio é só do paciente.
+      // resend: marca o reenvio manual (só vai pro paciente — o dentista não recebe lembrete por paciente).
       { reminderId: reminder.id, eventId: reminder.event.id, channel: reminder.channel, resend: true },
       {
         delay: 1000,
@@ -2454,7 +2455,9 @@ export class CalendarService {
         assigned_user_id: user.id,
         start_at: { gte: dayStart, lt: dayEnd },
         status: { in: ['AGENDADO', 'CONFIRMADO'] },
-        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+        // É a ÚNICA mensagem de agenda que o dentista recebe (não há mais aviso por
+        // paciente) — então entra todo atendimento, ortodontia inclusive.
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
       },
       include: {
         patient: { select: { name: true } },
@@ -2469,6 +2472,7 @@ export class CalendarService {
       CONSULTA: 'Avaliacao',
       PROCEDIMENTO: 'Procedimento',
       RETORNO: 'Retorno',
+      ORTODONTIA: 'Ortodontia',
     };
 
     const agendaLines = events.map((e) => {
@@ -2480,7 +2484,8 @@ export class CalendarService {
       return `- ${hh}:${mm}  ${who} (${tipo})`;
     });
 
-    const dataStr = dayStart.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    // dayStart é a meia-noite naive (UTC) do dia de Maceió — formata em UTC.
+    const dataStr = dayStart.toLocaleDateString('pt-BR', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: '2-digit' });
 
     let msg = template;
     msg = msg.replace(/\{nome\}/g, user.name || 'Doutor(a)');
@@ -2499,9 +2504,12 @@ export class CalendarService {
   async sendDentistDailySummaryNow(tenant_id?: string) {
     const config = await this.getDentistDailySummaryConfig(tenant_id);
 
-    // Janela do dia em UTC (mesmo padrao que o resto da agenda usa)
+    // Janela do DIA DE MACEIÓ no formato naive-UTC da agenda (start_at = hora local
+    // gravada como UTC). Antes usava a data UTC: de 21h em diante (já é amanhã em UTC)
+    // o resumo saía com a agenda do dia seguinte.
     const now = new Date();
-    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const maceio = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    const dayStart = new Date(Date.UTC(maceio.getUTCFullYear(), maceio.getUTCMonth(), maceio.getUTCDate(), 0, 0, 0));
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
     // Regra canônica de "profissional que atende" (igual findLawyers / sendTestDisparo
@@ -2515,7 +2523,7 @@ export class CalendarService {
           { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
         ],
       },
-      select: { id: true, name: true, phone: true },
+      select: { id: true, name: true, phone: true, disparos_off: true },
     });
 
     // Onda 17.56 — instância Evolution real do tenant (mesmo motivo do teste de
@@ -2525,6 +2533,11 @@ export class CalendarService {
 
     const results: { user_id: string; name: string | null; sent: boolean; reason?: string }[] = [];
     for (const u of dentists) {
+      // Cadastro da equipe → "Disparos que recebe": quem desligou a agenda do dia não recebe.
+      if (!recebeDisparoEquipe(u, 'resumo_dentista')) {
+        results.push({ user_id: u.id, name: u.name, sent: false, reason: 'desligado no cadastro da equipe' });
+        continue;
+      }
       const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd);
       if (!msg) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem atendimentos hoje' });
