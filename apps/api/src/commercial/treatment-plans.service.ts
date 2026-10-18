@@ -84,6 +84,8 @@ export class TreatmentPlansService implements OnModuleInit {
           include: {
             procedure: { select: { id: true, name: true, code_tuss: true } },
             executed_by: { select: { id: true, name: true } },
+            // Out/2026 — dentista RESPONSÁVEL pelo procedimento (cada área o seu).
+            dentist: { select: { id: true, name: true } },
             scheduled_appointment: { select: { id: true, start_at: true, title: true } },
           },
         },
@@ -116,6 +118,7 @@ export class TreatmentPlansService implements OnModuleInit {
         scheduled_appointment_title: string | null;
         executed_at: string | null;
         executed_by: { id: string; name: string } | null;
+        dentist: { id: string; name: string } | null;
         notes: string | null;
       };
     };
@@ -156,6 +159,7 @@ export class TreatmentPlansService implements OnModuleInit {
             scheduled_appointment_title: it.scheduled_appointment?.title ?? null,
             executed_at: it.executed_at?.toISOString() ?? null,
             executed_by: it.executed_by,
+            dentist: it.dentist ?? null,
             notes: it.notes,
           },
         });

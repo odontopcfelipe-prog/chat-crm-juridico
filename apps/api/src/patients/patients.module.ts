@@ -1,6 +1,8 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
+// Out/2026 — organizar pacientes por dentista (dados antigos, só admin).
+import { DentistLinksController } from './dentist-links.controller';
 import { AffiliateService } from './affiliate.service';
 import { PatientAvatarBackfillCron } from './patient-avatar-backfill.cron';
 import { FileStorageService } from '../media/filesystem.service';
@@ -24,7 +26,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
     // forwardRef: ConversationsModule → WhatsappModule → (leads) → PatientsModule.
     forwardRef(() => ConversationsModule),
   ],
-  controllers: [PatientsController],
+  controllers: [PatientsController, DentistLinksController],
   providers: [PatientsService, FileStorageService, AffiliateService, PatientAvatarBackfillCron],
   exports: [PatientsService, AffiliateService],
 })

@@ -42,6 +42,8 @@ interface PlanItemRow {
     tooth_fdi: string | null;
     quantity: number;
     status: string;
+    /** Out/2026 — dentista responsável pelo item (cada área o seu). */
+    dentist?: { id: string; name: string } | null;
   };
 }
 
@@ -83,8 +85,13 @@ export function ConfirmarAtendimentoModal({
     api.get<{ items: PlanItemRow[] }>(`/patients/${event.patient.id}/treatment-items`)
       .then((r) => {
         if (!alive) return;
+        // Plano liberado, item pendente e que é DESTE dentista (ou ainda sem dentista):
+        // o canal do endodontista não aparece pra ortodontista confirmar.
+        const meu = event.assigned_user_id ?? null;
         const rows = (r.data?.items ?? []).filter(
-          (x) => x.plan_validated_by_financial_at && !['DONE', 'CANCELLED'].includes(x.item.status),
+          (x) => x.plan_validated_by_financial_at
+            && !['DONE', 'CANCELLED'].includes(x.item.status)
+            && (!x.item.dentist || !meu || x.item.dentist.id === meu),
         );
         setItems(rows);
       })

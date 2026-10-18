@@ -512,6 +512,9 @@ export class LeadsService {
     // - profile_picture_url: só atualiza se o lead não tem foto OU se chegou uma URL válida.
     // - tenant_id: jamais sobrescreve tenant de lead existente (isolamento multi-tenant);
     //   só é preenchido quando o lead atual está com tenant_id nulo.
+    // - origin (out/2026): só preenche se o lead ainda NÃO tem origem. Antes toda
+    //   mensagem de WhatsApp (origin:'whatsapp') apagava a origem digitada à mão
+    //   ("Indicação", "Instagram"...) — e o paciente perdia "de onde veio".
     const {
       phone: _phone,
       name: incomingName,
@@ -519,6 +522,7 @@ export class LeadsService {
       profile_picture_url: incomingPhoto,
       tenant_id: tenantIdFlat,
       tenant: tenantRel,
+      origin: incomingOrigin,
       ...updateData
     } = data as any;
     // tenant pode vir como { tenant_id } (plano) ou { tenant: { connect: { id } } } (relacional)
@@ -613,8 +617,15 @@ export class LeadsService {
     }
 
     let lead: Lead;
+    // Origem só entra em lead SEM origem (nunca sobrescreve a que já existe).
+    const fillOrigin = async (id: string) => {
+      if (!incomingOrigin) return;
+      const r = await this.prisma.lead.updateMany({ where: { id, origin: null }, data: { origin: incomingOrigin } });
+      if (r.count > 0) (lead as any).origin = incomingOrigin;
+    };
     if (existing) {
       lead = await this.prisma.lead.update({ where: { id: existing.id }, data: updateData });
+      await fillOrigin(lead.id);
     } else {
       try {
         lead = await this.prisma.lead.create({ data: { ...data, phone } });
@@ -626,6 +637,7 @@ export class LeadsService {
         if (!raced) throw e;
         existing = raced;
         lead = await this.prisma.lead.update({ where: { id: raced.id }, data: updateData });
+        await fillOrigin(lead.id);
       }
     }
 

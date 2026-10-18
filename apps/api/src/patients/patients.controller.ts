@@ -117,11 +117,13 @@ export class PatientsController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const owner = await this.ownerFor(req);
     return this.patientsService.findAll(tenantId, {
       search,
       status,
       activity,
-      dentistId,
+      // Restrito à própria carteira não filtra por OUTRO dentista (vazaria o cruzamento).
+      dentistId: owner ? undefined : dentistId,
       tagId,
       noVisitMonths: noVisitMonths ? parseInt(noVisitMonths, 10) : undefined,
       withActivePlan: withActivePlan === 'true' || withActivePlan === '1',
@@ -130,9 +132,25 @@ export class PatientsController {
       limit: limit ? parseInt(limit, 10) : undefined,
       // Out/2026 — Dentista (sem view_all_patients) vê só a carteira dele e não
       // busca por telefone/e-mail (sem view_patient_contact).
-      ownerUserId: await this.ownerFor(req),
+      ownerUserId: owner,
       contactSearch: await this.canSeeContact(req),
     });
+  }
+
+  /**
+   * Out/2026 — "1ª consulta agendada": quem tem consulta futura com o dentista
+   * mas AINDA é lead (sem ficha — vira paciente ao comparecer/pagar). Dentista vê
+   * os dele; admin/recepção passam ?dentistId=. Sem dentista → lista vazia.
+   * ANTES de @Get(':id').
+   */
+  @RequiresPermission('view_patients')
+  @Get('first-visits')
+  async firstVisits(@Request() req: any, @Query('dentistId') dentistId?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const target = (await this.ownerFor(req)) ?? dentistId ?? null;
+    if (!target) return [];
+    return this.patientsService.firstVisits(tenantId, target);
   }
 
   @RequiresPermission('view_patients')

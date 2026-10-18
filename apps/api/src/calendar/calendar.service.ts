@@ -66,6 +66,31 @@ export class CalendarService {
    * Carrega LeadsService dinamicamente via ModuleRef pra evitar circular dep
    * entre CalendarModule e LeadsModule.
    */
+  /**
+   * Out/2026 — "dentista responsável" automático: na 1ª consulta clínica
+   * confirmada (CONCLUIDO/validada), se o cadastro do paciente está SEM dentista
+   * responsável, vira o dentista que atendeu. Nunca troca um já preenchido
+   * (updateMany com primary_dentist_id: null). Best-effort.
+   */
+  private async fillPrimaryDentistFromEvent(eventId: string): Promise<void> {
+    try {
+      const ev = await this.prisma.calendarEvent.findUnique({
+        where: { id: eventId },
+        select: { patient_id: true, assigned_user_id: true, type: true },
+      });
+      if (!ev?.patient_id || !ev.assigned_user_id || !this.isClinicalEvent(ev.type)) return;
+      const r = await this.prisma.patient.updateMany({
+        where: { id: ev.patient_id, primary_dentist_id: null },
+        data: { primary_dentist_id: ev.assigned_user_id },
+      });
+      if (r.count > 0) {
+        this.logger.log(`[PRIMARY_DENTIST] Paciente ${ev.patient_id} → dentista ${ev.assigned_user_id} (1ª consulta confirmada ${eventId})`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[PRIMARY_DENTIST] Falhou pra evento ${eventId}: ${e?.message}`);
+    }
+  }
+
   private async autoEnsurePatientFromEvent(eventId: string): Promise<void> {
     try {
       const event = await this.prisma.calendarEvent.findUnique({
@@ -966,6 +991,8 @@ export class CalendarService {
     // cria automaticamente. Idempotente.
     if (status === 'CONCLUIDO' && this.isClinicalEvent(event.type)) {
       await this.autoEnsurePatientFromEvent(id);
+      // Out/2026 — 1ª consulta confirmada define o dentista responsável (se vazio).
+      await this.fillPrimaryDentistFromEvent(id);
     }
 
     // Compareceu → vira paciente (regra da clínica).
@@ -3780,6 +3807,8 @@ export class CalendarService {
     // automaticamente (idempotente).
     if (this.isClinicalEvent(validated.type)) {
       await this.autoEnsurePatientFromEvent(eventId);
+      // Out/2026 — 1ª consulta confirmada define o dentista responsável (se vazio).
+      await this.fillPrimaryDentistFromEvent(eventId);
       // Atendimento validado (CONCLUIDO) → vira paciente (regra da clínica).
       await this.autoPromoteFromAttendance(eventId);
     }

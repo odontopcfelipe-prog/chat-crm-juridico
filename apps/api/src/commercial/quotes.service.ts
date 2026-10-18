@@ -15,7 +15,9 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, parseAlertPhones, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, parseAlertPhones, type Permission, type Sector } from '@crm/shared';
+// Out/2026 — direcionar procedimento pro dentista da área (especialidade).
+import { loadTenantDentists } from '../common/utils/tenant-dentists';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
@@ -115,7 +117,7 @@ export class QuotesService {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
 
     const items = data.items || [];
-    const resolvedItems = await this.resolveItems(items, tenantId);
+    const resolvedItems = await this.resolveItems(items, tenantId, userId);
 
     // Onda 17.39 — trava real de desconto: aplicar preco ABAIXO da tabela
     // (base_price) exige a permissao `override_price`. UI nao eh seguranca —
@@ -2593,6 +2595,8 @@ export class QuotesService {
               unit_price: qi.unit_price,
               total_price: qi.total_price,
               notes: qi.notes,
+              // Out/2026 — o dentista do procedimento (avaliação/venda rápida) vai junto.
+              dentist_id: qi.dentist_id ?? null,
               order_index: idx,
             })),
           },
@@ -2936,6 +2940,8 @@ export class QuotesService {
               unit_price: qi.unit_price,
               total_price: qi.total_price,
               notes: qi.notes,
+              // Out/2026 — o dentista do procedimento (avaliação/venda rápida) vai junto.
+              dentist_id: qi.dentist_id ?? null,
               order_index: idx,
             })),
           },
@@ -3067,12 +3073,12 @@ export class QuotesService {
 
   // ─── QuoteItem ────────────────────────────────────────────────
 
-  async addItem(quoteId: string, tenantId: string, input: ItemInput) {
+  async addItem(quoteId: string, tenantId: string, input: ItemInput, actorUserId?: string | null) {
     const quote = await this.findOne(quoteId, tenantId);
     if (quote.status !== 'DRAFT') {
       throw new BadRequestException('Itens so podem ser adicionados em rascunhos');
     }
-    const [resolved] = await this.resolveItems([input], tenantId);
+    const [resolved] = await this.resolveItems([input], tenantId, actorUserId);
     const item = await this.prisma.quoteItem.create({
       data: {
         quote_id: quoteId,
@@ -3083,8 +3089,9 @@ export class QuotesService {
         total_price: resolved.total_price,
         notes: resolved.notes || null,
         order_index: quote.items.length,
-        // Onda 3.2 — dentista responsavel (opcional)
-        dentist_id: input.dentist_id || null,
+        // Onda 3.2 — dentista responsavel. Out/2026: sem dentista informado, o
+        // da área (resolveItems/pickDentistForProcedure).
+        dentist_id: resolved.dentist_id || null,
         // Onda 4.2 — pagamento por procedimento (opcional)
         payment_method: input.payment_method || null,
         installments_count: input.installments_count || null,
@@ -3174,14 +3181,23 @@ export class QuotesService {
   // ─── Helpers ──────────────────────────────────────────────────
 
   /** Carrega procedures pra pegar preco base (quando unit_price nao informado). */
-  private async resolveItems(items: ItemInput[], tenantId: string) {
+  private async resolveItems(items: ItemInput[], tenantId: string, actorUserId?: string | null) {
     if (items.length === 0) return [];
     const procIds = [...new Set(items.map((i) => i.procedure_id))];
     const procs = await this.prisma.procedure.findMany({
       where: { id: { in: procIds }, tenant_id: tenantId },
-      select: { id: true, base_price: true, tenant_id: true },
+      select: {
+        id: true, base_price: true, tenant_id: true,
+        name: true, category: true, specialty: { select: { name: true } },
+      },
     });
     const byId = new Map(procs.map((p) => [p.id, p]));
+
+    // Out/2026 — item SEM dentista vai pro dentista da ÁREA do procedimento
+    // (especialidade); ninguém da área → quem está lançando, se for dentista.
+    // dentist_id '' (explícito) = sem dentista. Venda rápida já manda o dela.
+    const needsDentist = items.some((i) => i.dentist_id === undefined || i.dentist_id === null);
+    const dentists = needsDentist ? await loadTenantDentists(this.prisma, tenantId) : [];
 
     return items.map((i) => {
       const proc = byId.get(i.procedure_id);
@@ -3190,7 +3206,12 @@ export class QuotesService {
       const base_price = Number(proc.base_price);
       const unit_price = i.unit_price ?? base_price;
       const total_price = quantity * unit_price;
-      return { ...i, quantity, base_price, unit_price, total_price };
+      const dentist_id = i.dentist_id ?? (pickDentistForProcedure(
+        { name: proc.name, category: proc.category, specialty: proc.specialty?.name },
+        dentists,
+        { preferUserId: actorUserId },
+      ) ?? undefined);
+      return { ...i, quantity, base_price, unit_price, total_price, dentist_id };
     });
   }
 

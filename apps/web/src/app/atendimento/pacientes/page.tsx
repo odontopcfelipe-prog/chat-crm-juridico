@@ -30,7 +30,41 @@ interface Patient {
   last_visit_at?: string | null;
   tags?: Array<{ tag_id: string; tag: PatientTag }>;
   _count?: { anamneses: number; treatment_plans: number; appointments: number };
+  /** Out/2026 — de onde o paciente veio (Lead.origin / indicação de paciente). */
+  origem?: string | null;
+  /** Out/2026 — por que é DESTE dentista (carteira do dentista / filtro por dentista). */
+  dentist_links?: Array<{ key: string; label: string; tone: LinkTone }>;
 }
+
+type LinkTone = 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'slate';
+const LINK_TONE: Record<LinkTone, string> = {
+  violet: 'bg-violet-500/10 text-violet-700 border-violet-500/25 dark:text-violet-300',
+  emerald: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-300',
+  amber: 'bg-amber-500/10 text-amber-800 border-amber-500/30 dark:text-amber-300',
+  sky: 'bg-sky-500/10 text-sky-700 border-sky-500/25 dark:text-sky-300',
+  rose: 'bg-rose-500/10 text-rose-700 border-rose-500/25 dark:text-rose-300',
+  slate: 'bg-muted text-muted-foreground border-border',
+};
+
+interface FirstVisit {
+  event_id: string;
+  start_at: string;
+  type: string;
+  what: string | null;
+  lead_id: string | null;
+  name: string | null;
+  profile_picture_url: string | null;
+  origem: string | null;
+}
+
+const fmtVisit = (iso: string) => {
+  const d = new Date(iso); // naive-UTC: hora de Maceió nos campos UTC
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${dd}/${mm} às ${hh}:${mi}`;
+};
 
 interface PatientList {
   data: Patient[];
@@ -92,6 +126,27 @@ function PacientesPageInner() {
 
   const hasAdvancedActive = !!noVisitMonths || withActivePlan || withoutAnamnesis;
 
+  // Out/2026 — "Pacientes da Dra. X" (admin/recepção): mesma regra da carteira do
+  // dentista (agenda, avaliação, venda rápida, plano...). Dentista já vê só os dele.
+  const [dentistFilter, setDentistFilter] = useState('');
+  const [dentistOpts, setDentistOpts] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    if (ownPatientsOnly) return;
+    api.get<Array<{ id: string; name: string }>>('/users/lawyers')
+      .then((r) => setDentistOpts(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {});
+  }, [ownPatientsOnly]);
+
+  // Out/2026 — 1ª consulta agendada (ainda lead, sem ficha) do dentista.
+  const [firstVisits, setFirstVisits] = useState<FirstVisit[]>([]);
+  useEffect(() => {
+    if (!ownPatientsOnly && !dentistFilter) { setFirstVisits([]); return; }
+    const q = ownPatientsOnly ? '' : `?dentistId=${encodeURIComponent(dentistFilter)}`;
+    api.get<FirstVisit[]>(`/patients/first-visits${q}`)
+      .then((r) => setFirstVisits(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setFirstVisits([]));
+  }, [ownPatientsOnly, dentistFilter]);
+
   // Carrega tags do tenant uma vez (independente do filtro)
   useEffect(() => {
     api.get<PatientTag[]>('/patient-tags')
@@ -125,6 +180,7 @@ function PacientesPageInner() {
       if (noVisitMonths) params.set('noVisitMonths', noVisitMonths);
       if (withActivePlan) params.set('withActivePlan', 'true');
       if (withoutAnamnesis) params.set('withoutAnamnesis', 'true');
+      if (dentistFilter) params.set('dentistId', dentistFilter);
       params.set('limit', '50');
       params.set('page', String(page));
       const [listRes, statsRes] = await Promise.all([
@@ -140,7 +196,7 @@ function PacientesPageInner() {
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, page]);
+  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, dentistFilter, page]);
 
   // Puxa as fotos do WhatsApp pros pacientes SEM foto salva. Roda em lotes (o
   // backend busca 1 foto fresca por paciente com pausa anti-ban), até acabar.
@@ -292,6 +348,36 @@ function PacientesPageInner() {
       {/* Aniversariantes (auto-esconde se nao tem ninguem hoje) */}
       <BirthdaysCard />
 
+      {/* Out/2026 — 1ª consulta agendada: ainda é lead (sem ficha); vira paciente ao
+          comparecer/pagar. Do dentista logado ou do dentista filtrado. */}
+      {firstVisits.length > 0 && (
+        <div className="mb-4 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <p className="text-sm font-semibold text-foreground mb-2">
+            📅 1ª consulta agendada <span className="font-normal text-muted-foreground">· {firstVisits.length} {firstVisits.length === 1 ? 'pessoa' : 'pessoas'} (ainda sem ficha — vira paciente ao comparecer)</span>
+          </p>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {firstVisits.map((v) => (
+              <li key={v.event_id} className="flex items-center gap-2.5 bg-card border border-border rounded-lg px-3 py-2">
+                <PatientAvatar
+                  patientId={v.lead_id ?? v.event_id}
+                  patientName={v.name || 'Paciente'}
+                  avatarUrl={null}
+                  fallbackPhotoUrl={v.profile_picture_url}
+                  size={32}
+                  shape="circle"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground truncate">{v.name || 'Sem nome'}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {fmtVisit(v.start_at)}{v.what ? ` · ${v.what}` : ''}{v.origem ? ` · veio por ${v.origem}` : ''}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         {[
@@ -335,6 +421,20 @@ function PacientesPageInner() {
           <option value="INACTIVE">Inativos</option>
           <option value="ARCHIVED">Arquivados</option>
         </select>
+        {/* Out/2026 — pacientes por dentista (admin/recepção). */}
+        {!ownPatientsOnly && dentistOpts.length > 0 && (
+          <select
+            value={dentistFilter}
+            onChange={(e) => { setDentistFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            title="Pacientes de um dentista (agenda, avaliação, venda rápida, plano...)"
+          >
+            <option value="">Todos os dentistas</option>
+            {dentistOpts.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        )}
         {allTags.length > 0 && (
           <select
             value={tagFilter}
@@ -478,6 +578,21 @@ function PacientesPageInner() {
                         {p.tags.length > 5 && (
                           <span className="text-[10px] text-muted-foreground">
                             +{p.tags.length - 5}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {/* Out/2026 — por que é deste dentista + de onde veio. */}
+                    {((p.dentist_links && p.dentist_links.length > 0) || p.origem) && (
+                      <div className="flex items-center gap-1 flex-wrap mt-1">
+                        {(p.dentist_links ?? []).map((l) => (
+                          <span key={l.key} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${LINK_TONE[l.tone]}`}>
+                            {l.label}
+                          </span>
+                        ))}
+                        {p.origem && (
+                          <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded border border-dashed border-border">
+                            veio por {p.origem}
                           </span>
                         )}
                       </div>

@@ -38,6 +38,8 @@ interface QuoteItem {
   id: string;
   procedure_id: string;
   tooth_fdi: string | null;
+  /** Out/2026 — dentista responsável pelo procedimento (já vem o da área). */
+  dentist_id?: string | null;
   quantity: number;
   unit_price: string | number;
   total_price: string | number;
@@ -50,6 +52,9 @@ interface QuoteItem {
     specialty?: { id: string; name: string } | null;
   };
 }
+
+interface DentistOpt { id: string; name: string; specialties?: string[] }
+let dentistsCache: DentistOpt[] | null = null;
 
 interface Quote {
   id: string;
@@ -124,6 +129,15 @@ export default function QuotePanel({
   // Out/2026 — quem só monta a avaliação (Dentista) não negocia: sem link pra
   // aba de orçamentos/propostas (ela nem abre pra ele).
   const { hasPermission } = useUserPermissions();
+  // Out/2026 — cada procedimento vai pro dentista da área (o sistema já sugere pela
+  // especialidade); aqui dá pra trocar. Lista = GET /users/lawyers (cache do módulo).
+  const [dentists, setDentists] = useState<DentistOpt[]>(dentistsCache ?? []);
+  useEffect(() => {
+    if (dentistsCache) return;
+    api.get<DentistOpt[]>('/users/lawyers')
+      .then((r) => { dentistsCache = Array.isArray(r.data) ? r.data : []; setDentists(dentistsCache); })
+      .catch(() => {});
+  }, []);
   const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -500,6 +514,7 @@ export default function QuotePanel({
                     <th className="text-left px-4 py-2 font-medium w-16">Dente</th>
                     <th className="text-left px-3 py-2 font-medium">Procedimento</th>
                     <th className="text-center px-2 py-2 font-medium w-20">Qtd</th>
+                    <th className="text-left px-2 py-2 font-medium w-40">Dentista</th>
                     <th className="w-12" />
                   </tr>
                 </thead>
@@ -508,6 +523,7 @@ export default function QuotePanel({
                     <ItemRow
                       key={item.id}
                       item={item}
+                      dentists={dentists}
                       onUpdate={(patch) => updateItem(item.id, patch)}
                       onRemove={() => removeItem(item.id)}
                     />
@@ -640,9 +656,10 @@ export default function QuotePanel({
 const FDI_REGEX = /^([1-4][1-8]|[5-8][1-5])$/;
 
 function ItemRow({
-  item, onUpdate, onRemove,
+  item, dentists, onUpdate, onRemove,
 }: {
   item: QuoteItem;
+  dentists: DentistOpt[];
   onUpdate: (patch: Partial<QuoteItem>) => void | Promise<void>;
   onRemove: () => void;
 }) {
@@ -766,6 +783,22 @@ function ItemRow({
             {item.quantity}
           </button>
         )}
+      </td>
+      <td className="px-2 py-2.5">
+        <select
+          value={item.dentist_id ?? ''}
+          onChange={(e) => onUpdate({ dentist_id: e.target.value === '' ? ('' as unknown as null) : e.target.value })}
+          className="w-full max-w-[10rem] px-2 py-1 rounded-md border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          title="Dentista que vai fazer este procedimento"
+          aria-label="Dentista do procedimento"
+        >
+          <option value="">Sem dentista</option>
+          {dentists.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}{d.specialties?.filter((x) => !/or[cç]amentista/i.test(x)).length ? ` · ${d.specialties.filter((x) => !/or[cç]amentista/i.test(x)).join(', ')}` : ''}
+            </option>
+          ))}
+        </select>
       </td>
       <td className="px-2 py-2.5">
         <button

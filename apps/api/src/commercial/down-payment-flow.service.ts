@@ -131,6 +131,8 @@ export class DownPaymentFlowService {
               unit_price: qi.unit_price,
               total_price: qi.total_price,
               notes: qi.notes,
+              // Out/2026 — o dentista do procedimento (avaliação/venda rápida) vai junto.
+              dentist_id: qi.dentist_id ?? null,
               order_index: idx,
             })),
           },

@@ -1132,7 +1132,8 @@ export class CommercialController {
     await this.assertQuoteInScope(req.user, id);
     // Quem só monta avaliação não manda preço: sai da tabela do procedimento.
     const dto = (await this.isEvaluationOnly(req.user)) ? this.stripItemPricing(body) : body;
-    return this.quotesService.addItem(id, tenantId, dto);
+    // Out/2026 — quem lança entra como preferência no direcionamento por especialidade.
+    return this.quotesService.addItem(id, tenantId, dto, req.user?.id);
   }
 
   @RequiresPermission('manage_proposals', 'create_evaluation')

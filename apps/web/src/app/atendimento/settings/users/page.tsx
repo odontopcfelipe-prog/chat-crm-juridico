@@ -11,6 +11,8 @@ import { SectorHomePreview } from '@/components/home/SectorHomePreview';
 import {
   GameScoringSection, EMPTY_SCORING, overrideToDraft, draftToBody, validateDraft, type ScoringDraft,
 } from './GameScoringSection';
+// Out/2026 — ligar dados antigos aos dentistas (prévia + aplicar).
+import { OrganizarPacientesModal } from './OrganizarPacientesModal';
 // Onda 5e v10 (Fase 25) — editor de horarios reusavel
 import {
   ScheduleEditor,
@@ -176,6 +178,7 @@ export default function UsersSettingsPage() {
   const [scoring, setScoring] = useState<ScoringDraft>(EMPTY_SCORING);
   const [scoringTouched, setScoringTouched] = useState(false);
   const [scoringLoaded, setScoringLoaded] = useState(false);
+  const [organizarOpen, setOrganizarOpen] = useState(false);
   // Onda 17.32.172 — reenvio do e-mail de confirmacao
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resentId, setResentId] = useState<string | null>(null);
@@ -502,14 +505,24 @@ export default function UsersSettingsPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Usuários & Perfis</h1>
           <p className="text-[13px] text-muted-foreground mt-1">Gerencie os usuários do sistema e seus perfis de acesso.</p>
         </div>
-        <button
-          onClick={openCreate}
-          className="px-5 py-2.5 btn-primary font-medium rounded-xl flex items-center shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Novo Usuário
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setOrganizarOpen(true)}
+            className="px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-medium text-foreground hover:bg-accent transition-colors"
+            title="Liga os pacientes/procedimentos antigos aos dentistas (prévia antes de gravar)"
+          >
+            Organizar pacientes por dentista
+          </button>
+          <button
+            onClick={openCreate}
+            className="px-5 py-2.5 btn-primary font-medium rounded-xl flex items-center shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Novo Usuário
+          </button>
+        </div>
       </header>
+      {organizarOpen && <OrganizarPacientesModal onClose={() => setOrganizarOpen(false)} />}
 
       <div className="flex-1 overflow-y-auto px-8 pb-8">
         {error && !showModal && (

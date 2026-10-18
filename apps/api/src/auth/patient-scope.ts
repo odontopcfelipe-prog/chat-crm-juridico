@@ -8,8 +8,8 @@
  *   - tem/teve consulta com ele na agenda (pelo patient_id OU pelo lead do
  *     paciente — a IA às vezes agenda só pelo lead); OU
  *   - tem procedimento do orçamento/plano atribuído a ele (QuoteItem.dentist_id),
- *     executado por ele (TreatmentPlanItem.executed_by_user_id) ou orçamento
- *     criado por ele.
+ *     executado por ele (TreatmentPlanItem.executed_by_user_id), em que ele é o
+ *     responsável (TreatmentPlanItem.dentist_id) ou orçamento criado por ele.
  *
  * Duas camadas:
  *   1. `ownPatientsWhere(userId)` — filtro Prisma pras LISTAS (/patients etc.).
@@ -36,6 +36,8 @@ export function ownPatientsWhere(userId: string): Prisma.PatientWhereInput {
       { quotes: { some: { items: { some: { dentist_id: userId } } } } },
       { quotes: { some: { created_by_user_id: userId } } },
       { treatment_plans: { some: { items: { some: { executed_by_user_id: userId } } } } },
+      // Out/2026 — procedimento do plano em que ele é o dentista RESPONSÁVEL (cada área o seu).
+      { treatment_plans: { some: { items: { some: { dentist_id: userId } } } } },
     ],
   };
 }

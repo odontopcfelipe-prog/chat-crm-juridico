@@ -255,6 +255,8 @@ model User {
   contracts_as_dentist          Contract[]             @relation("ContractDentist")
   contract_events_triggered     ContractEvent[]        @relation("ContractEventTrigger")
   treatment_plan_items_executed TreatmentPlanItem[]    @relation("TreatmentPlanItemExecutor")
+  // Out/2026 — procedimentos do plano em que ele é o dentista responsável.
+  treatment_plan_items_responsible TreatmentPlanItem[] @relation("TreatmentPlanItemDentist")
   quote_items_assigned          QuoteItem[]            @relation("QuoteItemDentist")
   // Estetica facial + estoque (Fase 6)
   stock_movements_performed     StockMovement[]        @relation("StockMover")
@@ -3485,6 +3487,11 @@ model TreatmentPlanItem {
   executed_at         DateTime?
   executed_by_user_id String?
 
+  /// Out/2026 — dentista RESPONSÁVEL pelo procedimento (planejado), ≠ executed_by
+  /// (quem de fato fez). Vem do QuoteItem.dentist_id no aceite (avaliação/venda
+  /// rápida); um paciente pode ter itens de dentistas diferentes (cada área).
+  dentist_id String?
+
   notes       String?
   order_index Int     @default(0)
 
@@ -3495,6 +3502,7 @@ model TreatmentPlanItem {
   procedure             Procedure             @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
   scheduled_appointment CalendarEvent?        @relation("TreatmentPlanItemAppointment", fields: [scheduled_appointment_id], references: [id], onDelete: SetNull)
   executed_by           User?                 @relation("TreatmentPlanItemExecutor", fields: [executed_by_user_id], references: [id], onDelete: SetNull)
+  dentist               User?                 @relation("TreatmentPlanItemDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
   esthetic_applications EstheticApplication[]
   // Fase 8 — comissao gerada por execucao deste item
   commissions           Commission[]          @relation("CommissionTreatmentItem")
@@ -3505,6 +3513,7 @@ model TreatmentPlanItem {
   @@index([treatment_plan_id, status])
   @@index([scheduled_appointment_id])
   @@index([executed_by_user_id])
+  @@index([dentist_id])
 }
 
 // ============================================================================

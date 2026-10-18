@@ -14,6 +14,7 @@ import { createHash } from 'crypto';
 // acontecia com o `await import()` dentro de try/catch.
 import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
 import { ownPatientsWhere } from '../auth/patient-scope.js';
+import { computeDentistLinks, originLabel } from './dentist-links.js';
 
 // ============================================================================
 // Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
@@ -408,7 +409,10 @@ export class PatientsService {
     } else if (opts.activity === 'ACTIVE' || opts.activity === 'INACTIVE') {
       andFilters.push(activityWhere(opts.activity, activityCutoff));
     }
-    if (opts.dentistId) andFilters.push({ primary_dentist_id: opts.dentistId });
+    // Out/2026 — "pacientes da Dra. X" = a MESMA regra da carteira do dentista
+    // (agenda, avaliação, venda rápida, plano, responsável, ortô), não só o
+    // dentista responsável do cadastro. Um paciente pode ser de vários dentistas.
+    if (opts.dentistId) andFilters.push(ownPatientsWhere(opts.dentistId));
     if (opts.ownerUserId) andFilters.push(ownPatientsWhere(opts.ownerUserId));
     if (opts.tagId) andFilters.push({ tags: { some: { tag_id: opts.tagId } } });
     if (opts.withActivePlan) andFilters.push({ treatment_plans: { some: { status: 'ACTIVE' } } });
@@ -436,7 +440,9 @@ export class PatientsService {
       primary_dentist: { select: { id: true, name: true, email: true } },
       tags: { include: { tag: true } },
       // Foto do WhatsApp do lead vinculado — fallback do avatar até o paciente salvar a própria.
-      lead: { select: { profile_picture_url: true } },
+      // Out/2026 — + origem (de onde o paciente veio).
+      lead: { select: { profile_picture_url: true, origin: true } },
+      referred_by_patient: { select: { name: true } },
       _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
     } satisfies Prisma.PatientInclude;
 
@@ -498,12 +504,59 @@ export class PatientsService {
 
     // Onda 17.47 — anexa o status de atividade CALCULADO (Ativo/Inativo/Arquivado)
     // pra lista exibir o selo certo sem reimplementar a regra dos 12m no front.
+    // Out/2026 — selos "por que é deste dentista" (carteira do dentista ou filtro
+    // por dentista do admin) + origem do paciente.
+    const linksDentist = opts.dentistId || opts.ownerUserId || null;
+    const links = linksDentist ? await computeDentistLinks(this.prisma, tenantId, linksDentist, data) : null;
     const dataWithActivity = data.map((p) => ({
       ...p,
       activity_status: deriveActivityStatus(p, activityCutoff),
+      origem: p.referred_by_patient?.name
+        ? `Indicação de ${p.referred_by_patient.name}`
+        : originLabel(p.lead?.origin),
+      ...(links ? { dentist_links: links[p.id] ?? [] } : {}),
     }));
 
     return { data: dataWithActivity, total, page, totalPages: Math.ceil(total / limit) };
+  }
+
+  /**
+   * Out/2026 — consultas FUTURAS do dentista com quem ainda é lead (sem ficha).
+   * Regra da clínica: vira paciente ao comparecer/pagar; até lá aparece aqui.
+   * Agenda é naive-UTC: "hoje" começa à meia-noite de Maceió lida em UTC.
+   */
+  async firstVisits(tenantId: string, dentistId: string) {
+    const n = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const todayStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+    const rows = await this.prisma.calendarEvent.findMany({
+      where: {
+        tenant_id: tenantId,
+        assigned_user_id: dentistId,
+        patient_id: null,
+        lead_id: { not: null },
+        lead: { is: { patient: { is: null } } },
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
+        status: { notIn: ['CANCELADO', 'NO_SHOW'] },
+        start_at: { gte: todayStart },
+      },
+      select: {
+        id: true, start_at: true, type: true,
+        appointment_type: { select: { name: true } },
+        lead: { select: { id: true, name: true, origin: true, profile_picture_url: true } },
+      },
+      orderBy: { start_at: 'asc' },
+      take: 100,
+    });
+    return rows.map((r) => ({
+      event_id: r.id,
+      start_at: r.start_at,
+      type: r.type,
+      what: r.appointment_type?.name ?? null,
+      lead_id: r.lead?.id ?? null,
+      name: r.lead?.name ?? null,
+      profile_picture_url: r.lead?.profile_picture_url ?? null,
+      origem: originLabel(r.lead?.origin),
+    }));
   }
 
   /** Detalhe completo do paciente — inclui alergias, medicacoes, prontuario, odontograma. */
