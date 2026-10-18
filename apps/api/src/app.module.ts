@@ -68,6 +68,7 @@ import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.mo
 import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
 import { CampanhasModule } from './campanhas/campanhas.module';
 import { DisparoAnexosModule } from './disparo-anexos/disparo-anexos.module';
+import { AudioDisparoModule } from './audio-disparo/audio-disparo.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { InstallmentsModule } from './installments/installments.module';
 import { PortalModule } from './portal/portal.module';
@@ -177,6 +178,8 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     CampanhasModule,
     // Anexos (fotos/áudio) dos disparos automáticos — editor de cada card da Central.
     DisparoAnexosModule,
+    // Lembrete em áudio (teste): texto → voz com motor/voz/sotaque/velocidade na Central.
+    AudioDisparoModule,
     // Fase 8 — Comissoes + Metas
     CommissionsModule,
     // Fase 11 — Regua de cobranca

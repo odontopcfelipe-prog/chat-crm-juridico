@@ -35,6 +35,7 @@ import { ReativacaoColunaEditor } from './ReativacaoColunaEditor';
 import { TesteEnvio } from './TesteEnvio';
 import { RetornoEditor } from './RetornoEditor';
 import { AnexosDisparo } from './AnexosDisparo';
+import { AudioTesteEditor } from './AudioTesteEditor';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
@@ -589,6 +590,7 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'resumo_diario' && <ResumoDiarioEditor />}
         {openItem.editor === 'venda_feita' && <VendaFeitaEditor />}
         {openItem.editor === 'reativacao' && <ReativacaoConfigEditor />}
+        {openItem.editor === 'audio_teste' && <AudioTesteEditor podeEditar={isAdmin} />}
         {openItem.editor === 'retorno' && openItem.retornoId && (
           <RetornoEditor id={openItem.retornoId} onCurrentTextChange={setLiveText} />
         )}
@@ -607,7 +609,7 @@ export default function CentralDisparosPage() {
             teste genérico sairia pelo chip da Clínica — a régua só sai pelo Comercial. */}
         {/* Fotos/áudio do disparo (só os cards já ligados ao envio de anexos). */}
         {isDisparoComAnexo(openItem.id) && <AnexosDisparo disparo={openItem.id} podeEditar={isAdmin} />}
-        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && openItem.editor !== 'reativacao' && openItem.editor !== 'reativacao_coluna' && <TesteEnvio disparo={openItem.id} text={liveText} />}
+        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && openItem.editor !== 'reativacao' && openItem.editor !== 'reativacao_coluna' && openItem.editor !== 'audio_teste' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }

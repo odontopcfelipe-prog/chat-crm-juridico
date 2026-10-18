@@ -72,7 +72,9 @@ export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | '
   // Régua de reativação: card geral (teto/freios) e cards de coluna (textos por toque).
   | 'reativacao' | 'reativacao_coluna'
   // Retorno de manutenção: como funciona + quem está na janela + texto do toque.
-  | 'retorno' | null;
+  | 'retorno'
+  // Lembrete em áudio (teste): texto → voz com motor/voz/sotaque/velocidade.
+  | 'audio_teste' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -218,6 +220,11 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'lembrete_15min', nome: 'Lembrete · 15 minutos antes', categoria: 'agendamento',
     gatilho: '15 minutos antes', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reminders', antecedenciaMin: 15 },
+  // Lembrete em ÁUDIO (teste): laboratório de voz — o texto vira mensagem de voz (motor,
+  // voz, sotaque e velocidade), ouve na tela e manda o teste. NÃO envia sozinho (sem toggle).
+  { id: 'lembrete_audio_teste', nome: 'Lembrete em áudio (teste)', categoria: 'agendamento',
+    gatilho: 'Teste · o texto vira mensagem de voz · escolha motor, voz, sotaque e velocidade · não envia sozinho', canal: 'WhatsApp', tags: ['Teste', 'Áudio'],
+    editor: 'audio_teste' },
   { id: 'reagendamento', nome: 'Aviso de re-agendamento', categoria: 'agendamento',
     gatilho: 'Quando o horário muda', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reagendamento', operacionalKey: 'reagendamento' },
