@@ -42,12 +42,21 @@ describe('setor Dentista (regra do dono, out/2026)', () => {
     }
   });
 
-  it('home do dentista: lista "Minha agenda", pacientes e comissão — sem orçamentos', () => {
-    const hrefs = SECTORS.find((s) => s.id === 'dentista')!.home.actions.map((a) => a.href);
+  it('home do dentista: lista "Minha agenda", pacientes e "Meu jogo" — sem orçamentos nem comissão', () => {
+    const acts = SECTORS.find((s) => s.id === 'dentista')!.home.actions;
+    const hrefs = acts.map((a) => a.href);
     expect(hrefs).toContain('/atendimento/minha-agenda');
     expect(hrefs).toContain('/atendimento/pacientes');
-    expect(hrefs).toContain('/atendimento/minha-comissao');
+    expect(hrefs).toContain('/atendimento/meu-jogo');
     expect(hrefs.some((h) => h.startsWith('/atendimento/orcamentos'))).toBe(false);
+    // Com o profissional não se fala em comissão (decisão do dono, out/2026).
+    expect(hrefs).not.toContain('/atendimento/minha-comissao');
+    expect(acts.some((a) => /comiss/i.test(a.label + ' ' + (a.desc ?? '')))).toBe(false);
+  });
+
+  it('dentista não abre "Minha comissão" (R$) — financeiro abre', () => {
+    expect(canAccessRoute('/atendimento/minha-comissao', (p) => resolvePermissions('dentista').has(p))).toBe(false);
+    expect(canAccessRoute('/atendimento/minha-comissao', (p) => resolvePermissions('financeiro').has(p))).toBe(true);
   });
 
   it('quadrantes do dentista só têm números DELE (badges my_*) e abrem pra ele', () => {
@@ -66,7 +75,7 @@ describe('acesso por tela (ROUTE_ACCESS)', () => {
 
   it('dentista abre as telas dele', () => {
     for (const r of ['/atendimento/dashboard', '/atendimento/minha-agenda', '/atendimento/pacientes',
-      '/atendimento/pacientes/abc', '/atendimento/minha-comissao']) {
+      '/atendimento/pacientes/abc', '/atendimento/meu-jogo']) {
       expect([r, canAccessRoute(r, dentHas)]).toEqual([r, true]);
     }
   });

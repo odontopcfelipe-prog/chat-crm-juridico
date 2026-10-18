@@ -251,7 +251,7 @@ export const SECTORS: SectorMeta[] = [
   {
     id: 'dentista',
     name: 'Dentista',
-    description: 'Atende os próprios pacientes, monta a avaliação e vê a comissão',
+    description: 'Atende os próprios pacientes, monta a avaliação e acompanha o próprio jogo',
     icon: '🦷',
     backendRoles: ['DENTIST', 'DENTISTA'],
     // Out/2026 — regra do dono: o dentista vê SÓ a agenda dele (em lista), SÓ os
@@ -289,13 +289,15 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'ClipboardCheck', icon: '✅', label: 'Confirmar atendimentos', desc: 'Consultas passadas que você ainda não confirmou.',     href: '/atendimento/validacoes',          badgeKey: 'my_pending_validation',    tone: 'amber'   },
         { lucide: 'Users',          icon: '👥', label: 'Meus pacientes',         desc: 'Prontuário, avaliação e plano de tratamento.',         href: '/atendimento/pacientes',           badgeKey: 'my_patients_total',        tone: 'sky'     },
         { lucide: 'Activity',       icon: '🦷', label: 'Em tratamento',          desc: 'Seus pacientes com plano de tratamento ativo.',        href: '/atendimento/pacientes?plano=ativo', badgeKey: 'my_patients_in_treatment', tone: 'emerald' },
-        { lucide: 'Wallet',         icon: '💰', label: 'Minha comissão',         desc: 'Quanto você já ganhou e o que está a receber.',        href: '/atendimento/minha-comissao',      badgeKey: 'my_commission_available',  tone: 'emerald' },
+        // Out/2026 — com o profissional NÃO se fala em comissão (risco trabalhista):
+        // ele vê PONTOS pela produção clínica, nível, metas e missões ("Meu jogo").
+        { lucide: 'Trophy',         icon: '🏆', label: 'Meu jogo',               desc: 'Sua pontuação, nível, metas e missões do mês.',        href: '/atendimento/meu-jogo',            badgeKey: 'my_game_points',           tone: 'amber'   },
       ],
       todos: [
         'Pacientes pra atender hoje',
         'Marcar quem foi atendido ou faltou',
         'Montar a avaliação dos pacientes novos',
-        'Conferir sua comissão',
+        'Bater as metas e missões do mês',
       ],
     },
   },
@@ -558,6 +560,7 @@ const HREF_TO_PERMISSION: Record<string, Permission> = {
   '/atendimento':                          'view_chat',        // WhatsApp
   '/atendimento/agenda':                   'view_agenda',
   '/atendimento/minha-agenda':             'view_agenda',
+  '/atendimento/minha-comissao':           'view_financial',
   '/atendimento/validacoes':               'view_agenda',
   '/atendimento/pacientes?plano=ativo':    'view_patients',
   '/atendimento/pacientes':                'view_patients',
@@ -663,6 +666,9 @@ export const ROUTE_ACCESS: RouteAccessRule[] = [
   // Financeiro.
   { path: '/atendimento/financeiro',              anyOf: ['view_financial', 'manage_payables', 'manage_financial'] },
   { path: '/atendimento/comissoes',               anyOf: ['view_financial'] },
+  // Out/2026 — "Minha comissão" (R$) saiu da visão do profissional: o dentista vê o
+  // "Meu jogo" (pontos). Só quem já vê o financeiro abre esta tela.
+  { path: '/atendimento/minha-comissao',          anyOf: ['view_financial'] },
   { path: '/atendimento/metas',                   anyOf: ['view_financial'] },
   { path: '/atendimento/caixa',                   anyOf: ['operate_cash'] },
   { path: '/atendimento/relatorios',              anyOf: ['view_reports', 'view_financial'] },

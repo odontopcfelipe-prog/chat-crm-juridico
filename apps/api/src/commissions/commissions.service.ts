@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
+import { readMissionsConfig, type MissionDef, type MissionsConfig } from './game-rules';
 import {
   CreateCommissionDto, PayCommissionDto, UpdateCommissionDto,
 } from './dto/commission.dto';
@@ -45,18 +46,8 @@ function buildTrilha(tiers: FaixaTier[], producao: number) {
 }
 
 // ─── Missões — Onda 17.62 Fase 2b ────────────────────────────────────────────
-type MissionDef = { id: string; titulo: string; metrica: string; alvo: number; recompensa: string };
-type MissionsConfig = { enabled: boolean; missions: MissionDef[] };
-
-// Missões SUGERIDAS (tracking de fatos REAIS; recompensa é só rótulo — bônus em dinheiro
-// é decisão manual da clínica, NÃO credita no client). metrica: 'procedimentos' | 'zero_faltas'.
-const DEFAULT_MISSIONS: MissionsConfig = {
-  enabled: true,
-  missions: [
-    { id: 'proc', titulo: 'Execute 5 procedimentos', metrica: 'procedimentos', alvo: 5, recompensa: '+R$ 100' },
-    { id: 'faltas', titulo: 'Zero faltas na agenda', metrica: 'zero_faltas', alvo: 1, recompensa: '+R$ 80' },
-  ],
-};
+// Tipos, missões sugeridas e leitura da config moraram aqui; desde out/2026 ficam em
+// game-rules.ts (fonte única, também usada pelo "Meu jogo" do profissional).
 
 @Injectable()
 export class CommissionsService {
@@ -563,14 +554,6 @@ export class CommissionsService {
 
   /** Fase 2b — config de missões (GlobalSetting). Default: missões sugeridas, ON. */
   async getMissions(tenantId: string): Promise<MissionsConfig> {
-    try {
-      const row = await this.prisma.globalSetting.findUnique({ where: { key: `COMMISSION_MISSIONS_${tenantId}` } });
-      if (!row?.value) return DEFAULT_MISSIONS;
-      const parsed = JSON.parse(row.value);
-      if (!parsed || !Array.isArray(parsed.missions)) return DEFAULT_MISSIONS;
-      return { enabled: parsed.enabled !== false, missions: parsed.missions };
-    } catch {
-      return DEFAULT_MISSIONS;
-    }
+    return readMissionsConfig(this.prisma, tenantId);
   }
 }

@@ -10,6 +10,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ownPatientsWhere } from '../auth/patient-scope.js';
+import { computeMonthPoints, levelFor, maceioMonthKey, readMissionsConfig } from '../commissions/game-rules.js';
 
 export interface ModuleBadge {
   value: string;
@@ -25,8 +26,9 @@ export interface ModuleBadgesResponse {
 const SECTOR_BADGES: Record<string, string[]> = {
   recepcao:   ['agenda_today', 'patients_total', 'whatsapp_open', 'returns_pending', 'proposals_sent'],
   // Out/2026 — quadrantes do dentista com dados SÓ dele (agenda, atendimentos a
-  // confirmar, carteira, em tratamento e a própria comissão) — nada da clínica toda.
-  dentista:   ['my_agenda_today', 'my_pending_validation', 'my_patients_total', 'my_patients_in_treatment', 'my_commission_available'],
+  // confirmar, carteira, em tratamento e a pontuação do "Meu jogo") — nada da clínica
+  // toda e nada em R$ (com o profissional não se fala em comissão).
+  dentista:   ['my_agenda_today', 'my_pending_validation', 'my_patients_total', 'my_patients_in_treatment', 'my_game_points'],
   acd_asb:    ['agenda_today', 'patients_total'],
   crc:        ['crc_queue', 'marketing_active', 'returns_pending', 'proposals_sent', 'whatsapp_open'],
   financeiro: ['financeiro_today', 'proposals_sent', 'reports_pct'],
@@ -107,21 +109,15 @@ export class HomeModuleBadgesService {
           }));
         return n == null ? null : { value: n.toLocaleString('pt-BR'), tone: 'emerald' };
       }
-      case 'my_commission_available': {
+      case 'my_game_points': {
         if (!userId) return null;
-        // A comissão é do próprio dentista (pode ver o valor). "A receber" =
-        // DISPONIVEL (paciente já pagou, clínica ainda não repassou).
-        const agg = await this.safe('my_commission_available', () =>
-          this.prisma.commission.aggregate({
-            where: { tenant_id: tenantId, professional_user_id: userId, status: 'DISPONIVEL' },
-            _sum: { amount: true },
-          }));
-        if (agg == null) return null;
-        const total = Number(agg._sum.amount ?? 0);
-        return {
-          value: total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }),
-          tone: 'emerald',
-        };
+        // Pontos do mês pela produção clínica (game-rules) — nunca R$.
+        const r = await this.safe('my_game_points', async () => {
+          const missions = await readMissionsConfig(this.prisma, tenantId);
+          return computeMonthPoints(this.prisma, tenantId, userId, maceioMonthKey(), missions);
+        });
+        if (r == null) return null;
+        return { value: `${levelFor(r.pontos).nivel.emoji} ${r.pontos.toLocaleString('pt-BR')} pts`, tone: 'amber' };
       }
       case 'agenda_today': {
         const n = await this.safe('agenda_today', () =>
