@@ -20,6 +20,12 @@ export const ADMIN_AGENDAMENTO_KEY_PREFIX: Record<OrigemAgendamento, string> = {
 /** DispatchLog.type do aviso (Central de Disparos: DISPATCH_TYPES/TYPE_LABEL). */
 export const ADMIN_AGENDAMENTO_DISPATCH_TYPE = 'admin_agendamento';
 
+/** Id do aviso em DISPAROS_EQUIPE (@crm/shared) — cada ADM liga/desliga no cadastro da equipe. */
+export const ADMIN_AGENDAMENTO_DISPARO: Record<OrigemAgendamento, string> = {
+  IA: 'admin_agendamento_ia',
+  EQUIPE: 'admin_agendamento_equipe',
+};
+
 /** Tipos de evento que são atendimento de verdade (TAREFA/BLOQUEIO/OUTRO/jurídicos ficam de fora). */
 export const ADMIN_AGENDAMENTO_TIPOS = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
 /** Status "marcado" (cancelado/desmarcou/faltou/concluído não avisa). */

@@ -7,7 +7,13 @@ import api from '@/lib/api';
 // Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
 import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
 // Disparos internos (WhatsApp da pessoa): o que cada um recebe, por papel.
-import { disparosEquipeDoPapel } from '@crm/shared';
+import {
+  disparosEquipeDoPapel,
+  parseAlertPhones,
+  recebeDisparoEquipe,
+  telefoneNaListaDeAviso,
+  type CentralDisparoEquipe,
+} from '@crm/shared';
 import { SectorHomePreview } from '@/components/home/SectorHomePreview';
 // Out/2026 — pontuação do "Meu jogo" por profissional (só pra quem atende como dentista).
 import {
@@ -144,6 +150,8 @@ interface UserForm {
   extra_revokes: Permission[];
   // Disparos internos que a pessoa NÃO recebe (ids de DISPAROS_EQUIPE)
   disparos_off: string[];
+  // Disparos opt-in (avisos dos ADMs) que a pessoa marcou pra receber
+  disparos_on: string[];
 }
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
@@ -154,7 +162,7 @@ const ORTHO_WEEKDAYS = [
   { value: 4, label: 'Qui' }, { value: 5, label: 'Sex' }, { value: 6, label: 'Sáb' },
 ];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], ortho_days: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [], disparos_off: [] };
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], ortho_days: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [], disparos_off: [], disparos_on: [] };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -186,6 +194,9 @@ export default function UsersSettingsPage() {
   // Onda 17.32.172 — reenvio do e-mail de confirmacao
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resentId, setResentId] = useState<string | null>(null);
+  // Números de aviso digitados na Central (cards Venda feita / Resumo diário): quem
+  // está ali já recebe — o cadastro mostra marcado e dá pra desligar a pessoa.
+  const [centralNumeros, setCentralNumeros] = useState<Record<CentralDisparoEquipe, string[]>>({ aviso: [], resumo_diario: [] });
 
   const handleResendVerification = async (id: string) => {
     setResendingId(id);
@@ -213,6 +224,18 @@ export default function UsersSettingsPage() {
     fetchUsers();
     fetchInboxes();
     fetchLawyers();
+    fetchCentralNumeros();
+  };
+
+  const fetchCentralNumeros = async () => {
+    const [vf, ds] = await Promise.all([
+      api.get('/followup/venda-feita-config').catch(() => null),
+      api.get('/followup/daily-summary-config').catch(() => null),
+    ]);
+    setCentralNumeros({
+      aviso: parseAlertPhones(vf?.data?.effective || ''),
+      resumo_diario: parseAlertPhones(ds?.data?.phone || ''),
+    });
   };
 
   const fetchInboxes = async () => {
@@ -293,6 +316,7 @@ export default function UsersSettingsPage() {
       extra_grants:  (user.extra_grants  || []) as Permission[],
       extra_revokes: (user.extra_revokes || []) as Permission[],
       disparos_off: user.disparos_off || [],
+      disparos_on: user.disparos_on || [],
     });
     setSpecialtyInput('');
     setError('');
@@ -398,6 +422,7 @@ export default function UsersSettingsPage() {
           extra_grants:  form.extra_grants,
           extra_revokes: form.extra_revokes,
           disparos_off: form.disparos_off,
+          disparos_on: form.disparos_on,
         };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editingId}`, payload);
@@ -425,6 +450,7 @@ export default function UsersSettingsPage() {
           extra_grants:  form.extra_grants,
           extra_revokes: form.extra_revokes,
           disparos_off: form.disparos_off,
+          disparos_on: form.disparos_on,
         });
         savedUserId = res.data?.id;
         // Salvar vínculo de supervisores para novo usuário
@@ -1058,39 +1084,60 @@ export default function UsersSettingsPage() {
                 const disparos = disparosEquipeDoPapel(form);
                 if (disparos.length === 0) return null;
                 const semTelefone = !form.phone.trim();
+                // Agrupa pelo nicho (o ADM vê vários: vendas, agenda, contatos…)
+                const nichos = Array.from(new Set(disparos.map((d) => d.nicho)));
                 return (
                   <div className="space-y-1.5">
                     <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                       📲 Disparos que recebe
                     </label>
-                    <div className="space-y-1.5 p-3 border border-border rounded-xl bg-background/50">
-                      {disparos.map((d) => {
-                        const on = !form.disparos_off.includes(d.id);
-                        return (
-                          <label key={d.id} className="flex items-start gap-2.5 cursor-pointer min-w-0">
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={(e) => setForm((f) => ({
-                                ...f,
-                                disparos_off: e.target.checked
-                                  ? f.disparos_off.filter((x) => x !== d.id)
-                                  : [...f.disparos_off, d.id],
-                              }))}
-                              className="mt-0.5 w-4 h-4 shrink-0 rounded border-border text-primary focus:ring-primary/20"
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-[13px] font-semibold text-foreground">{d.nome}</span>
-                              <span className="block text-[11px] text-muted-foreground">{d.descricao}</span>
-                            </span>
-                          </label>
-                        );
-                      })}
+                    <div className="space-y-3 p-3 border border-border rounded-xl bg-background/50">
+                      {nichos.map((nicho) => (
+                        <div key={nicho} className="space-y-1.5">
+                          {nichos.length > 1 && (
+                            <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider">{nicho}</p>
+                          )}
+                          {disparos.filter((d) => d.nicho === nicho).map((d) => {
+                            // Número desta pessoa na lista da Central = já recebe (marcado).
+                            const naCentral = !!d.central && telefoneNaListaDeAviso(form.phone, centralNumeros[d.central]);
+                            const on = recebeDisparoEquipe(form, d.id, { naCentral });
+                            // Ligar: tira do "desligou" e, se o aviso é opt-in, marca. Desligar: tira
+                            // da marcação; "desligou" só quando ainda receberia (padrão ou Central).
+                            const alternar = (ligar: boolean) => setForm((f) => {
+                              const off = f.disparos_off.filter((x) => x !== d.id);
+                              const onList = f.disparos_on.filter((x) => x !== d.id);
+                              if (ligar) return { ...f, disparos_off: off, disparos_on: d.padrao || naCentral ? onList : [...onList, d.id] };
+                              return { ...f, disparos_off: d.padrao || naCentral ? [...off, d.id] : off, disparos_on: onList };
+                            });
+                            return (
+                              <label key={d.id} className="flex items-start gap-2.5 cursor-pointer min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={(e) => alternar(e.target.checked)}
+                                  className="mt-0.5 w-4 h-4 shrink-0 rounded border-border text-primary focus:ring-primary/20"
+                                />
+                                <span className="min-w-0">
+                                  <span className="block text-[13px] font-semibold text-foreground">
+                                    {d.nome}
+                                    {naCentral && (
+                                      <span className="ml-1.5 text-[10px] font-semibold text-primary/80 whitespace-nowrap">· número na Central</span>
+                                    )}
+                                  </span>
+                                  <span className="block text-[11px] text-muted-foreground">{d.descricao}</span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                     <p className="text-[11px] text-muted-foreground ml-1">
                       {semTelefone
                         ? 'Sem telefone no cadastro — essa pessoa não recebe nenhum disparo.'
-                        : 'Chega no WhatsApp do telefone acima. O disparo também precisa estar ligado na Central de Disparos.'}
+                        : disparos.some((d) => !d.padrao)
+                          ? 'Chega no WhatsApp do telefone acima. Os avisos da clínica só chegam pra quem estiver marcado (ou com o número na Central); o disparo também precisa estar ligado na Central de Disparos.'
+                          : 'Chega no WhatsApp do telefone acima. O disparo também precisa estar ligado na Central de Disparos.'}
                     </p>
                   </div>
                 );

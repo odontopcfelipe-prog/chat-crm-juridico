@@ -72,7 +72,7 @@ export function ResumoDiarioEditor() {
         <div>
           <label className="text-sm font-medium text-foreground">Números que recebem o resumo</label>
           <Phones55ListInput locais={locais} onChange={setLocais} />
-          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Pode cadastrar <b>vários</b> (o resumo vai pra todos). Deixe vazio pra desligar.</p>
+          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Pode cadastrar <b>vários</b> (o resumo vai pra todos). Quem é da equipe também pode receber marcando em <b>Equipe → editar → Disparos que recebe</b>.</p>
         </div>
 
         <div>

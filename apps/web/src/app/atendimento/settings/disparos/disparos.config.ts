@@ -436,10 +436,10 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: 'Tarefa vencendo em 30min · vencidas às 8h/14h · pro responsável', canal: 'WhatsApp', tags: ['Interno'],
     operacionalKey: 'task_alerts' },
   { id: 'resumo_diario', nome: 'Resumo diário do dia', categoria: 'equipe',
-    gatilho: 'Todo dia no horário configurado · entradas, saídas, vendas de boleto e negociações · a um número', canal: 'WhatsApp', tags: ['Interno'],
+    gatilho: 'Todo dia no horário configurado · entradas, saídas, vendas de boleto e negociações · aos números da Central + ADMs marcados no cadastro', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'resumo_diario', operacionalKey: 'daily_summary' },
   { id: 'venda_feita', nome: 'Venda feita · notificação', categoria: 'equipe',
-    gatilho: 'A cada venda (venda rápida ou aprovar-e-cobrar) · paciente, valor, forma, itens · a um número', canal: 'WhatsApp', tags: ['Interno'],
+    gatilho: 'A cada venda (venda rápida ou aprovar-e-cobrar) · paciente, valor, forma, itens · aos números da Central + ADMs marcados no cadastro', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'venda_feita', operacionalKey: 'venda_feita' },
   // Triagem não-paciente: quando quem escreve é fornecedor / currículo / parceria /
   // propaganda, a IA encaminha ao responsável e encerra (em vez de tentar vender) e
@@ -449,25 +449,27 @@ export const DISPAROS: DisparoItem[] = [
     descricao:
       'Quando quem escreve NÃO é paciente — emprego / currículo / entrevista, fornecedor, negociação / contrato / reunião comercial, ' +
       'parceria ou propaganda / spam — a IA não marca consulta nem tenta vender: responde que vai repassar ao responsável, PAUSA a IA ' +
-      'nessa conversa e avisa os ADMs no número de aviso (o mesmo do "Venda feita" / "Resumo diário"), junto com o currículo/arquivo ' +
+      'nessa conversa e avisa os ADMs — os números de aviso (os mesmos do "Venda feita" / "Resumo diário") e quem marcou o aviso em ' +
+      'Equipe → editar → "Disparos que recebe" —, junto com o currículo/arquivo ' +
       'que a pessoa mandar (os que chegarem depois, até 72h, também são encaminhados). Esse contato nunca entra na régua de reativação.',
     operacionalKey: 'nao_paciente_triage' },
   // Aviso aos ADMs de NOVO AGENDAMENTO ("todo paciente agendado notificar aos adms"):
   // o worker (admin-alerts) avisa no número dos adms. Um card por origem — dá pra
   // ligar só o da IA (conferir o que ela marca) ou os dois. Default OFF.
   { id: 'admin_agendamento_ia', nome: 'Aviso aos ADMs: agendamento feito pela IA', categoria: 'equipe',
-    gatilho: 'A IA marcou uma consulta · paciente, dia e hora, tipo e dentista · ao número dos adms', canal: 'WhatsApp', tags: ['IA', 'Interno'],
+    gatilho: 'A IA marcou uma consulta · paciente, dia e hora, tipo e dentista · aos números da Central + ADMs marcados no cadastro', canal: 'WhatsApp', tags: ['IA', 'Interno'],
     descricao:
-      'A cada consulta, procedimento, retorno ou ortodontia que a IA marcar, um aviso vai pro número de aviso dos ADMs — o mesmo do ' +
+      'A cada consulta, procedimento, retorno ou ortodontia que a IA marcar, um aviso vai pros ADMs: quem marcou o aviso em Equipe → editar → ' +
+      '"Disparos que recebe" e os números de aviso — os mesmos do ' +
       '"Venda feita" / "Resumo diário" (pra avisar mais de um número, use "Adicionar outro número" no card do Venda feita — um número por campo). A mensagem diz: "📅 Novo agendamento" com o ' +
       'paciente e o telefone, o dia da semana, data e hora, o tipo, com qual dentista e "Marcado por: IA (nome da assistente)". ' +
       'Série recorrente avisa só a 1ª; agendamento desmarcado antes do aviso não avisa. Só avisa o que for marcado depois de ligar.',
     operacionalKey: 'admin_agendamento_ia' },
   { id: 'admin_agendamento_equipe', nome: 'Aviso aos ADMs: agendamento feito pela equipe', categoria: 'equipe',
-    gatilho: 'Alguém da equipe marcou uma consulta · paciente, dia e hora, tipo, dentista e quem marcou · ao número dos adms', canal: 'WhatsApp', tags: ['Interno'],
+    gatilho: 'Alguém da equipe marcou uma consulta · paciente, dia e hora, tipo, dentista e quem marcou · aos números da Central + ADMs marcados no cadastro', canal: 'WhatsApp', tags: ['Interno'],
     descricao:
       'A cada consulta, procedimento, retorno ou ortodontia marcado por alguém da equipe (recepção, dentista, comercial), um aviso ' +
-      'vai pro número de aviso dos ADMs — o mesmo do "Venda feita" / "Resumo diário" (pra avisar mais de um número, use "Adicionar outro número" no card do Venda feita — um número por campo). ' +
+      'vai pros ADMs: quem marcou o aviso em Equipe → editar → "Disparos que recebe" e os números de aviso — os mesmos do "Venda feita" / "Resumo diário" (pra avisar mais de um número, use "Adicionar outro número" no card do Venda feita — um número por campo). ' +
       'A mensagem diz: "📅 Novo agendamento" com o paciente e o telefone, o dia da semana, data e hora, o tipo, com qual dentista e ' +
       '"Marcado por: nome de quem marcou". Série recorrente avisa só a 1ª; desmarcado antes do aviso não avisa. Só avisa o que for marcado depois de ligar.',
     operacionalKey: 'admin_agendamento_equipe' },

@@ -201,6 +201,39 @@ describe('sendAdminAlert (helper puro)', () => {
     }
   });
 
+  it('com `disparo`: Central + ADMs com o aviso marcado, menos quem desligou (cadastro da equipe)', async () => {
+    const p: any = mkPrisma({ VENDA_FEITA_PHONE_t1: '82988887777, 82911112222' }, [{ name: 'fin', purpose: 'FINANCEIRO' }]);
+    const users = [
+      { id: 'u-ana', name: 'Ana', phone: '82999998888', roles: ['ADMIN'], disparos_off: [], disparos_on: ['admin_agendamento_ia'] },
+      { id: 'u-bia', name: 'Bia', phone: '5582988887777', roles: ['ADMIN'], disparos_off: ['admin_agendamento_ia'], disparos_on: [] },
+      { id: 'u-davi', name: 'Davi', phone: '82966665555', roles: ['ADMIN'], disparos_off: [], disparos_on: [] },
+    ];
+    p.user = { findMany: jest.fn(async () => users) };
+    mockedPost.mockResolvedValue({ data: { key: { id: 'M' } } });
+
+    const r = await sendAdminAlert(p, evo, 't1', { text: 'novo', type: 'admin_agendamento', disparo: 'admin_agendamento_ia' });
+    // Bia desligou: o número dela sai mesmo estando na Central; Ana marcou e entra pelo
+    // cadastro; Davi é ADM mas não marcou (opt-in) → não recebe.
+    expect(r.phones).toEqual(['5582911112222', '5582999998888']);
+    expect(p.logs.map((l: any) => l.ref_user_id)).toEqual([null, 'u-ana']);
+    expect(p.user.findMany.mock.calls[0][0].where).toMatchObject({ tenant_id: 't1' });
+
+    // Sem `disparo` (chamada antiga): só os números da Central, nem lê a equipe.
+    mockedPost.mockClear();
+    const p2: any = mkPrisma({ VENDA_FEITA_PHONE_t1: '82988887777' }, [{ name: 'fin', purpose: 'FINANCEIRO' }]);
+    p2.user = { findMany: jest.fn(async () => users) };
+    expect((await sendAdminAlert(p2, evo, 't1', { text: 'x' })).phones).toEqual(['5582988887777']);
+    expect(p2.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('com `disparo` e equipe ilegível (erro): valem só os números da Central', async () => {
+    const p: any = mkPrisma({ VENDA_FEITA_PHONE_t1: '82988887777' }, [{ name: 'fin', purpose: 'FINANCEIRO' }]);
+    p.user = { findMany: jest.fn(async () => { throw new Error('column disparos_off does not exist'); }) };
+    mockedPost.mockResolvedValue({ data: { key: { id: 'M' } } });
+    const r = await sendAdminAlert(p, evo, 't1', { text: 'x', disparo: 'venda_feita' });
+    expect(r).toMatchObject({ sent: 1, phones: ['5582988887777'] });
+  });
+
   it('evolutionEntregou: só com id e sem exists:false', () => {
     expect(evolutionEntregou({ key: { id: 'a' } })).toBe(true);
     expect(evolutionEntregou({ exists: false, key: { id: 'a' } })).toBe(false);

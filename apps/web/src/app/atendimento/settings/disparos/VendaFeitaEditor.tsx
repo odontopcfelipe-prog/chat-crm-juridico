@@ -74,7 +74,8 @@ export function VendaFeitaEditor() {
           <label className="text-sm font-medium text-foreground">Números que recebem o aviso</label>
           <p className="text-[11px] text-muted-foreground mb-1">
             É o <b>número de aviso dos ADMs</b>: também recebe os avisos de <b>novo agendamento</b> e da{' '}
-            <b>triagem não-paciente</b>. Pode cadastrar <b>vários</b> — o aviso vai pra todos.
+            <b>triagem não-paciente</b>. Pode cadastrar <b>vários</b> — o aviso vai pra todos. Quem é da equipe também pode receber
+            marcando em <b>Equipe → editar → Disparos que recebe</b> (lá dá pra tirar alguém, mesmo com o número aqui).
           </p>
           <Phones55ListInput locais={locais} onChange={setLocais} />
           {inherited ? (

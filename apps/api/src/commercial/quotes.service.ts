@@ -15,9 +15,10 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, parseAlertPhones, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, type Permission, type Sector } from '@crm/shared';
 // Out/2026 — direcionar procedimento pro dentista da área (especialidade).
 import { loadTenantDentists } from '../common/utils/tenant-dentists';
+import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
@@ -1984,18 +1985,11 @@ export class QuotesService {
 
       const on = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } });
       if (on?.value !== 'true') return;
-      // Número: usa o PRÓPRIO (VENDA_FEITA_PHONE) e, se vazio, HERDA o mesmo
-      // contato do Resumo Diário (DAILY_SUMMARY_PHONE) — assim o aviso vai pro
-      // mesmo número dos demais disparos internos sem recadastrar (evita erro
-      // de digitar o número duas vezes).
-      const [ownRow, inheritRow] = await Promise.all([
-        this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
-        this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
-      ]);
-      // Aceita VÁRIOS números (vírgula/;/quebra de linha) — parse único do @crm/shared.
-      const ownPhones = parseAlertPhones(ownRow?.value);
-      const phones = ownPhones.length ? ownPhones : parseAlertPhones(inheritRow?.value);
-      if (!phones.length) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número (nem próprio nem herdado do resumo) — pulando`); return; }
+      // Quem recebe: os números da Central (VENDA_FEITA_PHONE; se vazio, HERDA o do
+      // Resumo Diário) + os ADMs com "Venda feita" marcado no cadastro da equipe,
+      // menos quem desligou (regra única do @crm/shared).
+      const destinos = await loadAdminAlertRecipients(this.prisma, tenantId, 'venda_feita');
+      if (!destinos.length) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM destinatário (nenhum número na Central nem ADM com o aviso marcado) — pulando`); return; }
 
       // Dedup por venda (approve-and-bill é idempotente; não notifica 2x).
       const ja = await this.prisma.auditLog.findFirst({ where: { entity: 'VENDA_FEITA', entity_id: planId }, select: { id: true } });
@@ -2031,11 +2025,11 @@ export class QuotesService {
       // Aviso interno: tenta os chips do tenant e para no primeiro que entregou.
       // Se o FINANCEIRO estiver caído, sai pelo CLINICA/COMERCIAL — não silencia.
       let algumEntregou = false;
-      for (const phone of phones) {
+      for (const { phone, userId, nome } of destinos) {
         const sent = await this.sendInternalAlert(tenantId, phone, msg.trim());
         if (!sent.ok) { this.logger.warn(`[VENDA_FEITA] nenhum chip conectado entregou (plano ${planId}, ${phone}).`); continue; }
         algumEntregou = true;
-        await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (sent.res as any)?.key?.id || null } }).catch(() => {});
+        await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_name: nome, recipient_phone: phone, status: 'SENT', external_message_id: (sent.res as any)?.key?.id || null, ref_user_id: userId } }).catch(() => {});
         this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone} (chip ${sent.instance}).`);
       }
       if (!algumEntregou) return;
@@ -4641,11 +4635,11 @@ export class QuotesService {
   private async findResumoAdmins(tenantId: string) {
     const admins = await this.prisma.user.findMany({
       where: { tenant_id: tenantId, roles: { has: 'ADMIN' }, phone: { not: null } },
-      select: { id: true, name: true, phone: true },
+      select: { id: true, name: true, phone: true, disparos_off: true },
       orderBy: { name: 'asc' },
     });
     return admins.filter((a) => (a.phone || '').replace(/\D/g, '').length >= 8) as Array<{
-      id: string; name: string; phone: string;
+      id: string; name: string; phone: string; disparos_off: string[];
     }>;
   }
 
@@ -4659,15 +4653,18 @@ export class QuotesService {
   /** Manda um resumo interno aos ADMs (todos ou só `onlyUserId`) pela instância da
    *  clínica. `dedupSince` = trava 1x/dia por adm+tipo (cron); o envio manual não
    *  trava. Sucesso REAL via wasSent (a Evolution devolve erro sem lançar) — falha
-   *  vira DispatchLog FAILED com o motivo, e volta no retorno pro front mostrar. */
+   *  vira DispatchLog FAILED com o motivo, e volta no retorno pro front mostrar.
+   *  `disparo` (id de DISPAROS_EQUIPE) = pula quem desligou esse aviso no cadastro da
+   *  equipe; escolher UM adm no botão manual é pedido explícito e manda mesmo assim. */
   private async sendResumoAosAdms(
     tenantId: string,
     text: string,
     type: string,
-    opts: { dedupSince?: Date; onlyUserId?: string } = {},
+    opts: { dedupSince?: Date; onlyUserId?: string; disparo?: string } = {},
   ): Promise<{ recipients: number; sent: string[]; failed: Array<{ name: string; error: string }> }> {
     let admins = await this.findResumoAdmins(tenantId);
     if (opts.onlyUserId) admins = admins.filter((a) => a.id === opts.onlyUserId);
+    else if (opts.disparo) admins = admins.filter((a) => recebeDisparoEquipe(a, opts.disparo!));
     const out = { recipients: admins.length, sent: [] as string[], failed: [] as Array<{ name: string; error: string }> };
     if (admins.length === 0) return out;
     const instanceName = await this.resolveResumoInstanceName(tenantId);
@@ -4726,13 +4723,13 @@ export class QuotesService {
       tenantId,
       text,
       orto ? 'pacientes_sem_agendamento_orto_manual' : 'pacientes_sem_agendamento_manual',
-      { onlyUserId: adminId },
+      { onlyUserId: adminId, disparo: orto ? 'pacientes_sem_agendamento_orto' : 'pacientes_sem_agendamento' },
     );
     if (r.recipients === 0) {
       throw new BadRequestException(
         adminId
           ? 'Esse administrador não foi encontrado ou está sem telefone cadastrado.'
-          : 'Nenhum administrador com telefone cadastrado — cadastre o telefone em Configurações › Usuários.',
+          : 'Nenhum administrador com telefone e este aviso ligado — confira em Configurações › Usuários (telefone e "Disparos que recebe").',
       );
     }
     return r;
@@ -4770,7 +4767,7 @@ export class QuotesService {
         try {
           const d = await this.buildSemAgendamentoDigest(t.id);
           if (d.semAgendar + d.parados + d.standby > 0) {
-            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_adm', { dedupSince: startOfToday });
+            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_adm', { dedupSince: startOfToday, disparo: 'pacientes_sem_agendamento' });
             this.logger.log(
               `[SEM_AGENDAMENTO] tenant ${t.id}: ${d.semAgendar} sem agendar, ${d.parados} parados, ${d.standby} standby → ${r.sent.length}/${r.recipients} adm(s)`,
             );
@@ -4784,7 +4781,7 @@ export class QuotesService {
         try {
           const d = await this.buildOrtoSemAgendamentoDigest(t.id);
           if (d.total > 0) {
-            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_orto_adm', { dedupSince: startOfToday });
+            const r = await this.sendResumoAosAdms(t.id, d.text, 'pacientes_sem_agendamento_orto_adm', { dedupSince: startOfToday, disparo: 'pacientes_sem_agendamento_orto' });
             this.logger.log(`[SEM_AGENDAMENTO_ORTO] tenant ${t.id}: ${d.total} sem agendar → ${r.sent.length}/${r.recipients} adm(s)`);
           }
         } catch (err: any) {
@@ -4797,8 +4794,9 @@ export class QuotesService {
   // ─── Resumo diário do dia (a um número configurado, horário configurável) ──
   // Roda a cada minuto (fuso Maceió) mas SÓ trabalha quando bate o horário
   // configurado da clínica — leitura barata dos horários primeiro, early-return
-  // se nada bate. Opt-in (DAILY_SUMMARY_ENABLED_<tenant>), número em
-  // DAILY_SUMMARY_PHONE_<tenant>, horário em DAILY_SUMMARY_TIME_<tenant>
+  // se nada bate. Opt-in (DAILY_SUMMARY_ENABLED_<tenant>), números em
+  // DAILY_SUMMARY_PHONE_<tenant> + ADMs com o aviso marcado no cadastro da equipe,
+  // horário em DAILY_SUMMARY_TIME_<tenant>
   // (default "00:00"). Dedup 1x/dia via DispatchLog type 'daily_summary'.
   @Cron('* * * * *', { timeZone: 'America/Maceio' })
   async cronDailySummary() {
@@ -4838,10 +4836,10 @@ export class QuotesService {
       try {
         const enabled = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tid}` } }).catch(() => null);
         if (enabled?.value !== 'true') continue;
-        const phoneRow = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tid}` } }).catch(() => null);
-        // Aceita VÁRIOS números (vírgula/;/quebra de linha) — parse único do @crm/shared.
-        const phones = parseAlertPhones(phoneRow?.value);
-        if (!phones.length) { this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} ligado mas SEM número configurado — pulando`); continue; }
+        // Quem recebe: os números do card (DAILY_SUMMARY_PHONE, vários) + os ADMs com
+        // "Resumo diário do dia" marcado no cadastro da equipe, menos quem desligou.
+        const destinos = await loadAdminAlertRecipients(this.prisma, tid, 'resumo_diario');
+        if (!destinos.length) { this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} ligado mas SEM destinatário (nenhum número no card nem ADM com o aviso marcado) — pulando`); continue; }
 
         const already = await this.prisma.dispatchLog.findFirst({
           where: { tenant_id: tid, type: 'daily_summary', sent_at: { gte: startOfToday } },
@@ -4853,14 +4851,14 @@ export class QuotesService {
         // Mesmo helper resiliente do venda_feita: tenta os chips e só marca SENT
         // se algum REALMENTE entregou (antes marcava SENT mesmo com o chip caído,
         // porque a Evolution não lança — devolve erro).
-        for (const phone of phones) {
+        for (const { phone, userId, nome } of destinos) {
           const sent = await this.sendInternalAlert(tid, phone, msg);
           if (sent.ok) {
-            await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } }).catch(() => {});
+            await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_name: nome, recipient_phone: phone, status: 'SENT', ref_user_id: userId } }).catch(() => {});
             this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone} (chip ${sent.instance}).`);
           } else {
             await this.prisma.dispatchLog
-              .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: 'nenhum chip conectado entregou' } })
+              .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_name: nome, recipient_phone: phone, status: 'FAILED', error: 'nenhum chip conectado entregou', ref_user_id: userId } })
               .catch(() => {});
             this.logger.warn(`[DAILY_SUMMARY] tenant ${tid}: nenhum chip entregou o resumo pra ${phone}.`);
           }

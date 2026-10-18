@@ -1,16 +1,24 @@
 import axios from 'axios';
 import { Logger } from '@nestjs/common';
-import { parseAlertPhones, toBrazilWhatsappNumber, type PrismaClient } from '@crm/shared';
+import {
+  destinatariosAvisoAdm,
+  parseAlertPhones,
+  toBrazilWhatsappNumber,
+  type DestinatarioAviso,
+  type MembroAvisoEquipe,
+  type PrismaClient,
+} from '@crm/shared';
 
 /**
  * AVISO INTERNO AOS ADMs — helper PURO (sem DI, sem @Injectable): qualquer serviço
  * do worker chama passando o próprio prisma + a config da Evolution. Não importa
  * módulo nenhum, então não cria ciclo de DI (ver memória "Ciclo de DI derruba a API").
  *
- * Pra onde vai: o MESMO número dos avisos "Venda feita" / "Resumo diário"
- *   GlobalSetting VENDA_FEITA_PHONE_<tenant>  (fallback DAILY_SUMMARY_PHONE_<tenant>),
- * que aceita VÁRIOS números separados por vírgula / ";" / quebra de linha
- * (parseAlertPhones do @crm/shared — mesma regra da API).
+ * Pra onde vai: os números de aviso da Central (os mesmos do "Venda feita" /
+ * "Resumo diário": GlobalSetting VENDA_FEITA_PHONE_<tenant>, fallback
+ * DAILY_SUMMARY_PHONE_<tenant>, VÁRIOS números — parseAlertPhones do @crm/shared)
+ * e, com `disparo` (id de DISPAROS_EQUIPE), também os ADMs com telefone e o aviso
+ * marcado no cadastro da equipe — menos quem desligou (destinatariosAvisoAdm).
  *
  * Por onde sai: um chip DA CLÍNICA, na ordem FINANCEIRO → CLINICA → resto (mesma do
  * sendInternalAlert da API), parando no primeiro que REALMENTE entregou (key.id e
@@ -21,7 +29,8 @@ import { parseAlertPhones, toBrazilWhatsappNumber, type PrismaClient } from '@cr
  *   import { sendAdminAlert } from '../admin-alerts/admin-alert';
  *   const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
  *     type: 'nao_paciente_handoff',
- *     text: '🔔 *Contato não-paciente* ...',
+ *     disparo: 'nao_paciente_triage',
+ *     text:'🔔 *Contato não-paciente* ...',
  *     media: { data: base64OuUrl, mediatype: 'document', mimetype: 'application/pdf', fileName: 'curriculo.pdf' },
  *     recipientName: lead.name,
  *   });
@@ -48,7 +57,7 @@ export type AdminAlertEvolutionSource =
   | { getEvolutionConfig(): Promise<AdminAlertEvolution> };
 
 /** Só os delegates do Prisma que o helper usa (PrismaService do worker serve). */
-export type AdminAlertPrisma = Pick<PrismaClient, 'globalSetting' | 'instance' | 'dispatchLog'>;
+export type AdminAlertPrisma = Pick<PrismaClient, 'globalSetting' | 'instance' | 'dispatchLog' | 'user'>;
 
 /** Arquivo anexo (currículo, proposta, foto...). */
 export interface AdminAlertMedia {
@@ -81,6 +90,14 @@ export interface AdminAlertOptions {
    * Os números são normalizados (55) e deduplicados aqui.
    */
   phones?: string[] | null;
+  /**
+   * Id do aviso em DISPAROS_EQUIPE (ex.: 'admin_agendamento_ia'). Com ele, os
+   * destinatários são os números da Central + os ADMs com o aviso marcado no cadastro,
+   * menos quem desligou. Sem ele, só os números da Central (comportamento antigo).
+   */
+  disparo?: string | null;
+  /** Destinatários já resolvidos (adminAlertRecipients) — evita reler a cada aviso. */
+  recipients?: DestinatarioAviso[] | null;
 }
 
 export interface AdminAlertResult {
@@ -115,6 +132,49 @@ export async function adminAlertPhones(
     logger.warn(`[ADMIN-ALERT] tenant ${tenantId}: falha ao ler os números de aviso: ${e?.message}`);
     return [];
   }
+}
+
+/**
+ * Membros que contam pro aviso `disparo`: os ADMs com telefone (podem receber) e
+ * quem desligou esse aviso no cadastro (sai mesmo que o número esteja na Central).
+ * [] em erro de leitura — aí valem só os números da Central.
+ */
+export async function adminAlertMembers(
+  prisma: Pick<PrismaClient, 'user'>,
+  tenantId: string,
+  disparo: string,
+): Promise<MembroAvisoEquipe[]> {
+  if (!tenantId) return [];
+  try {
+    return await prisma.user.findMany({
+      where: {
+        tenant_id: tenantId,
+        phone: { not: null },
+        OR: [{ roles: { has: 'ADMIN' } }, { disparos_off: { has: disparo } }],
+      },
+      select: { id: true, name: true, phone: true, roles: true, disparos_off: true, disparos_on: true },
+      orderBy: { name: 'asc' },
+    });
+  } catch (e: any) {
+    logger.warn(`[ADMIN-ALERT] tenant ${tenantId}: falha ao ler a equipe (${disparo}): ${e?.message}`);
+    return [];
+  }
+}
+
+/**
+ * Quem recebe o aviso `disparo`: números da Central + ADMs com o aviso marcado no
+ * cadastro, menos quem desligou (regra única destinatariosAvisoAdm do @crm/shared).
+ */
+export async function adminAlertRecipients(
+  prisma: Pick<PrismaClient, 'globalSetting' | 'user'>,
+  tenantId: string,
+  disparo: string,
+): Promise<DestinatarioAviso[]> {
+  const [central, membros] = await Promise.all([
+    adminAlertPhones(prisma, tenantId),
+    adminAlertMembers(prisma, tenantId, disparo),
+  ]);
+  return destinatariosAvisoAdm(disparo, central, membros);
 }
 
 /** Chips da clínica na ordem do aviso interno: FINANCEIRO → CLINICA → resto (por nome). */
@@ -187,7 +247,7 @@ async function postEvolution(
 }
 
 /**
- * Envia o aviso a TODOS os números de aviso dos ADMs da clínica. Pra cada número,
+ * Envia o aviso a todos os destinatários (ver AdminAlertOptions). Pra cada número,
  * tenta os chips na ordem FINANCEIRO → CLINICA → resto e para no 1º que entregou.
  * Com `media`: tenta o arquivo (legenda = text); se nenhum chip entregar o arquivo,
  * cai pro texto puro (com a observação de que o arquivo não foi anexado).
@@ -201,12 +261,20 @@ export async function sendAdminAlert(
 ): Promise<AdminAlertResult> {
   const type = (opts.type || 'admin_alert').slice(0, 64);
   const text = String(opts.text || '').trim();
-  // Destinatários explícitos (equipe escolhida) têm prioridade; senão, os números
-  // de aviso padrão da clínica (VENDA_FEITA_PHONE). Normaliza (55) e deduplica.
+  // Destinatários explícitos (equipe escolhida) têm prioridade; senão, os já
+  // resolvidos pelo chamador; senão, a regra do aviso (`disparo`: Central + ADMs do
+  // cadastro); sem `disparo`, só os números da Central. Normaliza (55) e deduplica.
   const override = Array.isArray(opts.phones)
     ? [...new Set(opts.phones.filter((p) => p && String(p).trim()).map((p) => toBrazilWhatsappNumber(p)))]
     : [];
-  const phones = override.length ? override : await adminAlertPhones(prisma, tenantId);
+  const destinos: DestinatarioAviso[] = override.length
+    ? override.map((phone) => ({ phone, userId: null, nome: null }))
+    : opts.recipients
+      ? opts.recipients
+      : opts.disparo
+        ? await adminAlertRecipients(prisma, tenantId, opts.disparo)
+        : (await adminAlertPhones(prisma, tenantId)).map((phone) => ({ phone, userId: null, nome: null }));
+  const phones = destinos.map((d) => d.phone);
   if (!phones.length) {
     return { sent: 0, failed: 0, phones: [], noPhone: true };
   }
@@ -215,8 +283,8 @@ export async function sendAdminAlert(
 
   let sent = 0;
   let failed = 0;
-  for (const phone of phones) {
-    const number = toBrazilWhatsappNumber(phone);
+  for (const destino of destinos) {
+    const number = toBrazilWhatsappNumber(destino.phone);
     let entregue: { id: string | null; chip: string } | null = null;
     let ultimoErro: string | null = !cfg ? 'Evolution não configurada' : !chips.length ? 'clínica sem chip' : null;
 
@@ -279,6 +347,7 @@ export async function sendAdminAlert(
           external_message_id: entregue?.id || null,
           ref_event_id: opts.refEventId || null,
           ref_patient_id: opts.refPatientId || null,
+          ref_user_id: destino.userId,
           sent_at: new Date(),
         },
       });

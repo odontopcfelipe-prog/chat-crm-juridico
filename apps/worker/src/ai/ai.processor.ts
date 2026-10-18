@@ -19,6 +19,7 @@ import {
   isNonPatientCategory,
   naoPacienteTriageKey,
   nonPatientCategoryLabel,
+  desligouDisparoEquipe,
 } from '@crm/shared';
 import { sendAdminAlert } from '../admin-alerts/admin-alert';
 import {
@@ -681,9 +682,10 @@ export class AiProcessor extends WorkerHost {
   }
 
   /**
-   * Aviso aos ADMs pelo helper sendAdminAlert: VÁRIOS números (VENDA_FEITA_PHONE_<t>,
-   * senão DAILY_SUMMARY_PHONE_<t>), só chips DA CLÍNICA (nunca o EVOLUTION_INSTANCE_NAME
-   * global), DispatchLog 'nao_paciente_handoff' por número.
+   * Aviso aos ADMs pelo helper sendAdminAlert: números da Central (VENDA_FEITA_PHONE_<t>,
+   * senão DAILY_SUMMARY_PHONE_<t>) + ADMs com "Contato não-paciente" marcado no cadastro,
+   * só chips DA CLÍNICA (nunca o EVOLUTION_INSTANCE_NAME global), DispatchLog
+   * 'nao_paciente_handoff' por número.
    */
   private async alertAdminsNonPatient(
     tenantId: string,
@@ -703,12 +705,13 @@ export class AiProcessor extends WorkerHost {
     });
     const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
       type: 'nao_paciente_handoff',
+      disparo: 'nao_paciente_triage',
       text,
       recipientName: nome,
     });
     if (r.noPhone) {
       this.logger.warn(
-        `[AI][NÃO-PACIENTE] Sem número de aviso dos ADMs (VENDA_FEITA_PHONE/DAILY_SUMMARY_PHONE) — tenant ${tenantId}. Handoff feito, mas ninguém avisado por WhatsApp.`,
+        `[AI][NÃO-PACIENTE] Sem destinatário (nenhum número na Central nem ADM com telefone e o aviso marcado) — tenant ${tenantId}. Handoff feito, mas ninguém avisado por WhatsApp.`,
       );
     } else {
       this.logger.log(`[AI][NÃO-PACIENTE] ADMs avisados: ${r.sent}/${r.phones.length} número(s) (conv ${convo.id})`);
@@ -784,6 +787,7 @@ export class AiProcessor extends WorkerHost {
           const caption = buildNonPatientAttachmentCaption({ nome, categoria, telefone, caption: m.text || null });
           const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
             type: 'nao_paciente_anexo',
+            disparo: 'nao_paciente_triage',
             recipientName: nome,
             text: file ? caption : `${caption}\n\n_(o arquivo não pôde ser anexado — veja na conversa pelo painel)_`,
             media: file
@@ -4291,9 +4295,10 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             try {
               const resumo = String(financeiro_action.resumo || updates?.notes || aiText || '').slice(0, 500);
               // Destinatários escolhidos na config do chip Financeiro (equipe) — se
-              // houver, o aviso vai SÓ pra eles; vazio = cai nos números padrão de aviso
-              // da clínica (fallback dentro do sendAdminAlert). IDs resolvidos p/ telefone
-              // só dos usuários DESTE tenant (nunca de outra clínica).
+              // houver, o aviso vai SÓ pra eles (menos quem desligou o aviso no cadastro);
+              // vazio = cai na regra padrão do aviso (números da Central + ADMs com o aviso
+              // marcado, dentro do sendAdminAlert). IDs resolvidos p/ telefone só dos
+              // usuários DESTE tenant (nunca de outra clínica).
               let recipPhones: string[] | undefined;
               try {
                 const row = await (this.prisma as any).tenantSetting.findUnique({
@@ -4305,19 +4310,23 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
                 if (ids.length) {
                   const us = await this.prisma.user.findMany({
                     where: { id: { in: ids }, tenant_id: sendTenantId },
-                    select: { phone: true },
+                    select: { phone: true, disparos_off: true },
                   });
-                  const ph = us.map((u: any) => u.phone).filter((p: any) => p && String(p).trim());
+                  const ph = us
+                    .filter((u: any) => !desligouDisparoEquipe(u, 'carla_escalonamento'))
+                    .map((u: any) => u.phone)
+                    .filter((p: any) => p && String(p).trim());
                   if (ph.length) recipPhones = ph;
                 }
               } catch { /* setting ausente/corrompido → números padrão */ }
               const r = await sendAdminAlert(this.prisma, this.settings, sendTenantId, {
                 type: 'carla_escalonamento',
+                disparo: 'carla_escalonamento',
                 text: `🔔 *Financeiro — precisa de você*\nPaciente: ${convo.lead?.name || 'sem nome'} (${convo.lead?.phone || 's/ número'})\n${resumo || '(sem resumo)'}\n\nResponda pelo chat do Financeiro.`,
                 recipientName: convo.lead?.name || null,
                 phones: recipPhones,
               });
-              this.logger.log(`[CARLA] escalonamento → ADMs (${recipPhones ? 'equipe escolhida' : 'números padrão'}): sent=${r.sent} failed=${r.failed} noPhone=${r.noPhone}`);
+              this.logger.log(`[CARLA] escalonamento → ADMs (${recipPhones ? 'equipe escolhida' : 'Central + ADMs do cadastro'}): sent=${r.sent} failed=${r.failed} noPhone=${r.noPhone}`);
             } catch (e: any) {
               this.logger.error(`[CARLA] falha ao avisar os ADMs do escalonamento: ${e?.message}`);
             }

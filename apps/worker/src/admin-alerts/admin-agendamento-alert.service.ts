@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { aiProfileKey, isAiChipPurpose, normalizeAiChipProfile, DEFAULT_ASSISTANT_NAME } from '@crm/shared';
+import {
+  aiProfileKey,
+  isAiChipPurpose,
+  normalizeAiChipProfile,
+  DEFAULT_ASSISTANT_NAME,
+  type DestinatarioAviso,
+} from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { adminAlertPhones, sendAdminAlert } from './admin-alert';
+import { adminAlertRecipients, sendAdminAlert } from './admin-alert';
 import {
+  ADMIN_AGENDAMENTO_DISPARO,
   ADMIN_AGENDAMENTO_DISPATCH_TYPE,
   ADMIN_AGENDAMENTO_KEY_PREFIX,
   ADMIN_AGENDAMENTO_MAX_POR_TICK,
@@ -92,10 +99,29 @@ export class AdminAgendamentoAlertService {
     ligados: Partial<Record<OrigemAgendamento, Date>>,
     agora: Date,
   ): Promise<number> {
+    // Quem recebe cada origem (números da Central + ADMs com o aviso marcado no cadastro,
+    // menos quem desligou). Origem sem ninguém NÃO busca/reivindica os eventos dela:
+    // se alguém ligar dentro da janela de 2h, ainda avisa.
+    const destinos: Partial<Record<OrigemAgendamento, DestinatarioAviso[]>> = {};
     const origens: any[] = [];
-    if (ligados.IA) origens.push({ created_by_ai: true, created_at: { gte: inicioJanelaAviso(ligados.IA, agora) } });
-    if (ligados.EQUIPE) origens.push({ created_by_ai: false, created_at: { gte: inicioJanelaAviso(ligados.EQUIPE, agora) } });
-    if (!origens.length) return 0;
+    for (const origem of ['IA', 'EQUIPE'] as const) {
+      const desde = ligados[origem];
+      if (!desde) continue;
+      const lista = await adminAlertRecipients(this.prisma, tenantId, ADMIN_AGENDAMENTO_DISPARO[origem]);
+      if (!lista.length) continue;
+      destinos[origem] = lista;
+      origens.push({ created_by_ai: origem === 'IA', created_at: { gte: inicioJanelaAviso(desde, agora) } });
+    }
+    if (!origens.length) {
+      const ult = this.semNumeroLogadoEm.get(tenantId) || 0;
+      if (agora.getTime() - ult > AVISO_SEM_NUMERO_MS) {
+        this.semNumeroLogadoEm.set(tenantId, agora.getTime());
+        this.logger.warn(
+          `${LOG} clínica ${tenantId}: aviso de agendamento ligado mas SEM destinatário (nenhum número na Central e nenhum ADM com telefone e o aviso marcado no cadastro).`,
+        );
+      }
+      return 0;
+    }
 
     const eventos = await this.prisma.calendarEvent.findMany({
       where: {
@@ -132,19 +158,6 @@ export class AdminAgendamentoAlertService {
     });
     if (!eventos.length) return 0;
 
-    // Sem número dos ADMs: não reivindica (se configurarem dentro da janela de 2h, ainda avisa).
-    const phones = await adminAlertPhones(this.prisma, tenantId);
-    if (!phones.length) {
-      const ult = this.semNumeroLogadoEm.get(tenantId) || 0;
-      if (agora.getTime() - ult > AVISO_SEM_NUMERO_MS) {
-        this.semNumeroLogadoEm.set(tenantId, agora.getTime());
-        this.logger.warn(
-          `${LOG} clínica ${tenantId}: aviso de agendamento ligado mas SEM número dos ADMs (VENDA_FEITA_PHONE/DAILY_SUMMARY_PHONE) — ${eventos.length} aviso(s) esperando.`,
-        );
-      }
-      return 0;
-    }
-
     const assistentes = new Map<string, string>();
     let enviados = 0;
     for (const ev of eventos) {
@@ -175,6 +188,7 @@ export class AdminAgendamentoAlertService {
 
       const r = await sendAdminAlert(this.prisma, this.settings, tenantId, {
         type: ADMIN_AGENDAMENTO_DISPATCH_TYPE,
+        recipients: destinos[origem],
         text: texto,
         recipientName: nome,
         refEventId: ev.id,

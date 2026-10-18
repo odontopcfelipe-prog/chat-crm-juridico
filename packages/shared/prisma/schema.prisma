@@ -177,8 +177,12 @@ model User {
   // quadro de Ortodontia (colunas por dia). Vazio = não configurado.
   ortho_days                    Int[]                  @default([])
   /// Disparos INTERNOS (WhatsApp da pessoa) que ela NÃO recebe — ids de DISPAROS_EQUIPE
-  /// (@crm/shared). Vazio = recebe todos os do papel dela. Editado no cadastro da equipe.
+  /// (@crm/shared). Vale sobre tudo: tira até o número dela da lista da Central. Vazio =
+  /// recebe os do papel dela que vêm ligados por padrão. Editado no cadastro da equipe.
   disparos_off                  String[]               @default([])
+  /// Disparos OPT-IN (padrao:false em DISPAROS_EQUIPE, ex.: avisos dos ADMs) que a pessoa
+  /// marcou pra receber. Sem marcar = não recebe (salvo se o número dela estiver na Central).
+  disparos_on                   String[]               @default([])
   // Onda 17.32.116 — Setores e permissoes (Fase 2)
   /// Setor do usuario: 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin'
   /// Determina home/sidebar default + pacote de permissoes.

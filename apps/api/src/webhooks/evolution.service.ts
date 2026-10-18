@@ -21,12 +21,12 @@ import {
   REATIVACAO_OPT_OUT_RE,
   ehRecusaDoLead,
   brazilPhoneMatchVariants,
-  parseAlertPhones,
   nonPatientCategoryLabel,
   naoPacienteTriageKey,
   NAO_PACIENTE_ANEXO_JANELA_MS,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
+import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
 import { ackSobe, parseEvolutionAck } from './evolution-ack';
 
 interface EvolutionWebhookPayload {
@@ -890,10 +890,10 @@ export class EvolutionService implements OnApplicationBootstrap {
   // A IA (worker) marca Lead.non_patient_category/non_patient_at quando o contato é
   // fornecedor / currículo / parceria / negócio / spam, pausa a IA e avisa os ADMs.
   // Se a pessoa manda o currículo/proposta DEPOIS (até 72h), este encaminha o arquivo
-  // pro número de aviso dos ADMs (o do Venda feita / Resumo diário — vários números,
-  // parseAlertPhones), pelo chip FINANCEIRO → CLINICA → resto. Toggle: o mesmo da
-  // triagem (NAO_PACIENTE_TRIAGE_ENABLED_<t>). Prisma direto + FileStorage pego pelo
-  // ModuleRef (sem injetar nada novo no construtor — ciclo de DI já derrubou a API).
+  // pros números de aviso da Central (os do Venda feita / Resumo diário) + os ADMs com
+  // o aviso marcado no cadastro da equipe (loadAdminAlertRecipients), pelo chip
+  // FINANCEIRO → CLINICA → resto. Toggle: o mesmo da triagem
+  // (NAO_PACIENTE_TRIAGE_ENABLED_<t>). Prisma direto + FileStorage pego pelo ModuleRef (sem injetar nada novo no construtor — ciclo de DI já derrubou a API).
   // Dedup por mensagem: AuditLog NAO_PACIENTE_ANEXO (entity_id = Message.id).
   private static readonly NAO_PACIENTE_ANEXO_MAX_BYTES = 15 * 1024 * 1024;
 
@@ -948,14 +948,11 @@ export class EvolutionService implements OnApplicationBootstrap {
     const toggle = await this.prisma.globalSetting.findUnique({ where: { key: naoPacienteTriageKey(tenantId) } });
     if (toggle?.value !== 'true') return;
 
-    const [vf, ds] = await Promise.all([
-      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
-      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
-    ]);
-    const proprios = parseAlertPhones(vf?.value);
-    const phones = proprios.length ? proprios : parseAlertPhones(ds?.value);
-    if (!phones.length) {
-      this.logger.warn(`[NAO-PACIENTE][ANEXO] tenant ${tenantId}: sem número de aviso dos ADMs — arquivo da msg ${ctx.messageId} não encaminhado.`);
+    // Quem recebe: números da Central + ADMs com "Contato não-paciente" ligado no
+    // cadastro da equipe, menos quem desligou (regra única do @crm/shared).
+    const destinos = await loadAdminAlertRecipients(this.prisma, tenantId, 'nao_paciente_triage');
+    if (!destinos.length) {
+      this.logger.warn(`[NAO-PACIENTE][ANEXO] tenant ${tenantId}: sem destinatário (Central/ADMs) — arquivo da msg ${ctx.messageId} não encaminhado.`);
       return;
     }
 
@@ -1010,7 +1007,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       !!r && typeof r === 'object' && !(typeof r.statusCode === 'number' && r.statusCode >= 400) &&
       !(r.error && !r.key) && r.exists !== false && !!(r.key?.id || r.messageId || r.id);
 
-    for (const phone of phones) {
+    for (const { phone, userId } of destinos) {
       let ok: any = null;
       let erro = 'nenhum chip entregou';
       if (base64) {
@@ -1041,6 +1038,7 @@ export class EvolutionService implements OnApplicationBootstrap {
             status: ok ? 'SENT' : 'FAILED',
             error: ok ? null : erro.slice(0, 500),
             external_message_id: ok?.key?.id || null,
+            ref_user_id: userId,
           },
         })
         .catch(() => undefined);

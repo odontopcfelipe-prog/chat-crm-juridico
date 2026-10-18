@@ -132,6 +132,7 @@ export class UsersController {
       cro_number?: string;
       cro_uf?: string;
       disparos_off?: string[];
+      disparos_on?: string[];
     },
   ) {
     return this.usersService.create({ ...data, tenant_id: req.user.tenant_id });
@@ -139,7 +140,7 @@ export class UsersController {
 
   @Patch(':id')
   @Roles('ADMIN')
-  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; ortho_days?: number[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; disparos_off?: string[] }) {
+  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; ortho_days?: number[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; disparos_off?: string[]; disparos_on?: string[] }) {
     return this.usersService.update(id, data, req.user?.tenant_id);
   }
 
