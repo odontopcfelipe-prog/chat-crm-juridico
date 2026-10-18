@@ -4,6 +4,7 @@ import { ConversationsService } from './conversations.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('ConversationsService', () => {
   let service: ConversationsService;
@@ -26,6 +27,11 @@ describe('ConversationsService', () => {
       message: {
         findMany: jest.fn(),
         updateMany: jest.fn(),
+        create: jest.fn(),
+      },
+      // findAll marca hasNotes com 1 groupBy por página
+      conversationNote: {
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       $transaction: jest.fn(),
     };
@@ -50,6 +56,7 @@ describe('ConversationsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: ChatGateway, useValue: chatGateway },
         { provide: WhatsappService, useValue: mockWhatsappService },
+        { provide: NotificationsService, useValue: {} },
       ],
     }).compile();
 
@@ -69,7 +76,12 @@ describe('ConversationsService', () => {
 
       expect(prisma.conversation.update).toHaveBeenCalledWith({
         where: { id: 'conv-1' },
-        data: { assigned_user_id: 'user-1', ai_mode: false },
+        data: {
+          assigned_user_id: 'user-1',
+          ai_mode: false,
+          ai_mode_disabled_at: expect.any(Date),
+          ai_mode_source: 'MANUAL',
+        },
       });
       expect(result).toEqual(mockConv);
     });
@@ -87,55 +99,114 @@ describe('ConversationsService', () => {
         data: { status: 'FECHADO' },
       });
       expect(result.status).toBe('FECHADO');
+      expect(chatGateway.emitConversationsUpdate).toHaveBeenCalled();
     });
   });
 
   describe('findAll', () => {
-    it('deve excluir conversas fechadas por padrao', async () => {
+    it('deve excluir so o residuo ENCERRADO por padrao (FECHADO continua visivel)', async () => {
       prisma.conversation.findMany.mockResolvedValue([]);
-      prisma.conversation.count.mockResolvedValue(0);
 
       await service.findAll();
 
       expect(prisma.conversation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { status: { not: 'FECHADO' } },
+          where: expect.objectContaining({
+            status: { not: 'ENCERRADO' },
+            lead: { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } },
+          }),
         }),
       );
     });
 
     it('deve filtrar por status quando fornecido', async () => {
       prisma.conversation.findMany.mockResolvedValue([]);
-      prisma.conversation.count.mockResolvedValue(0);
 
       await service.findAll('ABERTO');
 
       expect(prisma.conversation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { status: 'ABERTO' },
+          where: expect.objectContaining({ status: 'ABERTO' }),
         }),
       );
     });
 
-    it('deve filtrar por inbox para usuarios nao-admin', async () => {
+    it('operador nao-admin ve as atribuidas a ele OU as dos seus inboxes', async () => {
       const mockUser = {
         id: 'user1',
-        role: 'OPERATOR',
+        roles: ['OPERADOR'],
         inboxes: [{ id: 'inbox1' }, { id: 'inbox2' }],
       };
       prisma.user.findUnique.mockResolvedValue(mockUser);
       prisma.conversation.findMany.mockResolvedValue([]);
-      prisma.conversation.count.mockResolvedValue(0);
 
       await service.findAll(undefined, 'user1');
 
       expect(prisma.conversation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            inbox_id: { in: ['inbox1', 'inbox2'] },
+            OR: [
+              { assigned_user_id: 'user1' },
+              { inbox_id: { in: ['inbox1', 'inbox2'] } },
+            ],
           }),
         }),
       );
+    });
+
+    it('operador nao ve inbox ao qual nao pertence', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user1', roles: ['OPERADOR'], inboxes: [{ id: 'inbox1' }] });
+      prisma.conversation.findMany.mockResolvedValue([]);
+
+      await service.findAll(undefined, 'user1', 'inbox-de-outro');
+
+      const { where } = prisma.conversation.findMany.mock.calls[0][0];
+      expect(where.inbox_id).toBe('__none__');
+    });
+
+    it('admin ve tudo e so filtra pelo inbox pedido', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'admin1', roles: ['ADMIN'], inboxes: [] });
+      prisma.conversation.findMany.mockResolvedValue([]);
+
+      await service.findAll(undefined, 'admin1', 'inbox1');
+
+      const { where } = prisma.conversation.findMany.mock.calls[0][0];
+      expect(where.inbox_id).toBe('inbox1');
+      expect(where.OR).toBeUndefined();
+    });
+
+    it('abas Leads/Clientes nunca mostram a conversa do Financeiro; aba Financeiro so mostra ela', async () => {
+      prisma.conversation.findMany.mockResolvedValue([]);
+
+      await service.findAll(undefined, undefined, undefined, 't1', undefined, 'leads');
+      await service.findAll(undefined, undefined, undefined, 't1', undefined, 'clients');
+      await service.findAll(undefined, undefined, undefined, 't1', undefined, 'financial');
+
+      const [leads, clients, financial] = prisma.conversation.findMany.mock.calls.map((c: any[]) => c[0].where);
+      expect(leads).toEqual(expect.objectContaining({
+        tenant_id: 't1',
+        lead: { is_client: false, stage: { notIn: ['PERDIDO', 'FINALIZADO'] } },
+        NOT: { inbox: { purpose: 'FINANCEIRO' } },
+      }));
+      expect(clients).toEqual(expect.objectContaining({
+        lead: { is_client: true },
+        NOT: { inbox: { purpose: 'FINANCEIRO' } },
+      }));
+      expect(financial).toEqual(expect.objectContaining({ inbox: { purpose: 'FINANCEIRO' } }));
+    });
+
+    it('pagina com take+1 e sinaliza hasMore', async () => {
+      prisma.conversation.findMany.mockResolvedValue([
+        { id: 'c1', messages: [] },
+        { id: 'c2', messages: [] },
+        { id: 'c3', messages: [] },
+      ]);
+
+      const result = await service.findAll(undefined, undefined, undefined, undefined, undefined, undefined, 2, 0);
+
+      expect(prisma.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 3 }));
+      expect(result.data.map((c: any) => c.id)).toEqual(['c1', 'c2']);
+      expect(result.hasMore).toBe(true);
     });
 
     it('deve enriquecer com nomes de dentista e atendente de origem', async () => {
@@ -154,7 +225,7 @@ describe('ConversationsService', () => {
         assigned_user: { id: 'user1', name: 'Agent' },
       }];
       prisma.conversation.findMany.mockResolvedValue(mockConversations);
-      prisma.conversation.count.mockResolvedValue(1);
+      prisma.conversationNote.groupBy.mockResolvedValue([{ conversation_id: 'conv1', _count: 1 }]);
       prisma.user.findMany.mockResolvedValue([
         { id: 'dentist1', name: 'Dr. Dentista' },
         { id: 'origin1', name: 'Origin Agent' },
@@ -164,6 +235,7 @@ describe('ConversationsService', () => {
 
       expect(result.data[0].assignedDentistName).toBe('Dr. Dentista');
       expect(result.data[0].originAssignedUserName).toBe('Origin Agent');
+      expect(result.data[0].hasNotes).toBe(true);
     });
   });
 
@@ -264,7 +336,7 @@ describe('ConversationsService', () => {
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('deve aceitar transferencia e emitir resposta ao remetente', async () => {
+    it('deve aceitar transferencia, registrar o evento no historico e emitir resposta ao remetente', async () => {
       prisma.$transaction.mockImplementation(async (fn: any) => {
         const tx = {
           conversation: {
@@ -281,9 +353,15 @@ describe('ConversationsService', () => {
         };
         return fn(tx);
       });
+      const transferMsg = { id: 'msg-1', type: 'transfer_event' };
+      prisma.message.create.mockResolvedValue(transferMsg);
 
       await service.acceptTransfer('conv-1', 'dest-user');
 
+      expect(prisma.message.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ conversation_id: 'conv-1', type: 'transfer_event' }),
+      });
+      expect(chatGateway.emitNewMessage).toHaveBeenCalledWith('conv-1', transferMsg);
       expect(chatGateway.emitTransferResponse).toHaveBeenCalledWith(
         'from-user',
         expect.objectContaining({ accepted: true }),
@@ -320,13 +398,24 @@ describe('ConversationsService', () => {
   });
 
   describe('countOpen', () => {
-    it('deve contar conversas nao-fechadas', async () => {
+    it('deve contar conversas de leads ativos (nao-clientes)', async () => {
       prisma.conversation.count.mockResolvedValue(5);
 
       const result = await service.countOpen();
       expect(result).toBe(5);
       expect(prisma.conversation.count).toHaveBeenCalledWith({
-        where: { status: { not: 'FECHADO' } },
+        where: { lead: { stage: { notIn: ['PERDIDO', 'FINALIZADO'] }, is_client: false } },
+      });
+    });
+
+    it('nao-admin conta so os seus inboxes', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user1', roles: ['OPERADOR'], inboxes: [{ id: 'inbox1' }] });
+      prisma.conversation.count.mockResolvedValue(2);
+
+      await service.countOpen('user1');
+
+      expect(prisma.conversation.count).toHaveBeenCalledWith({
+        where: expect.objectContaining({ inbox_id: { in: ['inbox1'] } }),
       });
     });
   });
