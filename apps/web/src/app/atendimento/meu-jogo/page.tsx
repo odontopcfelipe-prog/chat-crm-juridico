@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Trophy } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Trophy } from 'lucide-react';
 import api from '@/lib/api';
 import '../comissoes/comissoes-jogo.css';
 
@@ -53,6 +54,7 @@ function monthLabel(month: string): string {
 const pts = (n: number) => `${n.toLocaleString('pt-BR')} pts`;
 
 export default function MeuJogoPage() {
+  const router = useRouter();
   const current = maceioMonth();
   const [month, setMonth] = useState(current);
   const [data, setData] = useState<MyGame | null>(null);
@@ -80,6 +82,18 @@ export default function MeuJogoPage() {
     // RAIZ rolável: o <main> do layout é overflow-hidden.
     <div className="h-full overflow-y-auto bg-[#f6f5fb]">
       <div className="cjogo max-w-4xl mx-auto px-4 sm:px-6 pt-5 sm:pt-6 pb-24 md:pb-8">
+        {/* Voltar — pra tela de onde veio (histórico); sem histórico (link direto) cai
+            no Início. Mesmo padrão da ficha do paciente. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+            else router.push('/atendimento/dashboard');
+          }}
+          className="text-sm text-[#5b6172] hover:text-[#1e2330] flex items-center gap-1 mb-3"
+        >
+          <ArrowLeft size={14} /> Voltar
+        </button>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cj-ink)' }}>
             <Trophy size={24} className="text-amber-500" /> Meu jogo

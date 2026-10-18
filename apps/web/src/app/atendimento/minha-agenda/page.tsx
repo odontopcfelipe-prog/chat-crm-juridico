@@ -20,8 +20,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
-  Calendar, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw, Clock,
+  ArrowLeft, Calendar, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw, Clock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -90,6 +91,7 @@ function hhmm(iso: string | null | undefined): string {
 }
 
 export default function MinhaAgendaPage() {
+  const router = useRouter();
   const [day, setDay] = useState<string>(() => maceioTodayStr());
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,6 +177,18 @@ export default function MinhaAgendaPage() {
     <div className="h-full overflow-y-auto">
       {/* pb-24 no celular: o último paciente não fica atrás do menu inferior. */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-5 sm:pt-6 pb-24 md:pb-6">
+        {/* Voltar — pra tela de onde veio (histórico); sem histórico (link direto) cai
+            no Início. Mesmo padrão da ficha do paciente. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+            else router.push('/atendimento/dashboard');
+          }}
+          className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3"
+        >
+          <ArrowLeft size={14} /> Voltar
+        </button>
         <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
