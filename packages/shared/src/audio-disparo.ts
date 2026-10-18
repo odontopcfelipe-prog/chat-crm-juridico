@@ -1,21 +1,39 @@
 // Disparo em ÁUDIO (teste) — o texto do lembrete vira mensagem de voz (texto→fala).
 //
 // Card "Lembrete em áudio (teste)" na Central › Agendamento: a clínica escolhe o MOTOR
-// (OpenAI ou Google Gemini — a mesma chave que a IA já usa), a VOZ, o SOTAQUE e a
+// (voz do ChatGPT, leitor da OpenAI ou Google Gemini — as chaves que a IA já usa), a VOZ, o SOTAQUE e a
 // VELOCIDADE, ouve ali mesmo e manda o áudio de teste pro próprio número. Não envia
 // sozinho pra paciente. Regras puras (API e web); sem banco.
 
-export const AUDIO_MOTORES = ['openai', 'gemini'] as const;
+// chatgpt = gpt-audio-1.5 (a família da voz do ChatGPT: fala "interpretando", bem natural);
+// openai = gpt-4o-mini-tts (leitor de texto, velocidade exata); gemini = a voz atual da IA.
+export const AUDIO_MOTORES = ['chatgpt', 'openai', 'gemini'] as const;
 export type AudioMotor = (typeof AUDIO_MOTORES)[number];
 
 export const AUDIO_MOTOR_LABEL: Record<AudioMotor, string> = {
-  openai: 'OpenAI (gpt-4o-mini-tts)',
+  chatgpt: 'OpenAI — voz do ChatGPT (mais natural)',
+  openai: 'OpenAI — leitor de texto (gpt-4o-mini-tts)',
   gemini: 'Google Gemini (a voz da IA no WhatsApp)',
 };
 
 /** Vozes de cada motor, com o estilo de cada uma (ouça pra escolher). */
 export const AUDIO_VOZES: Record<AudioMotor, { id: string; label: string }[]> = {
+  // marin e cedar = as vozes que a OpenAI recomenda como de melhor qualidade.
+  chatgpt: [
+    { id: 'marin', label: 'Marin — a mais natural (recomendada)' },
+    { id: 'cedar', label: 'Cedar — a mais natural (recomendada)' },
+    { id: 'coral', label: 'Coral — calorosa' },
+    { id: 'sage', label: 'Sage — calma' },
+    { id: 'shimmer', label: 'Shimmer — suave' },
+    { id: 'alloy', label: 'Alloy — neutra' },
+    { id: 'ballad', label: 'Ballad — expressiva' },
+    { id: 'ash', label: 'Ash — clara' },
+    { id: 'echo', label: 'Echo — firme' },
+    { id: 'verse', label: 'Verse — versátil' },
+  ],
   openai: [
+    { id: 'marin', label: 'Marin — a mais natural (recomendada)' },
+    { id: 'cedar', label: 'Cedar — a mais natural (recomendada)' },
     { id: 'coral', label: 'Coral — calorosa' },
     { id: 'nova', label: 'Nova — animada' },
     { id: 'shimmer', label: 'Shimmer — suave' },
@@ -83,8 +101,8 @@ export const AUDIO_TESTE_VARIAVEIS: { key: string; desc: string }[] = [
 
 export const DEFAULT_AUDIO_TESTE: AudioTesteConfig = {
   texto: DEFAULT_AUDIO_TESTE_TEXTO,
-  motor: 'openai',
-  voz: 'coral',
+  motor: 'chatgpt',
+  voz: 'marin',
   sotaque: 'neutro',
   velocidade: 1,
 };
@@ -103,7 +121,7 @@ export function normalizarAudioConfig(c: any): AudioTesteConfig {
   return { texto, motor, voz, sotaque, velocidade };
 }
 
-/** Ritmo em palavras (o Gemini só obedece por instrução; a OpenAI recebe o número também). */
+/** Ritmo em palavras (voz do ChatGPT e Gemini só obedecem por instrução; o leitor recebe o número também). */
 export function instrucaoRitmo(velocidade: number): string {
   if (velocidade < 0.85) return 'Fale devagar, com calma e pequenas pausas.';
   if (velocidade < 0.95) return 'Fale num ritmo um pouco mais calmo que o normal.';

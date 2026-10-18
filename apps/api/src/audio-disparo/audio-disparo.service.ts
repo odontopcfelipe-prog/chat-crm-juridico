@@ -14,6 +14,8 @@ import { numeroSemWhatsapp, wasSent } from '../whatsapp/envio-resultado';
 
 const CONFIG_KEY = 'AUDIO_TESTE_CONFIG';
 const OPENAI_MODEL = 'gpt-4o-mini-tts';
+/** Voz do ChatGPT (Chat Completions com saída em áudio). Se a conta não tiver o 1º, tenta os próximos. */
+export const CHATGPT_MODELOS = ['gpt-audio-1.5', 'gpt-audio', 'gpt-4o-audio-preview'];
 /** O mesmo modelo que a IA já usa pra responder em áudio (ai.processor do worker). */
 const GEMINI_MODEL = 'gemini-2.5-flash-preview-tts';
 
@@ -63,7 +65,7 @@ export class AudioDisparoService {
     const [ai, googleKey] = await Promise.all([this.settings.getAiConfig().catch(() => null), this.settings.get('GOOGLE_TTS_API_KEY').catch(() => null)]);
     return {
       config: normalizarAudioConfig(salvo || {}),
-      motores: { openai: !!ai?.apiKey, gemini: !!googleKey },
+      motores: { chatgpt: !!ai?.apiKey, openai: !!ai?.apiKey, gemini: !!googleKey },
     };
   }
 
@@ -93,6 +95,7 @@ export class AudioDisparoService {
 
   async sintetizar(cfg: AudioTesteConfig, texto: string): Promise<AudioGerado> {
     if (!texto.trim()) throw new BadRequestException('A mensagem está vazia');
+    if (cfg.motor === 'chatgpt') return this.vozDoChatgpt(cfg, texto);
     if (cfg.motor === 'openai') {
       const key = (await this.settings.getAiConfig())?.apiKey;
       if (!key) throw new BadRequestException('Chave da OpenAI não configurada (Configurações › Inteligência Artificial)');
@@ -146,6 +149,51 @@ export class AudioDisparoService {
     const b64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!b64) throw new BadRequestException('O Google não devolveu áudio — tente de novo');
     return { buffer: wavDePcm(Buffer.from(b64, 'base64')), mime: 'audio/wav' };
+  }
+
+  /**
+   * Voz do ChatGPT: o modelo de áudio "fala interpretando" (bem mais natural que o leitor).
+   * Como é um modelo de conversa, a instrução prende ele a falar SÓ o texto, palavra por
+   * palavra. Ritmo e sotaque vão por instrução (não há número de velocidade).
+   */
+  private async vozDoChatgpt(cfg: AudioTesteConfig, texto: string): Promise<AudioGerado> {
+    const key = (await this.settings.getAiConfig())?.apiKey;
+    if (!key) throw new BadRequestException('Chave da OpenAI não configurada (Configurações › Inteligência Artificial)');
+    const sistema =
+      'Você é a voz de uma atendente de clínica odontológica gravando um áudio de WhatsApp. ' +
+      `${instrucaoVoz(cfg)} ` +
+      'Sua única tarefa é falar em voz alta, EXATAMENTE, o texto que está entre as aspas triplas — palavra por palavra, ' +
+      'sem acrescentar, tirar, responder, comentar ou cumprimentar além do que está escrito, e sem dizer "claro" ou "aqui está".';
+    let ultimoErro = '';
+    for (const model of CHATGPT_MODELOS) {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          modalities: ['text', 'audio'],
+          audio: { voice: cfg.voz, format: 'mp3' },
+          messages: [
+            { role: 'system', content: sistema },
+            { role: 'user', content: `"""${texto}"""` },
+          ],
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const b64 = data?.choices?.[0]?.message?.audio?.data;
+        if (!b64) throw new BadRequestException('A OpenAI não devolveu áudio — tente de novo');
+        return { buffer: Buffer.from(b64, 'base64'), mime: 'audio/mpeg' };
+      }
+      const corpo = await res.text().catch(() => '');
+      ultimoErro = `(${res.status}): ${corpo.slice(0, 200)}`;
+      // Modelo indisponível pra esta conta → tenta o próximo; qualquer outro erro → para.
+      const semModelo = res.status === 404 || (/model/i.test(corpo) && /not found|does not exist|do not have access|not supported/i.test(corpo));
+      if (!semModelo) break;
+      this.logger.warn(`[AUDIO-TESTE] modelo ${model} indisponível — tentando o próximo`);
+    }
+    throw new BadRequestException(`A OpenAI recusou ${ultimoErro}`);
   }
 
   /** Prévia pra tocar na tela (com os valores de exemplo). */

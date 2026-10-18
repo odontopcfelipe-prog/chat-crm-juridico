@@ -14,7 +14,7 @@ import {
 
 export function AudioTesteEditor({ podeEditar }: { podeEditar: boolean }) {
   const [cfg, setCfg] = useState<AudioTesteConfig>(DEFAULT_AUDIO_TESTE);
-  const [motores, setMotores] = useState<{ openai: boolean; gemini: boolean } | null>(null);
+  const [motores, setMotores] = useState<Partial<Record<AudioMotor, boolean>> | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [gerando, setGerando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -150,8 +150,8 @@ export function AudioTesteEditor({ podeEditar }: { podeEditar: boolean }) {
             </div>
           )}
           <p className="text-[10px] text-muted-foreground">
-            O sotaque e o ritmo são pedidos à voz por instrução — o resultado varia um pouco entre vozes e motores. No Google Gemini a
-            velocidade só vale pela instrução; na OpenAI também vai como número.
+            O sotaque e o ritmo são pedidos à voz por instrução — o resultado varia um pouco entre vozes e motores. Pra soar mais natural,
+            use a <b>voz do ChatGPT</b> com <b>Marin</b> ou <b>Cedar</b>. A velocidade só é exata no leitor de texto; nos outros vai como instrução.
           </p>
 
           <div className="flex items-center gap-3 flex-wrap">

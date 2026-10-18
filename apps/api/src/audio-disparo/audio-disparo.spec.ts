@@ -3,7 +3,9 @@ import { AudioDisparoService, wavDePcm } from './audio-disparo.service';
 
 describe('lembrete em áudio — regras', () => {
   it('normaliza: valor fora da lista volta ao padrão; voz troca junto com o motor', () => {
-    expect(normalizarAudioConfig({})).toMatchObject({ motor: 'openai', voz: 'coral', sotaque: 'neutro', velocidade: 1 });
+    expect(normalizarAudioConfig({})).toMatchObject({ motor: 'chatgpt', voz: 'marin', sotaque: 'neutro', velocidade: 1 });
+    expect(normalizarAudioConfig({ motor: 'openai', voz: 'cedar' }).voz).toBe('cedar'); // marin/cedar também no leitor
+    expect(normalizarAudioConfig({ motor: 'chatgpt', voz: 'fable' }).voz).toBe('marin'); // fable não existe na voz do ChatGPT
     expect(normalizarAudioConfig({ motor: 'gemini', voz: 'coral' }).voz).toBe('Kore'); // coral não é voz do Gemini
     expect(normalizarAudioConfig({ motor: 'gemini', voz: 'Sulafat' }).voz).toBe('Sulafat');
     expect(normalizarAudioConfig({ sotaque: 'nordestino', velocidade: 9 })).toMatchObject({ sotaque: 'nordestino', velocidade: 1.5 });
@@ -73,12 +75,42 @@ describe('lembrete em áudio — serviço', () => {
     expect(body.input).toBe('Oi Felipe, aqui é da equipe Instituto Teste, com Dra. Suellen.');
   });
 
+  it('voz do ChatGPT: gpt-audio-1.5 com saída em áudio, instrução de falar SÓ o texto', async () => {
+    const mp3 = Buffer.from('MP3VOZ').toString('base64');
+    const f = jest.fn(async () => resp(200, { choices: [{ message: { audio: { data: mp3, transcript: 'x' } } }] }));
+    global.fetch = f as any;
+    const a = await svc().s.ouvir('T1', { motor: 'chatgpt', voz: 'cedar', sotaque: 'nordestino', velocidade: 0.8 });
+    expect(a).toEqual({ buffer: Buffer.from('MP3VOZ'), mime: 'audio/mpeg' });
+    const [url, init] = f.mock.calls[0] as any;
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    const body = JSON.parse(init.body);
+    expect(body).toMatchObject({ model: 'gpt-audio-1.5', modalities: ['text', 'audio'], audio: { voice: 'cedar', format: 'mp3' } });
+    expect(body.messages[0].content).toMatch(/EXATAMENTE/);
+    expect(body.messages[0].content).toMatch(/Alagoas/);
+    expect(body.messages[0].content).toMatch(/devagar/);
+    expect(body.messages[1].content).toMatch(/^"""Oi, Felipe! Aqui é da equipe Instituto Teste./);
+  });
+
+  it('voz do ChatGPT: modelo indisponível na conta → tenta o próximo; outro erro → para', async () => {
+    const ok = resp(200, { choices: [{ message: { audio: { data: Buffer.from('A').toString('base64') } } }] });
+    const f = jest.fn()
+      .mockResolvedValueOnce(resp(404, { error: { message: 'The model `gpt-audio-1.5` does not exist' } }))
+      .mockResolvedValueOnce(ok);
+    global.fetch = f as any;
+    await svc().s.ouvir('T1', { motor: 'chatgpt' });
+    expect(JSON.parse((f.mock.calls[1] as any)[1].body).model).toBe('gpt-audio');
+    const g = jest.fn(async () => resp(401, { error: { message: 'Incorrect API key' } }));
+    global.fetch = g as any;
+    await expect(svc().s.ouvir('T1', { motor: 'chatgpt' })).rejects.toThrow('recusou (401)');
+    expect(g).toHaveBeenCalledTimes(1);
+  });
+
   it('OpenAI recusa o número de velocidade → tenta de novo só com a instrução', async () => {
     const f = jest.fn()
       .mockResolvedValueOnce(resp(400, { error: { message: "Unsupported parameter: 'speed'" } }))
       .mockResolvedValueOnce(resp(200, null));
     global.fetch = f as any;
-    await svc().s.ouvir('T1', { velocidade: 0.8 });
+    await svc().s.ouvir('T1', { motor: 'openai', velocidade: 0.8 });
     expect(JSON.parse((f.mock.calls[1] as any)[1].body).speed).toBeUndefined();
   });
 
@@ -107,7 +139,7 @@ describe('lembrete em áudio — serviço', () => {
   it('enviar teste: mensagem de voz pelo chip da Clínica (nunca o Financeiro), com a config da clínica', async () => {
     global.fetch = jest.fn(async () => resp(200, null, Buffer.from('MP3'))) as any;
     const { s, whatsapp } = svc();
-    await s.enviarTeste('T1', { motor: 'openai' }, '(82) 98888-7777');
+    await s.enviarTeste('T1', { motor: 'openai' }, '(82) 98888-7777'); // leitor de texto (mp3 cru)
     const c = (whatsapp.sendMedia as jest.Mock).mock.calls[0];
     expect(c[0]).toBe('82988887777');
     expect(c[1]).toBe('audio');
@@ -118,7 +150,7 @@ describe('lembrete em áudio — serviço', () => {
   });
 
   it('enviar teste: número sem WhatsApp / sem chip da clínica / telefone inválido', async () => {
-    global.fetch = jest.fn(async () => resp(200, null)) as any;
+    global.fetch = jest.fn(async () => resp(200, { choices: [{ message: { audio: { data: 'QQ==' } } }] })) as any;
     await expect(svc({ envio: { statusCode: 400, error: '{"exists":false}' } }).s.enviarTeste('T1', {}, '82988887777')).rejects.toThrow(/não tem WhatsApp/);
     await expect(svc({ chips: [{ name: 'fin', purpose: 'FINANCEIRO' }] }).s.enviarTeste('T1', {}, '82988887777')).rejects.toThrow(/chip da Clínica/);
     await expect(svc().s.enviarTeste('T1', {}, '123')).rejects.toThrow(/Telefone inválido/);
