@@ -1,9 +1,10 @@
 /**
- * Out/2026 — "Meu jogo" do profissional: pontos pela produção clínica, sem R$.
+ * Out/2026 — "Meu jogo" do profissional: pontos pela produção clínica, sem R$,
+ * com pontuação ajustável POR PROFISSIONAL no cadastro.
  */
 import {
   levelFor, weeksOfMonth, monthBounds, missionDone, maceioMonthKey, computeMyGame,
-  GAME_POINTS, DEFAULT_MISSIONS,
+  GAME_POINTS, DEFAULT_MISSIONS, DEFAULT_SCORING, mergeScoring, parseScoringInput,
 } from './game-rules';
 
 describe('game-rules — níveis', () => {
@@ -54,21 +55,25 @@ describe('game-rules — missões', () => {
 });
 
 describe('computeMyGame — sem R$', () => {
-  const count = (n: number) => jest.fn().mockResolvedValue(n);
-  const prisma: any = {
-    treatmentPlanItem: { count: count(62), findMany: jest.fn().mockResolvedValue([]) },
-    calendarEvent: { count: count(74), findMany: jest.fn().mockResolvedValue([]) },
-    quote: { count: jest.fn().mockResolvedValueOnce(18).mockResolvedValueOnce(8).mockResolvedValue(0) },
+  const NOW = Date.parse('2026-10-18T15:00:00Z');
+  const NO_MISSIONS = { enabled: false, missions: [] };
+  // 62 procedimentos, 74 atendimentos, 18 avaliações, 8 conversões (mês e mês anterior).
+  const mkPrisma = (): any => ({
+    treatmentPlanItem: { count: jest.fn().mockResolvedValue(62), findMany: jest.fn().mockResolvedValue([]) },
+    calendarEvent: { count: jest.fn().mockResolvedValue(74), findMany: jest.fn().mockResolvedValue([]) },
+    quote: {
+      count: jest.fn((args: any) => Promise.resolve(args?.where?.status === 'ACCEPTED' ? 8 : 18)),
+    },
     goal: {
       findMany: jest.fn().mockResolvedValue([
         { id: 'g1', metric: 'SALES_VALUE', direction: 'ACHIEVE', target_value: 50000, current_value: 36000, notes: null },
         { id: 'g2', metric: 'FIRST_CONSULTATIONS', direction: 'ACHIEVE', target_value: 20, current_value: 12, notes: null },
       ]),
     },
-  };
+  });
 
   it('soma os pontos pela produção e nunca devolve valor de produção em R$', async () => {
-    const g = await computeMyGame(prisma, 't1', 'u1', '2026-09', { enabled: false, missions: [] }, Date.parse('2026-10-18T15:00:00Z'));
+    const g = await computeMyGame(mkPrisma(), 't1', 'u1', '2026-09', NO_MISSIONS, DEFAULT_SCORING, NOW);
     const expected = 62 * GAME_POINTS.procedimento + 74 * GAME_POINTS.atendimento + 18 * GAME_POINTS.avaliacao + 8 * GAME_POINTS.conversao;
     expect(g.pontos).toBe(expected); // 620 + 370 + 90 + 160 = 1240
     expect(g.nivel.nome).toBe('Prata');
@@ -77,6 +82,38 @@ describe('computeMyGame — sem R$', () => {
     expect(prod.alvo).toBeNull();
     expect(prod.pct).toBeCloseTo(0.72);
     expect(g.metas.find((m) => m.id === 'g2')).toMatchObject({ atual: 12, alvo: 20 });
+    expect(g.regras.personalizado).toBe(false);
     expect(JSON.stringify(g)).not.toMatch(/R\$|comiss/i);
+  });
+
+  it('usa a pontuação PRÓPRIA do profissional (pesos e níveis)', async () => {
+    const scoring = mergeScoring({ pontos: { procedimento: 20 }, niveis: { prata: 2000, ouro: 4000, diamante: 6000 } });
+    const g = await computeMyGame(mkPrisma(), 't1', 'u1', '2026-09', NO_MISSIONS, scoring, NOW);
+    // 62×20 + 74×5 + 18×5 + 8×20 = 1240 + 370 + 90 + 160
+    expect(g.pontos).toBe(1860);
+    expect(g.nivel.nome).toBe('Bronze'); // abaixo da Prata DELE (2000)
+    expect(g.proximo).toMatchObject({ nome: 'Prata', faltam: 140 });
+    expect(g.regras.personalizado).toBe(true);
+    expect(g.fontes.find((f) => f.chave === 'procedimentos')!.cada).toBe(20);
+  });
+});
+
+describe('pontuação por profissional (cadastro)', () => {
+  it('campo vazio = padrão; só o que mudou fica salvo', () => {
+    expect(parseScoringInput({ pontos: { procedimento: '', atendimento: null } })).toEqual({});
+    expect(parseScoringInput({ pontos: { procedimento: '15' } })).toEqual({ pontos: { procedimento: 15 } });
+    expect(mergeScoring(null)).toMatchObject({ pontos: GAME_POINTS, personalizado: false });
+  });
+
+  it('recusa número inválido e níveis fora de ordem', () => {
+    expect(() => parseScoringInput({ pontos: { procedimento: -1 } })).toThrow(/Procedimento executado/);
+    expect(() => parseScoringInput({ pontos: { missao: 2.5 } })).toThrow(/inteiro/);
+    expect(() => parseScoringInput({ niveis: { prata: 2000 } })).toThrow(/Prata < Ouro < Diamante/); // 2000 > Ouro padrão
+    expect(parseScoringInput({ niveis: { prata: 300, ouro: 900 } })).toEqual({ niveis: { prata: 300, ouro: 900 } });
+  });
+
+  it('override salvo incoerente nas faixas volta pro padrão das faixas', () => {
+    const s = mergeScoring({ niveis: { prata: 5000, ouro: 100, diamante: 50 } });
+    expect(s.niveis.map((n) => n.min)).toEqual([0, 500, 1500, 3000]);
   });
 });

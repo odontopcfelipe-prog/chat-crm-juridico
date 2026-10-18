@@ -59,15 +59,126 @@ export const GAME_LEVELS = [
   { nome: 'Diamante', emoji: '💎', min: 3000 },
 ] as const;
 
+export type GameLevel = { nome: string; emoji: string; min: number };
+
+// ─── Pontuação POR PROFISSIONAL (out/2026) ───────────────────────
+// O admin ajusta no cadastro do dentista (Configurações → Usuários): quanto vale
+// cada atividade e a partir de quantos pontos ele sobe de nível. Fica em
+// TenantSetting `GAME_SCORING_<userId>` (só o que difere do padrão); campo
+// ausente = padrão acima. Sem mudança de schema.
+export type GamePointKey = keyof typeof GAME_POINTS;
+export const GAME_POINT_KEYS = Object.keys(GAME_POINTS) as GamePointKey[];
+
+export interface GameScoring {
+  pontos: Record<GamePointKey, number>;
+  niveis: GameLevel[];
+  /** true quando o profissional tem configuração própria. */
+  personalizado: boolean;
+}
+
+/** O que fica salvo: só os overrides (pontos por atividade + mínimo de Prata/Ouro/Diamante). */
+export interface GameScoringOverride {
+  pontos?: Partial<Record<GamePointKey, number>>;
+  niveis?: { prata?: number; ouro?: number; diamante?: number };
+}
+
+export const DEFAULT_SCORING: GameScoring = {
+  pontos: { ...GAME_POINTS },
+  niveis: GAME_LEVELS.map((l) => ({ ...l })),
+  personalizado: false,
+};
+
+export const gameScoringKey = (userId: string) => `GAME_SCORING_${userId}`;
+
+const MAX_POINTS = 1000;
+const MAX_LEVEL = 1_000_000;
+
+/** Aplica o override salvo sobre o padrão (ignora lixo silenciosamente). */
+export function mergeScoring(ov: GameScoringOverride | null | undefined): GameScoring {
+  if (!ov) return { ...DEFAULT_SCORING, pontos: { ...DEFAULT_SCORING.pontos }, niveis: DEFAULT_SCORING.niveis.map((l) => ({ ...l })) };
+  const pontos = { ...GAME_POINTS } as Record<GamePointKey, number>;
+  let personalizado = false;
+  for (const k of GAME_POINT_KEYS) {
+    const v = ov.pontos?.[k];
+    if (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_POINTS) { pontos[k] = v as number; personalizado = true; }
+  }
+  const mins = [0, GAME_LEVELS[1].min, GAME_LEVELS[2].min, GAME_LEVELS[3].min];
+  const lv = [ov.niveis?.prata, ov.niveis?.ouro, ov.niveis?.diamante];
+  lv.forEach((v, i) => {
+    if (Number.isInteger(v) && (v as number) > 0 && (v as number) <= MAX_LEVEL) { mins[i + 1] = v as number; personalizado = true; }
+  });
+  // Faixas sempre crescentes (se o salvo ficou incoerente, volta pro padrão das faixas).
+  const crescente = mins[1] < mins[2] && mins[2] < mins[3];
+  const finalMins = crescente ? mins : [0, GAME_LEVELS[1].min, GAME_LEVELS[2].min, GAME_LEVELS[3].min];
+  return {
+    pontos,
+    niveis: GAME_LEVELS.map((l, i) => ({ nome: l.nome, emoji: l.emoji, min: finalMins[i] })),
+    personalizado,
+  };
+}
+
+/**
+ * Valida o que o admin mandou salvar. Campo vazio/null = usa o padrão (não salva).
+ * Devolve o override limpo, ou lança Error com mensagem em português.
+ */
+export function parseScoringInput(body: any): GameScoringOverride {
+  const out: GameScoringOverride = {};
+  const num = (v: any, label: string, max: number, min: number) => {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${label}: use um número inteiro de ${min} a ${max.toLocaleString('pt-BR')}`);
+    return n;
+  };
+  const LABEL: Record<GamePointKey, string> = {
+    procedimento: 'Procedimento executado', atendimento: 'Atendimento confirmado',
+    avaliacao: 'Avaliação montada', conversao: 'Avaliação que virou tratamento', missao: 'Missão cumprida',
+  };
+  for (const k of GAME_POINT_KEYS) {
+    const v = num(body?.pontos?.[k], LABEL[k], MAX_POINTS, 0);
+    if (v !== undefined) (out.pontos ??= {})[k] = v;
+  }
+  const prata = num(body?.niveis?.prata, 'Nível Prata', MAX_LEVEL, 1);
+  const ouro = num(body?.niveis?.ouro, 'Nível Ouro', MAX_LEVEL, 1);
+  const diamante = num(body?.niveis?.diamante, 'Nível Diamante', MAX_LEVEL, 1);
+  if (prata !== undefined || ouro !== undefined || diamante !== undefined) {
+    const p = prata ?? GAME_LEVELS[1].min;
+    const o = ouro ?? GAME_LEVELS[2].min;
+    const d = diamante ?? GAME_LEVELS[3].min;
+    if (!(p < o && o < d)) throw new Error('Os níveis precisam subir: Prata < Ouro < Diamante');
+    out.niveis = {
+      ...(prata !== undefined ? { prata } : {}),
+      ...(ouro !== undefined ? { ouro } : {}),
+      ...(diamante !== undefined ? { diamante } : {}),
+    };
+  }
+  return out;
+}
+
+export async function readScoringOverride(prisma: PrismaService, tenantId: string, userId: string): Promise<GameScoringOverride | null> {
+  try {
+    const row = await prisma.tenantSetting.findUnique({
+      where: { tenant_id_key: { tenant_id: tenantId, key: gameScoringKey(userId) } },
+    });
+    return row?.value ? (JSON.parse(row.value) as GameScoringOverride) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pontuação efetiva do profissional (padrão + o que o admin ajustou pra ele). */
+export async function readGameScoring(prisma: PrismaService, tenantId: string, userId: string): Promise<GameScoring> {
+  return mergeScoring(await readScoringOverride(prisma, tenantId, userId));
+}
+
 const CLINICAL_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
 const DAY = 24 * 60 * 60 * 1000;
 const H3 = 3 * 60 * 60 * 1000;
 
-export function levelFor(pontos: number) {
+export function levelFor(pontos: number, niveis: readonly GameLevel[] = GAME_LEVELS) {
   let idx = 0;
-  for (let i = 0; i < GAME_LEVELS.length; i++) if (pontos >= GAME_LEVELS[i].min) idx = i;
-  const nivel = GAME_LEVELS[idx];
-  const prox = GAME_LEVELS[idx + 1] ?? null;
+  for (let i = 0; i < niveis.length; i++) if (pontos >= niveis[i].min) idx = i;
+  const nivel = niveis[idx];
+  const prox = niveis[idx + 1] ?? null;
   const progresso = prox ? (pontos - nivel.min) / (prox.min - nivel.min) : 1;
   return {
     nivel: { ...nivel },
@@ -164,8 +275,10 @@ function statsFor(w: { start: Date; end: Date }, data: { execNaive: Date[]; even
 /** Pontos do mês (com a origem de cada um). */
 export async function computeMonthPoints(
   prisma: PrismaService, tenantId: string, userId: string, month: string, missions: MissionsConfig,
+  scoring: GameScoring = DEFAULT_SCORING,
   now = Date.now(),
 ) {
+  const P = scoring.pontos;
   const b = monthBounds(month);
   const weeks = weeksOfMonth(month);
   const wFrom = weeks[0]?.start ?? b.naiveStart;
@@ -214,11 +327,11 @@ export async function computeMonthPoints(
   }
 
   const fontes = [
-    { chave: 'procedimentos', emoji: '🦷', label: 'Procedimentos executados', qtd: procedimentos, cada: GAME_POINTS.procedimento },
-    { chave: 'atendimentos', emoji: '✅', label: 'Atendimentos confirmados', qtd: atendimentos, cada: GAME_POINTS.atendimento },
-    { chave: 'avaliacoes', emoji: '📋', label: 'Avaliações montadas', qtd: avaliacoes, cada: GAME_POINTS.avaliacao },
-    { chave: 'conversoes', emoji: '🤝', label: 'Avaliações que viraram tratamento', qtd: conversoes, cada: GAME_POINTS.conversao },
-    { chave: 'missoes', emoji: '🎯', label: 'Missões da semana cumpridas', qtd: missoesCumpridas, cada: GAME_POINTS.missao },
+    { chave: 'procedimentos', emoji: '🦷', label: 'Procedimentos executados', qtd: procedimentos, cada: P.procedimento },
+    { chave: 'atendimentos', emoji: '✅', label: 'Atendimentos confirmados', qtd: atendimentos, cada: P.atendimento },
+    { chave: 'avaliacoes', emoji: '📋', label: 'Avaliações montadas', qtd: avaliacoes, cada: P.avaliacao },
+    { chave: 'conversoes', emoji: '🤝', label: 'Avaliações que viraram tratamento', qtd: conversoes, cada: P.conversao },
+    { chave: 'missoes', emoji: '🎯', label: 'Missões da semana cumpridas', qtd: missoesCumpridas, cada: P.missao },
   ].map((f) => ({ ...f, pontos: f.qtd * f.cada }));
 
   return { pontos: fontes.reduce((s, f) => s + f.pontos, 0), fontes };
@@ -239,6 +352,7 @@ const GOAL_LABEL: Record<string, string> = {
  */
 export async function computeMyGame(
   prisma: PrismaService, tenantId: string, userId: string, month: string, missions: MissionsConfig,
+  scoring: GameScoring = DEFAULT_SCORING,
   now = Date.now(),
 ) {
   const [y, m] = month.split('-').map(Number);
@@ -247,8 +361,8 @@ export async function computeMyGame(
   const isCurrent = month === maceioMonthKey(now);
 
   const [atual, anterior, goals] = await Promise.all([
-    computeMonthPoints(prisma, tenantId, userId, month, missions, now),
-    computeMonthPoints(prisma, tenantId, userId, prevMonth, missions, now),
+    computeMonthPoints(prisma, tenantId, userId, month, missions, scoring, now),
+    computeMonthPoints(prisma, tenantId, userId, prevMonth, missions, scoring, now),
     prisma.goal.findMany({
       where: {
         tenant_id: tenantId, active: true, scope: 'PROFESSIONAL', professional_user_id: userId,
@@ -292,19 +406,20 @@ export async function computeMyGame(
           detalhe: st.faltas === 0
             ? (st.consultas > 0 ? 'Nenhuma falta até agora — vale no fim da semana' : 'Sem consultas nesta semana ainda')
             : `${st.faltas} falta(s) esta semana`,
-          bonus: GAME_POINTS.missao,
+          bonus: scoring.pontos.missao,
         };
       }
       const alvo = mi.alvo || 1;
       const prog = Math.min(st.procedimentos, alvo);
       return {
         titulo: mi.titulo, alvo, progresso: prog, concluida: st.procedimentos >= alvo,
-        detalhe: `${prog} de ${alvo} concluídos`, bonus: GAME_POINTS.missao,
+        detalhe: `${prog} de ${alvo} concluídos`, bonus: scoring.pontos.missao,
       };
     });
   }
 
-  const lv = levelFor(atual.pontos);
+  const lv = levelFor(atual.pontos, scoring.niveis);
+  const ouro = scoring.niveis.find((n) => n.nome === 'Ouro')?.min ?? GAME_LEVELS[2].min;
   const qtd = (k: string) => atual.fontes.find((f) => f.chave === k)?.qtd ?? 0;
   const conquistas = [
     { emoji: '🦷', label: 'Primeiro procedimento do mês', desbloqueada: qtd('procedimentos') >= 1 },
@@ -312,7 +427,7 @@ export async function computeMyGame(
     { emoji: '💯', label: '50 procedimentos', desbloqueada: qtd('procedimentos') >= 50 },
     { emoji: '🤝', label: 'Avaliação que virou tratamento', desbloqueada: qtd('conversoes') >= 1 },
     { emoji: '🎯', label: 'Meta batida', desbloqueada: metas.some((x) => x.concluida) },
-    { emoji: '🥇', label: 'Nível Ouro', desbloqueada: atual.pontos >= 1500 },
+    { emoji: '🥇', label: 'Nível Ouro', desbloqueada: atual.pontos >= ouro },
   ];
 
   return {
@@ -324,5 +439,7 @@ export async function computeMyGame(
     metas,
     missoes,
     conquistas,
+    // Regras DESTE profissional (pra tela explicar "como ganhar pontos").
+    regras: { pontos: scoring.pontos, niveis: scoring.niveis, personalizado: scoring.personalizado },
   };
 }

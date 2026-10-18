@@ -10,7 +10,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ownPatientsWhere } from '../auth/patient-scope.js';
-import { computeMonthPoints, levelFor, maceioMonthKey, readMissionsConfig } from '../commissions/game-rules.js';
+import { computeMonthPoints, levelFor, maceioMonthKey, readGameScoring, readMissionsConfig } from '../commissions/game-rules.js';
 
 export interface ModuleBadge {
   value: string;
@@ -113,11 +113,15 @@ export class HomeModuleBadgesService {
         if (!userId) return null;
         // Pontos do mês pela produção clínica (game-rules) — nunca R$.
         const r = await this.safe('my_game_points', async () => {
-          const missions = await readMissionsConfig(this.prisma, tenantId);
-          return computeMonthPoints(this.prisma, tenantId, userId, maceioMonthKey(), missions);
+          const [missions, scoring] = await Promise.all([
+            readMissionsConfig(this.prisma, tenantId),
+            readGameScoring(this.prisma, tenantId, userId),
+          ]);
+          const pts = await computeMonthPoints(this.prisma, tenantId, userId, maceioMonthKey(), missions, scoring);
+          return { ...pts, niveis: scoring.niveis };
         });
         if (r == null) return null;
-        return { value: `${levelFor(r.pontos).nivel.emoji} ${r.pontos.toLocaleString('pt-BR')} pts`, tone: 'amber' };
+        return { value: `${levelFor(r.pontos, r.niveis).nivel.emoji} ${r.pontos.toLocaleString('pt-BR')} pts`, tone: 'amber' };
       }
       case 'agenda_today': {
         const n = await this.safe('agenda_today', () =>

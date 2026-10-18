@@ -32,6 +32,8 @@ interface MyGame {
   metas: Meta[];
   missoes: Missao[];
   conquistas: Conquista[];
+  /** Regras DESTE profissional (o admin pode personalizar no cadastro). */
+  regras?: { niveis: Nivel[] };
 }
 
 const MONTHS_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -241,7 +243,7 @@ export default function MeuJogoPage() {
             <div className="text-xs text-[#5b6172] leading-relaxed px-1">
               <b>Como ganhar pontos:</b>{' '}
               {data.fontes.map((f) => `${f.label.toLowerCase()} +${f.cada}`).join(' · ')}.
-              {' '}Níveis: 🥉 Bronze · 🥈 Prata (500) · 🥇 Ouro (1.500) · 💎 Diamante (3.000) — zera todo mês.
+              {' '}Níveis: {(data.regras?.niveis ?? []).map((n) => `${n.emoji} ${n.nome}${n.min > 0 ? ` (${n.min.toLocaleString('pt-BR')})` : ''}`).join(' · ')} — zera todo mês.
             </div>
           </>
         )}

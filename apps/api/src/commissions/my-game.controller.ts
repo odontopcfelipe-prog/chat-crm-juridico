@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Request, UseGuards, BadRequestException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeMyGame, maceioMonthKey, readMissionsConfig } from './game-rules';
+import { computeMyGame, maceioMonthKey, readGameScoring, readMissionsConfig } from './game-rules';
 
 /**
  * Out/2026 — "Meu jogo": pontuação, nível, metas e missões do profissional LOGADO.
@@ -24,7 +24,11 @@ export class MyGameController {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     if (!selfUserId) throw new BadRequestException('user_id ausente');
     const ref = month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : maceioMonthKey();
-    const missions = await readMissionsConfig(this.prisma, tenantId);
-    return computeMyGame(this.prisma, tenantId, selfUserId, ref, missions);
+    // Pontuação DESTE profissional (o admin pode ajustar no cadastro dele).
+    const [missions, scoring] = await Promise.all([
+      readMissionsConfig(this.prisma, tenantId),
+      readGameScoring(this.prisma, tenantId, selfUserId),
+    ]);
+    return computeMyGame(this.prisma, tenantId, selfUserId, ref, missions, scoring);
   }
 }

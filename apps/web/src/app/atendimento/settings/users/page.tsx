@@ -7,6 +7,10 @@ import api from '@/lib/api';
 // Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
 import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
 import { SectorHomePreview } from '@/components/home/SectorHomePreview';
+// Out/2026 — pontuação do "Meu jogo" por profissional (só pra quem atende como dentista).
+import {
+  GameScoringSection, EMPTY_SCORING, overrideToDraft, draftToBody, validateDraft, type ScoringDraft,
+} from './GameScoringSection';
 // Onda 5e v10 (Fase 25) — editor de horarios reusavel
 import {
   ScheduleEditor,
@@ -167,6 +171,11 @@ export default function UsersSettingsPage() {
   // admin mexeu no editor. Em edição, o save só persiste o schedule se isto for
   // true — senão uma falha na GET sobrescreveria a agenda real pelo padrão.
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  // Pontuação do jogo: só grava se o admin mexeu (scoringTouched) — evita apagar o
+  // que estava salvo quando a GET falha.
+  const [scoring, setScoring] = useState<ScoringDraft>(EMPTY_SCORING);
+  const [scoringTouched, setScoringTouched] = useState(false);
+  const [scoringLoaded, setScoringLoaded] = useState(false);
   // Onda 17.32.172 — reenvio do e-mail de confirmacao
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resentId, setResentId] = useState<string | null>(null);
@@ -232,6 +241,9 @@ export default function UsersSettingsPage() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setScoring(EMPTY_SCORING);
+    setScoringTouched(false);
+    setScoringLoaded(true); // usuário novo: nada pra carregar
     setSpecialtyInput('');
     setError('');
     // v10: reseta horarios pra padrao (Seg-Sex, 2 turnos)
@@ -283,7 +295,22 @@ export default function UsersSettingsPage() {
     setSchedule(defaultWeekSchedule());
     setScheduleLoaded(false); // só vira true se a GET responder (ok com/sem dados)
     if (uniqueRoles.includes('DENTIST')) await loadSchedule(user.id);
+    setScoring(EMPTY_SCORING);
+    setScoringTouched(false);
+    setScoringLoaded(false);
+    if (uniqueRoles.includes('DENTIST')) await loadScoring(user.id);
     setShowModal(true);
+  };
+
+  // Pontuação do jogo DESTE profissional (só os campos que diferem do padrão).
+  const loadScoring = async (userId: string) => {
+    try {
+      const res = await api.get(`/users/${userId}/game-scoring`);
+      setScoring(overrideToDraft(res.data?.override));
+      setScoringLoaded(true);
+    } catch {
+      // Falhou: fica em branco (padrão) e só grava se o admin mexer.
+    }
   };
 
   // Carrega o horário REAL do dentista. Também usado ao ligar "também atende
@@ -327,6 +354,16 @@ export default function UsersSettingsPage() {
       setError('Selecione o setor do usuário.');
       setLoading(false);
       return;
+    }
+
+    // Pontuação do jogo: valida ANTES de salvar o usuário (mesma regra do backend).
+    if (form.roles.includes('DENTIST') && scoringTouched) {
+      const msg = validateDraft(scoring);
+      if (msg) {
+        setError(`Pontuação do jogo — ${msg}`);
+        setLoading(false);
+        return;
+      }
     }
 
     try {
@@ -401,6 +438,11 @@ export default function UsersSettingsPage() {
           // eslint-disable-next-line no-console
           console.warn('Falha ao salvar horarios — user persistido sem schedule', scheduleErr);
         }
+      }
+
+      // Out/2026 — pontuação do jogo deste profissional (só se o admin mexeu).
+      if (form.roles.includes('DENTIST') && savedUserId && scoringTouched) {
+        await api.put(`/users/${savedUserId}/game-scoring`, draftToBody(scoring));
       }
 
       setShowModal(false);
@@ -794,6 +836,15 @@ export default function UsersSettingsPage() {
                 </p>
               </div>
 
+              {/* Out/2026 — Pontuação do "Meu jogo" deste profissional (o que ele vê no
+                  lugar de comissão). Só pra quem atende como dentista. */}
+              {form.roles.includes('DENTIST') && (
+                <GameScoringSection
+                  value={scoring}
+                  onChange={(d) => { setScoring(d); setScoringTouched(true); }}
+                />
+              )}
+
               {/* Onda 5e v12 (Fase 25) — HORÁRIOS DE ATENDIMENTO POSICIONADOS
                   LOGO APOS CRO pra alta visibilidade. So aparece pra DENTIST/
                   ADMIN. Aberto por default. Badge OBRIGATORIO + texto explicando
@@ -1069,6 +1120,7 @@ export default function UsersSettingsPage() {
                             setScheduleExpanded(true);
                             // Na edição, traz o horário real (senão mostraria o padrão)
                             if (editingId && !scheduleLoaded) loadSchedule(editingId);
+                            if (editingId && !scoringLoaded) loadScoring(editingId);
                           }
                         }}
                         className="mt-0.5 shrink-0 w-4 h-4 accent-violet-600 cursor-pointer"
