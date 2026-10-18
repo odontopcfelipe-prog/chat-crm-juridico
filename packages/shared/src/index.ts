@@ -39,3 +39,5 @@ export * from './chip-paciente';
 export * from './retorno-disparos';
 // Campanha manual (Central de Disparos): setores, anexos, público e ordem de envio
 export * from './campanha-manual';
+// Anexos (fotos/áudio) nos disparos automáticos da Central
+export * from './disparo-anexos';

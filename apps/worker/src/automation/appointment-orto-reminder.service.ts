@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
+import { enviarAnexosDoDisparoWorker } from './disparo-anexos';
 import { SettingsService } from '../settings/settings.service';
 import {
   formatTenantAddress,
@@ -203,6 +204,8 @@ export class AppointmentOrtoReminderService {
               ref_patient_id: ev.patient?.id,
             },
           });
+          // Anexos do card depois do texto que saiu (nunca lança).
+          await enviarAnexosDoDisparoWorker(this.prisma, { apiUrl, apiKey }, { tenantId: tid, disparoId: 'lembrete_orto_1h', phone, instance });
           sent++;
         } catch (err: any) {
           const msg = err?.response?.data?.message || err?.message || 'erro desconhecido';

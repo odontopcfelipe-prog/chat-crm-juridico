@@ -19,6 +19,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
+import { isDisparoComAnexo } from '@crm/shared';
 import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
@@ -33,6 +34,7 @@ import { ReativacaoConfigEditor } from './ReativacaoConfigEditor';
 import { ReativacaoColunaEditor } from './ReativacaoColunaEditor';
 import { TesteEnvio } from './TesteEnvio';
 import { RetornoEditor } from './RetornoEditor';
+import { AnexosDisparo } from './AnexosDisparo';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
@@ -603,6 +605,8 @@ export default function CentralDisparosPage() {
             sua própria UI — pula o TesteEnvio genérico (texto de template ao paciente).
             Reativação também pula: o texto é MODELO que a IA reescreve por contato, e o
             teste genérico sairia pelo chip da Clínica — a régua só sai pelo Comercial. */}
+        {/* Fotos/áudio do disparo (só os cards já ligados ao envio de anexos). */}
+        {isDisparoComAnexo(openItem.id) && <AnexosDisparo disparo={openItem.id} podeEditar={isAdmin} />}
         {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && openItem.editor !== 'reativacao' && openItem.editor !== 'reativacao_coluna' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );

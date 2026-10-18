@@ -30,6 +30,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ReturnAlertsService } from './return-alerts.service';
 import { wasSent, numeroSemWhatsapp, chipForaDoAr } from '../whatsapp/envio-resultado';
+import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
 
 const LOG = '[RETORNO-DISPARO]';
 const MACEIO_OFFSET_MS = 3 * 3600e3;
@@ -391,6 +392,8 @@ export class RetornoDisparosService {
       await this.prisma.auditLog.delete({ where: { id: marca.id } }).catch(() => undefined);
       return 'chip_caido';
     }
+    // Anexos do card (fotos/áudio) depois do texto que saiu; nunca lança.
+    if (ok) await enviarAnexosDoDisparo(this.prisma, this.whatsapp, { tenantId, disparoId: c.id, phone: p.phone, instance: chip });
     await this.prisma.dispatchLog
       .create({
         data: {

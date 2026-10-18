@@ -4664,3 +4664,22 @@ model ManualCampaignItem {
   @@index([campaign_id, status])
   @@index([tenant_id, status])
 }
+
+// ─── Anexos (fotos/áudio) nos disparos AUTOMÁTICOS da Central ───────────────────
+// O ADM anexa no editor do card; o motor manda depois do texto (que não muda). O arquivo
+// fica NO BANCO porque API e worker enviam e só a API enxerga o volume de mídia.
+// Sem relação com as tabelas existentes: db push só adiciona.
+model DisparoAnexo {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  disparo_id    String // id do card da Central (ex.: lembrete_1dia, retorno_limpeza_antes)
+  kind          String // image | audio
+  mime_type     String
+  size          Int
+  original_name String?
+  position      Int      @default(0)
+  data          Bytes
+  created_at    DateTime @default(now())
+
+  @@index([tenant_id, disparo_id])
+}

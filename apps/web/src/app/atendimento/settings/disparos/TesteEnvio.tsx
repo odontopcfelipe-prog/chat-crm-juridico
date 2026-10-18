@@ -29,8 +29,10 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
       const fullPhone = `55${phone}`;
       // Onda 17.59 — manda o `text` ATUAL da tela quando o editor fornece (fiel ao
       // que está escrito, mesmo sem salvar). Sem `text`, o backend usa o texto salvo.
-      await api.post('/calendar/disparo/send-test', { disparo, phone: fullPhone, text });
-      showSuccess('Teste enviado — confira o WhatsApp desse número');
+      const r = await api.post('/calendar/disparo/send-test', { disparo, phone: fullPhone, text }, { timeout: 180000 });
+      const anexos = r.data?.anexos as { enviados?: number; falhas?: string[] } | undefined;
+      showSuccess(anexos?.enviados ? `Teste enviado com ${anexos.enviados} anexo(s) — confira o WhatsApp desse número` : 'Teste enviado — confira o WhatsApp desse número');
+      if (anexos?.falhas?.length) showInfo(`Anexo não saiu: ${anexos.falhas.join('; ')}`);
     } catch (e: any) {
       // Onda 18.26 — separa FALHA REAL (backend disse o motivo) de INCERTEZA
       // (timeout / API sem resposta). Na incerteza a msg PODE ter ido — não

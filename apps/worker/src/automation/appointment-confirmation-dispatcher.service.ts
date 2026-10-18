@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
+import { enviarAnexosDoDisparoWorker } from './disparo-anexos';
 import { SettingsService } from '../settings/settings.service';
 import {
   toBrazilWhatsappNumber,
@@ -208,6 +209,13 @@ export class AppointmentConfirmationDispatcherService {
             data: { sent_at: new Date(), delivery_status: 'SENT' },
           });
           sent++;
+          // Anexos do card depois do texto que saiu (nunca lança — não cai no markFailed).
+          await enviarAnexosDoDisparoWorker(this.prisma, { apiUrl, apiKey }, {
+            tenantId,
+            disparoId: isOrtho && orthoEnabled ? 'confirmacao_orto' : 'confirmacao',
+            phone,
+            instance,
+          });
         } catch (err: any) {
           const msg = err?.response?.data?.message || err?.message || 'erro desconhecido';
           await this.markFailed(c.id, msg);

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { enviarAnexosDoDisparoWorker } from '../automation/disparo-anexos';
 import {
   toBrazilWhatsappNumber,
   DEFAULT_RECALL_TEMPLATE,
@@ -173,6 +174,15 @@ export class MaintenanceRecallCronService {
     await this.markAttempted(task.id, typeof messageId === 'string' ? messageId : null);
     // Central 2.0 — registro unificado (métrica + resumo "pra quem mandou").
     await this.logDispatchUnificado(task.patient.tenant_id, task.patient.name, task.patient.phone, messageId, task.patient.id);
+    // Anexos do card depois do texto que saiu, pelo mesmo chip (nunca lança).
+    if (messageId !== false && chipDaVez) {
+      const evo = await this.settings.getEvolutionConfig().catch(() => null);
+      if (evo) {
+        await enviarAnexosDoDisparoWorker(this.prisma, evo, {
+          tenantId: task.patient.tenant_id, disparoId: 'recall_preventivo', phone: task.patient.phone, instance: chipDaVez,
+        });
+      }
+    }
     this.lastRecallSentAt = nowMs;
     this.nextGapMs = this.randomGapMs();
 

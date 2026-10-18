@@ -3,6 +3,8 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
+import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
+import { lembreteClinicoIdFor } from '@crm/shared';
 import { SettingsService } from '../settings/settings.service';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -883,6 +885,17 @@ export class CalendarReminderWorker extends WorkerHost {
       // Envio ao paciente/lead falhou → o process() grava FAILED (sent_at volta a null,
       // last_error com o motivo, badge FALHOU + aviso no sininho), não "enviado".
       if (falhaEnvio) throw new Error(falhaEnvio);
+
+      // Anexos do card (fotos/áudio), DEPOIS do texto que já saiu. Nunca lança: falha num
+      // anexo não pode virar FAILED (o BullMQ reenviaria o texto).
+      if (isClinical && tenantId && reminderInstanceName) {
+        await enviarAnexosDoDisparo(this.prisma, this.whatsapp, {
+          tenantId,
+          disparoId: comercialCid || lembreteClinicoIdFor(minutesBefore),
+          phone: clientPhone,
+          instance: reminderInstanceName,
+        });
+      }
     }
 
     // v25: retorna externalMsgId pra worker salvar no EventReminder

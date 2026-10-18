@@ -4,7 +4,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 // Onda 18.x — régua única de vencido (vence hoje NÃO bloqueia agendamento).
+import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
 import {
+  isDisparoComAnexo,
   startOfTodayMaceioUtc,
   isCobrancaStage,
   isRetornoDisparoId,
@@ -2391,7 +2393,11 @@ export class CalendarService {
         throw new Error(`Evolution ${r?.statusCode ?? ''} ${r?.error ?? ''}`.trim());
       }
       this.logger.log(`[DISPARO_TESTE] ${disparo} enviado pra ${num} via ${instanceName}`);
-      return { sent: true, to: num, message: msg };
+      // O teste manda também os anexos do card (o que o paciente vai receber de verdade).
+      const anexos = tenant_id && isDisparoComAnexo(disparo)
+        ? await enviarAnexosDoDisparo(this.prisma, this.whatsapp, { tenantId: tenant_id, disparoId: disparo, phone: num, instance: instanceName })
+        : { enviados: 0, falhas: [] as string[] };
+      return { sent: true, to: num, message: msg, anexos };
     } catch (e: any) {
       if (e instanceof BadRequestException) throw e;
       throw new BadRequestException(
@@ -2815,6 +2821,15 @@ export class CalendarService {
       if (ok) {
         results.push({ patient_id: p.id, name: p.name, sent: true });
         void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'SENT', refPatientId: p.id });
+        // Anexos do card desta mensagem (clássica/desejo/presente), depois do texto.
+        if (instance) {
+          await enviarAnexosDoDisparo(this.prisma, this.whatsapp, {
+            tenantId: tenant_id,
+            disparoId: which === 3 ? 'aniversario_presente' : which === 2 ? 'aniversario_desejo' : 'aniversario_classica',
+            phone,
+            instance,
+          });
+        }
       } else {
         const reason = res?.exists === false ? 'número não está no WhatsApp' : `Evolution recusou (${JSON.stringify(res).slice(0, 120)})`;
         results.push({ patient_id: p.id, name: p.name, sent: false, reason });
@@ -4016,9 +4031,12 @@ export class CalendarService {
       const localLine = local ? `📍 ${local}\n` : '';
 
       let msg: string;
+      // Card da Central que gerou o texto (pros anexos). O "agendada" clínico é texto fixo, sem card.
+      let anexoId: string | null = null;
       if (comercial) {
         // AGENDA DO COMERCIAL: texto próprio editável (Central › seção Comercial).
         const cid = kind === 'rescheduled' ? 'comercial_reagendamento' : 'comercial_confirmacao';
+        anexoId = cid;
         const tpl = (await this.getComercialAgendaTemplate(tenantId, cid)).template;
         msg = tpl
           .replace(/\{local_line\}/g, localLine)
@@ -4032,6 +4050,7 @@ export class CalendarService {
           .trim();
       } else if (kind === 'rescheduled') {
         // Texto editável na Central (APPOINTMENT_RESCHEDULED_TEMPLATE).
+        anexoId = 'reagendamento';
         const tpl = (await this.getAppointmentRescheduledConfig(tenantId)).template;
         msg = tpl
           .replace(/\{local_line\}/g, localLine)
@@ -4050,6 +4069,7 @@ export class CalendarService {
         // partir das {hora}" / ordem de chegada — nunca "às {hora}" (hora fixa
         // contradiz ordem de chegada). Chamado no create() SÓ quando o toggle está
         // ligado; cobre também o botão "Notificar" manual.
+        anexoId = 'confirmacao_orto_imediata';
         const tpl = (await this.getAppointmentOrtoImmediateConfig(tenantId)).template;
         msg = tpl
           .replace(/\{local_line\}/g, localLine)
@@ -4086,6 +4106,8 @@ export class CalendarService {
       }
       this.logger.log(`[AUTO-WPP] agendamento_${kind} enviado ao paciente (evento ${event.id})`);
       void this.logDispatch({ tenantId, type: dispatchType, recipientName: name, recipientPhone: phone, status: 'SENT', externalMessageId: sendResult?.data?.key?.id ?? null, refEventId: event.id, refPatientId: patientId });
+      // Anexos do card depois do texto (sem segurar a resposta do "Notificar"; nunca lança).
+      if (anexoId) void enviarAnexosDoDisparo(this.prisma, this.whatsapp, { tenantId, disparoId: anexoId, phone, instance: instanceName });
       return { sent: true };
     } catch (e: any) {
       this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou: ${e?.message}`);
