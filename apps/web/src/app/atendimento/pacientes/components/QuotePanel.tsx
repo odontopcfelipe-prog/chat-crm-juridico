@@ -20,6 +20,7 @@ import {
   Pencil, Layers, DollarSign, Lightbulb, Check,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
 
@@ -120,6 +121,10 @@ export default function QuotePanel({
   onAnnotationConsumed,
   compact,
 }: Props) {
+  // Out/2026 — quem só monta a avaliação (Dentista) não negocia: sem link pra
+  // aba de orçamentos/propostas (ela nem abre pra ele).
+  const { hasPermission } = useUserPermissions();
+  const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
@@ -600,8 +605,11 @@ export default function QuotePanel({
           {items.length > 0 && !compact && (
             <div className="border-t border-border p-4 flex items-center justify-between flex-wrap gap-3 bg-background/30">
               <div className="text-xs text-muted-foreground italic">
-                Plano clinico — valores, descontos e condicoes ficam no tab Orçamentos
+                {canNegotiate
+                  ? 'Plano clinico — valores, descontos e condicoes ficam no tab Orçamentos'
+                  : 'Plano clínico — a recepção cuida dos valores e apresenta ao paciente'}
               </div>
+              {canNegotiate && (
               <a
                 href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${quote.id}`}
                 className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:bg-accent text-foreground"
@@ -609,6 +617,7 @@ export default function QuotePanel({
               >
                 <Pencil size={11} /> Ir para orçamentos
               </a>
+              )}
             </div>
           )}
         </>

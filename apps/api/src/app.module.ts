@@ -81,12 +81,15 @@ import { InfluencersModule } from './influencers/influencers.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 // Onda 17.32.128 — Fase 6: autorizacao real por permissao
 import { PermissionsGuard } from './auth/decorators/requires-permission.decorator';
+// Out/2026 — "só os pacientes dele" + ocultar contato/valores (regra do Dentista).
+import { PatientScopeGuard } from './auth/patient-scope';
+import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
 
 @Module({
   imports: [
@@ -221,6 +224,18 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
     {
       provide: APP_GUARD,
       useClass: PermissionsGuard,
+    },
+    // Out/2026 — rotas de UM paciente (:patientId e /patients/:id) barram paciente
+    // fora da carteira de quem não tem view_all_patients. Depois do JwtAuthGuard.
+    {
+      provide: APP_GUARD,
+      useClass: PatientScopeGuard,
+    },
+    // Out/2026 — apaga contato (view_patient_contact) e valores (view_values) das
+    // respostas de quem não tem a permissão. Só afeta não-admin sem a permissão.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SensitiveDataInterceptor,
     },
   ],
 })

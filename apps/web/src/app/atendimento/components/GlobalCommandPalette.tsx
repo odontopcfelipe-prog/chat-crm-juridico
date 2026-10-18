@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { useUserPermissions } from '@/lib/useUserPermissions';
+import { canAccessRoute } from '@crm/shared';
 
 interface LeadResult {
   id: string;
@@ -72,6 +74,10 @@ interface GlobalCommandPaletteProps {
 
 export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProps) {
   const router = useRouter();
+  // Out/2026 — atalhos e busca de leads respeitam o acesso por tela (ROUTE_ACCESS):
+  // o Dentista não vê Inbox/CRC/Contatos/... nem busca leads (contato/chat).
+  const { hasPermission } = useUserPermissions();
+  const canSearchLeads = canAccessRoute('/atendimento/crm', hasPermission);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [leadResults, setLeadResults] = useState<LeadResult[]>([]);
@@ -99,7 +105,7 @@ export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProp
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (q.length < 2) {
+    if (q.length < 2 || !canSearchLeads) {
       setLeadResults([]);
       setSearchingLeads(false);
       return;
@@ -126,18 +132,19 @@ export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProp
     }, 280);
 
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [q]);
+  }, [q, canSearchLeads]);
 
   // Montar lista de itens
   const items: PaletteItem[] = [];
 
   // Navegação — filtrada por query ou lista completa
+  const allowedNav = NAV_ITEMS.filter(n => canAccessRoute(n.href, hasPermission));
   const filteredNav = q
-    ? NAV_ITEMS.filter(n =>
+    ? allowedNav.filter(n =>
         n.label.toLowerCase().includes(q) ||
         (n.sublabel?.toLowerCase().includes(q) ?? false)
       )
-    : NAV_ITEMS;
+    : allowedNav;
 
   filteredNav.forEach(n => {
     items.push({

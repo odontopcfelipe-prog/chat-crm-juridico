@@ -174,6 +174,13 @@ function PacienteFichaInner() {
   const canProposals = canManageProposals || hasPermission('view_proposals');
   const proposalsReadOnly = canProposals && !canManageProposals;
   const canFinancial = hasPermission('view_financial');
+  // Out/2026 — regra do Dentista: sem chat, sem agendar (a agenda dele é a lista),
+  // sem valores (selo de dívida/afiliado) e sem contato do paciente. A API já apaga
+  // contato/valores; aqui só some o que ficaria vazio ou levaria a tela bloqueada.
+  const canChat = hasPermission('view_chat');
+  const canSchedule = hasPermission('manage_agenda');
+  const canSeeValues = hasPermission('view_values');
+  const canSeeContact = hasPermission('view_patient_contact');
   const [patient, setPatient] = useState<Patient | null>(null);
   // Selo de devedor/bloqueio no cabeçalho (best-effort — não trava o carregamento).
   const [blockStatus, setBlockStatus] = useState<{
@@ -467,7 +474,7 @@ function PacienteFichaInner() {
               )}
               {/* Selo de devedor: vermelho = agendamento bloqueado (gate ligado +
                   atraso); âmbar = tem atraso mas o gate está desligado. Clica → Financeiro. */}
-              {blockStatus?.has_overdue && (
+              {canSeeValues && blockStatus?.has_overdue && (
                 <button
                   type="button"
                   onClick={() => { router.replace(`/atendimento/pacientes/${patient.id}?tab=financial`); setTab('financial'); }}
@@ -489,8 +496,8 @@ function PacienteFichaInner() {
                   vencidas ao vivo, 1×/10min por paciente) — sem botão manual. */}
             </h1>
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
-              {patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {formatPhone(patient.phone)}</span>}
-              {patient.email && <span className="flex items-center gap-1"><Mail size={14} /> {patient.email}</span>}
+              {canSeeContact && patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {formatPhone(patient.phone)}</span>}
+              {canSeeContact && patient.email && <span className="flex items-center gap-1"><Mail size={14} /> {patient.email}</span>}
               {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {formatCPF(patient.cpf)}</span>}
             </div>
             {/* Tags do paciente — gerenciamento inline */}
@@ -507,7 +514,7 @@ function PacienteFichaInner() {
               Onda 5e v37: o botao "Tornar Afiliado" foi removido daqui —
               ativacao agora so pelo modal Editar > Programa de Afiliado
               (toggle), pra manter o header da ficha enxuto. */}
-          {patient.status !== 'ARCHIVED' && patient.is_affiliate && (
+          {patient.status !== 'ARCHIVED' && patient.is_affiliate && canSeeValues && (
             <button
               onClick={() => {
                 router.replace(`/atendimento/pacientes/${patient.id}?tab=affiliate`);
@@ -533,7 +540,7 @@ function PacienteFichaInner() {
               Avaliação
             </button>
           )}
-          {patient.status !== 'ARCHIVED' && (
+          {patient.status !== 'ARCHIVED' && canSchedule && (
             <button
               onClick={() => {
                 const params = new URLSearchParams({
@@ -552,7 +559,7 @@ function PacienteFichaInner() {
           )}
           {/* Onda 18.x — "Conversar": abre o chat DESTE paciente num painel ao lado,
               sem sair da ficha (chip Clínica/Comercial — nunca o Financeiro). */}
-          {patient.status !== 'ARCHIVED' && patient.lead_id && (
+          {patient.status !== 'ARCHIVED' && patient.lead_id && canChat && (
             <button
               type="button"
               onClick={() => {
@@ -870,7 +877,7 @@ function PacienteFichaInner() {
           {TABS.filter((t) => t.group === 'operational')
             // Aba "Afiliado" so aparece quando o paciente esta no programa.
             // Default off — toggle em Editar paciente > Programa de Afiliado.
-            .filter((t) => t.id !== 'affiliate' || patient.is_affiliate)
+            .filter((t) => t.id !== 'affiliate' || (patient.is_affiliate && canSeeValues))
             // Onda 17.65 — Propostas/Financeiro só com permissão.
             .filter((t) => (t.id !== 'proposals' || canProposals) && (t.id !== 'financial' || canFinancial))
             .map((t) => {
@@ -988,7 +995,7 @@ function PacienteFichaInner() {
       {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} patientName={patient.name} />}
       {tab === 'treatment' && <TratamentoTab patientId={patient.id} />}
       {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
-      {tab === 'affiliate' && patient.is_affiliate && (
+      {tab === 'affiliate' && patient.is_affiliate && canSeeValues && (
         <AfiliadoTab
           patientId={patient.id}
           patientName={patient.name}
@@ -1024,7 +1031,7 @@ function PacienteFichaInner() {
           Desktop: coluna fixa de 400px à direita (a ficha encolhe). Mobile: tela
           cheia por cima. ChatPane usa o SocketProvider do layout (1 socket só) e
           scope="patient" garante a conversa do chip Clínica/Comercial. */}
-      {chatOpen && patient.lead_id && (
+      {chatOpen && canChat && patient.lead_id && (
         <aside
           className="fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-[340px] lg:w-[380px] xl:w-[420px] md:shrink-0 md:h-full flex flex-col bg-card border-l border-border shadow-xl md:shadow-none"
           aria-label={`Chat com ${patient.name}`}

@@ -26,7 +26,10 @@ import { AffiliateService } from './affiliate.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 // Onda 17.52 — Etapa 3: leitura de paciente exige view_patients (antes aberta a
 // qualquer logado). Todos os 6 setores têm view_patients por default.
-import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+import { RequiresPermission, PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
+import { PrismaService } from '../prisma/prisma.service';
+import { restrictedPatientOwner, isAdminRole, isOwnPatient, ownPatientsWhere } from '../auth/patient-scope';
+import { CONTACT_KEYS } from '../common/interceptors/sensitive-data.interceptor';
 import { CreatePatientDto, UpdatePatientDto, CreateManualReferralDto } from './dto/create-patient.dto';
 import {
   canEditPatientPersonalData,
@@ -41,7 +44,33 @@ export class PatientsController {
     private readonly patientsService: PatientsService,
     private readonly leadsService: LeadsService,
     private readonly affiliateService: AffiliateService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /** Out/2026 — userId da carteira quando o usuário só vê os PRÓPRIOS pacientes. */
+  private ownerFor(req: any) {
+    return restrictedPatientOwner(this.prisma, req.user);
+  }
+
+  /**
+   * Out/2026 — quem não vê o contato recebe telefone/e-mail/endereço como null
+   * (SensitiveDataInterceptor). Se o front reenviar esses nulls num PATCH, o
+   * cadastro seria APAGADO — então esses campos são ignorados na gravação.
+   */
+  private async dropHiddenContact<T extends object>(req: any, dto: T): Promise<T> {
+    if (isAdminRole(req.user?.roles)) return dto;
+    const perms = await PermissionsGuard.permissionsFor(this.prisma, req.user?.id, req.user?.roles ?? []);
+    if (perms.has('view_patient_contact')) return dto;
+    const clean: Record<string, unknown> = { ...(dto as Record<string, unknown>) };
+    for (const k of Object.keys(clean)) if (CONTACT_KEYS.has(k)) delete clean[k];
+    return clean as T;
+  }
+
+  private async canSeeContact(req: any): Promise<boolean> {
+    if (isAdminRole(req.user?.roles)) return true;
+    const perms = await PermissionsGuard.permissionsFor(this.prisma, req.user?.id, req.user?.roles ?? []);
+    return perms.has('view_patient_contact');
+  }
 
   // Onda 17.52 — Etapa 7: cadastrar paciente exige edit_patients (antes era
   // checagem por papel). Têm por default: recepção, dentista, CRC e admin.
@@ -73,7 +102,7 @@ export class PatientsController {
 
   @RequiresPermission('view_patients')
   @Get()
-  findAll(
+  async findAll(
     @Request() req: any,
     @Query('search') search?: string,
     @Query('status') status?: string,
@@ -99,15 +128,19 @@ export class PatientsController {
       withoutAnamnesis: withoutAnamnesis === 'true' || withoutAnamnesis === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      // Out/2026 — Dentista (sem view_all_patients) vê só a carteira dele e não
+      // busca por telefone/e-mail (sem view_patient_contact).
+      ownerUserId: await this.ownerFor(req),
+      contactSearch: await this.canSeeContact(req),
     });
   }
 
   @RequiresPermission('view_patients')
   @Get('stats')
-  getStats(@Request() req: any) {
+  async getStats(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.patientsService.getStats(tenantId);
+    return this.patientsService.getStats(tenantId, await this.ownerFor(req));
   }
 
   /**
@@ -118,10 +151,21 @@ export class PatientsController {
    */
   @RequiresPermission('view_patients')
   @Get('funil-clinica')
-  findFunilClinica(@Request() req: any) {
+  async findFunilClinica(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.patientsService.findFunilClinica(tenantId);
+    const result: any = await this.patientsService.findFunilClinica(tenantId);
+    // Out/2026 — usuário restrito: só os pacientes da carteira dele.
+    const owner = await this.ownerFor(req);
+    if (owner && Array.isArray(result?.patients)) {
+      const own = await this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, ...ownPatientsWhere(owner) },
+        select: { id: true },
+      });
+      const ids = new Set(own.map((p) => p.id));
+      return { ...result, patients: result.patients.filter((p: any) => ids.has(p.id)) };
+    }
+    return result;
   }
 
   /**
@@ -139,12 +183,12 @@ export class PatientsController {
   /** Aniversariantes do periodo (today | week | month). */
   @RequiresPermission('view_patients')
   @Get('birthdays')
-  getBirthdays(@Request() req: any, @Query('period') period?: string) {
+  async getBirthdays(@Request() req: any, @Query('period') period?: string) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const validPeriods = ['today', 'week', 'month'];
     const p = (validPeriods.includes(period as any) ? period : 'today') as 'today' | 'week' | 'month';
-    return this.patientsService.getBirthdays(tenantId, p);
+    return this.patientsService.getBirthdays(tenantId, p, await this.ownerFor(req));
   }
 
   /**
@@ -153,10 +197,14 @@ export class PatientsController {
    * ANTES de @Get(':id') pra 'by-lead' não ser capturado como id.
    */
   @Get('by-lead/:leadId')
-  findByLead(@Param('leadId') leadId: string, @Request() req: any) {
+  async findByLead(@Param('leadId') leadId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.patientsService.findByLead(leadId, tenantId);
+    const patient: any = await this.patientsService.findByLead(leadId, tenantId);
+    // Out/2026 — usuário restrito não descobre paciente fora da carteira pelo lead.
+    const owner = await this.ownerFor(req);
+    if (owner && patient?.id && !(await isOwnPatient(this.prisma, tenantId, owner, patient.id))) return null;
+    return patient;
   }
 
   /**
@@ -290,9 +338,10 @@ export class PatientsController {
   // arquivar/excluir continua só admin (canArchivePatient, nos DELETE abaixo).
   @RequiresPermission('edit_patients')
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
+  async update(@Param('id') id: string, @Body() body: UpdatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const dto = await this.dropHiddenContact(req, body);
     return this.patientsService.update(id, tenantId, {
       ...dto,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
@@ -311,9 +360,10 @@ export class PatientsController {
    * Campos clinicos / status / tags NAO sao alteraveis aqui.
    */
   @Patch(':id/credit-check-data')
-  updateCreditCheckData(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
+  async updateCreditCheckData(@Param('id') id: string, @Body() body: UpdatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const dto = await this.dropHiddenContact(req, body);
 
     // Restringe a um subset de campos seguros pra fluxo de credit-check
     const allowedFields = [

@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 // de a checagem de quota ser pulada silenciosamente em runtime — que era o que
 // acontecia com o `await import()` dentro de try/catch.
 import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
+import { ownPatientsWhere } from '../auth/patient-scope.js';
 
 // ============================================================================
 // Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
@@ -351,6 +352,11 @@ export class PatientsService {
       birthdayMonth?: boolean;      // aniversariantes do mes corrente
       page?: number;
       limit?: number;
+      // Out/2026 — usuário SEM view_all_patients: só a carteira dele (ownPatientsWhere).
+      ownerUserId?: string | null;
+      // Out/2026 — usuário SEM view_patient_contact não busca por telefone/e-mail
+      // (senão confirmaria o número de alguém pela busca).
+      contactSearch?: boolean;
     } = {},
   ) {
     const page = Math.max(1, opts.page || 1);
@@ -403,6 +409,7 @@ export class PatientsService {
       andFilters.push(activityWhere(opts.activity, activityCutoff));
     }
     if (opts.dentistId) andFilters.push({ primary_dentist_id: opts.dentistId });
+    if (opts.ownerUserId) andFilters.push(ownPatientsWhere(opts.ownerUserId));
     if (opts.tagId) andFilters.push({ tags: { some: { tag_id: opts.tagId } } });
     if (opts.withActivePlan) andFilters.push({ treatment_plans: { some: { status: 'ACTIVE' } } });
     if (opts.withoutAnamnesis) andFilters.push({ anamneses: { none: {} } });
@@ -414,9 +421,9 @@ export class PatientsService {
       ? {
           OR: [
             { name: { contains: opts.search, mode: 'insensitive' } },
-            { phone: { contains: opts.search } },
+            ...(opts.contactSearch === false ? [] : [{ phone: { contains: opts.search } }]),
             { cpf: { contains: opts.search } },
-            { email: { contains: opts.search, mode: 'insensitive' } },
+            ...(opts.contactSearch === false ? [] : [{ email: { contains: opts.search, mode: 'insensitive' as const } }]),
             // Onda 17.32.184 — busca tambem pela ficha (nº de prontuario)
             { record_number: { contains: opts.search, mode: 'insensitive' } },
             // Onda 17.33 — busca tambem pelo nome da etiqueta
@@ -1001,12 +1008,15 @@ export class PatientsService {
    * "week":  proximos 7 dias incluindo hoje (cobre o passar do final de mes).
    * "month": qualquer dia do mes corrente.
    */
-  async getBirthdays(tenantId: string, period: 'today' | 'week' | 'month' = 'today') {
+  async getBirthdays(tenantId: string, period: 'today' | 'week' | 'month' = 'today', ownerUserId?: string | null) {
     // Onda 18.x — Prisma ORM (findMany) + filtro de mês/dia no NODE. Raw SQL em
     // Patient quebra ("relation patients does not exist" → 500 no widget de
     // aniversariantes) — ver memória do projeto: SEMPRE ORM pra Patient.
     const patients = await this.prisma.patient.findMany({
-      where: { tenant_id: tenantId, status: 'ACTIVE', birth_date: { not: null } },
+      where: {
+        tenant_id: tenantId, status: 'ACTIVE', birth_date: { not: null },
+        ...(ownerUserId ? { AND: [ownPatientsWhere(ownerUserId)] } : {}),
+      },
       select: { id: true, name: true, phone: true, birth_date: true, avatar_url: true, primary_dentist_id: true },
     });
 
@@ -1048,20 +1058,24 @@ export class PatientsService {
   }
 
   /** Estatisticas rapidas (para dashboard). */
-  async getStats(tenantId: string) {
+  async getStats(tenantId: string, ownerUserId?: string | null) {
     // Onda 17.47 — Ativos/Inativos sao CALCULADOS por recencia (>12m sem
     // atendimento = Inativo); Arquivados continua sendo o status salvo.
     // active + inactive + archived = total (particao: archived vs nao-archived
     // dividido por recencia; created_at sempre existe, entao todo mundo cai em 1).
     const cutoff = inactiveCutoff();
+    // Out/2026 — usuário restrito conta só a carteira dele.
+    const base: Prisma.PatientWhereInput = ownerUserId
+      ? { tenant_id: tenantId, AND: [ownPatientsWhere(ownerUserId)] }
+      : { tenant_id: tenantId };
     const [total, active, inactive, archived, withActivePlan] = await Promise.all([
-      this.prisma.patient.count({ where: { tenant_id: tenantId } }),
-      this.prisma.patient.count({ where: { tenant_id: tenantId, ...activityWhere('ACTIVE', cutoff) } }),
-      this.prisma.patient.count({ where: { tenant_id: tenantId, ...activityWhere('INACTIVE', cutoff) } }),
-      this.prisma.patient.count({ where: { tenant_id: tenantId, status: 'ARCHIVED' } }),
+      this.prisma.patient.count({ where: base }),
+      this.prisma.patient.count({ where: { ...base, ...activityWhere('ACTIVE', cutoff) } }),
+      this.prisma.patient.count({ where: { ...base, ...activityWhere('INACTIVE', cutoff) } }),
+      this.prisma.patient.count({ where: { ...base, status: 'ARCHIVED' } }),
       this.prisma.patient.count({
         where: {
-          tenant_id: tenantId,
+          ...base,
           treatment_plans: { some: { status: 'ACTIVE' } },
         },
       }),

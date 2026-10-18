@@ -20,7 +20,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
-  mapBackendRole, resolvePermissions,
+  mapBackendRole, resolvePermissions, PERMISSIONS,
   type Permission, type Sector,
 } from '@crm/shared';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -83,12 +83,26 @@ export class PermissionsGuard implements CanActivate {
     userId: string,
     fallbackRoles: string[],
   ): Promise<Set<Permission>> {
+    return PermissionsGuard.permissionsFor(this.prisma, userId, fallbackRoles);
+  }
+
+  /**
+   * Out/2026 — permissões efetivas de um usuário FORA do guard (interceptor de
+   * dados sensíveis, escopo de paciente, trava de campos). Mesmo cache/regra do
+   * guard. SUPER_ADMIN recebe todas.
+   */
+  static async permissionsFor(
+    prisma: PrismaService,
+    userId: string,
+    fallbackRoles: string[] = [],
+  ): Promise<Set<Permission>> {
+    if (fallbackRoles.includes('SUPER_ADMIN')) return new Set(PERMISSIONS.map((p) => p.key));
     const cached = PermissionsGuard.cache.get(userId);
     if (cached && Date.now() - cached.fetchedAt < PermissionsGuard.TTL_MS) {
       return cached.perms;
     }
 
-    const u = await this.prisma.user.findUnique({
+    const u = await prisma.user.findUnique({
       where: { id: userId },
       select: { sector: true, extra_grants: true, extra_revokes: true },
     });

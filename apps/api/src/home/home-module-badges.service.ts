@@ -9,6 +9,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ownPatientsWhere } from '../auth/patient-scope.js';
 
 export interface ModuleBadge {
   value: string;
@@ -23,7 +24,9 @@ export interface ModuleBadgesResponse {
 // Evita calcular contagem que nenhum card vai mostrar.
 const SECTOR_BADGES: Record<string, string[]> = {
   recepcao:   ['agenda_today', 'patients_total', 'whatsapp_open', 'returns_pending', 'proposals_sent'],
-  dentista:   ['agenda_today', 'patients_total', 'proposals_sent'],
+  // Out/2026 — quadrantes do dentista com dados SÓ dele (agenda, atendimentos a
+  // confirmar, carteira, em tratamento e a própria comissão) — nada da clínica toda.
+  dentista:   ['my_agenda_today', 'my_pending_validation', 'my_patients_total', 'my_patients_in_treatment', 'my_commission_available'],
   acd_asb:    ['agenda_today', 'patients_total'],
   crc:        ['crc_queue', 'marketing_active', 'returns_pending', 'proposals_sent', 'whatsapp_open'],
   financeiro: ['financeiro_today', 'proposals_sent', 'reports_pct'],
@@ -35,10 +38,10 @@ export class HomeModuleBadgesService {
   private readonly logger = new Logger(HomeModuleBadgesService.name);
   constructor(private readonly prisma: PrismaService) {}
 
-  async forSector(tenantId: string, sector: string): Promise<ModuleBadgesResponse> {
+  async forSector(tenantId: string, sector: string, userId?: string): Promise<ModuleBadgesResponse> {
     const keys = SECTOR_BADGES[sector] ?? SECTOR_BADGES.admin;
     const entries = await Promise.all(
-      keys.map(async (key) => [key, await this.compute(key, tenantId)] as const),
+      keys.map(async (key) => [key, await this.compute(key, tenantId, userId)] as const),
     );
     const badges: Record<string, ModuleBadge> = {};
     for (const [key, badge] of entries) {
@@ -47,8 +50,79 @@ export class HomeModuleBadgesService {
     return { badges };
   }
 
-  private async compute(key: string, tenantId: string): Promise<ModuleBadge | null> {
+  private async compute(key: string, tenantId: string, userId?: string): Promise<ModuleBadge | null> {
     switch (key) {
+      case 'my_agenda_today': {
+        if (!userId) return null;
+        // Agenda é naive-UTC (hora de Maceió nos campos UTC): "hoje" = dia de
+        // Maceió (Date.now() - 3h) lido em UTC. Desmarcados não contam.
+        const n = await this.safe('my_agenda_today', () =>
+          this.prisma.calendarEvent.count({
+            where: {
+              tenant_id: tenantId,
+              start_at: this.maceioToday(),
+              status: { notIn: ['CANCELADO'] },
+              OR: [
+                { assigned_user_id: userId },
+                { assigned_user_id: null, created_by_id: userId },
+              ],
+            },
+          }));
+        return n == null ? null : { value: `Hoje ${n}`, tone: 'violet' };
+      }
+      case 'my_pending_validation': {
+        if (!userId) return null;
+        // Mesmo critério da tela Validações (listPendingValidation, últimos 30 dias),
+        // mas "agora" no naive-UTC — consulta das próximas horas não conta.
+        const naiveNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+        const n = await this.safe('my_pending_validation', () =>
+          this.prisma.calendarEvent.count({
+            where: {
+              tenant_id: tenantId,
+              assigned_user_id: userId,
+              type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+              validated_at: null,
+              start_at: { gte: new Date(naiveNow.getTime() - 30 * 24 * 60 * 60 * 1000), lte: naiveNow },
+              status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
+            },
+          }));
+        if (n == null) return null;
+        return { value: n === 0 ? 'Em dia' : `${n} a confirmar`, tone: n === 0 ? 'emerald' : 'amber' };
+      }
+      case 'my_patients_total': {
+        if (!userId) return null;
+        const n = await this.safe('my_patients_total', () =>
+          this.prisma.patient.count({ where: { tenant_id: tenantId, ...ownPatientsWhere(userId) } }));
+        return n == null ? null : { value: n.toLocaleString('pt-BR'), tone: 'sky' };
+      }
+      case 'my_patients_in_treatment': {
+        if (!userId) return null;
+        const n = await this.safe('my_patients_in_treatment', () =>
+          this.prisma.patient.count({
+            where: {
+              tenant_id: tenantId,
+              treatment_plans: { some: { status: 'ACTIVE' } },
+              AND: [ownPatientsWhere(userId)],
+            },
+          }));
+        return n == null ? null : { value: n.toLocaleString('pt-BR'), tone: 'emerald' };
+      }
+      case 'my_commission_available': {
+        if (!userId) return null;
+        // A comissão é do próprio dentista (pode ver o valor). "A receber" =
+        // DISPONIVEL (paciente já pagou, clínica ainda não repassou).
+        const agg = await this.safe('my_commission_available', () =>
+          this.prisma.commission.aggregate({
+            where: { tenant_id: tenantId, professional_user_id: userId, status: 'DISPONIVEL' },
+            _sum: { amount: true },
+          }));
+        if (agg == null) return null;
+        const total = Number(agg._sum.amount ?? 0);
+        return {
+          value: total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }),
+          tone: 'emerald',
+        };
+      }
       case 'agenda_today': {
         const n = await this.safe('agenda_today', () =>
           this.prisma.calendarEvent.count({ where: { tenant_id: tenantId, start_at: this.today() } }));
@@ -115,6 +189,14 @@ export class HomeModuleBadgesService {
       default:
         return null;
     }
+  }
+
+  /** Dia de Maceió no modelo naive-UTC da agenda. */
+  private maceioToday() {
+    const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    return { gte: start, lte: end };
   }
 
   private today() {

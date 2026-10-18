@@ -8,6 +8,11 @@
  * resposta ainda nao chegou, faz fallback otimista: deriva setor das
  * roles do JWT via mapBackendRole.
  *
+ * Out/2026 — o cache e AMARRADO ao token: trocar de conta (logout → login)
+ * no mesmo SPA refaz o /users/me em vez de reaproveitar as permissoes da
+ * conta anterior. O layout passa `tokenKey` (token reativo) pra reavaliar no
+ * login → dashboard, ja que o layout persiste e o hook nao remonta.
+ *
  * IMPORTANTE: este hook eh APENAS pra UX (esconder atalhos / abas
  * que o user nao acessa). Autorizacao DE VERDADE precisa estar nos
  * endpoints do backend.
@@ -40,20 +45,52 @@ interface CachedState {
 }
 
 let cached: MeFromApi | null = null;
+let cachedToken: string | null = null;
 let inflight: Promise<MeFromApi | null> | null = null;
+let inflightToken: string | null = null;
+
+function currentToken(): string | null {
+  try {
+    return typeof window === 'undefined' ? null : localStorage.getItem('token');
+  } catch {
+    return null;
+  }
+}
+
+/** Roles do payload do JWT (sem validar assinatura — so pro fallback de UX). */
+function rolesFromJwt(token: string | null | undefined): string[] {
+  if (!token) return [];
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(b64));
+    const raw: unknown = Array.isArray(payload?.roles) ? payload.roles : (payload?.role ? [payload.role] : []);
+    return (raw as string[]).map((r) => String(r).toUpperCase());
+  } catch {
+    return [];
+  }
+}
+
+function isFresh(): boolean {
+  return !!cached && cachedToken === currentToken();
+}
 
 async function fetchMe(): Promise<MeFromApi | null> {
-  if (cached) return cached;
-  if (inflight) return inflight;
+  const token = currentToken();
+  if (!token) return null;
+  if (cached && cachedToken === token) return cached;
+  if (inflight && inflightToken === token) return inflight;
+  inflightToken = token;
   inflight = (async () => {
     try {
       const { data } = await api.get<MeFromApi>('/users/me');
       cached = data ?? null;
+      cachedToken = token;
       return cached;
     } catch {
       return null;
     } finally {
       inflight = null;
+      inflightToken = null;
     }
   })();
   return inflight;
@@ -61,7 +98,9 @@ async function fetchMe(): Promise<MeFromApi | null> {
 
 export function resetUserPermissionsCache() {
   cached = null;
+  cachedToken = null;
   inflight = null;
+  inflightToken = null;
 }
 
 export interface UserPermissions {
@@ -72,18 +111,26 @@ export interface UserPermissions {
   hasPermission: (perm: Permission) => boolean;
 }
 
-export function useUserPermissions(): UserPermissions {
+export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPermissions {
   const role = useRole();
-  const fallbackSector: Sector = mapBackendRole(role?.roles ?? []);
+  const tokenKey = opts?.tokenKey;
+  // Com tokenKey (layout), o fallback vem do token ATUAL; sem, do useRole (montagem).
+  const fallbackRoles = tokenKey !== undefined ? rolesFromJwt(tokenKey) : (role?.roles ?? []);
+  const fallbackSector: Sector = mapBackendRole(fallbackRoles);
   const [state, setState] = useState<CachedState>(() => ({
     sector:  fallbackSector,
     grants:  [],
     revokes: [],
-    ready:   !!cached, // se ja tem cache em memoria, ja considera pronto
+    ready:   isFresh(), // se ja tem cache DESTE token em memoria, ja considera pronto
   }));
 
   useEffect(() => {
     let cancelled = false;
+    // Token mudou desde o cache (login/troca de conta): volta pro fallback do
+    // token atual até o /users/me novo chegar — nunca usa permissão da conta anterior.
+    if (!isFresh()) {
+      setState({ sector: fallbackSector, grants: [], revokes: [], ready: false });
+    }
     fetchMe().then((me) => {
       if (cancelled) return;
       if (!me) {
@@ -99,7 +146,8 @@ export function useUserPermissions(): UserPermissions {
       });
     });
     return () => { cancelled = true; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenKey]);
 
   const effective = resolvePermissions(state.sector, state.grants, state.revokes);
 

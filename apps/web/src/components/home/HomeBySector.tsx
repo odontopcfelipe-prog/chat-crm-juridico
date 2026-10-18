@@ -17,7 +17,7 @@ import Link from 'next/link';
 import {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings, Cake, type LucideIcon,
+  Megaphone, Settings, Cake, ClipboardCheck, Activity, type LucideIcon,
 } from 'lucide-react';
 import { getSector, resolveHomeActions, SECTORS, type Sector, type Permission } from '@crm/shared';
 import { useModuleBadges } from '@/lib/useModuleBadges';
@@ -38,7 +38,7 @@ interface Props {
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings, Cake,
+  Megaphone, Settings, Cake, ClipboardCheck, Activity,
 };
 
 export default function HomeBySector({ sector, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {

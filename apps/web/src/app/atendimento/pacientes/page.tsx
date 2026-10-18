@@ -6,6 +6,7 @@ import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { formatPhone, formatCPF } from '@/lib/utils';
 import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
@@ -63,6 +64,11 @@ function PacientesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = useRole();
+  // Out/2026 — Dentista: só os pacientes DELE (a API já filtra) e sem contato
+  // (sem telefone/e-mail na lista, na busca e sem exportar CSV).
+  const { hasPermission } = useUserPermissions();
+  const canSeeContact = hasPermission('view_patient_contact');
+  const ownPatientsOnly = !hasPermission('view_all_patients');
   const [list, setList] = useState<PatientList>({ data: [], total: 0, page: 1, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -80,7 +86,8 @@ function PacientesPageInner() {
   // Filtros avancados (Fase 22)
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [noVisitMonths, setNoVisitMonths] = useState<string>(''); // '', '3', '6', '12'
-  const [withActivePlan, setWithActivePlan] = useState(false);
+  // ?plano=ativo (quadrante "Em tratamento" da home do dentista) já abre filtrado.
+  const [withActivePlan, setWithActivePlan] = useState(() => searchParams.get('plano') === 'ativo');
   const [withoutAnamnesis, setWithoutAnamnesis] = useState(false);
 
   const hasAdvancedActive = !!noVisitMonths || withActivePlan || withoutAnamnesis;
@@ -249,8 +256,12 @@ function PacientesPageInner() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Pacientes</h1>
-          <p className="text-sm text-muted-foreground">Cadastro e ficha clínica dos pacientes da clínica</p>
+          <h1 className="text-2xl font-bold text-foreground">{ownPatientsOnly ? 'Meus pacientes' : 'Pacientes'}</h1>
+          <p className="text-sm text-muted-foreground">
+            {ownPatientsOnly
+              ? 'Pacientes com consulta com você, que você atende como responsável ou com procedimento seu no plano'
+              : 'Cadastro e ficha clínica dos pacientes da clínica'}
+          </p>
         </div>
         {/* Novo paciente — apenas pra ADMIN/OPERADOR (secretaria)/ASSISTANT.
             DENTIST/FINANCEIRO nao cadastram standalone — pra atender, usam
@@ -308,7 +319,9 @@ function PacientesPageInner() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, ficha, CPF, telefone, email ou etiqueta..."
+            placeholder={canSeeContact
+              ? 'Buscar por nome, ficha, CPF, telefone, email ou etiqueta...'
+              : 'Buscar por nome, ficha, CPF ou etiqueta...'}
             className="w-full pl-10 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
@@ -349,6 +362,7 @@ function PacientesPageInner() {
             <span className="ml-1 inline-block w-2 h-2 rounded-full bg-primary" />
           )}
         </button>
+        {canSeeContact && (
         <button
           onClick={handleExportCsv}
           className="px-3 py-2 rounded-lg bg-card border border-border text-sm hover:bg-accent inline-flex items-center gap-1"
@@ -356,6 +370,7 @@ function PacientesPageInner() {
         >
           <Download size={14} /> CSV
         </button>
+        )}
       </div>
 
       {/* Painel de filtros avançados — colapsável */}
@@ -470,7 +485,7 @@ function PacientesPageInner() {
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
                       {/* Onda 17.32.184 — ficha visivel na listagem */}
                       {(p as any).record_number && <span className="font-semibold text-primary">Ficha {(p as any).record_number}</span>}
-                      {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
+                      {canSeeContact && p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
                       {p.cpf && <span>CPF: {formatCPF(p.cpf)}</span>}
                       {p.primary_dentist && <span>Dentista: {p.primary_dentist.name}</span>}
                     </div>

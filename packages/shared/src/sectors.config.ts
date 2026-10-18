@@ -17,13 +17,22 @@ export type Sector = 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' 
 
 export type Permission =
   | 'view_patients'      | 'edit_patients'
+  // Out/2026 — escopo/privacidade do paciente. Sem view_all_patients o usuário só
+  // enxerga os pacientes DELE (ownPatientsWhere na API); sem view_patient_contact a
+  // API apaga telefone/e-mail/endereço das respostas (SensitiveDataInterceptor).
+  | 'view_all_patients'  | 'view_patient_contact'
   | 'view_agenda'        | 'manage_agenda'
   | 'view_chat'
   | 'view_clinical'      | 'edit_clinical'
+  // Out/2026 — monta o orçamento pela aba Avaliação (procedimentos), sem negociar,
+  // enviar nem aprovar (isso segue em manage_proposals).
+  | 'create_evaluation'
   | 'view_financial'     | 'manage_financial'  | 'operate_cash'
   | 'manage_payables'
   | 'view_proposals'     | 'manage_proposals'
   | 'override_price'
+  // Out/2026 — sem view_values a API apaga preços/totais/débitos das respostas.
+  | 'view_values'
   | 'view_reports'
   | 'manage_inventory'
   | 'view_marketing'
@@ -46,6 +55,10 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Lista de pacientes + ficha basica', group: 'paciente' },
   { key: 'edit_patients', label: 'Cadastrar e editar pacientes',
     description: 'Criar ficha, alterar dados, adicionar tags', group: 'paciente' },
+  { key: 'view_all_patients', label: 'Ver todos os pacientes',
+    description: 'Sem isso, vê só os pacientes dele (consulta com ele, dentista responsável ou plano dele)', group: 'paciente' },
+  { key: 'view_patient_contact', label: 'Ver contato do paciente',
+    description: 'Telefone/WhatsApp, e-mail e endereço', group: 'paciente' },
 
   // ─── Agenda ──────────────────────────────────────────────────
   { key: 'view_agenda', label: 'Ver agenda',
@@ -62,6 +75,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Anamnese, evolucoes e procedimentos', group: 'clinico' },
   { key: 'edit_clinical', label: 'Editar prontuario',
     description: 'Preencher anamnese, anotacoes clinicas', group: 'clinico' },
+  { key: 'create_evaluation', label: 'Montar avaliação (orçamento)',
+    description: 'Lança os procedimentos do orçamento na aba Avaliação, sem negociar nem enviar', group: 'clinico' },
 
   // ─── Financeiro ─────────────────────────────────────────────
   { key: 'view_financial', label: 'Ver financeiro',
@@ -74,6 +89,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Criar e aprovar propostas + venda rapida', group: 'financeiro' },
   { key: 'override_price', label: 'Alterar preco na venda',
     description: 'Dar desconto (preco abaixo da tabela) na Venda Rapida', group: 'financeiro' },
+  { key: 'view_values', label: 'Ver valores',
+    description: 'Preços, totais de orçamento/plano e débitos do paciente', group: 'financeiro' },
   { key: 'view_reports', label: 'Ver relatorios',
     description: 'Dashboards e relatorios consolidados', group: 'financeiro' },
   { key: 'manage_inventory', label: 'Gerenciar estoque',
@@ -164,6 +181,13 @@ export interface SectorMeta {
   home: HomeConfig;
 }
 
+/**
+ * Out/2026 — visão AMPLA do paciente (todos os pacientes + contato + valores).
+ * Entra no default de todo setor que já via isso antes das permissões existirem;
+ * o Dentista NÃO recebe (vê só os próprios pacientes, sem contato e sem valores).
+ */
+const VISAO_AMPLA_PACIENTE: Permission[] = ['view_all_patients', 'view_patient_contact', 'view_values'];
+
 export const SECTORS: SectorMeta[] = [
   {
     id: 'recepcao',
@@ -192,6 +216,7 @@ export const SECTORS: SectorMeta[] = [
       // Estoque: recepcao recebe mercadoria e da baixa no balcao. Sem isto, a
       // venda de balcao com baixa de estoque ficaria travada no dia a dia.
       'manage_inventory',
+      ...VISAO_AMPLA_PACIENTE,
     ],
     home: {
       persona: 'Recepcionista',
@@ -226,18 +251,21 @@ export const SECTORS: SectorMeta[] = [
   {
     id: 'dentista',
     name: 'Dentista',
-    description: 'Atende, preenche prontuario e cria propostas',
+    description: 'Atende os próprios pacientes, monta a avaliação e vê a comissão',
     icon: '🦷',
     backendRoles: ['DENTIST', 'DENTISTA'],
+    // Out/2026 — regra do dono: o dentista vê SÓ a agenda dele (em lista), SÓ os
+    // pacientes dele, o plano de tratamento deles, MONTA o orçamento (Avaliação)
+    // sem ver valores, e vê a própria comissão. Não tem o contato do paciente nem
+    // chat. Por isso: sem VISAO_AMPLA_PACIENTE, sem manage_proposals (Propostas/
+    // negociação) e sem override_price. O admin pode reliberar por pessoa.
     defaultPermissions: [
       'view_patients', 'edit_patients',
       'view_agenda',
       // Onda 17.52 — Dentista NÃO usa WhatsApp (decisão do usuário): sem
       // view_chat e sem balão de WhatsApp. Recepção/CRC cuidam do chat.
       'view_clinical', 'edit_clinical',
-      'manage_proposals',
-      // Dentista define/desconta preco nas propostas — mantem o que ja fazia.
-      'override_price',
+      'create_evaluation',
     ],
     home: {
       persona: 'Dentista',
@@ -252,17 +280,22 @@ export const SECTORS: SectorMeta[] = [
         ],
         cta: { label: 'Ver minha agenda', href: '/atendimento/agenda' },
       },
+      // Out/2026 — agenda do dentista é a LISTA do dia (minha-agenda), não o
+      // calendário. O plano de tratamento fica na ficha do paciente (Avaliação/
+      // Tratamento) — a lista de orçamentos (/orcamentos) mostra valores.
+      // Quadrantes com dados SÓ dele (badges my_* em home-module-badges.service).
       actions: [
-        { lucide: 'Calendar', icon: '📅', label: 'Minha agenda',        desc: 'Seus atendimentos de hoje.',      href: '/atendimento/agenda',          badgeKey: 'agenda_today',   tone: 'violet'  },
-        { lucide: 'Users',    icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico clínico.', href: '/atendimento/pacientes',       badgeKey: 'patients_total', tone: 'sky'     },
-        { lucide: 'FileText', icon: '📄', label: 'Plano de tratamento', desc: 'Monte e apresente o plano.',      href: '/atendimento/orcamentos',      badgeKey: 'proposals_sent', tone: 'emerald' },
-        { lucide: 'Wallet',   icon: '💰', label: 'Minha comissão',      desc: 'Quanto você já ganhou e o que está a receber.', href: '/atendimento/minha-comissao', tone: 'emerald' },
+        { lucide: 'Calendar',       icon: '📅', label: 'Minha agenda',           desc: 'Seus pacientes de hoje — marque atendido ou faltou.', href: '/atendimento/minha-agenda',        badgeKey: 'my_agenda_today',          tone: 'violet'  },
+        { lucide: 'ClipboardCheck', icon: '✅', label: 'Confirmar atendimentos', desc: 'Consultas passadas que você ainda não confirmou.',     href: '/atendimento/validacoes',          badgeKey: 'my_pending_validation',    tone: 'amber'   },
+        { lucide: 'Users',          icon: '👥', label: 'Meus pacientes',         desc: 'Prontuário, avaliação e plano de tratamento.',         href: '/atendimento/pacientes',           badgeKey: 'my_patients_total',        tone: 'sky'     },
+        { lucide: 'Activity',       icon: '🦷', label: 'Em tratamento',          desc: 'Seus pacientes com plano de tratamento ativo.',        href: '/atendimento/pacientes?plano=ativo', badgeKey: 'my_patients_in_treatment', tone: 'emerald' },
+        { lucide: 'Wallet',         icon: '💰', label: 'Minha comissão',         desc: 'Quanto você já ganhou e o que está a receber.',        href: '/atendimento/minha-comissao',      badgeKey: 'my_commission_available',  tone: 'emerald' },
       ],
       todos: [
         'Pacientes pra atender hoje',
-        'Anamneses pendentes',
-        'Propostas pra finalizar',
-        'Retornos da semana',
+        'Marcar quem foi atendido ou faltou',
+        'Montar a avaliação dos pacientes novos',
+        'Conferir sua comissão',
       ],
     },
   },
@@ -285,6 +318,7 @@ export const SECTORS: SectorMeta[] = [
       'edit_clinical',     // ASB pode preencher evolucao supervisionada
       // Estoque: ACD/ASB e quem controla instrumental e insumo da sala.
       'manage_inventory',
+      ...VISAO_AMPLA_PACIENTE,
     ],
     home: {
       persona: 'Auxiliar de Consultorio',
@@ -332,6 +366,7 @@ export const SECTORS: SectorMeta[] = [
       'manage_proposals',
       // CRC negocia desconto na pre-venda — mantem o que ja fazia.
       'override_price',
+      ...VISAO_AMPLA_PACIENTE,
     ],
     home: {
       persona: 'CRC',
@@ -379,6 +414,7 @@ export const SECTORS: SectorMeta[] = [
       // antes de validar; sem manage_proposals → não cria/edita/encaminha.
       'view_proposals',
       'view_reports',
+      ...VISAO_AMPLA_PACIENTE,
     ],
     home: {
       persona: 'Financeiro',
@@ -521,6 +557,9 @@ export function permissionsByGroup() {
 const HREF_TO_PERMISSION: Record<string, Permission> = {
   '/atendimento':                          'view_chat',        // WhatsApp
   '/atendimento/agenda':                   'view_agenda',
+  '/atendimento/minha-agenda':             'view_agenda',
+  '/atendimento/validacoes':               'view_agenda',
+  '/atendimento/pacientes?plano=ativo':    'view_patients',
   '/atendimento/pacientes':                'view_patients',
   '/atendimento/venda-rapida':             'manage_proposals',
   '/atendimento/orcamentos':               'manage_proposals',
@@ -586,4 +625,78 @@ export function resolveHomeActions(
   }
 
   return [...base, ...extras];
+}
+
+// ─── Acesso por TELA (out/2026) ─────────────────────────────────
+//
+// Qual permissão abre cada tela de /atendimento (semântica OU). O layout usa pra
+// mostrar "Sem acesso" em vez de abrir a tela pelo link, e o Ctrl+K / menu do
+// celular usam pra esconder o atalho. Só entram telas cujo backend JÁ exige a
+// mesma permissão (ou que expõem contato/valores) — assim nenhum setor perde uma
+// tela que usava. Rotas fora da lista ficam abertas. A ordem importa: o primeiro
+// prefixo que casar decide (coloque o mais específico antes).
+export interface RouteAccessRule {
+  /** Prefixo da rota (sem query). `exact` = só a rota exata. */
+  path: string;
+  exact?: boolean;
+  /** Basta UMA destas permissões. */
+  anyOf: Permission[];
+}
+
+export const ROUTE_ACCESS: RouteAccessRule[] = [
+  // WhatsApp (inbox / chat / split) — /conversations exige view_chat.
+  { path: '/atendimento', exact: true,           anyOf: ['view_chat'] },
+  { path: '/atendimento/chat',                    anyOf: ['view_chat'] },
+  { path: '/atendimento/split',                   anyOf: ['view_chat'] },
+  // Contatos/CRM/follow-up — listas de leads com telefone.
+  { path: '/atendimento/contacts',                anyOf: ['view_chat', 'view_marketing'] },
+  { path: '/atendimento/crm',                     anyOf: ['view_chat', 'view_marketing'] },
+  { path: '/atendimento/followup',                anyOf: ['view_chat', 'view_marketing'] },
+  { path: '/atendimento/return-alerts',           anyOf: ['view_marketing', 'manage_agenda'] },
+  { path: '/atendimento/waitlist',                anyOf: ['manage_agenda'] },
+  // Comercial — quotes/* exige manage_proposals|view_proposals (e mostra valores).
+  { path: '/atendimento/orcamentos',              anyOf: ['manage_proposals', 'view_proposals'] },
+  { path: '/atendimento/fechamentos',             anyOf: ['manage_proposals', 'view_proposals'] },
+  { path: '/atendimento/progresso',               anyOf: ['manage_proposals', 'view_proposals'] },
+  { path: '/atendimento/ortodontia',              anyOf: ['manage_proposals', 'view_proposals'] },
+  { path: '/atendimento/venda-rapida',            anyOf: ['manage_proposals'] },
+  // Financeiro.
+  { path: '/atendimento/financeiro',              anyOf: ['view_financial', 'manage_payables', 'manage_financial'] },
+  { path: '/atendimento/comissoes',               anyOf: ['view_financial'] },
+  { path: '/atendimento/metas',                   anyOf: ['view_financial'] },
+  { path: '/atendimento/caixa',                   anyOf: ['operate_cash'] },
+  { path: '/atendimento/relatorios',              anyOf: ['view_reports', 'view_financial'] },
+  { path: '/atendimento/dashboard-completo',      anyOf: ['view_reports', 'view_financial'] },
+  { path: '/atendimento/minha-rede',              anyOf: ['view_reports', 'view_financial'] },
+  { path: '/atendimento/estoque',                 anyOf: ['manage_inventory', 'view_financial', 'view_reports'] },
+  // Marketing.
+  { path: '/atendimento/marketing',               anyOf: ['view_marketing'] },
+  { path: '/atendimento/afiliados',               anyOf: ['view_marketing'] },
+  { path: '/atendimento/influenciadores',         anyOf: ['view_marketing'] },
+  { path: '/atendimento/referrals',               anyOf: ['view_marketing'] },
+  // Sistema.
+  { path: '/atendimento/settings',                anyOf: ['view_settings', 'manage_settings', 'manage_users'] },
+  { path: '/atendimento/billing',                 anyOf: ['manage_settings'] },
+  // Clínico.
+  { path: '/atendimento/minha-agenda',            anyOf: ['view_agenda'] },
+  { path: '/atendimento/agenda',                  anyOf: ['view_agenda'] },
+  { path: '/atendimento/validacoes',              anyOf: ['view_agenda'] },
+  { path: '/atendimento/pacientes',               anyOf: ['view_patients'] },
+];
+
+/** Regra que governa a rota (ou null = tela aberta a qualquer logado). */
+export function routeAccessRule(pathname: string): RouteAccessRule | null {
+  const path = (pathname || '').split('?')[0].replace(/\/+$/, '') || '/';
+  for (const rule of ROUTE_ACCESS) {
+    if (rule.exact ? path === rule.path : path === rule.path || path.startsWith(rule.path + '/')) {
+      return rule;
+    }
+  }
+  return null;
+}
+
+/** true quando o usuário (pelas permissões efetivas) pode abrir a tela. */
+export function canAccessRoute(pathname: string, has: (perm: Permission) => boolean): boolean {
+  const rule = routeAccessRule(pathname);
+  return !rule || rule.anyOf.some((p) => has(p));
 }

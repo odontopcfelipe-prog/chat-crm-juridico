@@ -21,7 +21,10 @@ import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 // Onda 17.52 — Etapa 1 do enforcement: escrita de orçamento/proposta/venda
 // exige a permissão `manage_proposals` (antes qualquer logado escrevia/aprovava).
-import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+import { RequiresPermission, PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
+// Out/2026 — Dentista monta a avaliação (create_evaluation) só dos pacientes dele.
+import { PrismaService } from '../prisma/prisma.service';
+import { isAdminRole, isOwnPatient, restrictedPatientOwner } from '../auth/patient-scope';
 import { Throttle } from '@nestjs/throttler';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
@@ -100,19 +103,77 @@ export class CommercialController {
     // Onda 17.32.71 — usado pra "Venda Rapida com Especie": apos
     // criar a charge PIX, marca como recebida em dinheiro no Asaas.
     private readonly asaasClient: AsaasClient,
+    private readonly prisma: PrismaService,
   ) {}
+
+  // ─── Out/2026 — Avaliação do Dentista (create_evaluation) ─────────────────
+  //
+  // O dentista MONTA o orçamento pela aba Avaliação (procedimentos/dentes) mas
+  // não negocia: sem manage_proposals ele não vê valores (SensitiveDataInterceptor),
+  // não mexe em preço/desconto/pagamento, só apaga rascunho, e só nos pacientes
+  // da carteira dele. As rotas de avaliação aceitam manage_proposals OU
+  // create_evaluation; as de negociação/envio continuam só manage_proposals.
+
+  /** true = só monta avaliação (tem create_evaluation, não tem manage_proposals). */
+  private async isEvaluationOnly(user: { id: string; roles?: string[] }): Promise<boolean> {
+    if (isAdminRole(user?.roles)) return false;
+    const perms = await PermissionsGuard.permissionsFor(this.prisma, user.id, user.roles ?? []);
+    return !perms.has('manage_proposals') && perms.has('create_evaluation');
+  }
+
+  /** Usuário restrito à carteira: o orçamento tem que ser de paciente dele. */
+  private async assertQuoteInScope(user: AuthUser, quoteId: string) {
+    const owner = await restrictedPatientOwner(this.prisma, user);
+    if (!owner) return;
+    const q = await this.prisma.quote.findUnique({ where: { id: quoteId }, select: { patient_id: true } });
+    if (!q) return; // o service devolve o 404 de sempre
+    if (!(await isOwnPatient(this.prisma, user.tenant_id, owner, q.patient_id))) {
+      throw new ForbiddenException('Orçamento de paciente fora da sua carteira');
+    }
+  }
+
+  private async assertQuoteItemInScope(user: AuthUser, itemId: string) {
+    const owner = await restrictedPatientOwner(this.prisma, user);
+    if (!owner) return;
+    const it = await this.prisma.quoteItem.findUnique({
+      where: { id: itemId },
+      select: { quote: { select: { patient_id: true } } },
+    });
+    if (!it) return;
+    if (!(await isOwnPatient(this.prisma, user.tenant_id, owner, it.quote.patient_id))) {
+      throw new ForbiddenException('Orçamento de paciente fora da sua carteira');
+    }
+  }
+
+  /** Campos de preço/pagamento que quem só monta avaliação não pode mandar. */
+  private static readonly EVAL_ITEM_BLOCKED = ['unit_price', 'payment_method', 'installments_count'] as const;
+
+  private stripItemPricing<T extends object>(dto: T): T {
+    const clean: Record<string, unknown> = { ...(dto as Record<string, unknown>) };
+    for (const k of CommercialController.EVAL_ITEM_BLOCKED) delete clean[k];
+    return clean as T;
+  }
 
   // ─── Quotes ───────────────────────────────────────────────────
 
   // ─── Quote endpoints — Onda 2.1: migrados pra @Authenticated() ────────
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Post('patients/:patientId/quotes')
-  createQuote(
+  async createQuote(
     @Param('patientId') patientId: string,
-    @Body() dto: CreateQuoteDto,
+    @Body() body: CreateQuoteDto,
     @Authenticated() user: AuthUser,
   ) {
+    let dto = body;
+    if (await this.isEvaluationOnly(user)) {
+      // Só monta: título/observação + procedimentos (preço sai da tabela).
+      dto = {
+        title: body.title,
+        notes: body.notes,
+        items: body.items?.map((i) => this.stripItemPricing(i)),
+      } as CreateQuoteDto;
+    }
     return this.quotesService.create(patientId, user.tenant_id, user.id, dto);
   }
 
@@ -121,7 +182,7 @@ export class CommercialController {
    * Usado pelo OdontogramaTab quando dentista adiciona procedimento via
    * click em dente. Evita race condition + descoberta manual.
    */
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Post('patients/:patientId/quotes/draft-or-create')
   getOrCreateDraft(
     @Param('patientId') patientId: string,
@@ -134,7 +195,7 @@ export class CommercialController {
     );
   }
 
-  @RequiresPermission('manage_proposals', 'view_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')
   @Get('patients/:patientId/quotes')
   listQuotes(
     @Param('patientId') patientId: string,
@@ -273,25 +334,43 @@ export class CommercialController {
     return this.quotesService.sendSemAgendamentoManual(user.tenant_id, body?.kind, body?.admin_id || undefined);
   }
 
-  @RequiresPermission('manage_proposals', 'view_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')
   @Get('quotes/:id')
-  findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+  async findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    await this.assertQuoteInScope(user, id);
     return this.quotesService.findOne(id, user.tenant_id);
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Patch('quotes/:id')
-  updateQuote(
+  async updateQuote(
     @Param('id') id: string,
-    @Body() dto: UpdateQuoteDto,
+    @Body() body: UpdateQuoteDto,
     @Authenticated() user: AuthUser,
   ) {
+    let dto: UpdateQuoteDto = body;
+    if (await this.isEvaluationOnly(user)) {
+      await this.assertQuoteInScope(user, id);
+      // Só nome/prioridade/observação — desconto, pagamento, validade, afiliado
+      // e visibilidade em Propostas são da negociação (manage_proposals).
+      dto = {} as UpdateQuoteDto;
+      if (body.title !== undefined) dto.title = body.title;
+      if (body.priority !== undefined) dto.priority = body.priority;
+      if (body.notes !== undefined) dto.notes = body.notes;
+    }
     return this.quotesService.update(id, user.tenant_id, dto as any);
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Delete('quotes/:id')
-  removeQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+  async removeQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    if (await this.isEvaluationOnly(user)) {
+      await this.assertQuoteInScope(user, id);
+      const q = await this.prisma.quote.findUnique({ where: { id }, select: { status: true } });
+      if (q && q.status !== 'DRAFT') {
+        throw new ForbiddenException('Só dá pra apagar orçamento em rascunho — os enviados ficam com a recepção');
+      }
+    }
     return this.quotesService.remove(id, user.tenant_id, user.id);
   }
 
@@ -1029,38 +1108,44 @@ export class CommercialController {
    * Ideal para apresentar varias condicoes comerciais (a vista, parcelado)
    * com os mesmos procedimentos clinicos.
    */
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Post('quotes/:id/duplicate-as-option')
-  duplicateAsOption(@Param('id') quoteId: string, @Request() req: any) {
+  async duplicateAsOption(@Param('id') quoteId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
+    await this.assertQuoteInScope(req.user, quoteId);
     return this.versionsService.duplicateAsOption(quoteId, tenantId, userId);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Post('quotes/:id/items')
-  addQuoteItem(
+  async addQuoteItem(
     @Param('id') id: string,
-    @Body() dto: CreateQuoteItemDto,
+    @Body() body: CreateQuoteItemDto,
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    await this.assertQuoteInScope(req.user, id);
+    // Quem só monta avaliação não manda preço: sai da tabela do procedimento.
+    const dto = (await this.isEvaluationOnly(req.user)) ? this.stripItemPricing(body) : body;
     return this.quotesService.addItem(id, tenantId, dto);
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Patch('quote-items/:id')
-  updateQuoteItem(
+  async updateQuoteItem(
     @Param('id') id: string,
-    @Body() dto: UpdateQuoteItemDto,
+    @Body() body: UpdateQuoteItemDto,
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    await this.assertQuoteItemInScope(req.user, id);
+    const dto = (await this.isEvaluationOnly(req.user)) ? this.stripItemPricing(body) : body;
     return this.quotesService.updateItem(id, tenantId, dto);
   }
 
@@ -1084,11 +1169,12 @@ export class CommercialController {
     return this.quotesService.overrideItemPrice(id, tenantId, dto.total_price);
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'create_evaluation')
   @Delete('quote-items/:id')
-  removeQuoteItem(@Param('id') id: string, @Request() req: any) {
+  async removeQuoteItem(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    await this.assertQuoteItemInScope(req.user, id);
     return this.quotesService.removeItem(id, tenantId);
   }
 

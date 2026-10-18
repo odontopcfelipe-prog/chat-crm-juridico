@@ -30,7 +30,7 @@ export class HomeHighlightsController {
   async moduleBadges(@Req() req: any, @Query('sector') sector?: string) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) return { badges: {} };
-    return this.badges.forSector(tenantId, sector ?? 'admin');
+    return this.badges.forSector(tenantId, sector ?? 'admin', req.user?.sub ?? req.user?.id);
   }
 
   // Onda 17.52 — Prévia (top ~5 itens reais) do balão. `key` via @Query pra

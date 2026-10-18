@@ -20,6 +20,11 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
+// Out/2026 — acesso por TELA (ROUTE_ACCESS do shared): quem abre pelo link uma
+// tela que o perfil não pode vê "Sem acesso" em vez da tela (ex.: Dentista).
+import { useUserPermissions } from '@/lib/useUserPermissions';
+import { canAccessRoute } from '@crm/shared';
+import { Lock } from 'lucide-react';
 import { SocketProvider } from '@/lib/SocketProvider';
 import { NotificationToggle } from '@/components/NotificationToggle';
 import { useVisualMode } from '@/components/VisualModeProvider';
@@ -47,6 +52,29 @@ function resolveSearchContext(pathname: string): { kind: SearchCtxKind; label: s
   if (pathname.startsWith('/atendimento/agenda')) return { kind: 'agenda', label: 'Localizar na agenda' };
   if (pathname.startsWith('/atendimento/contacts')) return { kind: 'contact', label: 'Localizar contato' };
   return { kind: 'patient', label: 'Localizar paciente' };
+}
+
+function NoRouteAccess({ onHome }: { onHome: () => void }) {
+  return (
+    <div className="h-full flex items-center justify-center p-6">
+      <div className="max-w-sm w-full text-center bg-card border border-border rounded-2xl p-8 shadow-sm">
+        <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+          <Lock size={22} className="text-muted-foreground" />
+        </div>
+        <h2 className="text-base font-bold text-foreground">Sem acesso a esta tela</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Seu perfil não tem permissão pra abrir esta página. Se precisar, peça ao administrador.
+        </p>
+        <button
+          type="button"
+          onClick={onHome}
+          className="mt-5 inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90"
+        >
+          <Home size={16} /> Voltar ao início
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function rolesFromToken(token: string | null): string[] {
@@ -135,6 +163,20 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     const rs = rolesFromToken(authToken);
     return rs.includes('ADMIN') || rs.includes('SUPER_ADMIN');
   }, [authToken]);
+
+  // Out/2026 — acesso por tela. `tokenKey` faz as permissões acompanharem o
+  // login/troca de conta (o layout persiste no login → dashboard).
+  const { hasPermission, ready: permsReady, sector: permSector } = useUserPermissions({ tokenKey: authToken });
+  const routeAllowed = canAccessRoute(pathname, hasPermission);
+  // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
+  // da clínica. Se ganhar manage_agenda (admin liberou), volta a ter o calendário.
+  // (Esconde o calendário já pelo fallback do JWT; só redireciona com /users/me pronto.)
+  const dentistListAgenda = permSector === 'dentista'
+    && !hasPermission('manage_agenda')
+    && pathname.startsWith('/atendimento/agenda');
+  useEffect(() => {
+    if (permsReady && dentistListAgenda) router.replace('/atendimento/minha-agenda');
+  }, [permsReady, dentistListAgenda, router]);
 
   // ─── Fetch unread counts do servidor na montagem (fonte de verdade) ──────
   useEffect(() => {
@@ -257,11 +299,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   }
 
   // ─── Bottom nav tabs ──────────────────────────────────────
-  const mainTabs = [
+  // Out/2026 — abas/itens filtrados pelo acesso por tela: quem não pode abrir
+  // CRC/Chat/Contatos (ex.: Dentista) não vê esses atalhos; sobra o "Início".
+  const allMainTabs = [
     { label: 'CRC', href: '/atendimento/crm', icon: Briefcase, match: (p: string) => p.startsWith('/atendimento/crm') },
     { label: 'Chat', href: '/atendimento', icon: MessageSquare, match: (p: string) => p === '/atendimento' || p.startsWith('/atendimento/chat'), isCenter: true, badge: unreadTotal },
     { label: 'Contatos', href: '/atendimento/contacts', icon: Users, match: (p: string) => p.startsWith('/atendimento/contacts') },
   ];
+  const allowedMainTabs = allMainTabs.filter(t => canAccessRoute(t.href, hasPermission));
+  const mainTabs = allowedMainTabs.length > 0
+    ? allowedMainTabs
+    : [{ label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), isCenter: true, badge: 0 }];
 
   const allMoreItems = [
     { label: 'Dashboard', href: '/atendimento/dashboard', icon: LayoutDashboard, match: (p: string) => p.startsWith('/atendimento/dashboard'), show: perms.canViewDashboard },
@@ -269,7 +317,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     { label: 'Marketing', href: '/atendimento/marketing/analytics', icon: Megaphone, match: (p: string) => p.startsWith('/atendimento/marketing'), show: perms.canViewAnalytics },
     { label: 'Ajustes', href: '/atendimento/settings', icon: Settings, match: (p: string) => p.startsWith('/atendimento/settings'), show: perms.canManageSettings },
   ];
-  const moreItems = allMoreItems.filter(item => item.show);
+  const moreItems = allMoreItems.filter(item => item.show && canAccessRoute(item.href, hasPermission));
 
   const showBottomNav = isMobile && !mobileChatOpen;
   const isMoreActive = moreItems.some(item => item.match(pathname));
@@ -385,7 +433,15 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
         <TrialBanner />
         <WhatsappDisconnectedBanner />
         <main className="flex-1 overflow-hidden">
-          {children}
+          {/* Antes de /users/me chegar, a decisão usa o fallback do JWT: se ele
+              nega, não pisca "Sem acesso" — espera as permissões reais. */}
+          {dentistListAgenda
+            ? null
+            : routeAllowed
+            ? children
+            : permsReady
+              ? <NoRouteAccess onHome={() => router.push('/atendimento/dashboard')} />
+              : null}
         </main>
       </div>
 
