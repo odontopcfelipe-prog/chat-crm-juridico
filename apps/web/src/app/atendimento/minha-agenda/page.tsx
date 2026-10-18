@@ -73,6 +73,25 @@ interface AgendaEvent {
   appointment_type?: { name?: string | null } | null;
 }
 
+/**
+ * Id do usuário logado (payload do JWT: sub/id). A Minha agenda é SEMPRE de quem
+ * está logado — sem isso, quem tem papel de admin/recepção/assistente recebia a
+ * agenda da clínica inteira (o backend só força "só os seus" pro dentista puro).
+ */
+function myUserId(): string | null {
+  try {
+    const t = localStorage.getItem('token') || '';
+    const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const p = JSON.parse(atob(b64));
+    return (p?.sub || p?.id || null) as string | null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pendentes de confirmação: só os dos últimos dias (não arrasta o histórico todo). */
+const PENDENTES_DIAS = 7;
+
 /** Dia de Maceió (YYYY-MM-DD) — modelo naive-UTC da agenda. */
 function maceioTodayStr(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -110,12 +129,17 @@ export default function MinhaAgendaPage() {
   const [pendentes, setPendentes] = useState<AgendaEvent[]>([]);
 
   const loadPendentes = useCallback(async () => {
+    const me = myUserId();
+    if (!me) { setPendentes([]); return; }
     try {
-      const { data } = await api.get<AgendaEvent[]>('/calendar/events/pending-validation', { params: { daysBack: 30 } });
+      // onlyMine: admin-dentista também vê só os DELE (sem isso vinham os de todos).
+      const { data } = await api.get<AgendaEvent[]>('/calendar/events/pending-validation', {
+        params: { onlyMine: 'true', daysBack: PENDENTES_DIAS },
+      });
       const hoje0 = `${maceioTodayStr()}T00:00:00.000Z`;
       setPendentes(
         (Array.isArray(data) ? data : [])
-          .filter((e) => PATIENT_TYPES.includes(e.type) && e.start_at < hoje0)
+          .filter((e) => PATIENT_TYPES.includes(e.type) && e.start_at < hoje0 && e.assigned_user_id === me)
           .map((e) => ({ ...e, assigned_user_id: e.assigned_user_id ?? null }))
           .sort((a, b) => b.start_at.localeCompare(a.start_at)),
       );
@@ -128,13 +152,18 @@ export default function MinhaAgendaPage() {
   const load = useCallback(async (silent = false) => {
     const reqId = ++reqRef.current;
     if (!silent) setLoading(true);
+    const me = myUserId();
     try {
+      // userId = o próprio usuário: cada dentista com a SUA agenda (admin/recepção/
+      // assistente receberiam a clínica inteira sem isso).
       const { data } = await api.get<AgendaEvent[]>('/calendar/events', {
-        params: { start: `${day}T00:00:00.000Z`, end: `${day}T23:59:59.999Z` },
+        params: { start: `${day}T00:00:00.000Z`, end: `${day}T23:59:59.999Z`, ...(me ? { userId: me } : {}) },
       });
       if (reqId !== reqRef.current) return;
       const list = (Array.isArray(data) ? data : [])
         .filter((e) => PATIENT_TYPES.includes(e.type))
+        // Defesa no front: só consultas DELE (ou sem dentista que ele mesmo criou).
+        .filter((e) => !me || e.assigned_user_id === me || !e.assigned_user_id)
         .sort((a, b) => a.start_at.localeCompare(b.start_at));
       setEvents(list);
     } catch {
@@ -283,7 +312,7 @@ export default function MinhaAgendaPage() {
         {pendentes.length > 0 && (
           <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
-              ⚠ {pendentes.length === 1 ? '1 atendimento de dias anteriores' : `${pendentes.length} atendimentos de dias anteriores`} a confirmar
+              ⚠ {pendentes.length === 1 ? '1 atendimento' : `${pendentes.length} atendimentos`} dos últimos {PENDENTES_DIAS} dias a confirmar
             </p>
             <ul className="space-y-1.5">
               {pendentes.map((ev) => {

@@ -184,8 +184,8 @@ export class HomeModuleBadgesService {
   }
 
   /**
-   * Atendimentos do dentista a CONFIRMAR (últimos 30 dias, já passaram, sem
-   * validação). Mesmo critério da lista "dias anteriores" da Minha agenda /
+   * Atendimentos do dentista a CONFIRMAR (últimos 7 dias — mesma janela da Minha
+   * agenda; não arrasta histórico antigo —, já passaram, sem validação). Mesmo critério da lista "dias anteriores" da Minha agenda /
    * listPendingValidation, mas "agora" no naive-UTC (consulta das próximas horas
    * não conta). null = falhou (badge some sem derrubar a home).
    */
@@ -198,7 +198,7 @@ export class HomeModuleBadgesService {
           assigned_user_id: userId,
           type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
           validated_at: null,
-          start_at: { gte: new Date(naiveNow.getTime() - 30 * 24 * 60 * 60 * 1000), lte: naiveNow },
+          start_at: { gte: new Date(naiveNow.getTime() - 7 * 24 * 60 * 60 * 1000), lte: naiveNow },
           status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
         },
       }));
