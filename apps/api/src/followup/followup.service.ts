@@ -483,6 +483,8 @@ export class FollowupService {
       admin_agendamento: 'Aviso aos ADMs: novo agendamento',
       nao_paciente_handoff: 'Triagem não-paciente (aviso aos ADMs)',
       nao_paciente_anexo: 'Arquivo de não-paciente (aos ADMs)',
+      // Campanha manual (Central › setor › Campanha manual) — 1 DispatchLog por paciente.
+      campanha_manual: 'Campanha manual',
       // Retorno de manutenção (chip da Clínica) — 1 DispatchLog por toque, type = id.
       ...Object.fromEntries(
         RETORNO_DISPARO_IDS.map((id) => {

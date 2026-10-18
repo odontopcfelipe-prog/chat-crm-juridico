@@ -9,8 +9,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
-  Briefcase, Wallet, Users, RotateCcw, RefreshCw,
+  Briefcase, Wallet, Users, RotateCcw, RefreshCw, Megaphone,
 } from 'lucide-react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
@@ -717,6 +718,16 @@ export default function CentralDisparosPage() {
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{setor.nota}</p>
                   </div>
+                  {/* Campanha manual: o ADM monta um envio avulso (público + texto + fotos/áudio) por este chip. */}
+                  {isAdmin && setor.id !== 'equipe' && (
+                    <Link
+                      href={`/atendimento/settings/disparos/campanhas?setor=${setor.id.toUpperCase()}`}
+                      className="ml-auto shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border bg-card hover:bg-accent transition-colors"
+                      style={{ borderColor: setor.color + '55', color: setor.color }}
+                    >
+                      <Megaphone size={13} /> Campanha manual
+                    </Link>
+                  )}
                 </div>
 
                 {cats.map((cat) => {

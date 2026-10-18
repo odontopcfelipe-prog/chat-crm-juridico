@@ -37,3 +37,5 @@ export * from './nao-paciente';
 export * from './chip-paciente';
 // Disparos de retorno de manutenção (chip da Clínica): catálogo, janelas e textos
 export * from './retorno-disparos';
+// Campanha manual (Central de Disparos): setores, anexos, público e ordem de envio
+export * from './campanha-manual';

@@ -66,6 +66,7 @@ import { EstheticModule } from './esthetic/esthetic.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.module';
 import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
+import { CampanhasModule } from './campanhas/campanhas.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { InstallmentsModule } from './installments/installments.module';
 import { PortalModule } from './portal/portal.module';
@@ -168,6 +169,8 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
     MaintenanceModule,
     // Fase 7 — Agenda evoluida
     AgendaExtendedModule,
+    // Campanha manual (Central de Disparos): rascunho → público → teste → envio no ritmo seguro.
+    CampanhasModule,
     // Fase 8 — Comissoes + Metas
     CommissionsModule,
     // Fase 11 — Regua de cobranca

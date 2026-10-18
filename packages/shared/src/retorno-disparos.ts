@@ -165,7 +165,7 @@ export function renderRetornoTemplate(tpl: string, vars: Record<string, string>)
 // saída ("se já fez em outro lugar, me avisa"). A clínica edita na Central.
 export const DEFAULT_RETORNO_TEMPLATES: Record<RetornoDisparoId, string> = {
   retorno_limpeza_antes:
-    'Oi, {nome}! 😊 Aqui é da {clinica}.\n\n' +
+    'Oi, {nome}! 😊 Aqui é da equipe {clinica}.\n\n' +
     'Sua última limpeza foi há {tempo}, e a próxima já está chegando (dia {data_prevista}).\n\n' +
     'Com o tempo, a placa que a escova não alcança endurece e vira tártaro — ele só sai na limpeza profissional e, se fica, inflama a gengiva e abre caminho pra cárie entre os dentes.\n\n' +
     'Quer que eu já reserve um horário pra você?',
@@ -179,7 +179,7 @@ export const DEFAULT_RETORNO_TEMPLATES: Record<RetornoDisparoId, string> = {
     'Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙',
 
   retorno_clareamento_antes:
-    'Oi, {nome}! 😊 Aqui é da {clinica}.\n\n' +
+    'Oi, {nome}! 😊 Aqui é da equipe {clinica}.\n\n' +
     'Já faz {tempo} do seu clareamento, e a manutenção está chegando (dia {data_prevista}).\n\n' +
     'Café, chá, vinho, refrigerante e molhos vão devolvendo a cor aos poucos. O retoque na hora certa mantém o branco com pouco esforço — bem antes de precisar refazer tudo.\n\n' +
     'Quer que eu já reserve um horário?',
@@ -193,7 +193,7 @@ export const DEFAULT_RETORNO_TEMPLATES: Record<RetornoDisparoId, string> = {
     'Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙',
 
   retorno_faceta_resina_antes:
-    'Oi, {nome}! 😊 Aqui é da {clinica}.\n\n' +
+    'Oi, {nome}! 😊 Aqui é da equipe {clinica}.\n\n' +
     'Suas facetas de resina completam {tempo}, e a revisão está chegando (dia {data_prevista}).\n\n' +
     'A resina sente o dia a dia: perde o brilho, pode manchar nas bordas e ter pequenos desgastes. Na revisão a gente faz o polimento e corrige qualquer detalhe antes que vire problema.\n\n' +
     'Quer que eu já reserve um horário?',
@@ -207,7 +207,7 @@ export const DEFAULT_RETORNO_TEMPLATES: Record<RetornoDisparoId, string> = {
     'Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙',
 
   retorno_lentes_porcelana_antes:
-    'Oi, {nome}! 😊 Aqui é da {clinica}.\n\n' +
+    'Oi, {nome}! 😊 Aqui é da equipe {clinica}.\n\n' +
     'Suas lentes de porcelana completam {tempo}, e a revisão está chegando (dia {data_prevista}).\n\n' +
     'A porcelana não mancha, mas a gengiva e a borda da lente precisam de cuidado: é ali que a placa se acumula. Na revisão a gente faz a limpeza profissional e confere a cimentação e a mordida.\n\n' +
     'Quer que eu já reserve um horário?',

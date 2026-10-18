@@ -258,6 +258,9 @@ export class WhatsappService {
      *  com 24 boletos) pode passar disso e a Evolution entrega mesmo assim — o 408
      *  fazia o retry mandar o carnê de novo. */
     timeoutMs?: number,
+    /** Clínica do envio: usa a config da Evolution DELA (igual ao sendText). Opcional —
+     *  sem ele, o comportamento antigo (config global) segue igual pra quem já chama. */
+    tenantId?: string | null,
   ) {
     const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
 
@@ -270,7 +273,7 @@ export class WhatsappService {
     if (!primaryNum.includes('@')) {
       const alt = toggleBr9thDigit(primaryNum);
       if (alt && alt !== primaryNum) {
-        const existing = await this.firstExistingNumber([primaryNum, alt], targetInstance);
+        const existing = await this.firstExistingNumber([primaryNum, alt], targetInstance, tenantId);
         if (existing) target = existing;
       }
     }
@@ -281,7 +284,7 @@ export class WhatsappService {
       return this.request('POST', `message/sendWhatsAppAudio/${targetInstance}`, {
         number: target,
         audio: mediaUrl,
-      }, timeoutMs ?? 60000);
+      }, timeoutMs ?? 60000, tenantId);
     }
 
     // Onda 14.42 — Auto-detecta mimetype baseado em mediaType + extensao
@@ -301,7 +304,7 @@ export class WhatsappService {
       caption: caption || '',
       ...(fileName ? { fileName } : {}),
       ...(resolvedMimetype ? { mimetype: resolvedMimetype } : {}),
-    }, timeoutMs ?? 15000);
+    }, timeoutMs ?? 15000, tenantId);
   }
 
   // --- MENSAGENS INTERATIVAS ---

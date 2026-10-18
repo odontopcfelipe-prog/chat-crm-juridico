@@ -43,9 +43,9 @@ function cenario(over: Partial<{
       // Tratamento concluído (kind completion) nunca entra
       { kind: 'completion', patient: { id: 'K', name: 'Kai' }, last_date: null, return_date: d('2027-01-13') },
     ],
-    pacientes: ['A', 'B', 'C', 'D', 'E', 'G', 'J', 'K'].map((id) => ({
+    pacientes: (['A', 'B', 'C', 'D', 'E', 'G', 'J', 'K'].map((id) => ({
       id, name: `Paciente ${id}`, phone: `8299999000${id.charCodeAt(0) % 10}`, status: 'ACTIVE', lead_id: id === 'E' ? 'LE' : null, lead: null,
-    })).concat([
+    })) as Pac[]).concat([
       { id: 'H', name: 'Hugo', phone: null, status: 'ACTIVE', lead_id: null, lead: null },
       { id: 'I', name: 'Iara', phone: '82999990009', status: 'ACTIVE', lead_id: 'LI', lead: { contact_opt_out_at: new Date('2026-01-01') } },
     ]) as Pac[],

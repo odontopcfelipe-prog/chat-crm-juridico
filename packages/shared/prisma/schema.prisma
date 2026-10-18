@@ -4596,3 +4596,71 @@ model WhatsappChipPacer {
   next_allowed_at DateTime
   updated_at      DateTime @updatedAt
 }
+
+// ─── Campanha MANUAL (Central de Disparos › "Campanha manual" por setor) ────────
+// O ADM escolhe o setor (= chip), filtra pacientes, escreve o texto + fotos/áudio e
+// manda agora ou agenda. Tabelas PRÓPRIAS, sem relação com as existentes (não reusa
+// BroadcastJob — legado jurídico que a régua de reativação lê). Só adiciona: db push seguro.
+model ManualCampaign {
+  id            String    @id @default(uuid())
+  tenant_id     String
+  name          String
+  setor         String // CLINICA | COMERCIAL | FINANCEIRO (define o chip que envia)
+  text          String    @db.Text
+  filters_json  Json?
+  status        String    @default("RASCUNHO") // RASCUNHO | AGENDADA | ENVIANDO | PAUSADA | CONCLUIDA | CANCELADA
+  scheduled_for DateTime? // instante real (UTC) a partir do qual pode começar
+  total         Int       @default(0)
+  sent_count    Int       @default(0)
+  failed_count  Int       @default(0)
+  skipped_count Int       @default(0)
+  pause_reason  String?
+  created_by_id String?
+  started_at    DateTime?
+  completed_at  DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  media ManualCampaignMedia[]
+  items ManualCampaignItem[]
+
+  @@index([tenant_id, status])
+}
+
+model ManualCampaignMedia {
+  id            String   @id @default(uuid())
+  campaign_id   String
+  kind          String // image | audio
+  file_path     String // relativo ao MEDIA_STORAGE_PATH (campanhas/<campanha>/<id>.<ext>)
+  mime_type     String
+  size          Int
+  original_name String?
+  position      Int      @default(0)
+  created_at    DateTime @default(now())
+
+  campaign ManualCampaign @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@index([campaign_id])
+}
+
+model ManualCampaignItem {
+  id                  String    @id @default(uuid())
+  campaign_id         String
+  tenant_id           String
+  patient_id          String
+  name                String?
+  phone               String
+  status              String    @default("PENDENTE") // PENDENTE | ENVIANDO | ENVIADO | FALHOU | PULADO
+  reason              String?
+  external_message_id String?
+  claimed_at          DateTime?
+  sent_at             DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  campaign ManualCampaign @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, patient_id])
+  @@index([campaign_id, status])
+  @@index([tenant_id, status])
+}
