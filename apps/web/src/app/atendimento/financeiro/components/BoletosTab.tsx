@@ -451,7 +451,8 @@ export default function BoletosTab({ dentistId }: Props) {
     );
     if (reason === null) return; // fechou/cancelou o prompt
     const motivo = reason.trim();
-    if (!motivo) { showError('Informe o motivo do cancelamento (fica no rastro da cobrança).'); return; }
+    // Fase 0 — o servidor exige 3+ letras; avisa aqui antes de chamar.
+    if (motivo.length < 3) { showError('Informe o motivo do cancelamento (fica no rastro da cobrança).'); return; }
     setDeletingId(c.id);
     try {
       await api.delete(`/payment-gateway/charges/asaas/${c.external_id}?reason=${encodeURIComponent(motivo)}`);

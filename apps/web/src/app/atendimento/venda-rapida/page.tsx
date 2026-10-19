@@ -5,13 +5,20 @@
  *
  * Estilo "Mercado Livre": grid de procedimentos prontos pra venda na hora,
  * carrinho à direita, selector de paciente + forma de pagamento, botão
- * Finalizar. Ao confirmar, faz POST /commercial/venda-rapida que cria
- * Quote+Plan+Charge em 1 chamada atômica.
+ * Finalizar.
+ *
+ * Fase 0 — dois caminhos ao finalizar:
+ *  - RECEBIDO NA CLÍNICA (espécie, PIX da clínica, maquineta, várias formas):
+ *    UMA chamada POST /venda-rapida/balcao. O servidor calcula o total, confere
+ *    a soma das formas, cria orçamento+plano+cobrança LOCAL e lança no caixa;
+ *    se falhar no meio, desfaz. client_request_id evita venda duplicada no retry.
+ *  - PIX ONLINE (QR do Asaas): fluxo antigo, POST /patients/:id/quotes +
+ *    POST /quotes/:id/approve-and-bill; o webhook confirma o pagamento.
  *
  * Sem passar pelo fluxo de Avaliação/Propostas — pra vendas simples:
  * limpeza, clareamento, raspagem, extração simples, radiografia, etc.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
@@ -82,25 +89,23 @@ const unitPriceOf = (it: CartItem) =>
 
 // Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
 // quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
-// Onda 17.32.71 — CASH (especie/dinheiro) separado de PIX. Backend
-// trata CASH como PIX + receiveInCash (marca como ja paga).
+// Onda 17.32.71 — CASH (especie/dinheiro) separado de PIX.
 // Onda 17.37 — formas "recebido na clínica" (CASH/CLINIC_CARD/CLINIC_PIX) NÃO
-// passam pelo Asaas online: registram a cobranca como JA RECEBIDA (receive-in-
-// cash) e entram no financeiro do paciente pra prestacao de contas. PIX/CARTAO
-// continuam gerando cobranca online via Asaas.
+// passam pelo Asaas online e entram no financeiro do paciente pra prestacao de
+// contas. Fase 0 — vão numa chamada só (POST /venda-rapida/balcao), já recebidas
+// e lançadas no caixa. PIX online continua gerando cobranca no Asaas.
 type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX' | 'CLINIC_PIX_MAQ';
 
-// Rotulo do metodo recebido na clinica — vai no titulo do orcamento pra
-// aparecer no Financeiro do paciente.
+// Rotulo do metodo recebido na clinica (dialog de sucesso). As notas do orçamento
+// ("Venda rapida — recebido na clinica: ...") o servidor monta na venda de balcão.
 const CLINIC_METHOD_LABEL: Record<string, string> = {
   CASH: 'Espécie',
   CLINIC_CARD: 'Maquineta',
   CLINIC_PIX: 'PIX da clínica',
   CLINIC_PIX_MAQ: 'PIX (Maquineta)',
 };
-// Forma REAL -> token do caixa/comprovante (approve-and-bill.received_method). Sem
-// isto o backend só veria billing_type='PIX' (colapsado) e o comprovante ao paciente
-// diria "PIX" pra tudo, mesmo na venda em dinheiro.
+// Forma REAL -> token do caixa/comprovante (payments[].method da venda de balcão).
+// O comprovante ao paciente e o caixa usam isto — nunca "PIX" pra tudo.
 const CLINIC_RECEIVED_METHOD: Record<string, string> = {
   CASH: 'DINHEIRO',
   CLINIC_CARD: 'CARTAO',
@@ -272,6 +277,10 @@ export default function VendaRapidaPage() {
     mixLabel?: string | null;      // split "várias formas": PIX R$ x + Espécie R$ y
     chargeExternalId?: string | null; // id Asaas — o dialog escuta a confirmação do PIX
   } | null>(null);
+  // Fase 0 — chave da venda de balcão (idempotência): reenviar o MESMO carrinho depois
+  // de um timeout não vira 2 vendas. Mudou carrinho/paciente/dentista/pagamento → chave nova.
+  const saleKeyRef = useRef<string | null>(null);
+  useEffect(() => { saleKeyRef.current = null; }, [cart, patient, dentistId, billingType, mixMode, mixLines, card1, card2, split2]);
 
   // Carrega procedimentos
   useEffect(() => {
@@ -461,184 +470,143 @@ export default function VendaRapidaPage() {
       return;
     }
     setFinishing(true);
+    // Itens da venda: item com dentes vira 1 item POR dente (tooth_fdi), pra entrar no
+    // odontograma/tratamento e a dentista validar dente a dente; sem dentes = por
+    // quantidade (limpeza, clareamento). Desconto vai como unit_price (omitido = preço
+    // de tabela); o backend bloqueia sem a permissão override_price.
+    const itemsPayload = cart.flatMap((it) => {
+      const priceOverride = it.customPrice != null ? { unit_price: it.customPrice } : {};
+      return it.toothFdis.length > 0
+        ? it.toothFdis.map((fdi) => ({ procedure_id: it.procedure.id, quantity: 1, tooth_fdi: fdi, ...priceOverride }))
+        : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride }];
+    });
+    // Baixa do material no estoque. Idempotente por quote_id no backend, então um retry
+    // desta tela não baixa duas vezes. Best-effort DE PROPÓSITO: a venda já existe e o
+    // paciente já está pagando — falhar a baixa aqui não pode desfazer a venda. Se der
+    // errado, avisa pra alguém ajustar na mão.
+    const baixarEstoqueDaVenda = async (quoteId: string) => {
+      if (!(baixarEstoque && consumo && consumo.items.length > 0)) return;
+      try {
+        await api.post('/inventory/consumption/commit', {
+          quote_id: quoteId,
+          items: cart.flatMap((it) =>
+            it.toothFdis.length > 0
+              ? it.toothFdis.map(() => ({ procedure_id: it.procedure.id, quantity: 1 }))
+              : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
+          ),
+          notes: 'Venda rápida (balcão)',
+        });
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { message?: string } } };
+        showError(
+          'A venda foi registrada, mas a baixa do estoque falhou: ' +
+          (err?.response?.data?.message || 'erro desconhecido') +
+          ' — ajuste em Estoque → Movimentações.',
+        );
+      }
+    };
+    // Dividir em várias formas também é "recebido na clínica" (cai só no caixa).
+    const clinicReceived = mixMode || isClinicReceived(billingType);
+    const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
     try {
-      // Onda 17.32.72 — Em vez de POST /commercial/venda-rapida (rota
-      // nova que depende de deploy do API), faz 2-3 chamadas em
-      // sequencia usando endpoints que JA EXISTEM:
-      //   1. POST /commercial/patients/:id/quotes   (cria Quote+items)
-      //   2. POST /quotes/:id/approve-and-bill       (aprova + cobra)
-      //   3. POST /payment-gateway/charges/asaas/:asaasId/receive-in-cash
-      //      (so pra CASH — marca como recebida em dinheiro)
-      //
-      // Funciona imediatamente, sem depender de rebuild do API.
+      if (clinicReceived) {
+        // Fase 0 — RECEBIDO NA CLÍNICA: UMA chamada. O servidor recalcula o total, confere
+        // a soma das formas, cria orçamento+plano+cobrança LOCAL e lança no caixa (cada
+        // forma na sua conta). Se algo falhar no meio, ele desfaz — nada fica "recebido"
+        // fora do caixa. Antes eram 3 chamadas e a 3ª (caixa) podia falhar sozinha.
+        let payments: Array<{ method: string; value: number; installments?: number; debit?: boolean }>;
+        if (mixMode) {
+          // Cada linha vira UMA receita na conta certa do caixa (DINHEIRO→CAIXA, PIX→BANCO, CARTAO→CARTAO).
+          payments = mixLines.map((l) => ({ method: l.method, value: round2(l.value) }));
+        } else if (billingType === 'CLINIC_CARD') {
+          // Maquineta: 1 cartão (valor cheio) ou 2 cartões (split2). method='CARTAO' pros
+          // dois (o caixa tem 1 balde "Maquininha/cartão" p/ débito E crédito); `debit` só
+          // refina a descrição. c2 deriva do c1 arredondado → soma exata.
+          const c1 = split2 ? round2(card1.value) : round2(total);
+          payments = [{
+            method: 'CARTAO',
+            value: c1,
+            installments: card1.kind === 'CREDITO' ? card1.inst : undefined,
+            debit: card1.kind === 'DEBITO',
+          }];
+          if (split2) {
+            payments.push({
+              method: 'CARTAO',
+              value: round2(total - c1),
+              installments: card2.kind === 'CREDITO' ? card2.inst : undefined,
+              debit: card2.kind === 'DEBITO',
+            });
+          }
+        } else {
+          payments = [{ method: CLINIC_RECEIVED_METHOD[billingType], value: round2(total) }];
+        }
+        if (!saleKeyRef.current) saleKeyRef.current = crypto.randomUUID();
+        // Payload EXATO do VendaBalcaoDto (o servidor recusa campo a mais).
+        const { data: sale } = await api.post<any>('/venda-rapida/balcao', {
+          patient_id: patient.id,
+          dentist_id: dentistId,
+          items: itemsPayload,
+          payments,
+          expected_total: Math.round(total * 100) / 100,
+          client_request_id: saleKeyRef.current,
+        });
+        if (sale?.quote_id) await baixarEstoqueDaVenda(sale.quote_id);
+        setSuccessDialog({
+          billingType,
+          total: Number(sale?.total) || total,
+          patientName: patient.name,
+          patientId: patient.id,
+          pixQrCode: null,
+          pixCopyPaste: null,
+          invoiceUrl: null,
+          boletoUrl: null,
+          chargeExternalId: null,
+          mixLabel: mixMode
+            ? mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
+            : null,
+        });
+        saleKeyRef.current = null;
+        setCart([]);
+        showSuccess('Venda finalizada!');
+        return;
+      }
 
-      // 1. Cria Quote (com items)
-      // Onda 17.41 — sem desconto por forma de pagamento (preço cheio).
-      const discountPercent = 0;
-      // Dividir em várias formas também é "recebido na clínica" (cai só no caixa).
-      const clinicReceived = mixMode || isClinicReceived(billingType);
-      // Rótulo do "como foi pago" (título/notas do orçamento). No split, "Várias formas".
-      const receivedLabel = mixMode ? 'Várias formas' : CLINIC_METHOD_LABEL[billingType];
-      // No split, o comprovante/aviso usam a forma DOMINANTE (maior valor) — received_method
-      // é enum único; o detalhe forma-a-forma vai pro caixa via payments[].
-      const mixDominantMethod = mixMode
-        ? [...mixLines].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))[0]?.method
-        : undefined;
-      // Método recebido na clínica vai no título → aparece no Financeiro do
-      // paciente (prestação de contas: "como" foi pago).
-      const title = clinicReceived
-        ? `Venda rápida · ${receivedLabel}`
-        : 'Venda rápida';
+      // PIX ONLINE (QR do Asaas): fluxo antigo — orçamento + approve-and-bill. A
+      // cobrança fica em aberto e o webhook confirma quando o paciente pagar.
+      // 1. Cria Quote (com items). Sem desconto por forma de pagamento (preço cheio).
       const { data: quoteData } = await api.post<any>(
         `/patients/${patient.id}/quotes`,
         {
-          title,
-          // Onda 17.38 — item com dentes vira 1 item POR dente (tooth_fdi),
-          // pra entrar no odontograma/tratamento e a dentista validar dente a
-          // dente. Sem dentes = item por quantidade (limpeza, clareamento).
-          items: cart.flatMap((it) => {
-            // Onda 17.39 — desconto vai como unit_price (omitido = preço de
-            // tabela). O backend bloqueia se o usuário não tiver override_price.
-            const priceOverride = it.customPrice != null ? { unit_price: it.customPrice } : {};
-            // Onda 17.40 — dentista responsável (registro + relatório por dentista).
-            const dentistRef = dentistId ? { dentist_id: dentistId } : {};
-            return it.toothFdis.length > 0
-              ? it.toothFdis.map((fdi) => ({
-                  procedure_id: it.procedure.id,
-                  quantity: 1,
-                  tooth_fdi: fdi,
-                  ...priceOverride,
-                  ...dentistRef,
-                }))
-              : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride, ...dentistRef }];
-          }),
-          discount_percent: discountPercent,
-          notes: mixMode
-            ? `Venda rapida — recebido na clinica (varias formas): ${mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')}`
-            : clinicReceived
-              ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
-              : 'Venda rapida (balcao sem avaliacao)',
+          title: 'Venda rápida',
+          // Onda 17.40 — dentista responsável em cada item (registro + relatório por dentista).
+          items: itemsPayload.map((i) => ({ ...i, dentist_id: dentistId })),
+          discount_percent: 0,
+          notes: 'Venda rapida (balcao sem avaliacao)',
         },
       );
       const quoteId = quoteData?.id || quoteData?.quote?.id;
       if (!quoteId) throw new Error('Falha ao criar orcamento');
 
-      // 1.5. Baixa do material no estoque. Idempotente por quote_id no backend,
-      // então um retry desta tela não baixa duas vezes. Best-effort DE PROPÓSITO:
-      // a venda já existe e o paciente já está pagando — falhar a baixa aqui não
-      // pode desfazer a venda. Se der errado, avisa pra alguém ajustar na mão.
-      if (baixarEstoque && consumo && consumo.items.length > 0) {
-        try {
-          await api.post('/inventory/consumption/commit', {
-            quote_id: quoteId,
-            items: cart.flatMap((it) =>
-              it.toothFdis.length > 0
-                ? it.toothFdis.map(() => ({ procedure_id: it.procedure.id, quantity: 1 }))
-                : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
-            ),
-            notes: 'Venda rápida (balcão)',
-          });
-        } catch (e: unknown) {
-          const err = e as { response?: { data?: { message?: string } } };
-          showError(
-            'A venda foi registrada, mas a baixa do estoque falhou: ' +
-            (err?.response?.data?.message || 'erro desconhecido') +
-            ' — ajuste em Estoque → Movimentações.',
-          );
-        }
-      }
+      // 1.5. Baixa do material no estoque (best-effort).
+      await baixarEstoqueDaVenda(quoteId);
 
-      // 2. approveAndBill — cria charge. Recebido na clínica usa PIX como tipo
-      // (Asaas só aceita PIX/BOLETO/CREDIT_CARD) e é marcado como recebido no
-      // passo 3 — não gera cobrança online.
+      // 2. approveAndBill — gera o PIX no Asaas. Fase 0: sem auto_execute_items nem
+      // executed_by_dentist_id (o servidor ignora; procedimento é o dentista que conclui).
       const { data: billData } = await api.post<any>(
         `/quotes/${quoteId}/approve-and-bill`,
         {
-          billing_type: clinicReceived ? 'PIX' : billingType,
-          // Onda 18.x — clínica sem Asaas: aprova+cobra como LOCAL (cai só no caixa),
-          // não falha. Online (não-clínica) segue exigindo Asaas.
-          received_in_clinic: clinicReceived,
-          // Forma REAL (dinheiro/cartão/PIX/PIX-maquineta) — o comprovante ao paciente
-          // e o aviso interno usam isto; sem ele diriam "PIX" pra tudo.
-          received_method: mixMode
-            ? mixDominantMethod
-            : clinicReceived
-              ? CLINIC_RECEIVED_METHOD[billingType]
-              : undefined,
-          // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida
-          // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
-          // com 15 casas -> 400 "value must be a number...").
+          billing_type: billingType,
+          received_in_clinic: false,
+          // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida maxDecimalPlaces: 2).
           value: Math.round(total * 100) / 100,
-          // Venda rápida só recebe na clínica (sem cartão online Asaas) → sem parcelas aqui.
           installment_count: undefined,
-          // Onda 17.67 — Modelo B: os procedimentos ficam PENDENTES pro dentista
-          // confirmar a conclusão (aí nasce a comissão de execução). A comissão de
-          // VENDA já nasce no fechamento (approveAndBill), pro vendedor.
-          auto_execute_items: false,
-          // Onda 18.x — identifica a venda RÁPIDA: com PIX online, o backend NÃO dispara
-          // "negociação aprovada" (+PDF) antes do pagamento — só o PIX copia-e-cola.
+          // Venda RÁPIDA com PIX online: o backend NÃO dispara "negociação aprovada"
+          // (+PDF) antes do pagamento — só o PIX copia-e-cola.
           quick_sale: true,
-          executed_by_dentist_id: dentistId || undefined,
         },
       );
 
-      // 3. Recebido na clínica — receiveInCash imediato registra como pago,
-      // joga no financeiro do paciente E lança no caixa (fechamento). O método
-      // (DINHEIRO/CARTAO/PIX) vai junto pra aparecer certo no caixa.
-      const asaasId = billData?.charge?.external_id;
-      // Onda 18.x — se o registro no caixa falhar, NÃO mentir "finalizada": avisa.
-      let caixaOk = true;
-      if (clinicReceived && asaasId) {
-        try {
-          if (mixMode) {
-            // Dividir em várias formas — cada linha vira UMA receita na conta certa do
-            // caixa (DINHEIRO→CAIXA, PIX→BANCO, CARTAO→CARTAO). O backend roteia por método.
-            const payments = mixLines.map((l) => ({
-              method: l.method,
-              value: Math.round((Number(l.value) || 0) * 100) / 100,
-            }));
-            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, { payments });
-          } else if (billingType === 'CLINIC_CARD') {
-            // Maquineta: 1 cartão (valor cheio) ou 2 cartões (split2). Cada cartão vira
-            // uma receita no caixa. method='CARTAO' pros dois (o caixa tem 1 balde
-            // "Maquininha/cartão" p/ débito E crédito → concilia certo); `debit` só
-            // refina a descrição. c2 deriva do c1 arredondado → soma exata.
-            const c1 = split2 ? Math.round(card1.value * 100) / 100 : Math.round(total * 100) / 100;
-            const payments: Array<{ method: string; value: number; installments?: number; debit: boolean }> = [
-              {
-                method: 'CARTAO',
-                value: c1,
-                installments: card1.kind === 'CREDITO' ? card1.inst : undefined,
-                debit: card1.kind === 'DEBITO',
-              },
-            ];
-            if (split2) {
-              payments.push({
-                method: 'CARTAO',
-                value: Math.round((total - c1) * 100) / 100,
-                installments: card2.kind === 'CREDITO' ? card2.inst : undefined,
-                debit: card2.kind === 'DEBITO',
-              });
-            }
-            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, { payments });
-          } else {
-            const CLINIC_METHOD_TO_CAIXA: Record<string, string> = {
-              CASH: 'DINHEIRO',
-              CLINIC_PIX: 'PIX',
-              CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
-            };
-            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
-              payment_method: CLINIC_METHOD_TO_CAIXA[billingType] || 'DINHEIRO',
-            });
-          }
-        } catch (e: any) {
-          console.warn('[VENDA-RAPIDA] receiveInCash falhou:', e?.message);
-          // Nao bloqueia a venda, mas marca que o caixa NÃO recebeu — avisa no fim.
-          caixaOk = false;
-        }
-      }
-
-      // Onda 17.32.70 — Dialog de sucesso
+      // Onda 17.32.70 — Dialog de sucesso (QR do PIX; escuta a confirmação do Asaas)
       setSuccessDialog({
         billingType,
         total,
@@ -649,16 +617,34 @@ export default function VendaRapidaPage() {
         invoiceUrl: billData?.invoice_url || null,
         boletoUrl: billData?.boleto?.url || null,
         chargeExternalId: billData?.charge?.external_id || null,
-        mixLabel: mixMode
-          ? mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
-          : null,
+        mixLabel: null,
       });
       setCart([]);
-      if (caixaOk) showSuccess('Venda finalizada!');
-      else showError('Venda criada, mas o pagamento NÃO entrou no caixa. Registre manualmente no Caixa.');
+      showSuccess('Venda finalizada!');
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Erro ao finalizar venda';
-      showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
+      const status: number = Number(err?.response?.status) || 0;
+      if (err?.response && clinicReceived && (status >= 500 || status === 409 || status === 408 || status === 429)) {
+        // Fase 0 — 5xx/52x (proxy/Cloudflare caiu ou estourou o tempo), 409 (a mesma venda
+        // em andamento), 408/429: a venda PODE ter entrado. Mantém a chave — o retry devolve
+        // a venda existente em vez de lançar outra receita no caixa.
+        const msg = err.response.data?.message;
+        const aviso = 'Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.';
+        showError(typeof msg === 'string' && status < 500 ? `${msg}. ${aviso}` : aviso);
+      } else if (err?.response) {
+        // O servidor recusou (4xx de regra/permissão) ou desfez a venda: nada ficou
+        // registrado, a próxima tentativa é uma venda nova.
+        if (clinicReceived) saleKeyRef.current = null;
+        const msg = err.response.data?.message || 'Erro ao finalizar venda';
+        showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
+      } else if (clinicReceived) {
+        // Rede/timeout: a venda PODE ter entrado. Mantém a chave — o retry não duplica.
+        showError('Sem resposta do servidor. Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.');
+      } else {
+        // PIX online não tem chave de idempotência: conferir antes de tentar de novo.
+        showError(err?.message && err.message !== 'Network Error'
+          ? err.message
+          : 'Sem resposta do servidor. Confira no Financeiro do paciente antes de tentar de novo.');
+      }
     } finally {
       setFinishing(false);
     }

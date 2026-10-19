@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnamnesisService } from '../anamnesis/anamnesis.service';
+// Fase 0 — rastro da agenda (função pura, sem DI).
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 
 /**
  * Texto fixo do termo de consentimento aceito pelo paciente ao confirmar
@@ -26,6 +28,8 @@ export const ANAMNESE_CONSENT_TEXT_V1 =
  */
 @Injectable()
 export class PortalService {
+  private readonly logger = new Logger(PortalService.name);
+
   constructor(
     private prisma: PrismaService,
     private anamnesisService: AnamnesisService,
@@ -100,8 +104,12 @@ export class PortalService {
     });
     if (!ev) throw new NotFoundException('Agendamento nao encontrado');
     if (ev.status === 'CANCELADO') throw new BadRequestException('Consulta cancelada');
+    // Fase 0 — "Vou comparecer" não pode voltar para CONFIRMADO uma consulta já atendida/validada.
+    if (ev.validated_at || ['CONCLUIDO', 'NO_SHOW'].includes(ev.status)) {
+      throw new BadRequestException('Consulta ja realizada');
+    }
 
-    return this.prisma.$transaction(async (tx) => {
+    const confirmado = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.calendarEvent.update({
         where: { id: ev.id },
         data: { status: 'CONFIRMADO' },
@@ -123,6 +131,21 @@ export class PortalService {
       }
       return updated;
     });
+
+    // Fase 0 — rastro (best-effort, fora da transação). Ator null: quem clicou é o paciente.
+    if (ev.status !== 'CONFIRMADO') {
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: null,
+        entity: 'AGENDA_EVENTO',
+        entityId: ev.id,
+        action: 'STATUS',
+        before: { status: ev.status },
+        after: { status: 'CONFIRMADO' },
+        meta: { via: 'portal', patient_id: patientId },
+      }, this.logger);
+    }
+    return confirmado;
   }
 
   /** Cancela consulta — paciente nao podera comparecer. */
@@ -132,9 +155,10 @@ export class PortalService {
     });
     if (!ev) throw new NotFoundException('Agendamento nao encontrado');
     if (ev.status === 'CANCELADO') return ev;
-    if (ev.status === 'CONCLUIDO') throw new BadRequestException('Consulta ja realizada');
+    // Fase 0 — consulta validada pelo dentista também já aconteceu (não só a CONCLUIDO).
+    if (ev.status === 'CONCLUIDO' || ev.validated_at) throw new BadRequestException('Consulta ja realizada');
 
-    return this.prisma.calendarEvent.update({
+    const cancelado = await this.prisma.calendarEvent.update({
       where: { id: ev.id },
       data: {
         status: 'CANCELADO',
@@ -143,6 +167,19 @@ export class PortalService {
           : `[Cancelado pelo paciente: ${reason || 'sem motivo'}]`,
       },
     });
+
+    // Fase 0 — rastro (best-effort). Ator null: quem cancelou é o paciente.
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: null,
+      entity: 'AGENDA_EVENTO',
+      entityId: ev.id,
+      action: 'STATUS',
+      before: { status: ev.status },
+      after: { status: 'CANCELADO' },
+      meta: { via: 'portal', patient_id: patientId, motivo: reason || null },
+    }, this.logger);
+    return cancelado;
   }
 
   /** Lista parcelas (abertas + recentes pagas). */

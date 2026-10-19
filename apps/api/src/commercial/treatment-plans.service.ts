@@ -6,6 +6,11 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { MaintenanceService } from '../maintenance/maintenance.service';
 import { getTenantSetting } from '../tenants/tenant-settings.helper';
 import { Prisma } from '@crm/shared';
+// Fase 0 — funções puras (não são providers): não mexem no grafo de DI.
+import { isAdminRole } from '../auth/patient-scope';
+import { negarPermissao } from '../auth/require-any-permission';
+import { auditData, registrarAuditoria } from '../common/utils/audit-log.util';
+import { motivoBloqueioPlano, motivoNegarAtor } from './execucao-regras';
 
 function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -236,7 +241,12 @@ export class TreatmentPlansService implements OnModuleInit {
     return plan;
   }
 
-  async update(id: string, tenantId: string, data: Prisma.TreatmentPlanUncheckedUpdateInput) {
+  async update(
+    id: string,
+    tenantId: string,
+    data: Prisma.TreatmentPlanUncheckedUpdateInput,
+    actorId?: string | null,
+  ) {
     const before = await this.findOne(id, tenantId);
     const patch: Prisma.TreatmentPlanUncheckedUpdateInput = { ...data };
     if (data.start_date) patch.start_date = new Date(data.start_date as any);
@@ -250,6 +260,18 @@ export class TreatmentPlansService implements OnModuleInit {
       typeof data.status === 'string'
         ? data.status
         : (data.status as any)?.set;
+    // Fase 0 — F6: troca de status do plano fica registrada (quem, de → para).
+    if (newStatus !== undefined && newStatus !== before.status) {
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: actorId ?? null,
+        entity: 'TREATMENT_PLAN',
+        entityId: id,
+        action: 'STATUS',
+        before: { status: before.status },
+        after: { status: newStatus },
+      }, this.logger);
+    }
     if (
       newStatus === 'CANCELLED' &&
       before.status !== 'CANCELLED' &&
@@ -394,13 +416,41 @@ export class TreatmentPlansService implements OnModuleInit {
         `Indique quem fez (ou "não realizado") em ${semDecisao.length} procedimento(s) em aberto`,
       );
     }
-    // responsáveis precisam ser usuários DESTA clínica
+    // Fase 0 — F4(a): quem "fez" tem que ser DENTISTA desta clínica (mesma regra do
+    // GET /users/lawyers: papel DENTIST, ou ADMIN com especialidade). Antes bastava
+    // ser usuário da clínica — dava pra creditar a execução (e a comissão) a qualquer um.
     const execIds = Array.from(new Set(
       pending.map((i) => byItem.get(i.id)!).filter((e) => !e.not_done).map((e) => e.executed_by_user_id as string),
     ));
     if (execIds.length > 0) {
-      const found = await this.prisma.user.count({ where: { id: { in: execIds }, tenant_id: tenantId } });
-      if (found !== execIds.length) throw new BadRequestException('Responsável inválido — não é desta clínica');
+      const found = await this.prisma.user.count({
+        where: {
+          id: { in: execIds },
+          tenant_id: tenantId,
+          OR: [{ roles: { has: 'DENTIST' } }, { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } }],
+        },
+      });
+      if (found !== execIds.length) {
+        throw new BadRequestException('Responsável inválido — tem que ser um dentista desta clínica.');
+      }
+    }
+
+    // Fase 0 — F4(b): o gate do plano (cancelado / aguardando o Financeiro) é checado
+    // ANTES de gravar qualquer coisa — senão metade dos itens virava DONE e o resto falhava.
+    const dataBR = (d: Date | string) =>
+      new Date(new Date(d).getTime() - 3 * 3_600_000).toISOString().slice(0, 10).split('-').reverse().join('/');
+    for (const p of abertos) {
+      const temFeito = p.items.some((i) => {
+        const e = byItem.get(i.id);
+        return i.status !== 'DONE' && i.status !== 'CANCELLED' && !!e && !e.not_done;
+      });
+      if (!temFeito) continue;
+      const b = motivoBloqueioPlano(p);
+      if (b) {
+        throw new BadRequestException(
+          `${b} (plano de ${dataBR(p.created_at)}${p.quote?.title ? ` — ${p.quote.title}` : ''})`,
+        );
+      }
     }
 
     const actor = actorUserId
@@ -413,13 +463,17 @@ export class TreatmentPlansService implements OnModuleInit {
       const e = byItem.get(item.id)!;
       if (e.not_done) {
         const nota = `Não realizado — tratamento finalizado em ${hoje}${actor?.name ? ` por ${actor.name}` : ''}`;
-        await this.prisma.treatmentPlanItem.update({
-          where: { id: item.id },
+        // Fase 0 — F4(c): claim — não sobrescreve item que outro request acabou de concluir.
+        const r = await this.prisma.treatmentPlanItem.updateMany({
+          where: { id: item.id, status: { notIn: ['DONE', 'CANCELLED'] } },
           data: { status: 'CANCELLED', notes: item.notes ? `${item.notes}\n${nota}` : nota },
         });
-        notDone++;
+        if (r.count > 0) notDone++;
       } else {
-        await this.executeItem(item.id, tenantId, e.executed_by_user_id as string, {});
+        await this.executeItem(item.id, tenantId, e.executed_by_user_id as string, {}, {
+          actorId: actorUserId,
+          via: 'finalize',
+        });
         done++;
       }
     }
@@ -429,18 +483,15 @@ export class TreatmentPlansService implements OnModuleInit {
       await this.complete(p.id, tenantId);
       completed++;
     }
-    await this.prisma.auditLog
-      .create({
-        data: {
-          actor_user_id: actorUserId || null,
-          action: 'finalize',
-          entity: 'TREATMENT_FINALIZE',
-          entity_id: plans[0].patient.id,
-          tenant_id: tenantId,
-          meta_json: { plan_ids: ids, done, not_done: notDone, completed },
-        },
-      })
-      .catch(() => {});
+    // Fase 0 — F4(e): o registro guarda as decisões (quem fez cada item / não realizado).
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: actorUserId || null,
+      entity: 'TREATMENT_FINALIZE',
+      entityId: plans[0].patient.id,
+      action: 'finalize',
+      meta: { plan_ids: ids, done, not_done: notDone, completed, decisoes: executions },
+    }, this.logger);
     this.logger.log(`[FINALIZE] paciente ${plans[0].patient.id}: ${done} feitos, ${notDone} não realizados, ${completed} plano(s) concluído(s)`);
     return { done, not_done: notDone, completed };
   }
@@ -546,41 +597,125 @@ export class TreatmentPlansService implements OnModuleInit {
       notes?: string;
       order_index?: number;
     },
+    actor?: { id?: string | null; roles?: string[] },
   ) {
     const item = await this.getItemEnsuringTenant(itemId, tenantId);
+    // Fase 0 — F5: status do procedimento por aqui só o ADMIN; e DONE nunca por aqui
+    // (sem executor, sem gate do Financeiro, sem comissão) — só pelo executeItem.
+    const mudaStatus = data.status !== undefined && data.status !== item.status;
+    if (mudaStatus) {
+      if (!isAdminRole(actor?.roles)) {
+        throw negarPermissao('Só o administrador pode mudar o status do procedimento por aqui.');
+      }
+      if (data.status === 'DONE') {
+        throw new BadRequestException('Para concluir um procedimento use "Confirmar/Validar" (registra quem fez).');
+      }
+    }
+    if (data.scheduled_appointment_id) await this.assertAppointmentDoTenant(data.scheduled_appointment_id, tenantId);
     const patch: Prisma.TreatmentPlanItemUncheckedUpdateInput = { ...data };
     if (data.scheduled_at) patch.scheduled_at = new Date(data.scheduled_at);
-    return this.prisma.treatmentPlanItem.update({ where: { id: item.id }, data: patch });
+    const updated = await this.prisma.treatmentPlanItem.update({ where: { id: item.id }, data: patch });
+    if (mudaStatus) {
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: actor?.id ?? null,
+        entity: 'TREATMENT_PLAN_ITEM',
+        entityId: item.id,
+        action: 'STATUS',
+        before: { status: item.status },
+        after: { status: data.status },
+      }, this.logger);
+    }
+    return updated;
+  }
+
+  /**
+   * Fase 0 — F1: confirmação pela rota /execute (Tratamento, Minha agenda). Checa o
+   * ATOR antes do núcleo: ADMIN sempre; item com dentista só o próprio; item sem
+   * dentista qualquer dentista. "É dentista" vem do banco, não do JWT.
+   */
+  async executeItemAsActor(
+    itemId: string,
+    tenantId: string,
+    actor: { id: string; roles: string[] },
+    data: { appointment_id?: string; notes?: string } = {},
+  ) {
+    const item = await this.getItemEnsuringTenant(itemId, tenantId);
+    const isAdmin = isAdminRole(actor.roles);
+    const ehDentista = isAdmin
+      ? false
+      : (await this.prisma.user.count({ where: { id: actor.id, tenant_id: tenantId, roles: { has: 'DENTIST' } } })) > 0;
+    const neg = motivoNegarAtor({
+      isAdmin,
+      actorId: actor.id,
+      actorEhDentista: ehDentista,
+      itemDentistId: item.dentist_id ?? null,
+    });
+    if (neg) throw negarPermissao(neg);
+    return this.executeItem(itemId, tenantId, actor.id, data, { actorId: actor.id, via: 'execute' });
   }
 
   /** Marca item como DONE com timestamp + dentista executor.
    *  Tambem gera Commission automaticamente baseada em CommissionRule
    *  resolvida por (executor, procedimento, categoria) — Fase 10 PR3.
+   *  Fase 0 — F2: gate do plano (cancelado / aguardando o Financeiro), claim atômico
+   *  (dois cliques não geram duas execuções nem duas comissões) e auditoria.
    */
   async executeItem(
     itemId: string,
     tenantId: string,
     userId: string,
     data: { appointment_id?: string; notes?: string } = {},
+    ctx?: { actorId?: string | null; via?: 'execute' | 'finalize' },
   ) {
     const item = await this.getItemEnsuringTenant(itemId, tenantId);
     if (item.status === 'DONE') throw new BadRequestException('Item ja foi executado');
     if (item.status === 'CANCELLED') throw new BadRequestException('Item cancelado nao pode ser executado');
+    const bloq = motivoBloqueioPlano(item.treatment_plan);
+    if (bloq) throw new BadRequestException(bloq);
+    if (data.appointment_id) await this.assertAppointmentDoTenant(data.appointment_id, tenantId);
 
-    const updated = await this.prisma.treatmentPlanItem.update({
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      // Claim: só vira DONE quem ainda não estava DONE/CANCELLED.
+      const r = await tx.treatmentPlanItem.updateMany({
+        where: { id: item.id, status: { notIn: ['DONE', 'CANCELLED'] } },
+        data: {
+          status: 'DONE',
+          executed_at: now,
+          executed_by_user_id: userId,
+          ...(data.appointment_id ? { scheduled_appointment_id: data.appointment_id } : {}),
+          ...(data.notes ? { notes: data.notes } : {}),
+        },
+      });
+      // Corrida: o outro request ganhou — este não gera comissão nem retorno.
+      if (r.count === 0) throw new BadRequestException('Item ja foi executado');
+      await tx.auditLog.create({
+        data: auditData({
+          tenantId,
+          actorUserId: ctx?.actorId ?? userId,
+          entity: 'TREATMENT_PLAN_ITEM',
+          entityId: item.id,
+          action: 'EXECUTADO',
+          before: { status: item.status },
+          after: { status: 'DONE', executed_by_user_id: userId },
+          meta: {
+            plan_id: item.treatment_plan.id,
+            patient_id: item.treatment_plan.patient_id,
+            appointment_id: data.appointment_id ?? null,
+            via: ctx?.via ?? 'interno',
+          },
+        }),
+      });
+    });
+    const updated = await this.prisma.treatmentPlanItem.findUnique({
       where: { id: item.id },
-      data: {
-        status: 'DONE',
-        executed_at: new Date(),
-        executed_by_user_id: userId,
-        ...(data.appointment_id ? { scheduled_appointment_id: data.appointment_id } : {}),
-        ...(data.notes ? { notes: data.notes } : {}),
-      },
       include: {
         procedure: { select: { id: true, name: true, category: true, commissionable: true } },
         treatment_plan: { select: { id: true, patient_id: true, quote_id: true } },
       },
     });
+    if (!updated) throw new NotFoundException('Item nao encontrado');
 
     // Gera comissao se houver regra aplicavel — best-effort, nao falha
     // o execute caso nao consiga gerar a comissao.
@@ -642,32 +777,6 @@ export class TreatmentPlansService implements OnModuleInit {
     }
 
     return updated;
-  }
-
-  /**
-   * Onda 17.40 — auto-executa TODOS os itens pendentes de um plano em nome de um
-   * executor (ex: dentista responsavel da Venda Rapida). Cada item vira DONE e
-   * dispara a comissao pro executor (via generateCommissionForItem). Best-effort
-   * por item: um erro num item nao derruba os demais. Usado no "na hora da venda".
-   */
-  async autoExecutePlanItems(planId: string, tenantId: string, executorUserId: string) {
-    const items = await this.prisma.treatmentPlanItem.findMany({
-      where: { treatment_plan_id: planId, status: { notIn: ['DONE', 'CANCELLED'] } },
-      select: { id: true },
-    });
-    let ok = 0;
-    for (const it of items) {
-      try {
-        await this.executeItem(it.id, tenantId, executorUserId, {});
-        ok++;
-      } catch (e: any) {
-        this.logger.warn(`[VENDA-RAPIDA auto-exec] item ${it.id} falhou: ${e?.message}`);
-      }
-    }
-    this.logger.log(
-      `[VENDA-RAPIDA auto-exec] plano ${planId}: ${ok}/${items.length} itens executados (executor ${executorUserId})`,
-    );
-    return { executed: ok, total: items.length };
   }
 
   /**
@@ -770,6 +879,17 @@ export class TreatmentPlansService implements OnModuleInit {
     const status = (trigger === 'ON_EXECUTION' || planPaid) ? 'DISPONIVEL' : 'DEVIDA';
     const availableAt = status === 'DISPONIVEL' ? now : null;
 
+    // Fase 0 — F3: um item tem no máximo UMA comissão de execução viva (reexecução
+    // depois de o ADMIN reverter o status não paga de novo).
+    const ja = await this.prisma.commission.findFirst({
+      where: { tenant_id: tenantId, treatment_plan_item_id: item.id, kind: 'EXECUCAO', status: { not: 'CANCELADA' } },
+      select: { id: true },
+    });
+    if (ja) {
+      this.logger.warn(`[CommissionAutoGen] item ${item.id} já tem comissão ${ja.id} — não duplica`);
+      return;
+    }
+
     await this.prisma.commission.create({
       data: {
         tenant_id: tenantId,
@@ -810,11 +930,30 @@ export class TreatmentPlansService implements OnModuleInit {
     const item = await this.prisma.treatmentPlanItem.findUnique({
       where: { id: itemId },
       include: {
-        treatment_plan: { select: { patient: { select: { tenant_id: true } } } },
+        // Fase 0 — status/created_at/validação do plano alimentam o gate do executeItem.
+        treatment_plan: {
+          select: {
+            id: true,
+            status: true,
+            created_at: true,
+            validated_by_financial_at: true,
+            patient_id: true,
+            patient: { select: { tenant_id: true } },
+          },
+        },
       },
     });
     if (!item) throw new NotFoundException('Item nao encontrado');
     if (item.treatment_plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
     return item;
+  }
+
+  /** Fase 0 — agendamento ligado ao procedimento tem que ser DESTA clínica. */
+  private async assertAppointmentDoTenant(appointmentId: string, tenantId: string) {
+    const ev = await this.prisma.calendarEvent.findFirst({
+      where: { id: appointmentId, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!ev) throw new BadRequestException('Agendamento informado não é desta clínica.');
   }
 }

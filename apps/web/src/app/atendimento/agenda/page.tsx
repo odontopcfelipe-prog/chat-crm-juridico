@@ -168,6 +168,10 @@ const EVENT_STATUSES = [
   { id: 'NO_SHOW', label: 'Faltou', color: '#991b1b' }, // vermelho escuro
 ];
 
+// Fase 0 — espelho do agenda-status-guard da API (gate de UI; o backend é quem barra de fato).
+const STATUS_CRIAR_SO_ADMIN = ['CONCLUIDO', 'NO_SHOW', 'CANCELADO'];
+const STATUS_TRAVADOS_VALIDADA = ['NO_SHOW', 'CANCELADO', 'ADIADO'];
+
 // (PRIORITY_COLORS / PRIORITY_LABELS removidos — Prioridade saiu do UI na Onda 17.61.)
 
 // Redesign etapa 3 (skill agenda-redesign-odonto) — CARD de evento no formato da
@@ -665,6 +669,8 @@ export default function AgendaPage() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const role = useRole();
+  // Fase 0 — ADMIN das travas de status da agenda (mesmo critério do backend: ADMIN ou SUPER_ADMIN).
+  const agendaIsAdmin = role.isAdmin || role.isSuperAdmin;
   const [showAllUsers, setShowAllUsers] = useState(false);
 
   // Real-time & UX
@@ -2890,6 +2896,10 @@ export default function AgendaPage() {
                   {EVENT_TYPES.map(t => (
                     <button
                       key={t.id}
+                      // Fase 0 — consulta validada não muda de tipo fora do ADMIN (o backend dá 403).
+                      disabled={!!editingEvent?.validated_at && !agendaIsAdmin && t.id !== editingEvent.type}
+                      title={!!editingEvent?.validated_at && !agendaIsAdmin && t.id !== editingEvent.type
+                        ? 'Atendimento já validado — só o administrador muda o tipo' : undefined}
                       onClick={() => setFormData(f => ({ ...f, type: t.id }))}
                       className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                         formData.type === t.id ? 'ring-2 ring-offset-1 ring-offset-background opacity-100' : 'opacity-50'
@@ -2982,9 +2992,24 @@ export default function AgendaPage() {
                   borderColor: (EVENT_STATUSES.find(s => s.id === (editingEvent ? editingEvent.status : formData.status))?.color || '#cbd5e1') + '60',
                 }}
               >
-                {EVENT_STATUSES.map(s => (
-                  <option key={s.id} value={s.id} className="text-foreground font-medium">{s.label}</option>
-                ))}
+                {EVENT_STATUSES
+                  // Fase 0 — na criação de consulta, Atendido/Faltou/Desmarcou é só do ADMIN
+                  // (o backend barra com 403): cria como Agendado/Chegou e o dentista valida.
+                  .filter(s => editingEvent || agendaIsAdmin || !PATIENT_APPT_TYPES.includes(formData.type)
+                    || !STATUS_CRIAR_SO_ADMIN.includes(s.id))
+                  .map(s => (
+                    <option
+                      key={s.id}
+                      value={s.id}
+                      className="text-foreground font-medium"
+                      // Fase 0 — consulta validada pelo dentista: Faltou/Desmarcou/Adiado só o ADMIN
+                      // (em qualquer tipo: o backend também trava validada que virou outro tipo).
+                      disabled={!!editingEvent?.validated_at && !agendaIsAdmin
+                        && STATUS_TRAVADOS_VALIDADA.includes(s.id) && s.id !== editingEvent.status}
+                    >
+                      {s.label}
+                    </option>
+                  ))}
               </select>
             </div>
 

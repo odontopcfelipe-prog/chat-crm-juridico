@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested, IsBoolean, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested, IsBoolean, IsNotEmpty, MaxLength, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // ─── Quote ─────────────────────────────────────────────────────
@@ -116,9 +116,12 @@ export class ApproveAndBillDto {
   @IsString() @IsIn(['PIX', 'CREDIT_CARD', 'BOLETO']) billing_type!: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) value!: number;
   @IsOptional() @IsInt() @Min(1) @Max(24) installment_count?: number;
-  // Onda 17.40 — Venda Rapida "na hora da venda": ao finalizar, marca os itens
-  // do plano como feitos em nome do dentista responsavel (gera comissao dele).
+  // Onda 17.40 — Venda Rapida "na hora da venda". Fase 0 — os dois campos ficam
+  // só pra o front em cache não levar 400 (forbidNonWhitelisted); o servidor ignora:
+  // execução é do dentista, nunca do cliente que vende.
+  /** @deprecated ignorado desde a Fase 0 */
   @IsOptional() @IsBoolean() auto_execute_items?: boolean;
+  /** @deprecated ignorado desde a Fase 0 */
   @IsOptional() @IsUUID('4') executed_by_dentist_id?: string;
   // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
   // caixa com este método (PIX | PIX_MAQUININHA | DINHEIRO) SEM gerar cobrança
@@ -137,6 +140,34 @@ export class ApproveAndBillDto {
   // Onda 18.x — venda RÁPIDA (balcão): pula a "negociação aprovada" (+PDF) no fechamento;
   // o disparo é de proposta parcelada (fala em boletos). Só o PIX sai antes do pagamento.
   @IsOptional() @IsBoolean() quick_sale?: boolean;
+}
+
+// Fase 0 — Venda de BALCÃO recebida na clínica em UMA chamada (POST venda-rapida/balcao).
+// O total é calculado no servidor; o cliente só diz O QUE vendeu e COMO recebeu.
+export class VendaBalcaoItemDto {
+  @IsUUID('4') procedure_id!: string;
+  @IsOptional() @IsInt() @Min(1) quantity?: number;
+  @IsOptional() @IsString() @MaxLength(4) tooth_fdi?: string;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) unit_price?: number;
+}
+
+export class VendaBalcaoPaymentDto {
+  @IsString() @IsIn(['DINHEIRO', 'PIX', 'PIX_MAQUININHA', 'CARTAO']) method!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) value!: number;
+  @IsOptional() @IsInt() @Min(1) @Max(24) installments?: number;
+  @IsOptional() @IsBoolean() debit?: boolean;
+}
+
+export class VendaBalcaoDto {
+  @IsUUID('4') patient_id!: string;
+  // Fase 0 — dentista OBRIGATÓRIO (a comissão de execução e o "quanto cada um gerou" dependem dele).
+  @IsUUID('4') dentist_id!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(60) @ValidateNested({ each: true }) @Type(() => VendaBalcaoItemDto) items!: VendaBalcaoItemDto[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(6) @ValidateNested({ each: true }) @Type(() => VendaBalcaoPaymentDto) payments!: VendaBalcaoPaymentDto[];
+  // Fase 0 — o total que a tela mostrou: se o preço mudou no meio, barra em vez de cobrar diferente.
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) expected_total?: number;
+  // Fase 0 — chave de idempotência gerada pela tela: retry após timeout não duplica a venda.
+  @IsOptional() @IsUUID('4') client_request_id?: string;
 }
 
 // Onda 18.6 — Admin edita o preco (total) de um item da proposta.

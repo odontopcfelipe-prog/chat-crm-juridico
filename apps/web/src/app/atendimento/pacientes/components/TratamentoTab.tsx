@@ -56,6 +56,8 @@ interface ItemRow {
     scheduled_appointment_title: string | null;
     executed_at: string | null;
     executed_by: { id: string; name: string } | null;
+    /** Out/2026 — dentista responsável pelo item (cada área o seu). */
+    dentist?: { id: string; name: string } | null;
     notes: string | null;
   };
 }
@@ -190,7 +192,8 @@ export default function TratamentoTab({ patientId }: Props) {
     (data?.items ?? []).filter((r) => !r.plan_validated_by_financial_at).map((r) => r.plan_id),
   ).size;
   const progressPct = kpis.total > 0 ? Math.round((kpis.feitos / kpis.total) * 100) : 0;
-  const canValidate = role.isDentist || role.isAdmin;
+  // Aviso geral de "somente leitura". O botão de cada linha usa a regra do item (podeEste).
+  const canValidate = role.isDentist || role.isAdmin || role.isSuperAdmin;
 
   return (
     <div className="space-y-5 p-1">
@@ -332,6 +335,11 @@ export default function TratamentoTab({ patientId }: Props) {
                     const done = it.status === 'DONE';
                     const cancelled = it.status === 'CANCELLED';
                     const style = STATUS_STYLE[it.status] || STATUS_STYLE.PENDING;
+                    // Fase 0 — mesma regra do backend: ADMIN sempre; dentista só o item
+                    // dele ou o que ainda não tem dentista.
+                    const podeEste = role.isAdmin || role.isSuperAdmin
+                      || (role.isDentist && (!it.dentist || it.dentist.id === role.userId));
+                    const deOutroDentista = !podeEste && role.isDentist && !!it.dentist;
                     return (
                       <tr
                         key={it.id}
@@ -383,13 +391,15 @@ export default function TratamentoTab({ patientId }: Props) {
                           {!done && !cancelled && (
                             <button
                               onClick={() => validateItem(row)}
-                              disabled={validatingId === it.id || !canValidate || locked}
+                              disabled={validatingId === it.id || !podeEste || locked}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                               title={
                                 locked
                                   ? '🔒 Aguardando validação do Financeiro — o tratamento precisa ser liberado antes de confirmar os procedimentos'
-                                  : canValidate
+                                  : podeEste
                                   ? 'Validar — marca este procedimento como feito'
+                                  : deOutroDentista
+                                  ? `Procedimento de ${it.dentist?.name}`
                                   : 'Apenas dentistas/admin podem validar'
                               }
                             >

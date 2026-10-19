@@ -1,7 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
+// Fase 0 — regras puras (sem DI): soma das formas = valor, forma do balcão.
+import { erroSomaFormas } from '../payment-gateway/baixa-regras';
+import type { FormaBalcao } from './venda-balcao.util';
 
 @Injectable()
 export class TreatmentPlanBillingService {
@@ -563,7 +566,19 @@ export class TreatmentPlanBillingService {
   async createManualReceipt(
     planId: string,
     tenantId: string,
-    options: { value: number; paymentMethod: string; userId?: string; receiveNow?: boolean; installments?: number },
+    options: {
+      value: number;
+      paymentMethod: string;
+      userId?: string;
+      receiveNow?: boolean;
+      installments?: number;
+      /** Fase 0 — formas do balcão (várias formas / 2 cartões): cada uma vira uma receita no caixa. */
+      payments?: FormaBalcao[];
+      /** Fase 0 — chave da venda (client_request_id): retry não cria segunda cobrança. */
+      idempotencyKey?: string;
+      /** Fase 0 — de onde veio a baixa (rastro): 'approve-and-bill' (padrão) ou 'venda-balcao'. */
+      origem?: string;
+    },
   ) {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
@@ -577,6 +592,10 @@ export class TreatmentPlanBillingService {
     if (options.value <= 0) {
       throw new BadRequestException('Valor deve ser maior que zero');
     }
+    // Fase 0 — C: a soma das formas fecha com o valor ANTES de criar a cobrança
+    // (senão sobrava cobrança local de uma venda que o caixa ia recusar).
+    const erroSoma = erroSomaFormas(options.payments, options.value);
+    if (erroSoma) throw new BadRequestException(erroSoma);
 
     // Idempotência: não duplica cobrança pro mesmo plano.
     const existingActive = await this.prisma.paymentGatewayCharge.findFirst({
@@ -604,32 +623,49 @@ export class TreatmentPlanBillingService {
     // no caixa agora — o Financeiro confirma depois num clique (registerClinicReceipt → CARTAO).
     const receiveNow = options.receiveNow !== false;
     const isCartao = options.paymentMethod === 'CARTAO';
+    // Fase 0 — com várias formas, só é "venda no cartão" se TODAS forem cartão (2 cartões
+    // na maquineta). Misto com cartão dominante não leva o marcador -CARTAO-.
+    const formas = (options.payments || []).filter((p) => p && Number(p.value) > 0);
+    const soCartao = formas.length ? formas.every((p) => p.method === 'CARTAO') : isCartao;
     const nx = options.installments && options.installments > 1 ? ` ${options.installments}x` : '';
     // Marcador -CARTAO- no external_id identifica a venda no cartão (a tela do Financeiro
     // usa ele) — vale também quando o cartão já foi passado na hora.
-    const externalId = `cash-${planId}-${isCartao || !receiveNow ? 'CARTAO' : 'AVISTA'}-${Date.now()}`;
+    const externalId = `cash-${planId}-${soCartao || !receiveNow ? 'CARTAO' : 'AVISTA'}-${Date.now()}`;
     const descLabel = !receiveNow
       ? `cartão${nx} · a receber`
-      : isCartao
+      : soCartao
         ? `cartão${nx} na maquineta · recebido na clínica`
-        : 'recebido na clínica';
+        : formas.length > 1
+          ? `recebido na clínica · ${formas.length} formas`
+          : 'recebido na clínica';
     const description = `Plano de tratamento — ${plan.patient.name} (${descLabel}) [plan:${planId}]`;
-    const charge = await this.prisma.paymentGatewayCharge.create({
-      data: {
-        tenant_id: tenantId,
-        treatment_plan_id: planId,
-        // Vínculo direto: a ficha do paciente (e a IA do Financeiro) acham a cobrança.
-        patient_id: plan.patient_id,
-        gateway: 'CASH',
-        external_id: externalId,
-        customer_external_id: 'CASH',
-        billing_type: 'CASH',
-        amount: options.value,
-        due_date: new Date(),
-        status: 'PENDING',
-        description,
-      },
-    });
+    const charge = await this.prisma.paymentGatewayCharge
+      .create({
+        data: {
+          tenant_id: tenantId,
+          treatment_plan_id: planId,
+          // Vínculo direto: a ficha do paciente (e a IA do Financeiro) acham a cobrança.
+          patient_id: plan.patient_id,
+          gateway: 'CASH',
+          external_id: externalId,
+          customer_external_id: 'CASH',
+          billing_type: 'CASH',
+          amount: options.value,
+          due_date: new Date(),
+          status: 'PENDING',
+          description,
+          // Fase 0 — @unique: a mesma venda (retry após timeout) não vira 2 cobranças.
+          idempotency_key: options.idempotencyKey ?? null,
+        },
+      })
+      .catch((e: any) => {
+        // P2002 na chave da venda = outra chamada com o mesmo client_request_id chegou antes.
+        const alvo = e?.meta?.target;
+        if (e?.code === 'P2002' && options.idempotencyKey && (!alvo || String(alvo).includes('idempotency_key'))) {
+          throw new ConflictException({ message: 'Venda já registrada', code: 'VENDA_DUPLICADA' });
+        }
+        throw e;
+      });
 
     if (!receiveNow) {
       this.logger.log(
@@ -639,12 +675,53 @@ export class TreatmentPlanBillingService {
     }
 
     // Marca recebida + lança no caixa (RECEITA) com o método (PIX / PIX_MAQUININHA / DINHEIRO).
-    const receipt = await this.paymentGateway.registerClinicReceipt(externalId, {
-      paymentMethod: options.paymentMethod,
-      userId: options.userId,
-      // Cartão Nx: o nº de parcelas da operadora vai na descrição da receita.
-      installments: isCartao ? options.installments : undefined,
-    });
+    // Fase 0 — compensação: se o caixa não recebeu, a cobrança não pode ficar "recebida"
+    // sem receita (dinheiro fantasma) nem PENDING (a régua cobraria quem já pagou).
+    let receipt: any;
+    try {
+      receipt = await this.paymentGateway.registerClinicReceipt(externalId, {
+        paymentMethod: options.paymentMethod,
+        userId: options.userId,
+        // Cartão Nx: o nº de parcelas da operadora vai na descrição da receita.
+        installments: isCartao ? options.installments : undefined,
+        payments: options.payments,
+        origem: options.origem ?? 'approve-and-bill',
+      });
+      if (!receipt?.ok) throw new Error(receipt?.reason || 'receipt_failed');
+    } catch (e: any) {
+      // Sem .catch de propósito: se nem der pra reler, NÃO cancela às cegas (a receita
+      // pode ter entrado) — o erro sobe e o rollbackAceite vê a cobrança viva e não apaga.
+      const fresh = await this.prisma.paymentGatewayCharge.findUnique({
+        where: { id: charge.id },
+        select: { transaction_id: true },
+      });
+      if (fresh?.transaction_id) {
+        // A receita entrou e falhou algo DEPOIS (ex.: liberar comissão) → a venda vale.
+        this.logger.warn(`[MANUAL-RECEIPT] Plan ${planId}: erro depois da receita ${fresh.transaction_id} ignorado: ${e?.message}`);
+        receipt = { ok: true, transaction_id: fresh.transaction_id, charge_id: charge.id };
+      } else {
+        // Nada entrou no caixa → cobrança CANCELADA fica de rastro e a venda é desfeita
+        // (o approveAndBill desfaz aceite e plano no catch dele).
+        await this.prisma.paymentGatewayCharge
+          .update({
+            where: { id: charge.id },
+            data: {
+              status: 'CANCELLED',
+              received_in_cash: false,
+              received_at: null,
+              paid_at: null,
+              idempotency_key: null,
+              cancelled_at: new Date(),
+              cancelled_by_user_id: options.userId ?? null,
+              cancel_reason: 'Falha ao lançar no caixa — venda desfeita automaticamente',
+            },
+          })
+          .catch((err: any) => this.logger.error(`[MANUAL-RECEIPT] Plan ${planId}: não cancelou a cobrança ${charge.id}: ${err?.message}`));
+        this.logger.warn(`[MANUAL-RECEIPT] Plan ${planId}: caixa não recebeu (${e?.message}) — cobrança ${charge.id} cancelada`);
+        if (e instanceof BadRequestException) throw e; // regra C/D: mensagem original
+        throw new BadRequestException('Não foi possível lançar o recebimento no caixa — a venda NÃO foi registrada. Tente de novo.');
+      }
+    }
     this.logger.log(
       `[MANUAL-RECEIPT] Plan ${planId}: ${options.paymentMethod} R$ ${options.value} → caixa`,
     );
@@ -765,12 +842,13 @@ export class TreatmentPlanBillingService {
     ];
     const description = descriptionParts.join(' ');
 
-    // Onda 18.x — RECEBIDO NA CLÍNICA numa clínica SEM gateway Asaas: cobrança LOCAL
-    // (gateway CASH, sem chamar o Asaas nem criar customer). O receive-in-cash lança
-    // a(s) receita(s) no caixa depois (inclusive o split de 2 cartões). Cobrança
-    // ONLINE (sem receivedInClinic) segue exigindo Asaas — clínica sem conta não
-    // fatura online, o que é o correto.
-    if (options.receivedInClinic && !(await this.asaas.isConfigured(tenantId))) {
+    // Onda 18.x — RECEBIDO NA CLÍNICA: cobrança LOCAL (gateway CASH, sem chamar o
+    // Asaas nem criar customer). O receive-in-cash lança a(s) receita(s) no caixa
+    // depois (inclusive o split de 2 cartões). Fase 0 — balcão NUNCA vira PIX no
+    // Asaas, mesmo com conta configurada: o dinheiro já está na clínica e um PIX
+    // aberto lá seria baixado "em espécie" fora do controle do caixa. Cobrança
+    // ONLINE (sem receivedInClinic) segue exigindo Asaas.
+    if (options.receivedInClinic) {
       const externalId = `local-${planId}-${Date.now()}`;
       const charge = await this.prisma.paymentGatewayCharge.create({
         data: {
@@ -787,7 +865,7 @@ export class TreatmentPlanBillingService {
           description,
         },
       });
-      this.logger.log(`[SIMPLE-CHARGE] Plan ${planId}: LOCAL (clínica sem Asaas) R$ ${options.value} → recebido na clínica`);
+      this.logger.log(`[SIMPLE-CHARGE] Plan ${planId}: LOCAL R$ ${options.value} → recebido na clínica`);
       return {
         plan_id: planId,
         charge,

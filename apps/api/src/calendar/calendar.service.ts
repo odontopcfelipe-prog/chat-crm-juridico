@@ -26,6 +26,20 @@ import { EmailAutomationService } from '../email-automation/email-automation.ser
 import type { LeadsService } from '../leads/leads.service';
 // Regra lead × paciente (pura, sem DI): compareceu → vira paciente.
 import { ATTENDED_STATUSES, promoteLeadInBackground } from '../leads/clinic-transfer-guard';
+// Fase 0 — travas de status e auditoria da agenda: funções puras (nada novo no construtor).
+import { isAdminRole } from '../auth/patient-scope';
+import { negarPermissao } from '../auth/require-any-permission';
+import { auditData, registrarAuditoria } from '../common/utils/audit-log.util';
+import {
+  agoraMaceioNaive,
+  mudancaTravada,
+  statusInicialBloqueado,
+  MSG_CRIAR_SO_ADMIN,
+  MSG_VALIDADA_SO_ADMIN,
+  MSG_TIPO_VALIDADA_SO_ADMIN,
+  STATUS_INICIAIS_SO_ADMIN,
+  TIPOS_CLINICOS,
+} from './agenda-status-guard';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
@@ -422,6 +436,13 @@ export class CalendarService {
       );
     }
 
+    // Fase 0 — consulta não nasce já Atendido/Faltou/Desmarcou (só ADMIN lança retroativo);
+    // o resto cria como Agendado/Chegou e o dentista valida. Filhos de recorrência herdam do pai.
+    const actorIsAdmin = (data.actor_roles || []).some((r) => r === 'ADMIN' || r === 'SUPER_ADMIN');
+    if (statusInicialBloqueado({ clinico: this.isClinicalEvent(data.type), status: data.status, isAdmin: actorIsAdmin })) {
+      throw negarPermissao(MSG_CRIAR_SO_ADMIN);
+    }
+
     // STUBBED: LegalCase removido Fase 0.2 — lead_id deve vir direto
     let resolvedLeadId = data.lead_id;
 
@@ -532,6 +553,20 @@ export class CalendarService {
         reminders: true,
       },
     });
+
+    // Fase 0 — consulta que já nasce fora de AGENDADO (Chegou, Atendido...) fica no rastro.
+    if (this.isClinicalEvent(event.type) && event.status !== 'AGENDADO') {
+      await registrarAuditoria(this.prisma, {
+        tenantId: data.tenant_id ?? null,
+        actorUserId: data.created_by_id ?? null,
+        entity: 'AGENDA_EVENTO',
+        entityId: event.id,
+        action: 'CRIADO',
+        before: null,
+        after: { status: event.status },
+        meta: { start_at: event.start_at, patient_id: event.patient_id, assigned_user_id: event.assigned_user_id },
+      }, this.logger);
+    }
 
     // Atualiza datas de visita se já foi criado como CONFIRMADO/CONCLUIDO
     // (operador pode marcar direto sem passar por updateStatus)
@@ -766,6 +801,8 @@ export class CalendarService {
       recurrence_end?: string;
       recurrence_days?: number[];
     },
+    // Fase 0 — quem mexe (rota PATCH): trava pós-validação e rastro da troca de status.
+    actor?: { userId?: string | null; roles?: string[]; tenantId?: string | null; via?: string },
   ) {
     if (data.type && !EVENT_TYPES.includes(data.type as any)) {
       throw new BadRequestException(`Tipo invalido: ${data.type}`);
@@ -812,9 +849,41 @@ export class CalendarService {
       }
     }
 
+    const isAdm = isAdminRole(actor?.roles);
+    const finalType = (data.type || before?.type) as string | undefined;
+    const tipoMudou = !!before && !!data.type && data.type !== before.type;
+    const clinicoAntes = this.isClinicalEvent(before?.type ?? '');
+    const clinicoDepois = this.isClinicalEvent(finalType ?? '');
+
+    // Fase 0 — consulta validada não muda de tipo (só ADMIN): virar TAREFA tirava a trava
+    // de status e o rastro, e a consulta validada virava Faltou/Desmarcou sem registro.
+    if (tipoMudou && before?.validated_at && !isAdm) {
+      throw negarPermissao(MSG_TIPO_VALIDADA_SO_ADMIN);
+    }
+
+    // Fase 0 — mesma trava do updateStatus. Compara com o status ATUAL: o Salvar do modal
+    // sempre reenvia o status de hoje e não pode travar nem gerar rastro. Clínico ANTES
+    // ou DEPOIS (troca de tipo no mesmo PATCH); validada trava em qualquer tipo.
+    const statusMudou = data.status !== undefined && data.status !== before?.status;
+    const clinico = clinicoAntes || clinicoDepois || !!before?.validated_at;
+    if (
+      statusMudou && clinico && before?.validated_at &&
+      mudancaTravada({ para: data.status as string, isAdmin: isAdm })
+    ) {
+      throw negarPermissao(MSG_VALIDADA_SO_ADMIN);
+    }
+
+    // Fase 0 — TAREFA/OUTRO que vira consulta é uma consulta "nascendo": mesma regra do
+    // create (G2) — não vira consulta já Atendido/Faltou/Desmarcou fora do ADMIN.
+    if (
+      tipoMudou && !clinicoAntes && clinicoDepois &&
+      statusInicialBloqueado({ clinico: true, status: data.status ?? before?.status, isAdmin: isAdm })
+    ) {
+      throw negarPermissao(MSG_CRIAR_SO_ADMIN);
+    }
+
     // Dentista responsavel obrigatorio em eventos clinicos. Aplica tanto se
     // o tipo esta sendo alterado quanto se o assigned_user_id ta sendo zerado.
-    const finalType = (data.type || before?.type) as string | undefined;
     const finalAssignedUserId =
       data.assigned_user_id !== undefined ? data.assigned_user_id : before?.assigned_user_id;
     if (finalType && this.isClinicalEvent(finalType) && !finalAssignedUserId) {
@@ -833,6 +902,49 @@ export class CalendarService {
         reminders: true,
       },
     });
+
+    // Fase 0 — rastro da troca de tipo envolvendo consulta (best-effort: o update já gravou).
+    if (tipoMudou && (clinicoAntes || clinicoDepois)) {
+      await registrarAuditoria(this.prisma, {
+        tenantId: before?.tenant_id ?? actor?.tenantId ?? null,
+        actorUserId: actor?.userId ?? null,
+        entity: 'AGENDA_EVENTO',
+        entityId: id,
+        action: 'TIPO',
+        before: { type: before?.type ?? null, status: before?.status ?? null },
+        after: { type: event.type, status: event.status },
+        meta: {
+          via: actor?.via ?? 'patch_evento',
+          validada: !!before?.validated_at,
+          start_at: event.start_at,
+          patient_id: event.patient_id,
+          lead_id: event.lead_id,
+          assigned_user_id: event.assigned_user_id,
+        },
+      }, this.logger);
+    }
+
+    // Fase 0 — rastro da troca de status pelo PATCH (best-effort: o update já gravou).
+    if (statusMudou && clinico) {
+      await registrarAuditoria(this.prisma, {
+        tenantId: before?.tenant_id ?? actor?.tenantId ?? null,
+        actorUserId: actor?.userId ?? null,
+        entity: 'AGENDA_EVENTO',
+        entityId: id,
+        action: 'STATUS',
+        before: { status: before?.status ?? null },
+        after: { status: data.status },
+        meta: {
+          via: actor?.via ?? 'patch_evento',
+          validada: !!before?.validated_at,
+          admin_override: isAdm && !!before?.validated_at && mudancaTravada({ para: data.status as string, isAdmin: false }),
+          start_at: event.start_at,
+          patient_id: event.patient_id,
+          lead_id: event.lead_id,
+          assigned_user_id: event.assigned_user_id,
+        },
+      }, this.logger);
+    }
 
     // v20: trata reminders separadamente — se frontend enviou novo array,
     // substitui completamente (deleteMany + createMany). Mantem comportamento
@@ -957,15 +1069,74 @@ export class CalendarService {
     return event;
   }
 
-  async updateStatus(id: string, status: string) {
+  /**
+   * Fase 0 — `actor` vem da rota; sem ator conta como não-admin (os chamadores internos,
+   * tasks.service, só mexem em TAREFA, que nunca é validada).
+   */
+  async updateStatus(
+    id: string,
+    status: string,
+    actor?: { userId?: string | null; roles?: string[]; tenantId?: string | null; via?: string },
+  ) {
     if (!EVENT_STATUSES.includes(status as any)) {
       throw new BadRequestException(`Status invalido: ${status}`);
     }
 
-    const event = await this.prisma.calendarEvent.update({
+    const before = await this.prisma.calendarEvent.findUnique({
       where: { id },
-      data: { status },
-      include: { assigned_user: { select: { id: true, name: true } } },
+      select: {
+        status: true, validated_at: true, type: true, tenant_id: true, start_at: true,
+        patient_id: true, lead_id: true, assigned_user_id: true,
+      },
+    });
+    if (!before) throw new NotFoundException('Evento nao encontrado');
+
+    // Fase 0 — consulta validada pelo dentista: só o ADMIN derruba para Faltou/Desmarcou/Adiado.
+    // Validada trava e fica no rastro em QUALQUER tipo (se o tipo foi trocado, segue protegida).
+    const isAdm = isAdminRole(actor?.roles);
+    const clinico = this.isClinicalEvent(before.type) || !!before.validated_at;
+    const trava = clinico && status !== before.status && mudancaTravada({ para: status, isAdmin: isAdm });
+    if (trava && before.validated_at) throw negarPermissao(MSG_VALIDADA_SO_ADMIN);
+
+    // Fase 0 — claim atômico (validated_at: null) fecha a corrida com o "Validar" do dentista;
+    // o status e o rastro gravam juntos ou nenhum dos dois.
+    const event = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.calendarEvent.updateMany({
+        where: { id, ...(trava ? { validated_at: null } : {}) },
+        data: { status },
+      });
+      if (r.count === 0) {
+        // Com trava, count 0 = validou no meio do caminho; sem trava, o evento sumiu.
+        throw trava ? negarPermissao(MSG_VALIDADA_SO_ADMIN) : new NotFoundException('Evento nao encontrado');
+      }
+      if (clinico && before.status !== status) {
+        await tx.auditLog.create({
+          data: auditData({
+            tenantId: before.tenant_id ?? actor?.tenantId ?? null,
+            actorUserId: actor?.userId ?? null,
+            entity: 'AGENDA_EVENTO',
+            entityId: id,
+            action: 'STATUS',
+            before: { status: before.status },
+            after: { status },
+            meta: {
+              via: actor?.via ?? 'interno',
+              validada: !!before.validated_at,
+              admin_override: isAdm && !!before.validated_at && mudancaTravada({ para: status, isAdmin: false }),
+              start_at: before.start_at,
+              patient_id: before.patient_id,
+              lead_id: before.lead_id,
+              assigned_user_id: before.assigned_user_id,
+            },
+          }),
+        });
+      }
+      const atualizado = await tx.calendarEvent.findUnique({
+        where: { id },
+        include: { assigned_user: { select: { id: true, name: true } } },
+      });
+      if (!atualizado) throw new NotFoundException('Evento nao encontrado');
+      return atualizado;
     });
 
     // Cancelar jobs de lembrete quando evento é cancelado/concluído
@@ -3360,9 +3531,27 @@ export class CalendarService {
     return children;
   }
 
-  async updateRecurrenceAll(parentId: string, data: any) {
-    // Atualizar pai
-    const parent = await this.update(parentId, data);
+  async updateRecurrenceAll(
+    parentId: string,
+    data: any,
+    actor?: { userId?: string | null; roles?: string[]; tenantId?: string | null; via?: string },
+  ) {
+    const isAdm = isAdminRole(actor?.roles);
+    // Fase 0 — série virando consulta não leva filho já Atendido/Faltou/Desmarcou (G2):
+    // checa ANTES de mexer no pai, pra não gravar meia série.
+    if (!isAdm && data.type !== undefined && this.isClinicalEvent(data.type)) {
+      const fechados = await this.prisma.calendarEvent.count({
+        where: {
+          parent_event_id: parentId,
+          type: { notIn: [...TIPOS_CLINICOS] },
+          status: { in: [...STATUS_INICIAIS_SO_ADMIN] },
+        },
+      });
+      if (fechados > 0) throw negarPermissao(MSG_CRIAR_SO_ADMIN);
+    }
+
+    // Atualizar pai (Fase 0 — com o ator, para a trava pós-validação e o rastro)
+    const parent = await this.update(parentId, data, actor);
     // Atualizar todos os filhos
     const updateData: any = {};
     if (data.title !== undefined) updateData.title = data.title;
@@ -3373,10 +3562,26 @@ export class CalendarService {
     if (data.assigned_user_id !== undefined) updateData.assigned_user_id = data.assigned_user_id;
 
     if (Object.keys(updateData).length > 0) {
-      await this.prisma.calendarEvent.updateMany({
-        where: { parent_event_id: parentId },
-        data: updateData,
-      });
+      // Fase 0 — filho já validado não troca tipo nem dentista fora do ADMIN (igual ao pai):
+      // os outros campos vão pra série toda; tipo/dentista só pros não validados.
+      const { type, assigned_user_id, ...livres } = updateData;
+      if (isAdm || (type === undefined && assigned_user_id === undefined)) {
+        await this.prisma.calendarEvent.updateMany({
+          where: { parent_event_id: parentId },
+          data: updateData,
+        });
+      } else {
+        if (Object.keys(livres).length > 0) {
+          await this.prisma.calendarEvent.updateMany({
+            where: { parent_event_id: parentId },
+            data: livres,
+          });
+        }
+        await this.prisma.calendarEvent.updateMany({
+          where: { parent_event_id: parentId, validated_at: null },
+          data: updateData,
+        });
+      }
     }
     return parent;
   }
@@ -3719,8 +3924,10 @@ export class CalendarService {
     daysBack?: number;
   }) {
     const daysBack = Math.min(90, Math.max(1, params.daysBack || 30));
-    const cutoffStart = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
-    const now = new Date();
+    // Fase 0 — start_at é naive de Maceió: comparar com new Date() puxava as consultas
+    // das próximas ~3h para "pendentes" (validação antes de acontecer).
+    const nowNaive = agoraMaceioNaive();
+    const cutoffStart = new Date(nowNaive.getTime() - daysBack * 24 * 60 * 60 * 1000);
 
     // Se nao for admin, sempre filtra so os dele (regra de seguranca)
     const filterByUser = !params.isAdmin || params.onlyMine;
@@ -3730,7 +3937,7 @@ export class CalendarService {
         tenant_id: params.tenantId,
         type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
         validated_at: null,
-        start_at: { gte: cutoffStart, lte: now },
+        start_at: { gte: cutoffStart, lte: nowNaive },
         // status nao deve ser CANCELADO/ADIADO/NO_SHOW (esses nao precisam validar)
         status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
         ...(filterByUser ? { assigned_user_id: params.actorUserId } : {}),
@@ -3769,15 +3976,20 @@ export class CalendarService {
     actorUserId: string,
     isAdmin: boolean,
     notes?: string,
+    tenantId?: string,
   ) {
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
       select: {
         id: true, type: true, status: true, start_at: true, patient_id: true,
-        assigned_user_id: true, validated_at: true,
+        assigned_user_id: true, validated_at: true, tenant_id: true,
       },
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
+    // Fase 0 — anti-IDOR: a rota não checava a clínica do evento.
+    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado');
+    }
     if (event.validated_at) {
       throw new BadRequestException('Este atendimento ja foi validado');
     }
@@ -3796,18 +4008,40 @@ export class CalendarService {
 
     // Atualiza tudo numa transacao (validation + status CONCLUIDO se necessario)
     const newStatus = event.status === 'CONCLUIDO' ? event.status : 'CONCLUIDO';
-    const validated = await this.prisma.calendarEvent.update({
-      where: { id: eventId },
-      data: {
-        validated_at: new Date(),
-        validated_by_user_id: actorUserId,
-        validation_notes: notes?.trim() || null,
-        status: newStatus,
-      },
-      include: {
-        validated_by: { select: { id: true, name: true } },
-        assigned_user: { select: { id: true, name: true } },
-      },
+    // Fase 0 — claim atômico (validated_at: null): dois cliques/abas não validam duas vezes,
+    // e a validação e o rastro gravam juntos.
+    const validated = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.calendarEvent.updateMany({
+        where: { id: eventId, validated_at: null },
+        data: {
+          validated_at: new Date(),
+          validated_by_user_id: actorUserId,
+          validation_notes: notes?.trim() || null,
+          status: newStatus,
+        },
+      });
+      if (r.count === 0) throw new BadRequestException('Este atendimento ja foi validado');
+      await tx.auditLog.create({
+        data: auditData({
+          tenantId: event.tenant_id ?? tenantId ?? null,
+          actorUserId,
+          entity: 'AGENDA_EVENTO',
+          entityId: eventId,
+          action: 'VALIDADO',
+          before: { status: event.status, validated_at: null },
+          after: { status: newStatus },
+          meta: { notes: notes?.trim() || null, admin_por_outro: isAdmin && event.assigned_user_id !== actorUserId },
+        }),
+      });
+      const atualizado = await tx.calendarEvent.findUnique({
+        where: { id: eventId },
+        include: {
+          validated_by: { select: { id: true, name: true } },
+          assigned_user: { select: { id: true, name: true } },
+        },
+      });
+      if (!atualizado) throw new NotFoundException('Evento nao encontrado');
+      return atualizado;
     });
 
     // Atualiza visit dates do paciente (mesmo hook do updateStatus)
@@ -3844,26 +4078,53 @@ export class CalendarService {
     return validated;
   }
 
-  async unvalidate(eventId: string, isAdmin: boolean) {
+  async unvalidate(eventId: string, isAdmin: boolean, actorUserId?: string | null, tenantId?: string) {
     if (!isAdmin) {
       throw new ForbiddenException('Apenas administradores podem reverter validacao clinica');
     }
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
-      select: { id: true, validated_at: true, assigned_user_id: true, type: true, title: true },
+      select: {
+        id: true, validated_at: true, assigned_user_id: true, type: true, title: true,
+        tenant_id: true, validated_by_user_id: true, validation_notes: true, status: true,
+      },
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
+    // Fase 0 — anti-IDOR: mesma checagem de clínica do validate.
+    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado');
+    }
     if (!event.validated_at) {
       throw new BadRequestException('Este atendimento ainda nao foi validado');
     }
 
-    const reverted = await this.prisma.calendarEvent.update({
-      where: { id: eventId },
-      data: {
-        validated_at: null,
-        validated_by_user_id: null,
-        validation_notes: null,
-      },
+    // Fase 0 — reverter apaga quem validou: o "antes" fica no rastro, junto com o update.
+    const reverted = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.calendarEvent.update({
+        where: { id: eventId },
+        data: {
+          validated_at: null,
+          validated_by_user_id: null,
+          validation_notes: null,
+        },
+      });
+      await tx.auditLog.create({
+        data: auditData({
+          tenantId: event.tenant_id ?? tenantId ?? null,
+          actorUserId: actorUserId ?? null,
+          entity: 'AGENDA_EVENTO',
+          entityId: eventId,
+          action: 'VALIDACAO_REVERTIDA',
+          before: {
+            validated_at: event.validated_at,
+            validated_by_user_id: event.validated_by_user_id,
+            validation_notes: event.validation_notes,
+            status: event.status,
+          },
+          after: { validated_at: null },
+        }),
+      });
+      return r;
     });
 
     if (reverted.assigned_user_id) {
@@ -3891,7 +4152,7 @@ export class CalendarService {
 
   /** Tipos de evento que contam como "visita do paciente" */
   private isClinicalEvent(type: string): boolean {
-    return ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'].includes(type);
+    return (TIPOS_CLINICOS as readonly string[]).includes(type);
   }
 
   /**

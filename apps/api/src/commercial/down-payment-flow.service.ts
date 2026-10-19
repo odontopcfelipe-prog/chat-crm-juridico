@@ -10,6 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { leadIdForCharge, promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
+// Fase 0 — funções puras (sem DI): regra D da baixa e rastro na aba Log.
+import { motivoBloqueioBaixa } from '../payment-gateway/baixa-regras';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 
 /**
  * Onda 14.59 — Fluxo de cobranca da ENTRADA com trigger automatico.
@@ -881,17 +884,35 @@ export class DownPaymentFlowService {
       this.logger.warn(`[DOWN-PMT] Charge ${chargeId} ja foi marcada como recebida`);
       return charge;
     }
+    // Fase 0 — D: sinal/entrada cancelada não volta a valer como paga.
+    const bloq = motivoBloqueioBaixa(charge);
+    if (bloq) throw new BadRequestException(bloq);
 
-    const updated = await this.prisma.paymentGatewayCharge.update({
-      where: { id: chargeId },
+    // Fase 0 — claim atômico: dois cliques (ou 2 atendentes) na mesma cobrança só
+    // marcam UMA vez; o 2º devolve a cobrança como está, sem rastro nem trigger novos.
+    const now = new Date();
+    const r = await this.prisma.paymentGatewayCharge.updateMany({
+      where: { id: chargeId, received_in_cash: false },
       data: {
         status: 'RECEIVED',
         received_in_cash: true,
         received_by_user_id: userId,
-        received_at: new Date(),
-        paid_at: new Date(),
+        received_at: now,
+        paid_at: now,
       },
     });
+    if (r.count === 0) return this.prisma.paymentGatewayCharge.findUnique({ where: { id: chargeId } });
+    const updated = await this.prisma.paymentGatewayCharge.findUnique({ where: { id: chargeId } });
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: userId,
+      entity: 'FINANCEIRO',
+      entityId: chargeId,
+      action: 'COBRANCA_BAIXA_MANUAL',
+      before: { status: charge.status },
+      after: { status: 'RECEIVED' },
+      meta: { descricao: 'Baixa em espécie (sinal/entrada)', valor: Number(charge.amount), origem: 'mark-cash-received' },
+    }, this.logger);
 
     this.logger.log(`[DOWN-PMT] Charge ${chargeId} marcada como recebida em especie por user ${userId}`);
 

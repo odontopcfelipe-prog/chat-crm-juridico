@@ -11,6 +11,7 @@ import {
   Res,
   Logger,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PaymentGatewayService } from './payment-gateway.service';
@@ -21,6 +22,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+// Fase 0 — funções puras (sem DI): permissão no handler, rastro e regra D da baixa.
+import { assertAnyPermission } from '../auth/require-any-permission';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
+import { motivoBloqueioBaixa } from './baixa-regras';
 
 @Controller('payment-gateway')
 export class PaymentGatewayController {
@@ -129,14 +134,18 @@ export class PaymentGatewayController {
    * Valida a chave fazendo uma chamada real na Asaas (GET /finance/balance).
    * Se OK, salva em TenantSetting{ASAAS_API_KEY, ASAAS_BASE_URL}.
    * Se erro, retorna 400 com mensagem amigavel.
+   *
+   * Fase 0 — só ADMIN troca a conta (trocar desvia os próximos PIX/boletos); a
+   * troca fica no Log do Financeiro e os ADMs são avisados na hora (no service).
    */
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('setup')
   async setup(
     @Req() req: any,
     @Body() body: { apiKey: string; sandbox?: boolean },
   ) {
     const tenantId = req.user?.tenant_id || req.user?.tenantId;
-    return this.service.setupAsaas(tenantId, body.apiKey, body.sandbox);
+    return this.service.setupAsaas(tenantId, body.apiKey, body.sandbox, { userId: req.user?.id ?? null });
   }
 
   /** Lista cobranças direto da API do Asaas */
@@ -392,9 +401,29 @@ export class PaymentGatewayController {
     @Req() req: any,
   ) {
     this.logger.log(`[PUT /charges/asaas/${chargeId}] Atualizando cobranca`);
+    // Fase 0 — B4: mudar valor/vencimento é coisa do Financeiro (ADMIN passa).
+    await assertAnyPermission(
+      this.prisma,
+      req.user,
+      ['manage_financial'],
+      'Sem permissão para alterar valor/vencimento de cobrança — só o Financeiro ou o administrador.',
+    );
     // Isolamento + authz: só edita cobrança da própria clínica, na conta dela.
     const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
-    return this.asaasClient.updateCharge(chargeId, body, tenantId);
+    // Fase 0 — B4: estado anterior pro rastro (best-effort: sem ele, a edição segue).
+    const antes: any = await this.asaasClient.getCharge(chargeId, tenantId).catch(() => null);
+    const res = await this.asaasClient.updateCharge(chargeId, body, tenantId);
+    await registrarAuditoria(this.prisma, {
+      tenantId: tenantId ?? null,
+      actorUserId: req.user?.id ?? null,
+      entity: 'FINANCEIRO',
+      entityId: chargeId,
+      action: 'COBRANCA_ALTERADA',
+      before: antes ? { value: antes.value, dueDate: antes.dueDate, description: antes.description } : null,
+      after: body,
+      meta: { descricao: `Cobrança ${chargeId} alterada`, valor: Number(body?.value ?? antes?.value ?? 0) },
+    }, this.logger);
+    return res;
   }
 
   /** Confirmar recebimento em dinheiro (espécie/maquineta/PIX da clínica).
@@ -417,13 +446,29 @@ export class PaymentGatewayController {
     // Isolamento + authz: barra baixar cobrança de outra clínica (roda ANTES de
     // mexer no Asaas E no caixa via registerClinicReceipt) e usa a conta do dono.
     const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
+    // Fase 0 — body sem DTO-classe (o ValidationPipe não olha): valida à mão o
+    // formato das formas antes de somar.
+    if (body?.payments != null && !Array.isArray(body.payments)) {
+      throw new BadRequestException('Formas de pagamento inválidas.');
+    }
+    // Fase 0 — D e C na cobrança LOCAL antes de tocar no Asaas: cancelada/estornada
+    // não recebe baixa e a soma das formas tem que bater com o valor.
+    await this.service.assertClinicReceiptAllowed(chargeId, { payments: body?.payments });
+    // Fase 0 — o Asaas em 2 etapas: ler a cobrança é best-effort, mas se ela consta
+    // cancelada/estornada LÁ, barra (o throw fica FORA do try — antes o catch engolia).
+    let remote: any = null;
+    try {
+      remote = await this.asaasClient.getCharge(chargeId, tenantId);
+    } catch (e: any) {
+      this.logger.warn(`[receive-in-cash] Asaas não respondeu a leitura (segue com registro local): ${e?.message}`);
+    }
+    const bloq = motivoBloqueioBaixa(remote ? { status: remote.status, deleted: remote.deleted } : null);
+    if (bloq) throw new BadRequestException(bloq);
     // Asaas é best-effort: se falhar, ainda registramos local + caixa.
     let result: any = null;
     try {
-      const charge = await this.asaasClient.getCharge(chargeId, tenantId);
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const value = charge?.value || 1;
-      result = await this.asaasClient.receiveInCash(chargeId, today, value, tenantId);
+      if (remote) result = await this.asaasClient.receiveInCash(chargeId, today, remote.value || 1, tenantId);
     } catch (e: any) {
       this.logger.warn(`[receive-in-cash] Asaas falhou (segue com registro local): ${e?.message}`);
     }
@@ -433,6 +478,7 @@ export class PaymentGatewayController {
       userId: req?.user?.id,
       installments: body?.installments,
       payments: body?.payments,
+      origem: 'receive-in-cash',
     });
     return { ...(result || {}), caixa };
   }
@@ -460,9 +506,15 @@ export class PaymentGatewayController {
     @Query('reason') reason?: string,
   ) {
     this.logger.log(`[DELETE /charges/asaas/${chargeId}] Cancelando cobranca (admin)`);
+    // Fase 0 — B5: o motivo é obrigatório NO SERVIDOR (o front pulava quando vazio)
+    // — sem ele o rastro do cancelamento não serve de prova.
+    const motivo = typeof reason === 'string' ? reason.trim() : '';
+    if (motivo.length < 3) {
+      throw new BadRequestException('Informe o motivo do cancelamento (mínimo 3 letras) — ele fica no rastro da cobrança.');
+    }
     return this.service.deleteCharge(chargeId, req.user?.tenant_id, {
       userId: req.user?.id ?? null,
-      reason: reason ?? null,
+      reason: motivo,
     });
   }
 

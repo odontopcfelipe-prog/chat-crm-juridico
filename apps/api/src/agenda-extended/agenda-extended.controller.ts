@@ -170,7 +170,8 @@ export class AgendaExtendedController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.confirmations.respond(tenantId, id, dto);
+    // Fase 0 — quem registrou a resposta vai para o rastro da agenda.
+    return this.confirmations.respond(tenantId, id, dto, req.user?.id ?? null);
   }
 
   @Get('appointment-confirmations/pending')

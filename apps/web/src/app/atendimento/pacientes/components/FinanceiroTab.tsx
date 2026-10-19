@@ -735,6 +735,8 @@ function ProposalFinancialCard({
   // o botão "Validar" que libera o tratamento pro dentista confirmar.
   const { hasPermission } = useUserPermissions();
   const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
+  // Fase 0 — "Dar baixa" só pra quem opera caixa/financeiro (o servidor também barra).
+  const podeDarBaixa = role.isAdmin || role.isSuperAdmin || hasPermission('operate_cash') || hasPermission('manage_financial');
   const [validatingPlanId, setValidatingPlanId] = useState<string | null>(null);
   // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
   // dentro do proprio sistema, sem precisar mandar pro paciente ver.
@@ -772,9 +774,11 @@ function ProposalFinancialCard({
     );
     if (reason === null) return; // fechou/cancelou o prompt
     const motivo = reason.trim();
+    // Fase 0 — o servidor exige o motivo (3+ letras): sem ele o rastro não serve de prova.
+    if (motivo.length < 3) { showError('Informe o motivo do cancelamento (fica no rastro da cobrança).'); return; }
     setDeletingId(p.asaasId);
     try {
-      await api.delete(`/payment-gateway/charges/asaas/${p.asaasId}${motivo ? `?reason=${encodeURIComponent(motivo)}` : ''}`);
+      await api.delete(`/payment-gateway/charges/asaas/${p.asaasId}?reason=${encodeURIComponent(motivo)}`);
       showSuccess('Cobrança cancelada — fica registrada no cadastro.');
       setSubInstallmentsByCharge((prev) => {
         if (prev[p.chargeId] === undefined) return prev;
@@ -1724,6 +1728,7 @@ function ProposalFinancialCard({
                     setViewerParcela(p);
                   }}
                   onRegistrar={() => handleRegistrar(p)}
+                  canRegistrar={podeDarBaixa}
                   onReenviar={() => onOpenDetail()}
                   registering={registeringId === p.asaasId}
                   onDelete={() => handleDeleteCharge(p)}
@@ -1746,6 +1751,7 @@ function ParcelaLinha({
   parcela: p,
   onView,
   onRegistrar,
+  canRegistrar = false,
   onReenviar,
   registering = false,
   onDelete,
@@ -1755,6 +1761,8 @@ function ParcelaLinha({
   parcela: ParcelaItem;
   onView: () => void;
   onRegistrar: () => void;
+  /** Fase 0 — ADMIN ou operate_cash/manage_financial (o servidor também barra). */
+  canRegistrar?: boolean;
   onReenviar: () => void;
   registering?: boolean;
   onDelete?: () => void;
@@ -1872,8 +1880,8 @@ function ParcelaLinha({
         )}
         {/* Onda 18.11 — "Dar baixa" (vermelho) enquanto não recebido. Clicar fecha
             no Asaas + lança no caixa. Quando paga — manual OU automático (webhook)
-            — some e o selo "Pago" verde acima aparece. */}
-        {!isPaid && !isCancelled && (
+            — some e o selo "Pago" verde acima aparece. Fase 0 — só pra quem pode dar baixa. */}
+        {canRegistrar && !isPaid && !isCancelled && (
           <button
             type="button"
             onClick={onRegistrar}
@@ -2551,6 +2559,9 @@ function CancelledChargesSection({ charges }: { charges: Charge[] }) {
 /** Onda 14.9 — Renderiza uma linha de cobranca com tipo, valor, status e ações */
 function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => void }) {
   const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
+  // Fase 0 — "Dar baixa"/"Confirmar recebimento" só pra quem opera caixa/financeiro.
+  const { hasPermission } = useUserPermissions();
+  const podeDarBaixa = role.isAdmin || role.isSuperAdmin || hasPermission('operate_cash') || hasPermission('manage_financial');
   const [deleting, setDeleting] = useState(false);
   const [receiving, setReceiving] = useState(false);
   const isPix = c.billing_type === 'PIX';
@@ -2654,9 +2665,11 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     );
     if (reason === null) return; // fechou/cancelou o prompt
     const motivo = reason.trim();
+    // Fase 0 — o servidor exige o motivo (3+ letras): sem ele o rastro não serve de prova.
+    if (motivo.length < 3) { showError('Informe o motivo do cancelamento (fica no rastro da cobrança).'); return; }
     setDeleting(true);
     try {
-      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}${motivo ? `?reason=${encodeURIComponent(motivo)}` : ''}`);
+      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}?reason=${encodeURIComponent(motivo)}`);
       showSuccess('Cobrança cancelada — fica registrada no cadastro.');
       onReload?.();
     } catch (e: any) {
@@ -2687,7 +2700,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
       </div>
       <div className="flex items-center gap-1">
         {/* Cartão a receber (maquineta): confirmar recebimento num clique → caixa. */}
-        {isCartaoReceber && isPending && (
+        {podeDarBaixa && isCartaoReceber && isPending && (
           <button
             type="button"
             onClick={handleConfirmCartao}
@@ -2746,7 +2759,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
           </a>
         )}
         {/* Dar baixa "pago" manual — paciente pagou por fora. Fecha no Asaas + caixa. */}
-        {!isPaid && !isCancelled && c.external_id && (
+        {podeDarBaixa && !isPaid && !isCancelled && c.external_id && (
           <button
             type="button"
             onClick={handleReceive}

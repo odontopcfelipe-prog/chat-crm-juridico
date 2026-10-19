@@ -22,6 +22,12 @@ import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
+// Fase 0 — regras PURAS (sem DI, sem ciclo): auditoria, baixa e venda de balcão.
+import { registrarAuditoria } from '../common/utils/audit-log.util';
+import { negarPermissao } from '../auth/require-any-permission';
+import { erroSomaFormas, round2 } from '../payment-gateway/baixa-regras';
+import { notasVendaBalcao, roteamentoBalcao, type FormaBalcao } from './venda-balcao.util';
+import type { VendaBalcaoDto } from './dto/commercial.dto';
 
 type ItemInput = {
   procedure_id: string;
@@ -845,10 +851,8 @@ export class QuotesService {
       billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
       value: number;
       installment_count?: number; // so CREDIT_CARD
-      // Onda 17.40 — Venda Rapida "na hora da venda": marca os itens como feitos
-      // em nome do dentista responsavel, gerando a comissao dele imediatamente.
-      auto_execute_items?: boolean;
-      executed_by_dentist_id?: string;
+      // Fase 0 — auto_execute_items/executed_by_dentist_id saíram: o cliente que vende
+      // não executa procedimento em nome do dentista (o controller ignora e loga).
       // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
       // caixa com este método SEM cobrança Asaas. Quando ausente, segue via Asaas.
       manual_payment_method?: string;
@@ -861,6 +865,9 @@ export class QuotesService {
       // antes do pagamento — o paciente está na frente do operador; só o PIX sai.
       quick_sale?: boolean;
     },
+    // Fase 0 — opções INTERNAS (só a venda de balcão passa; o controller nunca):
+    // formas do split, chave de idempotência da venda e a origem do rastro.
+    internal?: { payments?: FormaBalcao[]; idempotencyKey?: string; origem?: string },
   ) {
     if (!this.billingService) {
       throw new BadRequestException('Servico de cobranca indisponivel');
@@ -876,6 +883,10 @@ export class QuotesService {
 
       await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
       this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
+
+      // Fase 0 — MODO SOMBRA: valor abaixo do orçamento só vira registro na aba Log
+      // (não bloqueia) até medirmos o falso positivo.
+      await this.shadowCheckApproveValue(quote, tenantId, userId, data);
 
       // Onda 14.24 — Gate de contrato.
       // Onda 14.34 — DESATIVADO (operador pediu pra nao ser obrigatorio
@@ -955,6 +966,10 @@ export class QuotesService {
             // receita no caixa/Entradas já na aprovação — nada fica "a receber" vencendo.
             receiveNow: true,
             installments: data.installment_count,
+            // Fase 0 — só a venda de balcão manda (split, idempotência, origem do rastro).
+            payments: internal?.payments,
+            idempotencyKey: internal?.idempotencyKey,
+            origem: internal?.origem,
           });
         } else {
           this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
@@ -1049,31 +1064,6 @@ export class QuotesService {
         await this.sendVendaFeita(tenantId, plan.id, quote.patient, vendaInfo);
       }
 
-      // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
-      // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
-      // hora. Best-effort: a cobranca ja foi criada, nao falha por causa disso.
-      // So roda quando vem um dentista valido do tenant (evita credito errado).
-      if (data.auto_execute_items && data.executed_by_dentist_id && this.treatmentPlans) {
-        try {
-          const dentist = await this.prisma.user.findFirst({
-            where: { id: data.executed_by_dentist_id, tenant_id: tenantId },
-            select: { id: true },
-          });
-          if (dentist) {
-            await this.treatmentPlans.autoExecutePlanItems(
-              plan.id,
-              tenantId,
-              data.executed_by_dentist_id,
-            );
-            this.logger.log(`[APPROVE-AND-BILL] [step:auto-exec] itens executados p/ dentista ${data.executed_by_dentist_id}`);
-          } else {
-            this.logger.warn(`[APPROVE-AND-BILL] dentista ${data.executed_by_dentist_id} fora do tenant ${tenantId} — auto-exec ignorado`);
-          }
-        } catch (e: any) {
-          this.logger.warn(`[APPROVE-AND-BILL] auto-exec falhou: ${e?.message}`);
-        }
-      }
-
       // Promove Lead -> Paciente SÓ se já compareceu ou pagou (regra da clínica);
       // gerar a cobrança sozinho não basta — o pagamento promove depois (webhook/
       // caixa). Best-effort: nao bloqueia o approveAndBill se falhar. Cascade em
@@ -1109,6 +1099,309 @@ export class QuotesService {
 
       // Senao, propaga como 500 mesmo (caso desconhecido)
       throw err;
+    }
+  }
+
+  /**
+   * Fase 0 — Venda de BALCÃO recebida na clínica em UMA operação (POST venda-rapida/balcao).
+   *
+   * Antes a tela fazia 3 chamadas (orçamento → approve-and-bill → receive-in-cash) e o
+   * total vinha do cliente: se a 3ª falhava, sobrava venda "recebida" fora do caixa; se
+   * o cliente mandava outro valor, cobrava outro valor. Agora:
+   *   - o total é calculado NO SERVIDOR e a soma das formas tem que bater com ele;
+   *   - nada é gravado antes de validar paciente, dentista e valores;
+   *   - a cobrança é LOCAL (nunca Asaas) e a receita entra no caixa na mesma chamada;
+   *   - client_request_id torna o retry (timeout) idempotente;
+   *   - se falhar no meio, desfaz orçamento/plano (a cobrança cancelada fica de rastro);
+   *   - pago integralmente na clínica, no preço de tabela → plano já nasce liberado pro
+   *     Tratamento; com desconto, fica no Log do Financeiro e espera o Validar.
+   * Comprovante, VENDA_FEITA, comissão de VENDA e TCLE seguem pelo approveAndBill.
+   */
+  async vendaBalcao(tenantId: string, userId: string, d: VendaBalcaoDto) {
+    if (!this.billingService) throw new BadRequestException('Servico de cobranca indisponivel');
+
+    // 1. Idempotência: retry da mesma venda (timeout na tela) devolve o resultado da 1ª.
+    if (d.client_request_id) {
+      const r = await this.resultadoVendaExistente(tenantId, d.client_request_id);
+      if (r) return r;
+    }
+
+    // 2. Dentista obrigatório e da clínica (mesma regra de GET /users/lawyers).
+    const dentistas = await loadTenantDentists(this.prisma, tenantId);
+    if (!dentistas.some((x) => x.id === d.dentist_id)) {
+      throw new BadRequestException('Dentista responsável inválido para esta clínica.');
+    }
+
+    // 3. Paciente ANTES de gravar qualquer coisa (antes, faltar CPF deixava orçamento DRAFT órfão).
+    await this.assertPatientBelongsToTenant(d.patient_id, tenantId);
+    await this.ensurePatientReadyForBilling(d.patient_id, tenantId);
+
+    // 4. Total calculado NO SERVIDOR (preço de tabela ou o preço do item, com a trava de override no create).
+    const items: ItemInput[] = d.items.map((i) => ({
+      procedure_id: i.procedure_id,
+      quantity: i.quantity,
+      tooth_fdi: i.tooth_fdi,
+      unit_price: i.unit_price,
+      dentist_id: d.dentist_id,
+    }));
+    const resolvidos = await this.resolveItems(items, tenantId, userId);
+    const total = round2(this.computeTotals(resolvidos, 0).total);
+    if (total <= 0) throw new BadRequestException('Venda sem valor — confira os procedimentos.');
+    // Fase 0 — preço abaixo da tabela (override_price): a venda vale, mas vai pro rastro do
+    // Financeiro e o plano NÃO se auto-libera — passa pelo Validar, que vê o desconto.
+    const tabela = round2(resolvidos.reduce((s, i) => s + i.quantity * i.base_price, 0));
+    const abaixoTabela = resolvidos.filter((i) => i.unit_price < i.base_price - 0.001);
+    const registrarAbaixoTabela = async (quoteId: string, planId: string | null, chargeId: string | null) => {
+      if (!abaixoTabela.length) return;
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: userId,
+        entity: 'FINANCEIRO',
+        entityId: quoteId,
+        action: 'VENDA_VALOR_ABAIXO_ESPERADO',
+        meta: {
+          descricao: `Venda de balcão abaixo da tabela (tabela R$ ${tabela.toFixed(2)} → vendido R$ ${total.toFixed(2)})`,
+          valor: total,
+          esperado_min: tabela,
+          base: tabela,
+          origem: 'venda-balcao',
+          plan_id: planId,
+          charge_id: chargeId,
+          itens: abaixoTabela.map((i) => ({
+            procedure_id: i.procedure_id,
+            tooth_fdi: i.tooth_fdi ?? null,
+            quantity: i.quantity,
+            tabela: i.base_price,
+            vendido: i.unit_price,
+          })),
+        },
+      }, this.logger);
+    };
+
+    // 5. Soma das formas = total; e o preço não mudou desde que a tela montou o carrinho.
+    const erro = erroSomaFormas(d.payments, total);
+    if (erro) throw new BadRequestException(erro.replace('valor da cobrança', 'total da venda'));
+    if (d.expected_total != null && Math.abs(round2(d.expected_total) - total) > 0.01) {
+      throw new BadRequestException('O preço de algum procedimento mudou — atualize a página e confira o total.');
+    }
+    // ── nada foi gravado até aqui ──
+
+    // 6. Orçamento (o create() reaplica a trava de override_price).
+    const quote = await this.create(d.patient_id, tenantId, userId, {
+      items,
+      discount_percent: 0,
+      notes: notasVendaBalcao(d.payments),
+    });
+    if (round2(Number(quote.total_value)) !== total) {
+      await this.remove(quote.id, tenantId, userId).catch(() => undefined);
+      throw new BadRequestException('Total divergente ao montar a venda — tente de novo.');
+    }
+
+    // 7. Fecha + recebe: manual_payment_method ⇒ createManualReceipt ⇒ cobrança CASH (NUNCA Asaas).
+    const rota = roteamentoBalcao(d.payments);
+    let res: any;
+    try {
+      res = await this.approveAndBill(
+        quote.id,
+        tenantId,
+        userId,
+        {
+          billing_type: 'PIX',
+          value: total,
+          manual_payment_method: rota.manualPaymentMethod,
+          installment_count: rota.installments,
+          received_in_clinic: true,
+          received_method: rota.receivedMethod,
+          quick_sale: true,
+        },
+        { payments: rota.split, idempotencyKey: d.client_request_id, origem: 'venda-balcao' },
+      );
+    } catch (e: any) {
+      // A receita DESTA venda já entrou e falhou algo depois: a venda vale — desfazer
+      // aqui faria a tela pedir de novo e o paciente pagaria duas vezes.
+      if (d.client_request_id) {
+        const propria = await this.resultadoVendaExistente(tenantId, d.client_request_id).catch(() => null);
+        if (propria && propria.quote_id === quote.id && propria.transaction_id) {
+          this.logger.warn(`[VENDA-BALCAO] quote ${quote.id}: erro depois da receita (${e?.message}) — venda mantida`);
+          await registrarAbaixoTabela(quote.id, propria.plan_id, propria.charge_id);
+          return propria;
+        }
+      }
+      // 8. Compensação. O approveAndBill já desfez aceite e plano (rollbackAceite); aqui sobra o orçamento.
+      const q = await this.prisma.quote.findUnique({ where: { id: quote.id }, select: { status: true } }).catch(() => null);
+      if (q?.status === 'ACCEPTED') {
+        // Falhou FORA do try interno do approveAndBill (ex.: ativação do plano).
+        const plan = await this.prisma.treatmentPlan
+          .findFirst({ where: { quote_id: quote.id }, select: { id: true } })
+          .catch(() => null);
+        await this.rollbackAceite({
+          quoteId: quote.id,
+          tenantId,
+          priorStatus: 'DRAFT',
+          priorSentAt: null,
+          reverterQuote: true,
+          planId: plan?.id ?? null,
+        });
+      }
+      await this.remove(quote.id, tenantId, userId).catch(() => undefined); // soft delete; só funciona em DRAFT
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: userId,
+        entity: 'VENDA_BALCAO',
+        entityId: quote.id,
+        action: 'rollback',
+        meta: { erro: String(e?.message ?? e), total, payments: d.payments, dentist_id: d.dentist_id },
+      }, this.logger);
+      // Corrida de duas chamadas com a mesma chave: a outra venceu → devolve a dela.
+      if (e?.response?.code === 'VENDA_DUPLICADA' && d.client_request_id) {
+        const r = await this.resultadoVendaExistente(tenantId, d.client_request_id);
+        if (r) return r;
+      }
+      throw e;
+    }
+
+    await registrarAbaixoTabela(quote.id, res?.plan_id ?? null, res?.charge?.id ?? null);
+
+    // 9. Auto-liberação pro Tratamento — só se a receita entrou (pago integralmente na clínica)
+    // e no preço de tabela (com desconto o Financeiro valida, vendo o desconto).
+    let autoValidated = false;
+    if (!abaixoTabela.length && res?.receipt?.ok && res.receipt.transaction_id && res.plan_id) {
+      try {
+        const r = await this.prisma.treatmentPlan.updateMany({
+          where: { id: res.plan_id, validated_by_financial_at: null, status: 'ACTIVE' },
+          // validated_by_financial_id null: não foi o Financeiro; quem vendeu fica no AuditLog.
+          data: { validated_by_financial_at: new Date(), validated_by_financial_id: null },
+        });
+        autoValidated = r.count === 1;
+        if (autoValidated) {
+          await registrarAuditoria(this.prisma, {
+            tenantId,
+            actorUserId: userId,
+            entity: 'TREATMENT_PLAN',
+            entityId: res.plan_id,
+            action: 'AUTO_LIBERADO_BALCAO',
+            before: { validated_by_financial_at: null },
+            after: { validated_by_financial_at: 'agora', regra: 'balcão pago integralmente na clínica' },
+            meta: {
+              quote_id: quote.id,
+              total,
+              payments: d.payments,
+              charge_id: res.charge?.id,
+              transaction_id: res.receipt.transaction_id,
+              dentist_id: d.dentist_id,
+            },
+          }, this.logger);
+        }
+      } catch (e: any) {
+        this.logger.warn(`[VENDA-BALCAO] auto-liberação falhou (cai no Validar do Financeiro): ${e?.message}`);
+      }
+    }
+
+    // 10. Registro da operação.
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: userId,
+      entity: 'VENDA_BALCAO',
+      entityId: quote.id,
+      action: 'done',
+      meta: {
+        quote_id: quote.id,
+        plan_id: res.plan_id,
+        charge_id: res.charge?.id,
+        total,
+        tabela,
+        abaixo_tabela: abaixoTabela.length > 0,
+        payments: d.payments,
+        dentist_id: d.dentist_id,
+        client_request_id: d.client_request_id,
+      },
+    }, this.logger);
+
+    return {
+      quote_id: quote.id,
+      quote_number: quote.quote_number,
+      plan_id: res.plan_id,
+      total,
+      charge_id: res.charge?.id ?? null,
+      external_id: res.charge?.external_id ?? null,
+      transaction_id: res.receipt?.transaction_id ?? null,
+      auto_validated: autoValidated,
+    };
+  }
+
+  /** Fase 0 — resultado de uma venda de balcão já feita com esta chave (null = não existe ou foi desfeita). */
+  private async resultadoVendaExistente(tenantId: string, key: string) {
+    const c = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { idempotency_key: key },
+      select: { id: true, tenant_id: true, status: true, external_id: true, transaction_id: true, treatment_plan_id: true, amount: true },
+    });
+    if (!c || c.tenant_id !== tenantId || ['CANCELLED', 'DELETED'].includes(c.status)) return null;
+    const plan = c.treatment_plan_id
+      ? await this.prisma.treatmentPlan.findUnique({
+          where: { id: c.treatment_plan_id },
+          select: { id: true, quote_id: true, validated_by_financial_at: true, quote: { select: { quote_number: true } } },
+        })
+      : null;
+    return {
+      quote_id: plan?.quote_id ?? null,
+      quote_number: plan?.quote?.quote_number ?? null,
+      plan_id: plan?.id ?? null,
+      total: Number(c.amount),
+      charge_id: c.id,
+      external_id: c.external_id,
+      transaction_id: c.transaction_id,
+      auto_validated: !!plan?.validated_by_financial_at,
+      idempotent: true,
+    };
+  }
+
+  /**
+   * Fase 0 — MODO SOMBRA do approve-and-bill: o valor cobrado ficou ABAIXO do orçamento
+   * (itens aprovados, ou o total, menos o desconto à vista)? Só registra na aba Log do
+   * Financeiro — não bloqueia nem avisa ninguém até medirmos o falso positivo. Juros
+   * (cartão 7-12x, parcelado 1x) só aumentam o valor, então acima é sempre legítimo.
+   */
+  private async shadowCheckApproveValue(
+    quote: any,
+    tenantId: string,
+    userId: string,
+    data: {
+      value: number;
+      billing_type: string;
+      installment_count?: number;
+      manual_payment_method?: string;
+      received_in_clinic?: boolean;
+      quick_sale?: boolean;
+    },
+  ) {
+    try {
+      const aprovados = (quote.items || []).filter((i: any) => i.approved_at);
+      const base = aprovados.length
+        ? aprovados.reduce((s: number, i: any) => s + Number(i.total_price || 0), 0)
+        : Number(quote.total_value || 0);
+      const avistaPct = quote.avista_discount_enabled ? Number(quote.avista_discount_pct) || 0 : 0;
+      const esperadoMin = round2(base * (1 - avistaPct / 100));
+      const enviado = round2(Number(data.value));
+      if (enviado >= esperadoMin - 0.01) return;
+      this.logger.warn(`[APPROVE-AND-BILL][SOMBRA] quote ${quote.id}: enviado R$${enviado} < esperado R$${esperadoMin}`);
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: userId,
+        entity: 'FINANCEIRO',
+        entityId: quote.id,
+        action: 'VENDA_VALOR_ABAIXO_ESPERADO',
+        meta: {
+          descricao: `Venda com valor abaixo do orçamento (esperado R$ ${esperadoMin.toFixed(2)})`,
+          valor: enviado,
+          esperado_min: esperadoMin,
+          base,
+          avista_pct: avistaPct,
+          parcial: aprovados.length > 0,
+          ...data,
+        },
+      }, this.logger);
+    } catch {
+      /* modo sombra nunca bloqueia a venda */
     }
   }
 
@@ -4332,8 +4625,10 @@ export class QuotesService {
    *  Com plano de ortô: pausa/retoma o PLANO (fonte da verdade — aparece em Stand by no
    *  Progresso também; retomar só reativa plano PAUSED, nunca um PENDING_SIGNATURE).
    *  Sem plano (paciente só da agenda): vale o marcador AuditLog ORTHO_PAUSA (último
-   *  pause/resume). O marcador é gravado sempre, como rastro de quem pausou/retomou. */
-  async setOrthoPause(tenantId: string, patientId: string, pausar: boolean, userId?: string | null) {
+   *  pause/resume). O marcador é gravado sempre, como rastro de quem pausou/retomou.
+   *  Fase 0 — pausar plano PENDING_SIGNATURE é só do ADMIN: pausar e retomar ativaria o
+   *  plano sem assinatura (mesma trava da rota treatment-plans/:id/pause). */
+  async setOrthoPause(tenantId: string, patientId: string, pausar: boolean, userId?: string | null, isAdmin = false) {
     const p = await this.prisma.patient.findFirst({ where: { id: patientId, tenant_id: tenantId }, select: { id: true } });
     if (!p) throw new NotFoundException('Paciente não encontrado');
     const quotes = await this.prisma.quote.findMany({
@@ -4345,6 +4640,9 @@ export class QuotesService {
       },
       select: { treatment_plan: { select: { id: true, status: true } } },
     });
+    if (pausar && !isAdmin && quotes.some((q) => q.treatment_plan?.status === 'PENDING_SIGNATURE')) {
+      throw negarPermissao('Plano aguardando assinatura — só o administrador pausa ou ativa.');
+    }
     for (const q of quotes) {
       const plan = q.treatment_plan;
       if (!plan || !this.treatmentPlans) continue;

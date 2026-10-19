@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Stethoscope, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 
 export interface ConfirmEvent {
   id: string;
@@ -65,6 +66,7 @@ export function ConfirmarAtendimentoModal({
   onClose: () => void;
   onConfirmed: (patch: { status: string; validated_at: string | null }) => void;
 }) {
+  const role = useRole();
   const nome = event.patient?.name || event.lead?.name || 'Paciente';
   const what = event.appointment_type?.name || event.type;
   const [texto, setTexto] = useState('');
@@ -87,7 +89,11 @@ export function ConfirmarAtendimentoModal({
         if (!alive) return;
         // Plano liberado, item pendente e que é DESTE dentista (ou ainda sem dentista):
         // o canal do endodontista não aparece pra ortodontista confirmar.
-        const meu = event.assigned_user_id ?? null;
+        // Fase 0 — mesmo critério do backend: quem confirma é QUEM ESTÁ LOGADO (o admin
+        // vê pelo dentista da consulta); o servidor recusa item de outro dentista.
+        const meu = (role.isAdmin || role.isSuperAdmin)
+          ? (event.assigned_user_id ?? null)
+          : (role.userId ?? event.assigned_user_id ?? null);
         const rows = (r.data?.items ?? []).filter(
           (x) => x.plan_validated_by_financial_at
             && !['DONE', 'CANCELLED'].includes(x.item.status)

@@ -155,10 +155,12 @@ export class CalendarController {
       }
     }
 
+    // Fase 0 — o ator vai junto: trava pós-validação (Faltou/Desmarcou/Adiado só ADMIN) e rastro.
+    const actor = { userId: req.user.id, roles: req.user.roles, tenantId: req.user?.tenant_id, via: 'patch_evento' };
     if (updateScope === 'all') {
-      return this.calendarService.updateRecurrenceAll(id, data);
+      return this.calendarService.updateRecurrenceAll(id, data, actor);
     }
-    return this.calendarService.update(id, data);
+    return this.calendarService.update(id, data, actor);
   }
 
   // Mudar o STATUS do agendamento (Agendado/Confirmado/Chegou/Em atendimento/
@@ -172,7 +174,13 @@ export class CalendarController {
   async updateStatus(@Param('id') id: string, @Body('status') status: string, @Request() req: any) {
     const sameTenant = await this.calendarService.checkSameTenant(id, req.user?.tenant_id);
     if (!sameTenant) throw new ForbiddenException('Sem permissao para alterar status deste evento');
-    return this.calendarService.updateStatus(id, status);
+    // Fase 0 — o ator vai junto: trava pós-validação e rastro (AuditLog AGENDA_EVENTO).
+    return this.calendarService.updateStatus(id, status, {
+      userId: req.user.id,
+      roles: req.user.roles,
+      tenantId: req.user?.tenant_id,
+      via: 'status_route',
+    });
   }
 
   @Post('events/:id/notify')
@@ -197,7 +205,8 @@ export class CalendarController {
     @Request() req: any,
   ) {
     const isAdmin = (req.user.roles || []).includes('ADMIN');
-    return this.calendarService.validate(id, req.user.id, isAdmin, body?.notes);
+    // Fase 0 — tenant do usuário: o serviço barra evento de outra clínica.
+    return this.calendarService.validate(id, req.user.id, isAdmin, body?.notes, req.user?.tenant_id);
   }
 
   /**
@@ -207,7 +216,8 @@ export class CalendarController {
   @Post('events/:id/unvalidate')
   async unvalidate(@Param('id') id: string, @Request() req: any) {
     const isAdmin = (req.user.roles || []).includes('ADMIN');
-    return this.calendarService.unvalidate(id, isAdmin);
+    // Fase 0 — autor e tenant: rastro de quem reverteu + barra evento de outra clínica.
+    return this.calendarService.unvalidate(id, isAdmin, req.user.id, req.user?.tenant_id);
   }
 
   @Delete('events/:id')

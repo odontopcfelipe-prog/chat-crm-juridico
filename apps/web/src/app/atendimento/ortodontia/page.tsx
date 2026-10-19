@@ -379,6 +379,9 @@ export default function OrtodontiaPage() {
                       showDentist={view === 'dias'}
                       dentists={dentists}
                       migrating={migrating === c.patient.id}
+                      // Fase 0 — com plano, o ✓ (decide quem fez cada procedimento) é só do
+                      // ADMIN; a alta sem plano continua com quem já podia (manage_proposals).
+                      canFinalize={role.isAdmin || role.isSuperAdmin || (c.plan_ids?.length ?? 0) === 0}
                       onFinalize={() => setFinalizeCard(c)}
                       onToggleStandby={() => toggleStandby(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
@@ -435,9 +438,9 @@ function Kpi({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onToggleStandby, onOpen, onSchedule, onMigrate }: {
+function OrthoCardItem({ card, showDentist, dentists, migrating, canFinalize, onFinalize, onToggleStandby, onOpen, onSchedule, onMigrate }: {
   card: OrthoCard; showDentist?: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
-  onFinalize: () => void; onToggleStandby: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
+  canFinalize: boolean; onFinalize: () => void; onToggleStandby: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
 }) {
   const meta = STATUS_META[card.status];
   return (
@@ -479,7 +482,7 @@ function OrthoCardItem({ card, showDentist, dentists, migrating, onFinalize, onT
             {card.status === 'standby' ? <Play size={14} /> : <Pause size={14} />}
           </button>
         )}
-        {card.status !== 'concluido' && (
+        {canFinalize && card.status !== 'concluido' && (
           <button
             onClick={onFinalize}
             className="shrink-0 p-1 rounded text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"

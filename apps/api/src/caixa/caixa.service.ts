@@ -8,6 +8,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 import {
   CreateAccountDto,
   UpdateAccountDto,
@@ -84,14 +85,11 @@ export class CaixaService {
     } as any;
   }
 
-  private async logAction(userId: string | null, action: string, entityId: string, meta: Record<string, any>) {
-    try {
-      await this.prisma.auditLog.create({
-        data: { actor_user_id: userId, action, entity: 'CAIXA', entity_id: entityId, meta_json: meta },
-      });
-    } catch (e: any) {
-      this.logger.warn(`[AUDIT] ${e.message}`);
-    }
+  // Fase 0 — H2: mesma ordem do FinanceiroService.logAction e tenant_id na COLUNA
+  // (antes a linha nascia sem clínica e não dava pra filtrar o log por tenant).
+  // Best-effort pelo helper: nunca derruba a operação do caixa.
+  private async logAction(userId: string | null, action: string, entityId: string, tenantId: string, meta: Record<string, any>) {
+    await registrarAuditoria(this.prisma, { tenantId, actorUserId: userId, entity: 'CAIXA', entityId, action, meta }, this.logger);
   }
 
   // ─── Contas ────────────────────────────────────────────────────
@@ -249,7 +247,7 @@ export class CaixaService {
         visible_to_dentist: source ? false : undefined,
       } as any,
     });
-    await this.logAction(userId, dto.direction === 'SAIDA' ? 'CAIXA_SAIDA' : 'CAIXA_ENTRADA', tx.id, {
+    await this.logAction(userId, dto.direction === 'SAIDA' ? 'CAIXA_SAIDA' : 'CAIXA_ENTRADA', tx.id, tenantId, {
       valor: r2(dto.amount), forma: dto.method, conta: acc.name, origem: source,
     });
     // Regra da clínica: entrada no caixa de um contato (pagou) → ele vira paciente.
@@ -291,8 +289,9 @@ export class CaixaService {
         cash_closing_id: closing.id,
       } as any,
     });
-    await this.logAction(userId, 'CAIXA_SAIDA', txId, {
+    await this.logAction(userId, 'CAIXA_SAIDA', txId, tenantId, {
       valor: Number(tx.amount), forma: opts.payment_method, conta: acc.name, origem: (tx as any).source,
+      status_antes: tx.status, status_depois: 'PAGO',
     });
     return updated;
   }
@@ -313,7 +312,15 @@ export class CaixaService {
       throw new BadRequestException('Caixa ja fechado — nao da pra remover lancamento.');
     }
     await this.prisma.financialTransaction.delete({ where: { id } });
-    await this.logAction(userId, 'CAIXA_LANCAMENTO_REMOVIDO', id, { valor: Number(tx.amount) });
+    // Fase 0 — H2: o lançamento é APAGADO; sem o retrato dele aqui, some sem rastro.
+    await this.logAction(userId, 'CAIXA_LANCAMENTO_REMOVIDO', id, tenantId, {
+      descricao: tx.description,
+      valor: Number(tx.amount),
+      before: {
+        tipo: tx.type, forma: tx.payment_method, conta: tx.account_id, data: tx.date,
+        lead_id: tx.lead_id, cash_closing_id: tx.cash_closing_id,
+      },
+    });
     return { ok: true };
   }
 
@@ -357,7 +364,7 @@ export class CaixaService {
       return true;
     });
     if (!ok) throw new ConflictException('O caixa mudou de estado — recarregue a tela.');
-    await this.logAction(userId, 'CAIXA_FECHADO', closing.id, { esperado: by, contado: dto });
+    await this.logAction(userId, 'CAIXA_FECHADO', closing.id, tenantId, { esperado: by, contado: dto });
     return this.getClosing(closing.id, tenantId);
   }
 
@@ -450,7 +457,9 @@ export class CaixaService {
       data: { status: 'VALIDADO', validated_by_id: userId, validated_at: new Date(), validation_notes: dto.validation_notes ?? null },
     });
     if (upd.count === 0) throw new BadRequestException('So da pra validar um caixa FECHADO (e ainda nao validado).');
-    await this.logAction(userId, 'CAIXA_VALIDADO', id, { obs: dto.validation_notes });
+    await this.logAction(userId, 'CAIXA_VALIDADO', id, tenantId, {
+      obs: dto.validation_notes, status_antes: 'FECHADO', status_depois: 'VALIDADO',
+    });
     return this.getClosing(id, tenantId);
   }
 
@@ -464,7 +473,9 @@ export class CaixaService {
       data: { status: 'DEVOLVIDO', validation_notes: dto.validation_notes ?? current.validation_notes },
     });
     if (upd.count === 0) throw new BadRequestException('So da pra devolver um caixa FECHADO.');
-    await this.logAction(userId, 'CAIXA_DEVOLVIDO', id, { obs: dto.validation_notes });
+    await this.logAction(userId, 'CAIXA_DEVOLVIDO', id, tenantId, {
+      obs: dto.validation_notes, status_antes: 'FECHADO', status_depois: 'DEVOLVIDO',
+    });
     return this.getClosing(id, tenantId);
   }
 }

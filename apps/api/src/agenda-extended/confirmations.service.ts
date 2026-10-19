@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateConfirmationDto, RespondConfirmationDto } from './dto/confirmation.dto';
+// Fase 0 — rastro da agenda (função pura, sem DI).
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 
 @Injectable()
 export class ConfirmationsService {
+  private readonly logger = new Logger(ConfirmationsService.name);
+
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -48,11 +52,11 @@ export class ConfirmationsService {
    * status do CalendarEvent para "CONFIRMADO" para o front-end pintar
    * com cor verde no slot da agenda.
    */
-  async respond(tenantId: string, confirmationId: string, dto: RespondConfirmationDto) {
+  async respond(tenantId: string, confirmationId: string, dto: RespondConfirmationDto, actorUserId?: string | null) {
     const confirmation = await this.prisma.appointmentConfirmation.findUnique({
       where: { id: confirmationId },
       include: {
-        appointment: { select: { id: true, tenant_id: true, status: true } },
+        appointment: { select: { id: true, tenant_id: true, status: true, validated_at: true, type: true } },
       },
     });
     if (!confirmation) throw new NotFoundException('Confirmacao nao encontrada');
@@ -77,10 +81,28 @@ export class ConfirmationsService {
         data: { status: 'CONFIRMADO' },
       });
     } else if (dto.response_status === 'REJEITADO') {
-      await this.prisma.calendarEvent.update({
-        where: { id: confirmation.appointment.id },
+      // Fase 0 — "não vou" só desmarca consulta ainda por acontecer: nunca a já validada
+      // nem a que já chegou/foi atendida (antes derrubava qualquer status para CANCELADO).
+      const r = await this.prisma.calendarEvent.updateMany({
+        where: {
+          id: confirmation.appointment.id,
+          validated_at: null,
+          status: { in: ['AGENDADO', 'CONFIRMADO'] },
+        },
         data: { status: 'CANCELADO' },
       });
+      if (r.count > 0) {
+        await registrarAuditoria(this.prisma, {
+          tenantId,
+          actorUserId: actorUserId ?? null,
+          entity: 'AGENDA_EVENTO',
+          entityId: confirmation.appointment.id,
+          action: 'STATUS',
+          before: { status: confirmation.appointment.status },
+          after: { status: 'CANCELADO' },
+          meta: { via: 'confirmacao_resposta', confirmation_id: confirmationId, type: confirmation.appointment.type },
+        }, this.logger);
+      }
     }
 
     return updated;

@@ -23,6 +23,13 @@ import { leadIdForCharge, patientEvidence, promoteLeadInBackground } from '../le
 // (o caixa NÃO importa payment-gateway → sem ciclo). Usado só p/ garantir as contas
 // padrão do caixa antes de amarrar a receita do split à conta CARTAO.
 import { CaixaService } from '../caixa/caixa.service';
+// Fase 0 — funções PURAS (sem DI): auditoria, aviso aos ADMs e regras C/D da baixa.
+import { registrarAuditoria } from '../common/utils/audit-log.util';
+import { avisarAdmsSeguranca } from '../common/utils/aviso-adm-seguranca.util';
+import { erroSomaFormas, motivoBloqueioBaixa } from './baixa-regras';
+// Fase 0 — import estático (o quotes.service já faz igual): o import() dinâmico não
+// roda no jest sem --experimental-vm-modules e o setup do Asaas precisa de teste.
+import { setTenantSetting } from '../tenants/tenant-settings.helper';
 
 // Mapeamento de status Asaas → interno
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -57,6 +64,24 @@ export class PaymentGatewayService {
   ) {}
 
   /**
+   * Fase 0 — regras D (cancelada/estornada não recebe baixa) e C (soma das formas
+   * = valor da cobrança) sobre a cobrança LOCAL. O receive-in-cash chama ANTES de
+   * tocar no Asaas, pra não fechar lá uma cobrança que aqui vai ser recusada.
+   * Cobrança local inexistente segue o fluxo atual (charge_not_found).
+   */
+  async assertClinicReceiptAllowed(externalId: string, opts?: { payments?: Array<{ value: number }> }) {
+    const c = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { external_id: externalId },
+      select: { status: true, cancelled_at: true, amount: true },
+    });
+    if (!c) return;
+    const bloq = motivoBloqueioBaixa(c);
+    if (bloq) throw new BadRequestException(bloq);
+    const erro = erroSomaFormas(opts?.payments, Number(c.amount));
+    if (erro) throw new BadRequestException(erro);
+  }
+
+  /**
    * Onda 17.41 — Recebimento na clínica (espécie / maquineta da clínica / PIX
    * da clínica), que NÃO usa o Asaas como processador real. Faz duas coisas:
    *
@@ -83,20 +108,34 @@ export class PaymentGatewayService {
       // `method` é a forma do CAIXA (CARTAO p/ débito E crédito — caixa tem 1 balde
       // "Maquininha (cartão)"); `debit` só refina a DESCRIÇÃO (Cartão débito/crédito).
       payments?: Array<{ method: string; value: number; installments?: number; debit?: boolean }>;
+      /** Fase 0 — de onde veio a baixa (vai pro rastro): receive-in-cash, confirm-cartao, approve-and-bill, venda-balcao. */
+      origem?: string;
     },
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
-      select: { id: true, status: true, received_at: true, received_by_user_id: true, paid_at: true, tenant_id: true },
+      select: {
+        id: true, status: true, received_at: true, received_by_user_id: true, paid_at: true, tenant_id: true,
+        amount: true, cancelled_at: true, received_in_cash: true,
+      },
     });
     if (!charge) {
       this.logger.warn(`[clinic-receipt] cobrança local não encontrada p/ external ${externalId}`);
       return { ok: false, reason: 'charge_not_found' };
     }
 
+    // Fase 0 — D: não ressuscita cobrança cancelada/estornada; C: a soma das formas
+    // tem que fechar com o valor. Barra ANTES de marcar recebida (nada é gravado).
+    const bloq = motivoBloqueioBaixa(charge);
+    if (bloq) throw new BadRequestException(bloq);
+    const erroSoma = erroSomaFormas(opts?.payments, Number(charge.amount));
+    if (erroSoma) throw new BadRequestException(erroSoma);
+
     const now = new Date();
     // 1. Marca recebida na hora (independe do webhook do Asaas)
     const alreadyPaidStatus = charge.status === 'RECEIVED' || charge.status === 'CONFIRMED';
+    // Fase 0 — já recebida antes desta chamada: re-clique/retry não gera rastro novo.
+    const jaRecebida = alreadyPaidStatus || !!charge.received_in_cash;
     await this.prisma.paymentGatewayCharge.update({
       where: { id: charge.id },
       data: {
@@ -114,8 +153,29 @@ export class PaymentGatewayService {
     // 2. Lança no caixa (RECEITA). Split (2 cartões na maquineta) => UMA receita
     // por forma; senão, o fluxo normal com o valor cheio numa forma só.
     const splits = (opts?.payments || []).filter((p) => p && p.value > 0);
+    // Fase 0 — H1: rastro da baixa manual (quem, quanto, em quais formas, de onde)
+    // na aba Log do Financeiro. Só na 1ª baixa — re-clique não duplica.
+    const auditarBaixa = async (txId: string | null) => {
+      if (jaRecebida) return;
+      await registrarAuditoria(this.prisma, {
+        tenantId: charge.tenant_id ?? null,
+        actorUserId: opts?.userId ?? null,
+        entity: 'FINANCEIRO',
+        entityId: charge.id,
+        action: 'COBRANCA_BAIXA_MANUAL',
+        before: { status: charge.status },
+        after: { status: 'RECEIVED', transaction_id: txId },
+        meta: {
+          descricao: `Baixa manual — ${externalId}`,
+          valor: Number(charge.amount),
+          formas: splits.length ? splits : [{ method: opts?.paymentMethod || 'DINHEIRO', value: Number(charge.amount) }],
+          origem: opts?.origem ?? 'receive-in-cash',
+        },
+      }, this.logger);
+    };
     if (splits.length > 0) {
       const txId = await this.ensureChargeReceitaSplit(charge.id, splits);
+      await auditarBaixa(txId);
       return { ok: true, transaction_id: txId, charge_id: charge.id, split: splits.length };
     }
     const txId = await this.ensureChargeReceita(charge.id, {
@@ -123,6 +183,7 @@ export class PaymentGatewayService {
       receivedInClinic: true,
       installments: opts?.installments,
     });
+    await auditarBaixa(txId);
     return { ok: true, transaction_id: txId, charge_id: charge.id };
   }
 
@@ -135,15 +196,20 @@ export class PaymentGatewayService {
   async confirmCartaoReceipt(chargeId: string, tenantId: string, userId?: string) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { id: chargeId, tenant_id: tenantId },
-      select: { id: true, external_id: true, status: true, received_in_cash: true, description: true },
+      select: { id: true, external_id: true, status: true, received_in_cash: true, description: true, cancelled_at: true },
     });
     if (!charge) throw new NotFoundException('Cobrança não encontrada');
     if (charge.received_in_cash || charge.status === 'RECEIVED' || charge.status === 'CONFIRMED') {
       return { ok: true, already: true, charge_id: charge.id };
     }
+    // Fase 0 — D: cartão de venda cancelada não volta a contar como recebido.
+    const bloq = motivoBloqueioBaixa(charge);
+    if (bloq) throw new BadRequestException(bloq);
     // Nº de parcelas da operadora (só informativo na receita): "(cartão 3x · a receber)".
     const nx = Number(/cart[ãa]o\s+(\d+)\s*x/i.exec(charge.description || '')?.[1]) || undefined;
-    return this.registerClinicReceipt(charge.external_id, { paymentMethod: 'CARTAO', userId, installments: nx });
+    return this.registerClinicReceipt(charge.external_id, {
+      paymentMethod: 'CARTAO', userId, installments: nx, origem: 'confirm-cartao',
+    });
   }
 
   /** Onda 17.41 — billing_type da cobrança → forma de pagamento do caixa. */
@@ -330,15 +396,11 @@ export class PaymentGatewayService {
       }
     };
 
-    // Sanidade: a soma das formas deveria bater com o total da cobrança. Não
-    // BLOQUEIA (registra o que realmente aconteceu na maquineta), mas loga o
-    // desvio pra auditoria do caixa.
-    const soma = payments.reduce((s, p) => s + (p.value || 0), 0);
-    if (Math.abs(soma - Number(charge.amount)) > 0.02) {
-      this.logger.warn(
-        `[caixa] split não bate: soma R$${soma.toFixed(2)} ≠ cobrança R$${Number(charge.amount).toFixed(2)} (charge ${charge.id})`,
-      );
-    }
+    // Fase 0 — C: a soma das formas TEM que bater com o total da cobrança (antes só
+    // logava o desvio e lançava no caixa um valor diferente do vendido). É só um
+    // cinto de segurança: registerClinicReceipt já barra isso no topo.
+    const erroSoma = erroSomaFormas(payments, Number(charge.amount));
+    if (erroSoma) throw new BadRequestException(erroSoma);
 
     // Onda 18.x — MESMA TRAVA ANTI-CORRIDA do ensureChargeReceita (double-booking).
     // O guard `if (charge.transaction_id)` do topo lê FORA de lock; dois recebimentos
@@ -2103,6 +2165,8 @@ export class PaymentGatewayService {
       select: {
         id: true, tenant_id: true, status: true,
         received_in_cash: true, transaction_id: true, gateway: true,
+        // Fase 0 — valor vai pro rastro do cancelamento na aba Log.
+        amount: true,
         // Rastro existente — pra PRESERVAR o registro original num re-cancelamento.
         cancelled_at: true, cancelled_by_user_id: true, cancelled_by_name: true, cancel_reason: true,
       },
@@ -2207,6 +2271,26 @@ export class PaymentGatewayService {
     this.logger.log(
       `[DELETE-CHARGE] Cobrança ${externalId} apagada (local DELETED${asaasSynced ? ' + Asaas' : '; Asaas não confirmou — best-effort'})`,
     );
+    // Fase 0 — B5: cancelamento NOVO entra na aba Log do Financeiro (quem, valor,
+    // motivo). Re-cancelamento só re-tenta o Asaas — não gera linha nova.
+    if (!alreadyCancelled) {
+      await registrarAuditoria(this.prisma, {
+        tenantId: charge.tenant_id ?? callerTenantId ?? null,
+        actorUserId: opts?.userId ?? null,
+        entity: 'FINANCEIRO',
+        entityId: charge.id,
+        action: 'COBRANCA_CANCELADA',
+        before: { status: charge.status },
+        after: { status: 'DELETED' },
+        meta: {
+          descricao: `Cobrança cancelada — ${opts?.reason ?? ''}`,
+          valor: Number(charge.amount),
+          motivo: opts?.reason ?? null,
+          external_id: externalId,
+          asaas_synced: asaasSynced,
+        },
+      }, this.logger);
+    }
     return { deleted: true, asaasSynced };
   }
 
@@ -2390,6 +2474,7 @@ export class PaymentGatewayService {
     tenantId: string | undefined | null,
     apiKey: string,
     sandbox = false,
+    opts?: { userId?: string | null },
   ): Promise<{ ok: true; sandbox: boolean }> {
     if (!tenantId) {
       throw new BadRequestException('Tenant nao identificado no token.');
@@ -2432,12 +2517,55 @@ export class PaymentGatewayService {
       throw new BadRequestException('Nao foi possivel validar a chave no Asaas. Verifique e tente de novo.');
     }
 
+    // Fase 0 — A2: lê a conta ANTERIOR do PRÓPRIO tenant (sem o fallback global do
+    // getTenantSetting) pra registrar a troca. Falha na leitura não impede o setup.
+    const lerProprio = (key: string) =>
+      this.prisma.tenantSetting
+        .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key } } })
+        .then((r) => r?.value ?? null)
+        .catch(() => null);
+    const [antesKey, antesUrl] = await Promise.all([lerProprio('ASAAS_API_KEY'), lerProprio('ASAAS_BASE_URL')]);
+
     // Chave valida — persiste no TenantSetting do tenant
-    const { setTenantSetting } = await import('../tenants/tenant-settings.helper.js');
     await setTenantSetting(this.prisma, tenantId, 'ASAAS_API_KEY', trimmedKey);
     await setTenantSetting(this.prisma, tenantId, 'ASAAS_BASE_URL', baseUrl);
 
     this.logger.log(`[setupAsaas] Asaas configurado pro tenant ${tenantId} (sandbox=${sandbox})`);
+
+    // Fase 0 — A2: trocar a conta Asaas desvia os próximos PIX/boletos. Registra no
+    // Log (só a impressão digital da chave — NUNCA a chave) e avisa os ADMs na hora.
+    // Nada disso pode derrubar o setup: a chave já foi gravada.
+    try {
+      const fp = (k: string | null) => (k ? crypto.createHash('sha256').update(k).digest('hex').slice(0, 8) : null);
+      const ator = opts?.userId
+        ? await this.prisma.user.findUnique({ where: { id: opts.userId }, select: { name: true } }).catch(() => null)
+        : null;
+      await registrarAuditoria(this.prisma, {
+        tenantId,
+        actorUserId: opts?.userId ?? null,
+        entity: 'FINANCEIRO',
+        entityId: tenantId,
+        action: 'ASAAS_CONTA_ALTERADA',
+        before: {
+          configurada: !!antesKey,
+          ambiente: antesUrl?.includes('sandbox') ? 'sandbox' : antesKey ? 'producao' : null,
+          chave_fp: fp(antesKey),
+        },
+        after: { ambiente: sandbox ? 'sandbox' : 'producao', chave_fp: fp(trimmedKey) },
+        meta: { descricao: 'Conta Asaas da clínica alterada', valor: 0 },
+      }, this.logger);
+      // Fire-and-forget: o aviso nunca lança, e o .catch é só cinto de segurança.
+      void avisarAdmsSeguranca({ prisma: this.prisma, whatsapp: this.whatsapp, logger: this.logger }, tenantId, {
+        titulo: 'Conta Asaas alterada',
+        texto:
+          `⚠️ A conta Asaas da clínica foi alterada por ${ator?.name ?? 'usuário desconhecido'} — ` +
+          `ambiente ${sandbox ? 'Sandbox' : 'Produção'}, chave …${fp(antesKey) ?? '(nenhuma)'} → …${fp(trimmedKey)}. ` +
+          `Os próximos PIX/boletos vão para ESTA conta. Se não foi autorizado, corrija já em Configurações › Gateway.`,
+        data: { tipo: 'ASAAS_CONTA_ALTERADA' },
+      }).catch((e: any) => this.logger.warn(`[setupAsaas] aviso aos ADMs falhou: ${e?.message || e}`));
+    } catch (e: any) {
+      this.logger.warn(`[setupAsaas] rastro da troca de conta falhou: ${e?.message || e}`);
+    }
     return { ok: true, sandbox };
   }
 

@@ -16,6 +16,7 @@ import {
   InternalServerErrorException,
   UseInterceptors,
   UploadedFile,
+  Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -25,6 +26,11 @@ import { RequiresPermission, PermissionsGuard } from '../auth/decorators/require
 // Out/2026 — Dentista monta a avaliação (create_evaluation) só dos pacientes dele.
 import { PrismaService } from '../prisma/prisma.service';
 import { isAdminRole, isOwnPatient, restrictedPatientOwner } from '../auth/patient-scope';
+// Fase 0 — permissão OU (ADMIN sempre passa), checada dentro do handler.
+import { assertAnyPermission, negarPermissao, temAlgumaPermissao } from '../auth/require-any-permission';
+// Fase 0 — rotas de plano só para ADMIN (RolesGuard é APP_GUARD global).
+import { Roles } from '../auth/decorators/roles.decorator';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { Throttle } from '@nestjs/throttler';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
@@ -58,6 +64,7 @@ import {
   CreditCheckSimulateDto,
   ApplyFinancingDto,
   ApproveAndBillDto,
+  VendaBalcaoDto,
   AddBonusDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
@@ -85,6 +92,9 @@ import { ContractWhatsappService } from './contract-whatsapp.service';
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class CommercialController {
+  // Fase 0 — só pra registrar campos ignorados (não é provider: não mexe no grafo de DI).
+  private readonly logger = new Logger(CommercialController.name);
+
   constructor(
     private readonly quotesService: QuotesService,
     private readonly pdfService: QuotePdfService,
@@ -100,8 +110,8 @@ export class CommercialController {
     private readonly contractsService: ContractsService,
     private readonly contractPdfService: ContractPdfService,
     private readonly contractWhatsapp: ContractWhatsappService,
-    // Onda 17.32.71 — usado pra "Venda Rapida com Especie": apos
-    // criar a charge PIX, marca como recebida em dinheiro no Asaas.
+    // Onda 17.32.71 — era da "Venda Rapida com Especie" (POST /venda-rapida, apagado na
+    // Fase 0). Fica injetado de propósito: tirar mexeria no grafo de DI.
     private readonly asaasClient: AsaasClient,
     private readonly prisma: PrismaService,
   ) {}
@@ -295,7 +305,7 @@ export class CommercialController {
   @Post('quotes/ortho-board/pausa')
   orthoPausa(@Body() body: { patient_id?: string; pausar?: boolean }, @Authenticated() user: AuthUser) {
     if (!body?.patient_id) throw new BadRequestException('Informe o paciente');
-    return this.quotesService.setOrthoPause(user.tenant_id, body.patient_id, body.pausar !== false, user.id);
+    return this.quotesService.setOrthoPause(user.tenant_id, body.patient_id, body.pausar !== false, user.id, isAdminRole(user.roles));
   }
 
   // Disparos "Equipe → Pacientes sem agendamento" (geral e ?kind=orto): prévia + teste.
@@ -549,6 +559,11 @@ export class CommercialController {
     @Body() dto: ApproveAndBillDto,
     @Authenticated() user: AuthUser,
   ) {
+    // Fase 0 — auto_execute_items/executed_by_dentist_id não são mais repassados:
+    // quem vende não marca procedimento como feito (o front em cache ainda manda).
+    if (dto.auto_execute_items === true) {
+      this.logger.warn('[APPROVE-AND-BILL] auto_execute_items ignorado (Fase 0)');
+    }
     return this.quotesService.approveAndBill(id, user.tenant_id, user.id, {
       billing_type: dto.billing_type as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
       value: Number(dto.value),
@@ -557,114 +572,19 @@ export class CommercialController {
       received_in_clinic: dto.received_in_clinic,
       received_method: dto.received_method,
       quick_sale: dto.quick_sale,
-      auto_execute_items: dto.auto_execute_items,
-      executed_by_dentist_id: dto.executed_by_dentist_id,
     });
   }
 
-  /**
-   * Onda 17.32.68 — Venda Rapida (balcao sem avaliacao).
-   *
-   * Cria um Quote+Plan+Charge em 1 unica chamada atomica:
-   *   1. Cria Quote com items
-   *   2. Aceita Quote (dispara accept hooks)
-   *   3. approveAndBill (gera cobranca Asaas + cria TreatmentPlan ACTIVE)
-   *
-   * Diferente do fluxo normal, NAO passa pelo modal de avaliacao —
-   * operador escolhe procedimentos prontos e finaliza na hora.
-   * Usado em vendas de balcao: limpeza, clareamento, raspagem,
-   * extracao simples, etc.
-   */
+  /** Venda de BALCÃO recebida na clínica, em UMA operação: total calculado no servidor, soma das formas = total,
+   *  cobrança LOCAL (nunca Asaas), baixa + receita no caixa, dentista obrigatório, plano auto-liberado,
+   *  compensação se falhar no meio. PIX online continua em /patients/:id/quotes + /quotes/:id/approve-and-bill.
+   *  Fase 0 — substitui o POST /venda-rapida antigo (sem chamador; criava PIX no Asaas e baixava "em espécie" lá).
+   *  CRC e recepção vendem: a baixa é interna à venda e NÃO exige operate_cash. */
   @RequiresPermission('manage_proposals')
-  @Post('venda-rapida')
-  async vendaRapida(
-    @Body() dto: {
-      patient_id: string;
-      items: Array<{
-        procedure_id: string;
-        quantity?: number;
-        dentist_id?: string;
-        unit_price?: number;
-      }>;
-      payment: {
-        // Onda 17.32.71 — Adicionado 'CASH' (especie). Backend cria
-        // charge PIX e em seguida chama receiveInCash no Asaas pra
-        // marcar como recebida em dinheiro.
-        billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'CASH';
-        value: number;
-        installment_count?: number;
-        discount_percent?: number;
-      };
-      notes?: string;
-    },
-    @Authenticated() user: AuthUser,
-  ) {
-    if (!dto.items || dto.items.length === 0) {
-      throw new Error('Selecione pelo menos 1 procedimento');
-    }
-    // 1. Cria Quote (com items)
-    const quote = await this.quotesService.create(
-      dto.patient_id,
-      user.tenant_id,
-      user.id,
-      {
-        items: dto.items.map((it) => ({
-          procedure_id: it.procedure_id,
-          quantity: it.quantity || 1,
-          dentist_id: it.dentist_id,
-          unit_price: it.unit_price,
-        })),
-        discount_percent: dto.payment.discount_percent || 0,
-        notes: dto.notes || 'Venda rapida (balcao sem avaliacao)',
-      },
-    );
-    // Onda 17.32.71 — CASH eh tratado como PIX no Asaas (cria charge
-    // PIX) e depois marca como recebida em dinheiro. Operador nao
-    // precisa mostrar QR — paciente ja pagou em mãos.
-    const isCash = dto.payment.billing_type === 'CASH';
-    const billingTypeForAsaas: 'PIX' | 'CREDIT_CARD' | 'BOLETO' =
-      dto.payment.billing_type === 'CASH'
-        ? 'PIX'
-        : dto.payment.billing_type;
-
-    // 2. approveAndBill (aceita + cria plan + gera charge)
-    const result = await this.quotesService.approveAndBill(
-      quote.id,
-      user.tenant_id,
-      user.id,
-      {
-        billing_type: billingTypeForAsaas,
-        value: Number(dto.payment.value),
-        installment_count: dto.payment.installment_count,
-      },
-    );
-
-    // 3. Se CASH, marca a charge como recebida em dinheiro no Asaas
-    //    (idempotente: se o webhook ja confirmou, retorna sucesso silencioso).
-    if (isCash && result?.charge?.external_id) {
-      try {
-        const today = new Date().toISOString().slice(0, 10);
-        await this.asaasClient.receiveInCash(
-          result.charge.external_id,
-          today,
-          Number(dto.payment.value),
-          user.tenant_id,
-        );
-      } catch (e: any) {
-        // nao quebra — charge ja foi criada; operador pode marcar
-        // como recebida manualmente depois
-        console.warn(`[VENDA-RAPIDA] receiveInCash falhou pra ${result.charge.external_id}: ${e?.message}`);
-      }
-    }
-
-    return {
-      ...result,
-      quote_id: quote.id,
-      quote_number: quote.quote_number,
-      // Onda 17.32.71 — Flag pro frontend saber que ja foi pago e
-      // nao precisa mostrar QR PIX no dialog de sucesso.
-      paid_in_cash: isCash,
-    };
+  @Post('venda-rapida/balcao')
+  vendaBalcao(@Body() dto: VendaBalcaoDto, @Authenticated() user: AuthUser) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.vendaBalcao(user.tenant_id, user.id, dto);
   }
 
   /**
@@ -1218,14 +1138,19 @@ export class CommercialController {
   }
 
   @Patch('treatment-plans/:id')
-  updatePlan(
+  async updatePlan(
     @Param('id') id: string,
     @Body() dto: UpdateTreatmentPlanDto,
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.plansService.update(id, tenantId, dto as any);
+    // Fase 0 — F6: status do plano (cancelar, concluir, reativar…) só o ADMIN; o resto
+    // (datas, sessões, notas) continua pra quem já podia. A troca fica no AuditLog.
+    if (dto.status !== undefined && !isAdminRole(req.user?.roles)) {
+      throw negarPermissao('Só o administrador pode mudar o status do plano.');
+    }
+    return this.plansService.update(id, tenantId, dto as any, req.user?.id ?? null);
   }
 
   @Post('treatment-plans/:id/send-for-signature')
@@ -1364,30 +1289,74 @@ export class CommercialController {
    * Equivale ao webhook do Asaas avisando PAYMENT_RECEIVED. Dispara o trigger
    * automatico (se for sinal/entrada e completar o ciclo).
    *
-   * Permissao: ADMIN ou FINANCEIRO.
+   * Permissao: ADMIN, papel FINANCEIRO, ou quem tem operate_cash/manage_financial.
    */
   @Post('charges/:id/mark-cash-received')
-  markCashReceived(@Param('id') id: string, @Authenticated() user: AuthUser) {
+  async markCashReceived(@Param('id') id: string, @Authenticated() user: AuthUser) {
     if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
-    const roles = user.roles ?? [];
-    if (!roles.includes('ADMIN') && !roles.includes('FINANCEIRO')) {
-      throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem marcar recebimento em especie');
+    // Fase 0 — B3: por PERMISSÃO (a recepção com operate_cash passa a poder), sem
+    // tirar ninguém: o papel FINANCEIRO continua passando mesmo com setor diferente.
+    const ok = (user.roles ?? []).includes('FINANCEIRO')
+      || await temAlgumaPermissao(this.prisma, user, ['operate_cash', 'manage_financial']);
+    if (!ok) {
+      throw negarPermissao('Sem permissão para marcar recebimento em espécie — só Caixa/Financeiro ou o administrador.');
     }
     return this.downPaymentFlow.markCashReceived(id, user.id, user.tenant_id);
   }
 
+  // Fase 0 — F7: STAND BY continua com quem vê o Progresso (manage_proposals) e com o
+  // Financeiro; agora com registro. A trava de PENDING_SIGNATURE fica AQUI na rota (não
+  // no service): setOrthoPause chama activate() direto e não pode ser barrado.
   @Post('treatment-plans/:id/activate')
-  activatePlan(@Param('id') id: string, @Request() req: any) {
+  async activatePlan(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.plansService.activate(id, tenantId);
+    await assertAnyPermission(this.prisma, req.user, ['manage_proposals', 'manage_financial'], 'Sem permissão para pausar/retomar tratamento.');
+    const antes = await this.plansService.findOne(id, tenantId);
+    if (antes.status === 'PENDING_SIGNATURE' && !isAdminRole(req.user?.roles)) {
+      throw negarPermissao('Plano aguardando assinatura — só o administrador ativa.');
+    }
+    const plan = await this.plansService.activate(id, tenantId);
+    await this.auditarStandBy(tenantId, req.user?.id, id, 'REATIVADO', antes.status, plan.status);
+    return plan;
   }
 
   @Post('treatment-plans/:id/pause')
-  pausePlan(@Param('id') id: string, @Request() req: any) {
+  async pausePlan(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.plansService.pause(id, tenantId);
+    await assertAnyPermission(this.prisma, req.user, ['manage_proposals', 'manage_financial'], 'Sem permissão para pausar/retomar tratamento.');
+    const antes = await this.plansService.findOne(id, tenantId);
+    // Fase 0 — pausar e retomar viraria PENDING_SIGNATURE → PAUSED → ACTIVE sem o ADMIN:
+    // a pausa de plano aguardando assinatura também é só dele.
+    if (antes.status === 'PENDING_SIGNATURE' && !isAdminRole(req.user?.roles)) {
+      throw negarPermissao('Plano aguardando assinatura — só o administrador pausa ou ativa.');
+    }
+    const plan = await this.plansService.pause(id, tenantId);
+    await this.auditarStandBy(tenantId, req.user?.id, id, 'PAUSADO', antes.status, plan.status);
+    return plan;
+  }
+
+  /** Fase 0 — F7: registra a pausa/retomada só quando o status mudou de fato. */
+  private async auditarStandBy(
+    tenantId: string,
+    actorId: string | undefined,
+    planId: string,
+    action: 'PAUSADO' | 'REATIVADO',
+    antes: string,
+    depois: string,
+  ) {
+    if (antes === depois) return;
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: actorId ?? null,
+      entity: 'TREATMENT_PLAN',
+      entityId: planId,
+      action,
+      before: { status: antes },
+      after: { status: depois },
+      meta: { via: 'progresso' },
+    }, this.logger);
   }
 
   // Onda 17.72 — Validação financeira: SÓ o Financeiro (manage_financial) libera o
@@ -1400,17 +1369,32 @@ export class CommercialController {
     return this.plansService.validate(id, tenantId, req.user.id);
   }
 
+  // Fase 0 — F6: concluir plano direto só o ADMIN (o finalizePlans usa complete() por
+  // dentro, por isso a trava é na rota e não no service).
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('treatment-plans/:id/complete')
-  completePlan(@Param('id') id: string, @Request() req: any) {
+  async completePlan(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.plansService.complete(id, tenantId);
+    const antes = await this.plansService.findOne(id, tenantId);
+    const plan = await this.plansService.complete(id, tenantId);
+    await registrarAuditoria(this.prisma, {
+      tenantId,
+      actorUserId: req.user?.id ?? null,
+      entity: 'TREATMENT_PLAN',
+      entityId: id,
+      action: 'CONCLUIDO',
+      before: { status: antes.status },
+      after: { status: plan.status },
+    }, this.logger);
+    return plan;
   }
 
   // Botão ✓ "Finalizar tratamento" (Progresso / Ortodontia): resolve os procedimentos
   // em aberto (feito por <responsável> ou não realizado) e conclui os planos do paciente.
   // (Não colide com os POST por id — todos têm sufixo: /activate, /complete…)
-  @RequiresPermission('manage_proposals')
+  // Fase 0 — F4: só ADMIN (antes manage_proposals: o CRC dava "feito por" qualquer um).
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('treatment-plans/finalize')
   finalizePlans(
     @Body() body: {
@@ -1434,20 +1418,19 @@ export class CommercialController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.plansService.updateItem(id, tenantId, dto);
+    // Fase 0 — F5: o service decide pelo ATOR (status só ADMIN; DONE só pelo /execute).
+    return this.plansService.updateItem(id, tenantId, dto, { id: req.user.id, roles: req.user.roles ?? [] });
   }
 
+  // Fase 0 — F1: checa o ATOR (dentista do item, qualquer dentista se o item não tem
+  // dono, ou ADMIN) antes do núcleo executeItem.
   @Post('treatment-plan-items/:id/execute')
   executePlanItem(
     @Param('id') id: string,
     @Body() dto: ExecuteTreatmentPlanItemDto,
-    @Request() req: any,
+    @Authenticated() user: AuthUser,
   ) {
-    const tenantId = req.user?.tenant_id;
-    // JwtStrategy.validate() retorna { id: payload.sub, ... } — usar req.user.id
-    const userId = req.user?.id;
-    if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
-    return this.plansService.executeItem(id, tenantId, userId, dto);
+    return this.plansService.executeItemAsActor(id, user.tenant_id, { id: user.id, roles: user.roles ?? [] }, dto);
   }
 
   // ─── Contracts (Onda 14.24) ────────────────────────────────────

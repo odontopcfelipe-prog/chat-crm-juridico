@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 import { PatientAvatar } from '@/components/PatientAvatar';
 // Out/2026 — agenda + validação juntas: "Atendido" abre a confirmação com o que
 // foi feito (vai pro prontuário) e os procedimentos do plano executados.
@@ -46,6 +47,10 @@ const STATUSES = [
 
 const STATUS_BY_ID: Record<string, { id: string; label: string; color: string }> =
   Object.fromEntries(STATUSES.map((s) => [s.id, s]));
+
+// Fase 0 — consulta já validada: Faltou/Desmarcou/Adiado só o ADMIN (a API barra com 403;
+// aqui só não oferece o botão).
+const STATUS_TRAVADOS_VALIDADA = ['NO_SHOW', 'CANCELADO', 'ADIADO'];
 
 // Tipos de atendimento de PACIENTE (bloqueio/tarefa/outro não entram na lista).
 // Mesma lista de AGENDA_PATIENT_TYPES (agenda-flags) — repetida aqui de propósito
@@ -116,6 +121,11 @@ function hhmm(iso: string | null | undefined): string {
 
 export default function MinhaAgendaPage() {
   const router = useRouter();
+  const role = useRole();
+  // Fase 0 — mesmo critério da API: ADMIN ou SUPER_ADMIN passa a trava pós-validação.
+  const souAdmin = role.isAdmin || role.isSuperAdmin;
+  const travado = (ev: AgendaEvent, statusId: string) =>
+    !!ev.validated_at && !souAdmin && statusId !== ev.status && STATUS_TRAVADOS_VALIDADA.includes(statusId);
   const [day, setDay] = useState<string>(() => maceioTodayStr());
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,9 +220,10 @@ export default function MinhaAgendaPage() {
       // Falta/desmarcou não precisa confirmar: sai da lista de pendentes.
       if (['NO_SHOW', 'CANCELADO'].includes(status)) setPendentes((l) => l.filter((e) => e.id !== ev.id));
       toast.success(`${STATUS_BY_ID[status]?.label ?? status} ✓`, { id: `st-${ev.id}` });
-    } catch {
+    } catch (e: any) {
       patchLocal(ev.id, { status: prev });
-      toast.error('Não consegui salvar. Tente de novo.');
+      // Fase 0 — mostra o motivo da API (ex.: consulta validada só o admin marca Faltou).
+      toast.error(e?.response?.data?.message || 'Não consegui salvar. Tente de novo.');
     } finally {
       setSavingId(null);
     }
@@ -433,13 +444,15 @@ export default function MinhaAgendaPage() {
                       </button>
                       <button
                         type="button"
-                        disabled={busy || isNoShow}
+                        disabled={busy || isNoShow || travado(ev, 'NO_SHOW')}
                         onClick={() => setStatus(ev, 'NO_SHOW')}
-                        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-semibold border transition-colors disabled:cursor-default"
+                        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-semibold border transition-colors disabled:cursor-default disabled:opacity-60"
                         style={isNoShow
                           ? { background: STATUS_BY_ID.NO_SHOW.color, color: '#fff', borderColor: STATUS_BY_ID.NO_SHOW.color }
                           : { color: STATUS_BY_ID.NO_SHOW.color, borderColor: `${STATUS_BY_ID.NO_SHOW.color}66` }}
-                        title="Marcar que o paciente faltou"
+                        title={travado(ev, 'NO_SHOW')
+                          ? 'Atendimento já validado — só o administrador marca Faltou'
+                          : 'Marcar que o paciente faltou'}
                       >
                         <X size={15} /> Faltou
                       </button>
@@ -463,8 +476,10 @@ export default function MinhaAgendaPage() {
                               <button
                                 key={s.id}
                                 type="button"
+                                disabled={travado(ev, s.id)}
+                                title={travado(ev, s.id) ? 'Atendimento já validado — só o administrador' : undefined}
                                 onClick={() => (s.id === 'CONCLUIDO' ? pedirAtendido(ev) : setStatus(ev, s.id))}
-                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent ${s.id === ev.status ? 'font-bold' : ''}`}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent ${s.id === ev.status ? 'font-bold' : ''}`}
                               >
                                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
                                 {s.label}

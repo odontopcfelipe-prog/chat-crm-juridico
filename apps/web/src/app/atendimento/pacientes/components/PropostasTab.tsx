@@ -26,6 +26,7 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { useSocketEvent } from '@/lib/SocketProvider';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
@@ -1128,6 +1129,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     invoice_url?: string | null;
     /** Onda 14.11 — true quando backend retornou cobranca ja existente */
     is_existing?: boolean;
+    /** Fase 0 — recebimento na hora (cartão na maquineta/espécie): ok = já lançado no caixa */
+    receipt?: { ok?: boolean } | null;
   }
   const [approveBillOpen, setApproveBillOpen] = useState(false);
   const [approveBillResult, setApproveBillResult] = useState<ApproveAndBillResult | null>(null);
@@ -10297,6 +10300,7 @@ function ApproveBillResultDialog({
     boleto?: { url: string; barcode: string | null } | null;
     invoice_url?: string | null;
     is_existing?: boolean;
+    receipt?: { ok?: boolean } | null;
   };
   onClose: () => void;
 }) {
@@ -10307,7 +10311,13 @@ function ApproveBillResultDialog({
   // recebimento num clique → lança o total no caixa como cartão.
   const cartaoAReceber = result.billing_type === 'CREDIT_CARD' && !result.invoice_url;
   const [confirmingCartao, setConfirmingCartao] = useState(false);
-  const [cartaoConfirmed, setCartaoConfirmed] = useState(false);
+  // Fase 0 — o approve-and-bill com cartão já recebe na hora (receipt.ok): abre direto
+  // como confirmado. Confirmar à mão fica só pra quem opera caixa/financeiro.
+  const jaRecebido = result.receipt?.ok === true;
+  const [cartaoConfirmed, setCartaoConfirmed] = useState(jaRecebido);
+  const { isAdmin, isSuperAdmin } = useRole();
+  const { hasPermission } = useUserPermissions();
+  const podeConfirmarCartao = isAdmin || isSuperAdmin || hasPermission('operate_cash') || hasPermission('manage_financial');
   const confirmarCartao = async () => {
     if (!result.charge?.id) return;
     setConfirmingCartao(true);
@@ -10482,15 +10492,21 @@ function ApproveBillResultDialog({
                   <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
                     Entrou como <strong>a receber</strong> (sem Asaas). Passe o cartão na maquineta e confirme o recebimento — cai no caixa como cartão. Dá pra confirmar depois no Financeiro do paciente também.
                   </p>
-                  <button
-                    type="button"
-                    onClick={confirmarCartao}
-                    disabled={confirmingCartao}
-                    className="inline-flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
-                  >
-                    {confirmingCartao ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={2.5} />}
-                    Confirmar recebimento
-                  </button>
+                  {podeConfirmarCartao ? (
+                    <button
+                      type="button"
+                      onClick={confirmarCartao}
+                      disabled={confirmingCartao}
+                      className="inline-flex items-center gap-2 text-sm font-bold px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
+                    >
+                      {confirmingCartao ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={2.5} />}
+                      Confirmar recebimento
+                    </button>
+                  ) : (
+                    <p className="text-xs font-semibold text-foreground">
+                      O Caixa/Financeiro confirma o recebimento em Cobranças.
+                    </p>
+                  )}
                 </>
               )}
             </div>

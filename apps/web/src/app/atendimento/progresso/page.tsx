@@ -597,6 +597,7 @@ export default function ProgressoPage() {
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
                       onToggleStandby={() => toggleStandby(c)}
+                      canFinalize={role.isAdmin || role.isSuperAdmin}
                       onFinalize={() => setFinalizeTarget({ patientId: c.patient.id, patientName: c.patient.name || 'Paciente', planIds: c.plan_ids || [], nextAppointmentAt: c.next_appointment_at })}
                     />
                   ))
@@ -670,13 +671,15 @@ function KpiCard({
 // ─── Card ───────────────────────────────────────────────────────────────────
 
 function JourneyCardItem({
-  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist, onToggleStandby, onFinalize,
+  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist, onToggleStandby, canFinalize, onFinalize,
 }: {
   card: JourneyCard;
   onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
   dentists: Dentist[];
   onSetDentist: (d: Dentist | null) => void;
   onToggleStandby: () => void;
+  /** Fase 0 — ✓ Finalizar (decide quem fez cada procedimento) é só do ADMIN. */
+  canFinalize: boolean;
   onFinalize: () => void;
 }) {
   const closeDate = formatCloseDate(c.accepted_at);
@@ -743,7 +746,7 @@ function JourneyCardItem({
             {c.standby ? <Play size={13} /> : <Pause size={13} />}
           </button>
         )}
-        {c.stage !== 'CONCLUIDO' && (c.plan_ids?.length ?? 0) > 0 && (
+        {canFinalize && c.stage !== 'CONCLUIDO' && (c.plan_ids?.length ?? 0) > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); onFinalize(); }}
             className="shrink-0 p-1 rounded text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
