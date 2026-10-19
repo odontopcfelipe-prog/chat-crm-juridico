@@ -16,12 +16,6 @@ import {
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
-import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
-import { ThemeMenuButton } from '@/components/ThemeMenuButton';
-// Onda 5c (Fase 25) — NotificationToggle removido da sidebar (duplicava o
-// NotificationCenter). Toggle DND continua disponivel dentro do popover do
-// Center quando user clica no sininho.
-// import { NotificationToggle } from '@/components/NotificationToggle';
 import { useRole } from '@/lib/useRole';
 // Onda 17.32.120 — Filtra sidebar pelas permissoes do setor + overrides
 import { useUserPermissions } from '@/lib/useUserPermissions';
@@ -1251,30 +1245,11 @@ export function Sidebar() {
           legibilidade ou usabilidade do toque. */}
       <div className="mt-auto flex flex-col gap-0.5 w-full px-2 pt-2 border-t border-primary-foreground/20">
 
-        {/* ─── Notificações + Aparência (+ conta com a barra recolhida) ───
-            Voltaram pra cá quando a barra do topo saiu (pedido: "não usamos
-            essa barra"). Recolhida, o card de nome/conta some — o ícone de
-            conta abre o mesmo menu (Meu perfil / Trocar de usuário / Sair). */}
-        <div className={`w-full flex items-center rounded-lg py-1 bg-card text-foreground ${expanded ? 'gap-1 px-1.5' : 'flex-col gap-0.5'}`}>
-          <NotificationCenter />
-          <ThemeMenuButton variant="icon" />
-          {!expanded && (
-            <button
-              ref={userBtnRef}
-              type="button"
-              onClick={() => setShowUserMenu(v => !v)}
-              title="Conta (perfil, trocar de usuário, sair)"
-              aria-label="Menu da conta"
-              aria-expanded={showUserMenu}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-            >
-              <LogOut size={14} />
-            </button>
-          )}
-        </div>
+        {/* Notificações + Aparência saíram do rodapé (pedido: "não usamos e só
+            está tomando espaço"). O tema segue em Configurações › Notificações (seção Aparência). */}
 
         {/* ─── Avatar do usuário (card branco) ─── */}
-        <div className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
+        <div className={`w-full flex items-center rounded-lg px-2 py-1.5 bg-card text-foreground ${expanded ? 'gap-2' : 'flex-col gap-1'}`}>
           {/* Input de arquivo oculto */}
           <input
             ref={avatarFileRef}
@@ -1334,6 +1309,22 @@ export function Sidebar() {
               </>
             )}
           </button>
+
+          {/* Recolhida, o card de nome/conta some — este ícone abre o mesmo
+              menu (Meu perfil / Trocar de usuário / Sair). */}
+          {!expanded && (
+            <button
+              ref={userBtnRef}
+              type="button"
+              onClick={() => setShowUserMenu(v => !v)}
+              title="Conta (perfil, trocar de usuário, sair)"
+              aria-label="Menu da conta"
+              aria-expanded={showUserMenu}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+            >
+              <LogOut size={14} />
+            </button>
+          )}
 
           {expanded && (
             // Onda 17.32.100 — Botao do menu de USUARIO (Sair / Trocar / Perfil).
@@ -1402,8 +1393,6 @@ export function Sidebar() {
         </div>,
         document.body
       )}
-
-      {/* Tema: o popup é o do ThemeMenuButton (variant="icon", no rodapé acima). */}
 
       {/* ─── Menu de avatar (portal) ─────────────────────────────────── */}
       {mounted && showAvatarMenu && avatarBtnRef.current && createPortal(
