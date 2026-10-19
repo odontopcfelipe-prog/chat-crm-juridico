@@ -142,6 +142,8 @@ model Tenant {
   affiliate_withdrawals       AffiliateWithdrawal[]
   // E-mails automaticos (Onda 17.32.181)
   email_templates             TenantEmailTemplate[]
+  // Relógio de ponto (out/2026)
+  time_clock_punches          TimeClockPunch[]
 }
 
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
@@ -1608,6 +1610,44 @@ model CashAccount {
   transactions FinancialTransaction[]
 
   @@index([tenant_id, active])
+}
+
+/// Relógio de ponto (out/2026) — uma linha por batida. `punched_at` é o INSTANTE
+/// real (UTC de verdade, hora do SERVIDOR: o aparelho não escolhe a hora). Entrada/
+/// saída não é gravada: sai da ordem das batidas no dia de Maceió (1ª entrada, 2ª
+/// saída, 3ª entrada...) — ver apps/api/src/ponto/ponto-calc.ts. Batida nunca é
+/// apagada: o gestor ANULA (voided_*, com motivo) e/ou lança uma MANUAL com
+/// justificativa. Sem FK pro User de propósito: excluir o usuário não pode levar o
+/// registro de ponto junto (guarda legal) — `user_name` é o retrato do nome.
+model TimeClockPunch {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  user_id    String
+  user_name  String
+  punched_at DateTime
+  source     String   @default("APP") // APP | MANUAL
+
+  // Localização no momento da batida (navegador). null = sem GPS/sem permissão.
+  latitude   Float?
+  longitude  Float?
+  accuracy_m Float?
+  distance_m Float? // até o local da clínica (quando configurado)
+  /// NO_LOCAL | FORA | SEM_GPS | SEM_REF (clínica sem local) | REDE_CLINICA | MANUAL
+  geo_status String   @default("SEM_GPS")
+  ip         String?
+  user_agent String?
+
+  note          String? // justificativa da batida manual
+  created_by_id String? // quem lançou (manual = gestor)
+  voided_at     DateTime?
+  voided_by_id  String?
+  void_reason   String?
+  created_at    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, user_id, punched_at])
+  @@index([tenant_id, punched_at])
 }
 
 /// O "caixa do dia" — 1 por tenant por data. Recepção abre (implícito no 1º

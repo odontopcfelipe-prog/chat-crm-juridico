@@ -50,6 +50,7 @@ import { AdminBotModule } from './admin-bot/admin-bot.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { PayablesModule } from './payables/payables.module';
 import { CaixaModule } from './caixa/caixa.module';
+import { PontoModule } from './ponto/ponto.module';
 import { PaymentGatewayModule } from './payment-gateway/payment-gateway.module';
 import { NotaFiscalModule } from './nota-fiscal/nota-fiscal.module';
 import { MemoriesModule } from './memories/memories.module';
@@ -152,6 +153,8 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     FinanceiroModule,
     PayablesModule,
     CaixaModule,
+    // Relógio de ponto (bater com GPS + espelho + ajustes do gestor). Só Prisma.
+    PontoModule,
     PaymentGatewayModule,
     NotaFiscalModule,
     NotificationSettingsModule,

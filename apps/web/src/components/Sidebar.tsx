@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog, Route,
+  User, UserCog, Route, Clock,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -529,6 +529,14 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/caixa'),
       show: hasPermission('operate_cash'),
     },
+    // Relógio de ponto — todo mundo bate; quem gerencia usuários vê a equipe lá dentro.
+    ponto: {
+      label: 'Ponto',
+      href: '/atendimento/ponto',
+      icon: <Clock size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/ponto'),
+      show: true,
+    },
     // Onda 17.32.88 — Atalho pro admin SaaS. So aparece se SUPER_ADMIN.
     adminTenants: {
       label: 'Admin SaaS',
@@ -860,6 +868,7 @@ export function Sidebar() {
       items: [
         allItems.vendaRapida,  // Venda rápida (balcão)
         allItems.caixa,        // Onda 18.x — Caixa do dia
+        allItems.ponto,        // Relógio de ponto
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
       ].filter(i => i.show),

@@ -16,7 +16,7 @@ import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search, Clock,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -313,6 +313,8 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   const allMoreItems = [
     { label: 'Dashboard', href: '/atendimento/dashboard', icon: LayoutDashboard, match: (p: string) => p.startsWith('/atendimento/dashboard'), show: perms.canViewDashboard },
+    // Relógio de ponto — todo mundo bate (no celular é o caminho mais comum).
+    { label: 'Ponto', href: '/atendimento/ponto', icon: Clock, match: (p: string) => p.startsWith('/atendimento/ponto'), show: true },
     { label: 'Agenda & Tarefas', href: '/atendimento/agenda', icon: Calendar, match: (p: string) => p.startsWith('/atendimento/agenda') || p.startsWith('/atendimento/tasks'), badge: overdueCount, show: true },
     { label: 'Marketing', href: '/atendimento/marketing/analytics', icon: Megaphone, match: (p: string) => p.startsWith('/atendimento/marketing'), show: perms.canViewAnalytics },
     { label: 'Ajustes', href: '/atendimento/settings', icon: Settings, match: (p: string) => p.startsWith('/atendimento/settings'), show: perms.canManageSettings },
