@@ -114,6 +114,9 @@ const CLINIC_RECEIVED_METHOD: Record<string, string> = {
 };
 const isClinicReceived = (t: BillingType) =>
   t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX' || t === 'CLINIC_PIX_MAQ';
+// Mesmos tetos do VendaBalcaoDto (@ArrayMaxSize) — POST /venda-rapida/balcao.
+const MAX_ITENS_BALCAO = 60;
+const MAX_FORMAS_BALCAO = 6;
 
 // Onda 18.x — DIVIDIR EM VÁRIAS FORMAS: quando o paciente paga misturando (ex.: PIX +
 // espécie), cada linha vira uma RECEITA na conta certa do caixa. Formas oferecidas no
@@ -431,8 +434,9 @@ export default function VendaRapidaPage() {
   const total = subtotal;
   // Onda 18.x — split de 2 cartões: cartão 2 = restante; soma sempre = total.
   const card2Value = Math.round(Math.max(0, total - card1.value) * 100) / 100;
-  // Só valida o split quando é Maquineta COM 2º cartão ativo.
-  const isSplit = billingType === 'CLINIC_CARD' && split2;
+  // Só valida o split quando é Maquineta COM 2º cartão ativo — e não no modo "várias
+  // formas" (senão um Cartão 1 velho maior que o total travava o Finalizar sem aviso).
+  const isSplit = !mixMode && billingType === 'CLINIC_CARD' && split2;
   const splitOk = !isSplit || (card1.value > 0 && card1.value < total);
   // Dividir em várias formas: soma das linhas tem que bater com o total (2+ linhas, valores > 0).
   const mixSum = Math.round(mixLines.reduce((s, l) => s + (Number(l.value) || 0), 0) * 100) / 100;
@@ -462,6 +466,13 @@ export default function VendaRapidaPage() {
     }
     if (mixMode && !mixOk) {
       showError(`Dividir em várias formas: a soma das formas (R$ ${mixSum.toFixed(2)}) tem que ser igual ao total (R$ ${total.toFixed(2)}).`);
+      return;
+    }
+    // Limites do servidor (VendaBalcaoDto) na venda recebida na clínica: avisa aqui em
+    // português em vez do 400 cru do ValidationPipe. Cada dente conta 1 item.
+    const qtdItens = cart.reduce((n, it) => n + (it.toothFdis.length > 0 ? it.toothFdis.length : 1), 0);
+    if ((mixMode || isClinicReceived(billingType)) && qtdItens > MAX_ITENS_BALCAO) {
+      showError(`A venda rápida aceita até ${MAX_ITENS_BALCAO} itens (cada dente conta 1) — este carrinho tem ${qtdItens}. Divida em duas vendas.`);
       return;
     }
     // PIX online sem conta Asaas própria: barra aqui (o backend barra de novo).
@@ -1205,10 +1216,14 @@ export default function VendaRapidaPage() {
                 </div>
               ))}
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setMixLines((ls) => [...ls, { method: 'DINHEIRO', value: 0 }])}
-                  className="flex-1 py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
-                  + Adicionar forma
-                </button>
+                {mixLines.length < MAX_FORMAS_BALCAO ? (
+                  <button type="button" onClick={() => setMixLines((ls) => [...ls, { method: 'DINHEIRO', value: 0 }])}
+                    className="flex-1 py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
+                    + Adicionar forma
+                  </button>
+                ) : (
+                  <span className="flex-1 py-1.5 text-center text-[11px] text-muted-foreground">Máximo de {MAX_FORMAS_BALCAO} formas</span>
+                )}
                 {Math.abs(mixSum - total) >= 0.01 && total > 0 && (
                   <button type="button"
                     onClick={() => setMixLines((ls) => {
