@@ -42,20 +42,26 @@ export const CAMPANHA_TETO_DIA = 120; // envios de campanha por clínica por dia
 export const CAMPANHA_HORA_INICIO = 9; // 9:00 Maceió
 export const CAMPANHA_HORA_FIM = 18; // até 17:59
 
-export type CampanhaMidiaTipo = 'image' | 'audio';
+export type CampanhaMidiaTipo = 'image' | 'audio' | 'video';
 
 export const CAMPANHA_MIDIA_LIMITE_BYTES: Record<CampanhaMidiaTipo, number> = {
   image: 5 * 1024 * 1024,
   audio: 16 * 1024 * 1024,
+  video: 16 * 1024 * 1024, // limite do WhatsApp pra vídeo
 };
 
 const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const AUDIO_MIME_RE = /^audio\/(mpeg|mp3|ogg|opus|mp4|m4a|x-m4a|aac|wav|x-wav|webm)$/;
 
-/** Tipo do anexo pelo MIME (null = não aceito). Vídeo/documento ficam de fora de propósito. */
+/**
+ * Tipo do anexo pelo MIME (null = não aceito). Vídeo só em MP4 — é o que toca em qualquer
+ * celular pelo WhatsApp (o .MOV do iPhone não: exportar/compartilhar como MP4). Documento
+ * fica de fora de propósito.
+ */
 export function campanhaMidiaTipo(mime: string | null | undefined): CampanhaMidiaTipo | null {
   const m = (mime || '').toLowerCase().split(';')[0].trim();
   if (IMAGE_MIMES.includes(m)) return 'image';
+  if (m === 'video/mp4') return 'video';
   if (AUDIO_MIME_RE.test(m) || m === 'video/webm') return 'audio'; // gravação do navegador sai como video/webm
   return null;
 }
@@ -103,13 +109,14 @@ export function normalizarFiltros(f: any): CampanhaFiltros {
 export type PassoEnvio =
   | { tipo: 'texto'; texto: string }
   | { tipo: 'image'; midiaId: string; legenda?: string }
+  | { tipo: 'video'; midiaId: string; legenda?: string }
   | { tipo: 'audio'; midiaId: string };
 
 /**
  * Ordem das bolhas pra UM paciente:
- *  - com foto e texto curto → a 1ª foto leva o texto como legenda (1 bolha), depois as
- *    outras fotos, depois os áudios;
- *  - texto longo (ou sem foto) → texto primeiro, depois fotos, depois áudios.
+ *  - com foto/vídeo e texto curto → o 1º (na ordem dos anexos) leva o texto como legenda
+ *    (1 bolha), depois as outras fotos/vídeos, depois os áudios;
+ *  - texto longo (ou sem foto/vídeo) → texto primeiro, depois fotos/vídeos, depois áudios.
  * Áudio sai como mensagem de voz (não tem legenda) — por isso fica por último, depois
  * do texto que dá o contexto.
  */
@@ -118,13 +125,15 @@ export function planejarEnvio(
   midias: { id: string; tipo: CampanhaMidiaTipo; posicao?: number }[],
 ): PassoEnvio[] {
   const ord = [...midias].sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0));
-  const imagens = ord.filter((m) => m.tipo === 'image');
+  const visuais = ord.filter((m) => m.tipo === 'image' || m.tipo === 'video');
   const audios = ord.filter((m) => m.tipo === 'audio');
   const t = (texto || '').trim();
   const passos: PassoEnvio[] = [];
-  const legendaNaFoto = !!t && imagens.length > 0 && t.length <= CAMPANHA_MAX_LEGENDA;
-  if (t && !legendaNaFoto) passos.push({ tipo: 'texto', texto: t });
-  imagens.forEach((m, i) => passos.push({ tipo: 'image', midiaId: m.id, ...(i === 0 && legendaNaFoto ? { legenda: t } : {}) }));
+  const legendaNoVisual = !!t && visuais.length > 0 && t.length <= CAMPANHA_MAX_LEGENDA;
+  if (t && !legendaNoVisual) passos.push({ tipo: 'texto', texto: t });
+  visuais.forEach((m, i) =>
+    passos.push({ tipo: m.tipo as 'image' | 'video', midiaId: m.id, ...(i === 0 && legendaNoVisual ? { legenda: t } : {}) }),
+  );
   audios.forEach((m) => passos.push({ tipo: 'audio', midiaId: m.id }));
   return passos;
 }

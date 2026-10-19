@@ -32,16 +32,32 @@ describe('campanha manual — regras puras', () => {
     expect(planejarEnvio('Oi', [])).toEqual([{ tipo: 'texto', texto: 'Oi' }]);
     expect(planejarEnvio('  ', [{ id: 'f1', tipo: 'image' }])).toEqual([{ tipo: 'image', midiaId: 'f1' }]);
     expect(planejarEnvio('', [])).toEqual([]);
+    // vídeo entra junto com as fotos (na ordem anexada) e pode levar a legenda
+    expect(planejarEnvio('Oi!', [
+      { id: 'a1', tipo: 'audio', posicao: 0 },
+      { id: 'v1', tipo: 'video', posicao: 1 },
+      { id: 'f1', tipo: 'image', posicao: 2 },
+    ])).toEqual([
+      { tipo: 'video', midiaId: 'v1', legenda: 'Oi!' },
+      { tipo: 'image', midiaId: 'f1' },
+      { tipo: 'audio', midiaId: 'a1' },
+    ]);
+    expect(planejarEnvio(longo, [{ id: 'v1', tipo: 'video' }])).toEqual([
+      { tipo: 'texto', texto: longo },
+      { tipo: 'video', midiaId: 'v1' },
+    ]);
   });
 
-  it('anexos aceitos: fotos e áudio (gravação do navegador inclusa); vídeo/documento não', () => {
+  it('anexos aceitos: fotos, vídeo MP4 e áudio (gravação do navegador inclusa); .MOV/documento não', () => {
     expect(campanhaMidiaTipo('image/jpeg')).toBe('image');
     expect(campanhaMidiaTipo('image/png')).toBe('image');
     expect(campanhaMidiaTipo('audio/ogg; codecs=opus')).toBe('audio');
     expect(campanhaMidiaTipo('audio/mpeg')).toBe('audio');
     expect(campanhaMidiaTipo('audio/x-m4a')).toBe('audio');
     expect(campanhaMidiaTipo('video/webm')).toBe('audio');
-    expect(campanhaMidiaTipo('video/mp4')).toBeNull();
+    expect(campanhaMidiaTipo('video/mp4')).toBe('video');
+    expect(campanhaMidiaTipo('VIDEO/MP4; codecs=avc1')).toBe('video');
+    expect(campanhaMidiaTipo('video/quicktime')).toBeNull(); // .MOV do iPhone
     expect(campanhaMidiaTipo('application/pdf')).toBeNull();
     expect(campanhaMidiaTipo('image/gif')).toBeNull();
   });

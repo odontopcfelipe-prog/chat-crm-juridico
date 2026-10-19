@@ -26,11 +26,14 @@ export function isDisparoComAnexo(id: string | null | undefined): boolean {
 }
 
 export const DISPARO_ANEXO_MAX = 2;
-/** Guardado no banco: menor que na campanha manual. */
+/** Guardado no banco: menor que na campanha manual (vídeo também, pelo peso no banco). */
 export const DISPARO_ANEXO_LIMITE_BYTES: Record<CampanhaMidiaTipo, number> = {
   image: 3 * 1024 * 1024,
   audio: 5 * 1024 * 1024,
+  video: 10 * 1024 * 1024,
 };
+/** Anexos acima disso não ficam no cache em memória (API/worker) — lidos do banco a cada envio. */
+export const DISPARO_ANEXO_CACHE_MAX_BYTES = 6 * 1024 * 1024;
 export const disparoAnexoTipo = campanhaMidiaTipo;
 
 /** Card da Central do lembrete clínico pela antecedência (mesmas faixas do EventReminder). */
@@ -46,7 +49,7 @@ export function lembreteIdFor(minutesBefore: number, comercial: boolean): string
   return comercial ? comercialLembreteIdFor(minutesBefore) : lembreteClinicoIdFor(minutesBefore);
 }
 
-/** Ordem de envio depois do texto: fotos primeiro, áudio por último (mensagem de voz). */
+/** Ordem de envio depois do texto: fotos e vídeos (na ordem anexada), áudio por último (voz). */
 export function ordenarAnexos<T extends { kind: string; position: number }>(anexos: T[]): T[] {
   return [...anexos].sort(
     (a, b) => Number(a.kind === 'audio') - Number(b.kind === 'audio') || a.position - b.position,

@@ -163,6 +163,23 @@ describe('Campanha manual — motor', () => {
     expect(b.logs[0]).toMatchObject({ type: 'campanha_manual', status: 'SENT', ref_patient_id: 'P1', tenant_id: T });
   });
 
+  it('vídeo MP4: sai com o texto de legenda pelo chip do setor, com prazo maior; .MOV e grande demais são recusados', async () => {
+    const b = banco();
+    const c = await b.svc.criar(T, 'U1', { setor: 'CLINICA', text: 'Oi, {nome}!' });
+    const video = { buffer: Buffer.from('v'), mimetype: 'video/mp4', size: 10, originalname: 'clinica.mp4' };
+    await expect(b.svc.anexar(T, c.id, { ...video, mimetype: 'video/quicktime', originalname: 'iphone.mov' })).rejects.toThrow(/MP4/);
+    await expect(b.svc.anexar(T, c.id, { ...video, size: 17 * 1024 * 1024 })).rejects.toThrow(/Vídeo muito grande/);
+    await b.svc.anexar(T, c.id, video);
+    expect(b.midias[0]).toMatchObject({ kind: 'video', mime_type: 'video/mp4', file_path: expect.stringMatching(/\.mp4$/) });
+    await b.svc.iniciar(T, c.id, null);
+    await b.envio.rodar(AGORA);
+    expect(b.enviados.map((e) => e.tipo)).toEqual(['video']);
+    expect(b.enviados[0]).toMatchObject({ para: '82999990001', chip: 'clin', conteudo: 'Oi, Ana!' });
+    const call = (b.whatsapp.sendMedia as jest.Mock).mock.calls[0];
+    expect(call.slice(5, 9)).toEqual(['clinica.mp4', 'video/mp4', 120000, T]);
+    expect(b.itens.find((i) => i.patient_id === 'P1')?.status).toBe('ENVIADO');
+  });
+
   it('não é a vez do chip / fora do horário / feriado / teto → não envia', async () => {
     for (const over of [{ vez: false }, { feriado: true }, { enviadosHoje: 120 }]) {
       const b = banco(over);

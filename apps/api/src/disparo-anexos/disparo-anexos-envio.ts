@@ -2,7 +2,7 @@
 // Funções simples (sem injeção Nest): quem já envia o texto passa o próprio prisma e
 // whatsapp. NUNCA lança: falha num anexo não pode desfazer nem repetir o texto.
 import { Logger } from '@nestjs/common';
-import { ordenarAnexos } from '@crm/shared';
+import { DISPARO_ANEXO_CACHE_MAX_BYTES, ordenarAnexos } from '@crm/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { WhatsappService } from '../whatsapp/whatsapp.service';
 import { wasSent } from '../whatsapp/envio-resultado';
@@ -16,6 +16,7 @@ export type AnexoCarregado = { id: string; kind: string; mime_type: string; orig
 const cache = new Map<string, { at: number; anexos: AnexoCarregado[] }>();
 const chave = (tenantId: string, disparoId: string) => `${tenantId}|${disparoId}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const rotulo = (kind: string) => (kind === 'audio' ? 'áudio' : kind === 'video' ? 'vídeo' : 'foto');
 
 /** Anexos do card nesta clínica (cache curto; a tela limpa o cache ao mudar). */
 export async function anexosDoDisparo(prisma: PrismaService, tenantId: string, disparoId: string): Promise<AnexoCarregado[]> {
@@ -29,8 +30,12 @@ export async function anexosDoDisparo(prisma: PrismaService, tenantId: string, d
   const anexos = ordenarAnexos(
     rows.map((r) => ({ id: r.id, kind: r.kind, mime_type: r.mime_type, original_name: r.original_name, position: r.position, b64: Buffer.from(r.data).toString('base64') })),
   );
-  if (cache.size > 300) cache.clear();
-  cache.set(k, { at: Date.now(), anexos });
+  // Teto de memória: anexo grande (vídeo) não fica no cache — volta do banco a cada envio.
+  const bytes = anexos.reduce((n, a) => n + a.b64.length, 0);
+  if (bytes <= (DISPARO_ANEXO_CACHE_MAX_BYTES * 4) / 3) { // base64 = 4/3 dos bytes
+    if (cache.size > 100) cache.clear();
+    cache.set(k, { at: Date.now(), anexos });
+  }
   return anexos;
 }
 
@@ -56,12 +61,14 @@ export async function enviarAnexosDoDisparo(
       try {
         res = a.kind === 'audio'
           ? await whatsapp.sendMedia(p.phone, 'audio', a.b64, undefined, p.instance, undefined, a.mime_type, 90000, p.tenantId)
-          : await whatsapp.sendMedia(p.phone, 'image', a.b64, '', p.instance, a.original_name || undefined, a.mime_type, 60000, p.tenantId);
+          : a.kind === 'video'
+            ? await whatsapp.sendMedia(p.phone, 'video', a.b64, '', p.instance, a.original_name || undefined, a.mime_type, 120000, p.tenantId)
+            : await whatsapp.sendMedia(p.phone, 'image', a.b64, '', p.instance, a.original_name || undefined, a.mime_type, 60000, p.tenantId);
       } catch (e: any) {
         res = { error: e?.message || 'erro' };
       }
       if (wasSent(res)) out.enviados++;
-      else out.falhas.push(`${a.kind === 'audio' ? 'áudio' : 'foto'}: ${String(res?.error || 'falhou').slice(0, 120)}`);
+      else out.falhas.push(`${rotulo(a.kind)}: ${String(res?.error || 'falhou').slice(0, 120)}`);
     }
     if (out.falhas.length) logger.warn(`[ANEXOS] ${p.disparoId} (clínica ${p.tenantId}): ${out.falhas.join('; ')}`);
   } catch (e: any) {

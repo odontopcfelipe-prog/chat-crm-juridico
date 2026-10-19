@@ -4,7 +4,7 @@
 // não pode marcar o texto como falho nem fazer reenviar.
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
-import { ordenarAnexos, toBrazilWhatsappNumber } from '@crm/shared';
+import { DISPARO_ANEXO_CACHE_MAX_BYTES, ordenarAnexos, toBrazilWhatsappNumber } from '@crm/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 
 const logger = new Logger('DisparoAnexos');
@@ -14,6 +14,7 @@ const PAUSA_ENTRE_BOLHAS_MS = 1200;
 type Anexo = { id: string; kind: string; mime_type: string; original_name: string | null; position: number; b64: string };
 const cache = new Map<string, { at: number; anexos: Anexo[] }>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const rotulo = (kind: string) => (kind === 'audio' ? 'áudio' : kind === 'video' ? 'vídeo' : 'foto');
 
 async function anexosDoDisparo(prisma: PrismaService, tenantId: string, disparoId: string): Promise<Anexo[]> {
   const k = `${tenantId}|${disparoId}`;
@@ -26,8 +27,12 @@ async function anexosDoDisparo(prisma: PrismaService, tenantId: string, disparoI
   const anexos = ordenarAnexos(
     rows.map((r) => ({ id: r.id, kind: r.kind, mime_type: r.mime_type, original_name: r.original_name, position: r.position, b64: Buffer.from(r.data).toString('base64') })),
   );
-  if (cache.size > 300) cache.clear();
-  cache.set(k, { at: Date.now(), anexos });
+  // Teto de memória: anexo grande (vídeo) não fica no cache — volta do banco a cada envio.
+  const bytes = anexos.reduce((n, a) => n + a.b64.length, 0);
+  if (bytes <= (DISPARO_ANEXO_CACHE_MAX_BYTES * 4) / 3) { // base64 = 4/3 dos bytes
+    if (cache.size > 100) cache.clear();
+    cache.set(k, { at: Date.now(), anexos });
+  }
   return anexos;
 }
 
@@ -55,13 +60,13 @@ export async function enviarAnexosDoDisparoWorker(
           ? await axios.post(`${evo.apiUrl}/message/sendWhatsAppAudio/${p.instance}`, { number, audio: a.b64 }, { headers, timeout: 90000 })
           : await axios.post(
             `${evo.apiUrl}/message/sendMedia/${p.instance}`,
-            { number, mediatype: 'image', media: a.b64, mimetype: a.mime_type, caption: '', ...(a.original_name ? { fileName: a.original_name } : {}) },
-            { headers, timeout: 60000 },
+            { number, mediatype: a.kind === 'video' ? 'video' : 'image', media: a.b64, mimetype: a.mime_type, caption: '', ...(a.original_name ? { fileName: a.original_name } : {}) },
+            { headers, timeout: a.kind === 'video' ? 120000 : 60000 },
           );
         if (saiu(r?.data)) out.enviados++;
-        else out.falhas.push(`${a.kind === 'audio' ? 'áudio' : 'foto'}: resposta sem id`);
+        else out.falhas.push(`${rotulo(a.kind)}: resposta sem id`);
       } catch (e: any) {
-        out.falhas.push(`${a.kind === 'audio' ? 'áudio' : 'foto'}: ${String(e?.response?.status || e?.message || 'falhou').slice(0, 120)}`);
+        out.falhas.push(`${rotulo(a.kind)}: ${String(e?.response?.status || e?.message || 'falhou').slice(0, 120)}`);
       }
     }
     if (out.falhas.length) logger.warn(`[ANEXOS] ${p.disparoId} (clínica ${p.tenantId}): ${out.falhas.join('; ')}`);

@@ -25,6 +25,8 @@ const PAUSA_CHIP_CAIDO_MS = 30 * 60_000;
 const ENVIANDO_PRESO_MS = 15 * 60_000;
 const TENTATIVAS_POR_TICK = 5;
 const PAUSA_ENTRE_BOLHAS_MS = 1200;
+/** base64 até ~6 MB de arquivo fica no cache; acima (vídeo) é lido do disco a cada envio. */
+const CACHE_MIDIA_MAX_B64 = 8 * 1024 * 1024;
 export const DISPATCH_TYPE_CAMPANHA = 'campanha_manual';
 
 export type MidiaCampanha = { id: string; kind: string; file_path: string; mime_type: string; position: number; original_name: string | null };
@@ -293,7 +295,8 @@ export class CampanhasEnvioService {
     const hit = this.cacheMidia.get(m.id);
     if (hit) return hit;
     const b64 = (await this.files.read(m.file_path)).toString('base64');
-    this.cacheMidia.set(m.id, b64);
+    // Teto de memória: vídeo grande não fica no cache — relê do disco a cada paciente.
+    if (b64.length <= CACHE_MIDIA_MAX_B64) this.cacheMidia.set(m.id, b64);
     return b64;
   }
 
@@ -326,7 +329,9 @@ export class CampanhasEnvioService {
           const b64 = await this.base64Da(m);
           res = passo.tipo === 'image'
             ? await this.whatsapp.sendMedia(phone, 'image', b64, passo.legenda, chip, m.original_name || undefined, m.mime_type, 60000, tenantId)
-            : await this.whatsapp.sendMedia(phone, 'audio', b64, undefined, chip, undefined, m.mime_type, 90000, tenantId);
+            : passo.tipo === 'video'
+              ? await this.whatsapp.sendMedia(phone, 'video', b64, passo.legenda, chip, m.original_name || undefined, m.mime_type, 120000, tenantId)
+              : await this.whatsapp.sendMedia(phone, 'audio', b64, undefined, chip, undefined, m.mime_type, 90000, tenantId);
         }
       } catch (e: any) {
         res = { error: e?.message || 'erro', statusCode: e?.response?.status };
@@ -342,7 +347,7 @@ export class CampanhasEnvioService {
         out.saiu = true;
         out.externalId = res?.key?.id || res?.messageId || null;
       } else if (!ok) {
-        out.erros.push(`${passo.tipo === 'texto' ? 'texto' : passo.tipo === 'image' ? 'foto' : 'áudio'}: ${String(res?.error || 'falhou').slice(0, 120)}`);
+        out.erros.push(`${passo.tipo === 'texto' ? 'texto' : passo.tipo === 'image' ? 'foto' : passo.tipo === 'video' ? 'vídeo' : 'áudio'}: ${String(res?.error || 'falhou').slice(0, 120)}`);
       }
       if (i < passos.length - 1) await sleep(PAUSA_ENTRE_BOLHAS_MS);
     }

@@ -27,6 +27,23 @@ describe('anexos dos disparos — envio (worker)', () => {
     expect(post.mock.calls[1][1]).toMatchObject({ number: '5582999990001', audio: Buffer.from('a').toString('base64') });
   });
 
+  it('vídeo MP4 vai por sendMedia com mediatype video e prazo maior; falha aparece como vídeo', async () => {
+    post.mockResolvedValueOnce({ data: { key: { id: 'V' } } });
+    const video = { ...row('v', 'video', 0), mime_type: 'video/mp4', original_name: 'v.mp4' };
+    const r = await enviarAnexosDoDisparoWorker(prismaCom([video]), EVO, {
+      tenantId: 'T5', disparoId: 'confirmacao', phone: '82999990001', instance: 'clin',
+    });
+    expect(r).toEqual({ enviados: 1, falhas: [] });
+    expect(post.mock.calls[0][0]).toBe('http://evo/message/sendMedia/clin');
+    expect(post.mock.calls[0][1]).toMatchObject({ number: '5582999990001', mediatype: 'video', mimetype: 'video/mp4', fileName: 'v.mp4' });
+    expect(post.mock.calls[0][2].timeout).toBe(120000);
+    post.mockRejectedValueOnce(Object.assign(new Error('x'), { response: { status: 413 } }));
+    const r2 = await enviarAnexosDoDisparoWorker(prismaCom([video]), EVO, {
+      tenantId: 'T6', disparoId: 'confirmacao', phone: '82999990001', instance: 'clin',
+    });
+    expect(r2).toEqual({ enviados: 0, falhas: ['vídeo: 413'] });
+  });
+
   it('nunca lança (erro HTTP, sem config, sem anexo)', async () => {
     post.mockRejectedValue(Object.assign(new Error('x'), { response: { status: 500 } }));
     const r = await enviarAnexosDoDisparoWorker(prismaCom([row('f', 'image', 0)]), EVO, {

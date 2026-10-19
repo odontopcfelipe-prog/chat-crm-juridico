@@ -4646,7 +4646,7 @@ model ManualCampaign {
 model ManualCampaignMedia {
   id            String   @id @default(uuid())
   campaign_id   String
-  kind          String // image | audio
+  kind          String // image | audio | video
   file_path     String // relativo ao MEDIA_STORAGE_PATH (campanhas/<campanha>/<id>.<ext>)
   mime_type     String
   size          Int
@@ -4689,7 +4689,7 @@ model DisparoAnexo {
   id            String   @id @default(uuid())
   tenant_id     String
   disparo_id    String // id do card da Central (ex.: lembrete_1dia, retorno_limpeza_antes)
-  kind          String // image | audio
+  kind          String // image | audio | video
   mime_type     String
   size          Int
   original_name String?

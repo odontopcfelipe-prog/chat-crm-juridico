@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft, Plus, Loader2, Send, Pause, Play, X, Trash2, ImageIcon, Mic, Users, Megaphone, Save, Paperclip,
+  ArrowLeft, Plus, Loader2, Send, Pause, Play, X, Trash2, ImageIcon, Mic, Users, Megaphone, Save, Paperclip, Film,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -23,7 +23,7 @@ interface Resumo {
   sent_count: number; failed_count: number; skipped_count: number;
   scheduled_for: string | null; started_at: string | null; completed_at: string | null; created_at: string; pause_reason: string | null;
 }
-interface Midia { id: string; kind: 'image' | 'audio'; mime_type: string; size: number; original_name: string | null; position: number }
+interface Midia { id: string; kind: 'image' | 'audio' | 'video'; mime_type: string; size: number; original_name: string | null; position: number }
 interface Detalhe extends Resumo { text: string; filters_json: CampanhaFiltros | null; media: Midia[]; contagem: Record<string, number> }
 interface Previa {
   total: number; recebem: number; fora: { motivo: string; n: number }[]; amostra: { nome: string | null; telefone: string | null }[];
@@ -459,7 +459,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
         </div>
       </Bloco>
 
-      <Bloco titulo={`4. Fotos e áudio (até ${CAMPANHA_MAX_MIDIAS})`} icone={<Paperclip size={15} className="text-primary" />}>
+      <Bloco titulo={`4. Fotos, vídeos e áudio (até ${CAMPANHA_MAX_MIDIAS})`} icone={<Paperclip size={15} className="text-primary" />}>
         <div className="space-y-3">
           <div className="flex gap-3 flex-wrap">
             {c.media.map((m) => <AnexoCard key={m.id} campanhaId={c.id} m={m} onRemover={() => removerAnexo(m.id)} />)}
@@ -467,14 +467,14 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
               <button type="button" onClick={() => inputArquivo.current?.click()} disabled={enviandoArquivo}
                 className="w-32 h-32 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-[11px] text-muted-foreground hover:bg-accent/40 disabled:opacity-50">
                 {enviandoArquivo ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-                Foto ou áudio
+                Foto, vídeo ou áudio
               </button>
             )}
           </div>
           <input ref={inputArquivo} type="file" multiple className="hidden"
-            accept="image/jpeg,image/png,image/webp,audio/mpeg,audio/ogg,audio/mp4,audio/x-m4a,audio/aac,audio/wav,audio/webm"
+            accept="image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/ogg,audio/mp4,audio/x-m4a,audio/aac,audio/wav,audio/webm"
             onChange={(e) => anexar(e.target.files)} />
-          <p className="text-[11px] text-muted-foreground">Fotos JPG/PNG/WEBP até 5 MB · áudio MP3/OGG/M4A/WAV até 16 MB (chega como mensagem de voz).</p>
+          <p className="text-[11px] text-muted-foreground">Fotos JPG/PNG/WEBP até 5 MB · vídeo MP4 até 16 MB (o .MOV do iPhone: compartilhe como MP4) · áudio MP3/OGG/M4A/WAV até 16 MB (chega como mensagem de voz).</p>
         </div>
       </Bloco>
 
@@ -485,6 +485,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
               <div key={i} className="max-w-md rounded-xl bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs whitespace-pre-wrap">
                 {p.tipo === 'texto' && p.texto}
                 {p.tipo === 'image' && (<><div className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 mb-1"><ImageIcon size={12} /> Foto {c.media.filter((m) => m.kind === 'image').findIndex((m) => m.id === p.midiaId) + 1}</div>{p.legenda}</>)}
+                {p.tipo === 'video' && (<><div className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 mb-1"><Film size={12} /> Vídeo {c.media.filter((m) => m.kind === 'video').findIndex((m) => m.id === p.midiaId) + 1}</div>{p.legenda}</>)}
                 {p.tipo === 'audio' && <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400"><Mic size={12} /> Mensagem de voz</span>}
               </div>
             ))}
@@ -550,7 +551,9 @@ function AnexoCard({ campanhaId, m, onRemover }: { campanhaId: string; m: Midia;
   }, [campanhaId, m.id]);
   return (
     <div className="relative w-32 h-32 rounded-xl border border-border overflow-hidden bg-muted/30 flex items-center justify-center">
-      {m.kind === 'image'
+      {m.kind === 'video'
+        ? (url ? <video src={url} controls muted playsInline className="w-full h-full object-cover bg-black" /> : <Film size={20} className="text-muted-foreground" />)
+        : m.kind === 'image'
         ? (url ? <img src={url} alt={m.original_name || 'foto'} className="w-full h-full object-cover" /> : <ImageIcon size={20} className="text-muted-foreground" />)
         : (
           <div className="flex flex-col items-center gap-1 px-2 w-full">
@@ -651,7 +654,7 @@ function Acompanhamento({ c, setC, recarregar }: { c: Detalhe; setC: (d: Detalhe
         {c.text && <div className="text-xs whitespace-pre-wrap rounded-xl bg-muted/30 border border-border p-3">{c.text}</div>}
         {c.media.length > 0 && (
           <div className="text-[11px] text-muted-foreground">
-            Anexos: {c.media.map((m) => (m.kind === 'image' ? '📷 foto' : '🎙️ áudio')).join(' · ')}
+            Anexos: {c.media.map((m) => (m.kind === 'image' ? '📷 foto' : m.kind === 'video' ? '🎬 vídeo' : '🎙️ áudio')).join(' · ')}
           </div>
         )}
       </div>

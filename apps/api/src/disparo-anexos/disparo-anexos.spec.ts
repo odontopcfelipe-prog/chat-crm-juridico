@@ -1,4 +1,4 @@
-import { DISPARO_ANEXO_IDS, isDisparoComAnexo, lembreteIdFor, ordenarAnexos } from '@crm/shared';
+import { DISPARO_ANEXO_CACHE_MAX_BYTES, DISPARO_ANEXO_IDS, disparoAnexoTipo, isDisparoComAnexo, lembreteIdFor, ordenarAnexos } from '@crm/shared';
 import { anexosDoDisparo, enviarAnexosDoDisparo, limparCacheAnexos } from './disparo-anexos-envio';
 
 describe('anexos dos disparos — regras', () => {
@@ -29,6 +29,17 @@ describe('anexos dos disparos — regras', () => {
       { kind: 'image', position: 1, id: 'f1' },
     ]);
     expect(r.map((x) => x.id)).toEqual(['f1', 'f2', 'a']);
+    // vídeo fica junto com as fotos, na ordem anexada
+    expect(ordenarAnexos([
+      { kind: 'audio', position: 0, id: 'a' },
+      { kind: 'video', position: 2, id: 'v' },
+      { kind: 'image', position: 1, id: 'f' },
+    ]).map((x) => x.id)).toEqual(['f', 'v', 'a']);
+  });
+
+  it('aceita vídeo MP4; .MOV não', () => {
+    expect(disparoAnexoTipo('video/mp4')).toBe('video');
+    expect(disparoAnexoTipo('video/quicktime')).toBeNull();
   });
 });
 
@@ -62,6 +73,19 @@ describe('anexos dos disparos — envio (API)', () => {
     expect(c2.slice(0, 2)).toEqual(['82999990001', 'audio']);
   });
 
+  it('vídeo sai por sendMedia tipo vídeo, com nome/MIME e prazo maior, antes do áudio', async () => {
+    const whatsapp: any = { sendMedia: jest.fn().mockResolvedValueOnce({ key: { id: 'V' } }).mockResolvedValueOnce({ statusCode: 500, error: 'x' }) };
+    const video = { ...row('v', 'video', 1), mime_type: 'video/mp4', original_name: 'v.mp4' };
+    const r = await enviarAnexosDoDisparo(prismaCom([row('a', 'audio', 0), video]), whatsapp, {
+      tenantId: 'T5', disparoId: 'lembrete_1dia', phone: '82999990001', instance: 'clin',
+    });
+    const [c1, c2] = (whatsapp.sendMedia as jest.Mock).mock.calls;
+    expect(c1.slice(0, 2)).toEqual(['82999990001', 'video']);
+    expect(c1.slice(4, 9)).toEqual(['clin', 'v.mp4', 'video/mp4', 120000, 'T5']);
+    expect(c2[1]).toBe('audio');
+    expect(r).toEqual({ enviados: 1, falhas: ['áudio: x'] });
+  });
+
   it('nunca lança: Evolution recusando ou estourando vira falha no retorno', async () => {
     const whatsapp: any = {
       sendMedia: jest.fn()
@@ -89,5 +113,16 @@ describe('anexos dos disparos — envio (API)', () => {
     // escopado por clínica
     await anexosDoDisparo(p, 'OUTRA', 'lembrete_1h');
     expect(p.disparoAnexo.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { tenant_id: 'OUTRA', disparo_id: 'lembrete_1h' } }));
+  });
+
+  it('anexo grande (vídeo) não fica no cache — volta do banco a cada envio', async () => {
+    const noTeto = prismaCom([{ ...row('v', 'video', 0), data: Buffer.alloc(DISPARO_ANEXO_CACHE_MAX_BYTES) }]);
+    await anexosDoDisparo(noTeto, 'T6', 'lembrete_1h');
+    await anexosDoDisparo(noTeto, 'T6', 'lembrete_1h');
+    expect(noTeto.disparoAnexo.findMany).toHaveBeenCalledTimes(1); // no limite: ainda cabe
+    const acima = prismaCom([{ ...row('v', 'video', 0), data: Buffer.alloc(DISPARO_ANEXO_CACHE_MAX_BYTES + 3) }]);
+    await anexosDoDisparo(acima, 'T7', 'lembrete_1h');
+    await anexosDoDisparo(acima, 'T7', 'lembrete_1h');
+    expect(acima.disparoAnexo.findMany).toHaveBeenCalledTimes(2);
   });
 });

@@ -48,15 +48,15 @@ export class DisparoAnexosController {
 
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   @Post(':disparo/anexos')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 6 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 11 * 1024 * 1024 } }))
   async anexar(@Param('disparo') disparo: string, @UploadedFile() file: Express.Multer.File, @Request() req: any) {
     exigeCard(disparo);
     const tenantId = tenantDe(req);
     if (!file?.buffer?.length) throw new BadRequestException('Arquivo vazio');
     const kind = disparoAnexoTipo(file.mimetype);
-    if (!kind) throw new BadRequestException('Só fotos (JPG, PNG, WEBP) e áudios (MP3, OGG, M4A, WAV, WEBM)');
+    if (!kind) throw new BadRequestException('Só fotos (JPG, PNG, WEBP), vídeos MP4 e áudios (MP3, OGG, M4A, WAV, WEBM) — vídeo .MOV do iPhone: compartilhe como MP4');
     if (file.size > DISPARO_ANEXO_LIMITE_BYTES[kind]) {
-      throw new BadRequestException(`${kind === 'image' ? 'Foto' : 'Áudio'} muito grande (máx. ${DISPARO_ANEXO_LIMITE_BYTES[kind] / 1024 / 1024} MB)`);
+      throw new BadRequestException(`${kind === 'image' ? 'Foto' : kind === 'video' ? 'Vídeo' : 'Áudio'} muito grande (máx. ${DISPARO_ANEXO_LIMITE_BYTES[kind] / 1024 / 1024} MB)`);
     }
     const qtd = await this.prisma.disparoAnexo.count({ where: { tenant_id: tenantId, disparo_id: disparo } });
     if (qtd >= DISPARO_ANEXO_MAX) throw new BadRequestException(`Máximo de ${DISPARO_ANEXO_MAX} anexos por disparo`);

@@ -27,7 +27,7 @@ const EXT_POR_MIME: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
   'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/ogg': 'ogg', 'audio/opus': 'ogg', 'audio/mp4': 'm4a',
   'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
-  'audio/webm': 'webm', 'video/webm': 'webm',
+  'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4',
 };
 
 /**
@@ -167,9 +167,9 @@ export class CampanhasService {
     this.exigeRascunho(c);
     if (!file?.buffer?.length) throw new BadRequestException('Arquivo vazio');
     const kind = campanhaMidiaTipo(file.mimetype);
-    if (!kind) throw new BadRequestException('Só fotos (JPG, PNG, WEBP) e áudios (MP3, OGG, M4A, WAV, WEBM)');
+    if (!kind) throw new BadRequestException('Só fotos (JPG, PNG, WEBP), vídeos MP4 e áudios (MP3, OGG, M4A, WAV, WEBM) — vídeo .MOV do iPhone: compartilhe como MP4');
     if (file.size > CAMPANHA_MIDIA_LIMITE_BYTES[kind]) {
-      throw new BadRequestException(`${kind === 'image' ? 'Foto' : 'Áudio'} muito grande (máx. ${CAMPANHA_MIDIA_LIMITE_BYTES[kind] / 1024 / 1024} MB)`);
+      throw new BadRequestException(`${kind === 'image' ? 'Foto' : kind === 'video' ? 'Vídeo' : 'Áudio'} muito grande (máx. ${CAMPANHA_MIDIA_LIMITE_BYTES[kind] / 1024 / 1024} MB)`);
     }
     const qtd = await this.prisma.manualCampaignMedia.count({ where: { campaign_id: id } });
     if (qtd >= CAMPANHA_MAX_MIDIAS) throw new BadRequestException(`Máximo de ${CAMPANHA_MAX_MIDIAS} anexos por campanha`);
