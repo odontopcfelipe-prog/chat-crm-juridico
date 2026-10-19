@@ -618,6 +618,8 @@ export class TreatmentPlanBillingService {
       data: {
         tenant_id: tenantId,
         treatment_plan_id: planId,
+        // Vínculo direto: a ficha do paciente (e a IA do Financeiro) acham a cobrança.
+        patient_id: plan.patient_id,
         gateway: 'CASH',
         external_id: externalId,
         customer_external_id: 'CASH',
@@ -774,6 +776,7 @@ export class TreatmentPlanBillingService {
         data: {
           tenant_id: tenantId,
           treatment_plan_id: planId,
+          patient_id: plan.patient_id,
           gateway: 'CASH',
           external_id: externalId,
           customer_external_id: 'CASH',

@@ -12,7 +12,7 @@ describe('TreatmentPlanBillingService — venda no cartão (maquineta)', () => {
     const created: any[] = [];
     const prisma: any = {
       treatmentPlan: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'plan1', status: 'ACTIVE', patient: { tenant_id: TENANT, name: 'Paloma Freire' } }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'plan1', patient_id: 'pat1', status: 'ACTIVE', patient: { id: 'pat1', tenant_id: TENANT, name: 'Paloma Freire' } }),
       },
       paymentGatewayCharge: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -33,6 +33,7 @@ describe('TreatmentPlanBillingService — venda no cartão (maquineta)', () => {
     expect(created[0].gateway).toBe('CASH');
     expect(created[0].kind).toBeUndefined(); // não é SINAL/ENTRADA/INSTALLMENT
     expect(created[0].external_id).toContain('-CARTAO-');
+    expect(created[0].patient_id).toBe('pat1'); // a ficha do paciente acha a cobrança (sem isso: "SEM COBRANÇA")
     expect(created[0].description).toContain('cartão 3x na maquineta · recebido na clínica');
     expect(paymentGateway.registerClinicReceipt).toHaveBeenCalledWith(
       created[0].external_id,

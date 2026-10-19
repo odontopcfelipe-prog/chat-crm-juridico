@@ -801,8 +801,12 @@ export class PaymentGatewayService {
     // Onda 18.x — duas fontes de vinculo, unidas por OR:
     //  (a) DIRETO via patient_id — cobre boletos importados do Asaas, inclusive
     //      paciente SEM telefone/lead (que a cadeia de cliente nao alcanca);
-    //  (b) cadeia do cliente do gateway (lead -> PaymentGatewayCustomer -> external_id).
-    const or: any[] = [{ patient_id: patientId }];
+    //  (b) cadeia do cliente do gateway (lead -> PaymentGatewayCustomer -> external_id);
+    //  (c) via PLANO — cobrança LOCAL (gateway CASH: cartão da maquineta, espécie,
+    //      PIX na clínica) nasce só com treatment_plan_id + customer 'CASH'. Sem isso
+    //      ela sumia da ficha ("SEM COBRANÇA", sem "Dar baixa") mas o bloqueio de
+    //      agendamento (getPatientOverdue, que já casa por plano) a via como atraso.
+    const or: any[] = [{ patient_id: patientId }, { treatment_plan: { patient_id: patientId } }];
     if (patient.lead_id) {
       const customer = await this.prisma.paymentGatewayCustomer.findFirst({
         where: { lead_id: patient.lead_id, gateway: 'ASAAS' },

@@ -256,6 +256,7 @@ export class DownPaymentFlowService {
       const signalCharge = await this.createCharge({
         planId,
         tenantId,
+        patientId: plan.patient_id,
         patientName: plan.patient.name,
         kind: 'SINAL',
         value: options.signalValue,
@@ -270,6 +271,7 @@ export class DownPaymentFlowService {
       const restCharge = await this.createCharge({
         planId,
         tenantId,
+        patientId: plan.patient_id,
         patientName: plan.patient.name,
         kind: 'ENTRADA',
         value: options.restValue,
@@ -298,6 +300,7 @@ export class DownPaymentFlowService {
   private async createCharge(args: {
     planId: string;
     tenantId: string;
+    patientId: string;
     patientName: string;
     kind: 'SINAL' | 'ENTRADA';
     value: number;
@@ -314,6 +317,7 @@ export class DownPaymentFlowService {
         data: {
           tenant_id: args.tenantId,
           treatment_plan_id: args.planId,
+          patient_id: args.patientId, // ficha do paciente acha a entrada em espécie
           kind: args.kind,
           gateway: 'CASH',
           // external_id eh @unique, gera placeholder sem conflito
