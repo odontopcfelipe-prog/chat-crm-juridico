@@ -17,6 +17,8 @@ import {
   apiErr, cap1, dateBr, distanceMeters, EspelhoActions, EspelhoTable, fmtDist, fmtMin, GEO_META, MonthNav,
   PunchDetail, scheduleText, TotalsCards, type Day, type DaySchedule, type Espelho, type Punch, type PontoLocal,
 } from './ponto-ui';
+import { getBestPosition, isFail, precisionHint, type GeoReading } from './geo-client';
+import { PontoMap } from './PontoMap';
 
 interface MeData {
   server_now: string;
@@ -33,19 +35,12 @@ interface MeData {
   espelho: Espelho;
 }
 
-type Pos = { latitude: number; longitude: number; accuracy: number; ts: number };
+type Pos = GeoReading;
 type GeoState = { kind: 'idle' | 'loading' | 'ok' | 'denied' | 'unavailable'; pos?: Pos };
 
-function readPosition(): Promise<Pos | { error: number }> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve({ error: 2 });
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, ts: Date.now() }),
-      (e) => resolve({ error: e.code }),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-    );
-  });
-}
+// Precisão boa o bastante pra bater sem esperar mais (o servidor aceita até max_precisao_m).
+const BOA_M = 30;
+const FRESCA_MS = 15000;
 
 export default function PontoPage() {
   const router = useRouter();
@@ -60,6 +55,8 @@ export default function PontoPage() {
   const [now, setNow] = useState(() => Date.now());
   const [geo, setGeo] = useState<GeoState>({ kind: 'idle' });
   const [detail, setDetail] = useState<{ p: Punch; date: string } | null>(null);
+  const [waiting, setWaiting] = useState<number | null | undefined>(undefined); // aguardando o GPS (± m da melhor leitura)
+  const [showMap, setShowMap] = useState(false);
   const geoRef = useRef<GeoState>(geo);
   geoRef.current = geo;
   const isAdm = hasPermission('manage_users');
@@ -105,30 +102,46 @@ export default function PontoPage() {
     const id = navigator.geolocation.watchPosition(
       (p) => setGeo({ kind: 'ok', pos: { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, ts: Date.now() } }),
       (e) => setGeo((g) => (g.pos ? g : { kind: e.code === 1 ? 'denied' : 'unavailable' })),
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 60000 },
     );
     return () => navigator.geolocation.clearWatch(id);
   }, [watching]);
 
+  /** Leitura firme: usa a do relógio se for recente e boa; senão espera o GPS (até 20 s). */
+  const bestNow = async (): Promise<Pos | null> => {
+    const cur = geoRef.current.pos;
+    if (cur && Date.now() - cur.ts < FRESCA_MS && cur.accuracy <= BOA_M) return cur;
+    setWaiting(cur?.accuracy ?? null);
+    const r = await getBestPosition({ targetM: BOA_M, maxWaitMs: 20000, onProgress: (b) => setWaiting(b.accuracy) });
+    setWaiting(undefined);
+    if (isFail(r)) {
+      if (r.error === 'denied') setGeo({ kind: 'denied' });
+      else if (!cur) setGeo({ kind: 'unavailable' });
+      return cur && Date.now() - cur.ts < FRESCA_MS ? cur : null;
+    }
+    setGeo({ kind: 'ok', pos: r });
+    return r;
+  };
+
   const relocate = async () => {
     setGeo((g) => ({ ...g, kind: 'loading' }));
-    const r = await readPosition();
-    if ('error' in r) setGeo({ kind: r.error === 1 ? 'denied' : 'unavailable' });
-    else setGeo({ kind: 'ok', pos: r });
+    await bestNow();
   };
 
   const punch = async () => {
     if (!data) return;
     setBusy(true);
     try {
-      // Sempre uma leitura NOVA na hora de bater (a do relógio pode ter ficado velha).
-      const r = await readPosition();
-      if ('error' in r) {
-        setGeo({ kind: r.error === 1 ? 'denied' : 'unavailable' });
-        showError(r.error === 1 ? 'Permita a localização para registrar o ponto.' : 'Não consegui sua localização. Ative o GPS e tente de novo.');
+      // Leitura NOVA e firme na hora de bater (a 1ª leitura do GPS costuma vir ruim).
+      const r = await bestNow();
+      if (!r) {
+        showError(geoRef.current.kind === 'denied' ? 'Permita a localização para registrar o ponto.' : 'Não consegui sua localização. Ative o GPS e tente de novo.');
         return;
       }
-      setGeo({ kind: 'ok', pos: r });
+      if (r.accuracy > data.max_precisao_m) {
+        showError(precisionHint(r.accuracy, data.max_precisao_m).text);
+        return;
+      }
       const res = await api.post('/ponto/punch', { latitude: r.latitude, longitude: r.longitude, accuracy: Math.round(r.accuracy) });
       showSuccess(`${res.data.label} registrada às ${res.data.hora}`);
       await load(ym);
@@ -172,7 +185,11 @@ export default function PontoPage() {
   const dist = geo.pos && local ? distanceMeters(geo.pos.latitude, geo.pos.longitude, local.lat, local.lng) : null;
   const inside = dist != null && local != null && dist <= local.raio_m;
   const precise = !!geo.pos && geo.pos.accuracy <= data.max_precisao_m;
-  const canPunch = data.member.active && !!local && inside && precise;
+  // Fora da área com leitura PRECISA = fora mesmo. Leitura ruim ainda pode melhorar:
+  // o botão fica liberado e, ao clicar, espera o GPS firmar antes de mandar.
+  const surelyOut = !!geo.pos && precise && !inside;
+  const canPunch = data.member.active && !!local && geo.kind !== 'denied' && !surelyOut;
+  const hint = geo.pos ? precisionHint(geo.pos.accuracy, data.max_precisao_m) : null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -214,16 +231,16 @@ export default function PontoPage() {
                 {geo.kind === 'loading' && !geo.pos && <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Localizando…</span>}
                 {geo.kind === 'denied' && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4" /> Localização bloqueada — permita no cadeado ao lado do endereço</span>}
                 {geo.kind === 'unavailable' && !geo.pos && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4" /> Não consegui sua localização — ative o GPS</span>}
-                {geo.pos && !inside && (
+                {geo.pos && !precise && hint && (
+                  <span className="text-amber-700 flex items-start gap-1.5 max-w-md"><Crosshair className="w-4 h-4 shrink-0 mt-0.5" /> {hint.text}</span>
+                )}
+                {geo.pos && precise && !inside && (
                   <span className="text-rose-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Fora da área da clínica · {fmtDist(dist)}</span>
                 )}
-                {geo.pos && inside && !precise && (
-                  <span className="text-amber-600 flex items-center gap-1.5"><Crosshair className="w-4 h-4" /> Localização imprecisa (± {fmtDist(geo.pos.accuracy)}) — ative o GPS</span>
-                )}
-                {geo.pos && inside && precise && (
+                {geo.pos && precise && inside && (
                   <span className="text-emerald-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Dentro da área da clínica · {fmtDist(dist)}</span>
                 )}
-                {geo.pos && <span className="text-slate-400 text-xs">(± {fmtDist(geo.pos.accuracy)})</span>}
+                {geo.pos && precise && <span className="text-slate-400 text-xs">(± {fmtDist(geo.pos.accuracy)})</span>}
               </div>
 
               <button
@@ -234,12 +251,32 @@ export default function PontoPage() {
                 }`}
               >
                 {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : data.next_is_entry ? <LogIn className="w-5 h-5" /> : <LogOut className="w-5 h-5" />}
-                Registrar {data.next_label.toLowerCase()}
+                {waiting !== undefined
+                  ? `Aguardando o GPS${waiting != null ? ` (± ${fmtDist(waiting)})` : '…'}`
+                  : `Registrar ${data.next_label.toLowerCase()}`}
               </button>
-              {!canPunch && geo.kind !== 'loading' && (
-                <button onClick={relocate} className="mt-2 text-sm text-sky-600 hover:underline flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5" /> Localizar de novo
+              <div className="mt-2 flex items-center gap-4 text-sm">
+                {(!precise || !inside) && geo.kind !== 'loading' && !busy && (
+                  <button onClick={relocate} className="text-sky-600 hover:underline flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5" /> Localizar de novo
+                  </button>
+                )}
+                <button onClick={() => setShowMap((v) => !v)} className="text-sky-600 hover:underline flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" /> {showMap ? 'Esconder mapa' : 'Ver no mapa'}
                 </button>
+              </div>
+              {showMap && (
+                <div className="mt-3 w-full max-w-md">
+                  <PontoMap
+                    center={geo.pos ? { lat: geo.pos.latitude, lng: geo.pos.longitude } : { lat: local.lat, lng: local.lng }}
+                    recenterKey={geo.pos ? 'you' : 'clinic'}
+                    zoom={geo.pos && geo.pos.accuracy > 2000 ? 10 : 16}
+                    clinic={local}
+                    you={geo.pos ? { lat: geo.pos.latitude, lng: geo.pos.longitude, accuracy: geo.pos.accuracy } : null}
+                    height={240}
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Azul = área da clínica · verde = você (o tracejado é a margem de erro do GPS).</p>
+                </div>
               )}
               <p className="text-xs text-slate-400 mt-2">O ponto só é aceito com localização, dentro da área da clínica.</p>
             </>

@@ -32,9 +32,10 @@ export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: n
 }
 
 /**
- * Situação da batida. Dentro = distância até o ponto da clínica <= raio (sem folga).
- * Leitura imprecisa (margem > 150 m ou sem margem) é recusada mesmo "dentro": a
- * localização por Wi-Fi/IP de computador erra por quilômetros.
+ * Situação da batida. Primeiro a PRECISÃO: leitura imprecisa (margem > 150 m ou sem
+ * margem) é recusada — dentro ou fora, a distância dela não diz nada (computador
+ * sem GPS chega com ±50 km e "a 3 km da clínica"). Com leitura boa, dentro =
+ * distância até o ponto da clínica <= raio (sem folga).
  */
 export function evalGeo(
   pos: PontoPos | null,
@@ -45,10 +46,10 @@ export function evalGeo(
     return { status: 'SEM_GPS', distance_m: null };
   }
   const distance = Math.round(distanceMeters(pos.latitude, pos.longitude, local.lat, local.lng));
-  if (distance > local.raio_m) return { status: 'FORA', distance_m: distance };
   // Number(null) = 0 — sem margem informada NÃO pode passar como "precisão perfeita".
   const acc = pos.accuracy == null ? NaN : Number(pos.accuracy);
   if (!Number.isFinite(acc) || acc < 0 || acc > MAX_PRECISAO_M) return { status: 'IMPRECISO', distance_m: distance };
+  if (distance > local.raio_m) return { status: 'FORA', distance_m: distance };
   return { status: 'NO_LOCAL', distance_m: distance };
 }
 

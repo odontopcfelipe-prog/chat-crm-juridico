@@ -19,6 +19,10 @@ describe('evalGeo — só aceita com localização, dentro da área', () => {
     expect(evalGeo(pos(0.0014, 5), CLINICA)).toEqual({ status: 'FORA', distance_m: 156 });
   });
 
+  it('computador sem GPS (±50 km) é IMPRECISO, não "fora a 3 km"', () => {
+    expect(evalGeo(pos(0.029, 50000), CLINICA)).toEqual({ status: 'IMPRECISO', distance_m: 3225 });
+  });
+
   it('leitura imprecisa é recusada mesmo dentro', () => {
     expect(evalGeo(pos(0, MAX_PRECISAO_M + 1), CLINICA).status).toBe('IMPRECISO');
     expect(evalGeo(pos(0, null), CLINICA).status).toBe('IMPRECISO');

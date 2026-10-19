@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, ArrowRight, Copy } from 'lucide-react';
+import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, ArrowRight, Copy, Search, Crosshair } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { resetPontoStatusCache } from '@/lib/usePontoStatus';
@@ -17,6 +17,8 @@ import {
   apiErr, dateBr, fmtMin, Modal, scheduleMinutes, scheduleText, WEEKDAYS, WEEKDAYS_LONG,
   type DaySchedule, type PontoLocal, type ScheduleVersion, type WeekSchedule,
 } from '../../ponto/ponto-ui';
+import { PontoMap } from '../../ponto/PontoMap';
+import { fmtM, getBestPosition, isFail, parseCoords, SEM_GPS_M } from '../../ponto/geo-client';
 
 interface Member {
   user_id: string;
@@ -270,39 +272,77 @@ export default function PontoSettingsPage() {
 }
 
 /* ── local base ──────────────────────────────────────────── */
+// Leitura de "minha localização" só vira local base com GPS de verdade (±50 m ou
+// melhor). Computador de mesa vem do IP (±10 a ±50 km) — já salvou a clínica a
+// quilômetros do lugar certo. Por isso o jeito principal é marcar no MAPA.
+const LOCAL_MAX_ACC_M = 50;
+const MACEIO = { lat: -9.6658, lng: -35.7353 };
+
+type SearchHit = { display_name: string; lat: string; lon: string };
+
 function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLocal) => void }) {
   const [lat, setLat] = useState(data.local ? String(data.local.lat) : '');
   const [lng, setLng] = useState(data.local ? String(data.local.lng) : '');
   const [raio, setRaio] = useState(String(data.local?.raio_m ?? 100));
-  const [acc, setAcc] = useState<number | null>(null);
+  const [reading, setReading] = useState<{ acc: number; done: boolean } | null>(null);
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [mapKey, setMapKey] = useState('init');
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [paste, setPaste] = useState('');
 
   const latN = Number(lat.replace(',', '.'));
   const lngN = Number(lng.replace(',', '.'));
   const raioN = Math.round(Number(raio));
-  const ok =
+  const coordsOk =
     lat.trim() !== '' && lng.trim() !== '' &&
-    Number.isFinite(latN) && Math.abs(latN) <= 90 && Number.isFinite(lngN) && Math.abs(lngN) <= 180 &&
-    Number.isFinite(raioN) && raioN >= 20 && raioN <= 2000;
+    Number.isFinite(latN) && Math.abs(latN) <= 90 && Number.isFinite(lngN) && Math.abs(lngN) <= 180;
+  const ok = coordsOk && Number.isFinite(raioN) && raioN >= 20 && raioN <= 2000;
   const changed = !data.local || latN !== data.local.lat || lngN !== data.local.lng || raioN !== data.local.raio_m;
 
-  const locate = () => {
-    if (!navigator.geolocation) { showError('Este aparelho não informa a localização.'); return; }
+  const setPoint = (p: { lat: number; lng: number }, recenter: boolean) => {
+    setLat(p.lat.toFixed(6));
+    setLng(p.lng.toFixed(6));
+    if (recenter) setMapKey(`${p.lat},${p.lng},${Date.now()}`);
+  };
+
+  const locate = async () => {
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setLat(p.coords.latitude.toFixed(6));
-        setLng(p.coords.longitude.toFixed(6));
-        setAcc(Math.round(p.coords.accuracy));
-        setLocating(false);
-      },
-      (e) => {
-        setLocating(false);
-        showError(e.code === 1 ? 'Localização bloqueada — permita no cadeado ao lado do endereço.' : 'Não consegui a localização. Tente pelo celular, dentro da clínica.');
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-    );
+    setReading(null);
+    const r = await getBestPosition({
+      targetM: 15,
+      maxWaitMs: 25000,
+      onProgress: (b) => setReading({ acc: b.accuracy, done: false }),
+    });
+    setLocating(false);
+    if (isFail(r)) {
+      showError(r.error === 'denied' ? 'Localização bloqueada — permita no cadeado ao lado do endereço.' : 'Não consegui a localização deste aparelho.');
+      return;
+    }
+    setReading({ acc: r.accuracy, done: true });
+    if (r.accuracy > LOCAL_MAX_ACC_M) {
+      showError(`Leitura imprecisa (± ${fmtM(r.accuracy)}) — não serve como local do ponto. Marque no mapa.`);
+      return;
+    }
+    setPoint({ lat: r.latitude, lng: r.longitude }, true);
+  };
+
+  const search = async () => {
+    if (q.trim().length < 4) return;
+    setSearching(true);
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=br&accept-language=pt-BR&q=${encodeURIComponent(q.trim())}`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const list = (await res.json()) as SearchHit[];
+      setHits(list);
+      if (!list.length) showError('Endereço não encontrado. Tente rua, número e cidade.');
+    } catch {
+      showError('Não consegui buscar o endereço agora.');
+    } finally {
+      setSearching(false);
+    }
   };
 
   const save = async () => {
@@ -317,50 +357,112 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
     }
   };
 
+  const center = coordsOk ? { lat: latN, lng: lngN } : data.local ?? MACEIO;
+
   return (
     <section className="bg-card border border-border rounded-2xl p-5">
       <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5" /> Local base do ponto
       </h2>
       <p className="text-xs text-muted-foreground mt-1">
-        O ponto só é aceito <b>dentro desta área</b>, com a localização do aparelho ligada e precisão de até ±{data.max_precisao_m} m.
-        Marque pelo celular, de dentro da clínica.
+        O ponto só é aceito <b>dentro do círculo</b>, com a localização do celular ligada e precisão de até ±{data.max_precisao_m} m.
+        <b> Toque no mapa exatamente em cima da clínica</b> e salve.
       </p>
       {!data.local && (
         <p className="mt-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Sem local cadastrado ninguém consegue bater o ponto.
         </p>
       )}
-      <div className="flex flex-wrap items-end gap-3 mt-3">
-        <button onClick={locate} disabled={locating} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-50">
-          {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />} Usar minha localização atual
+
+      {/* achar a clínica no mapa */}
+      <div className="flex flex-wrap gap-2 mt-3">
+        <form
+          className="flex flex-1 min-w-[240px] gap-2"
+          onSubmit={(e) => { e.preventDefault(); void search(); }}
+        >
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar endereço da clínica (rua, número, cidade)"
+            className={`flex-1 min-w-0 ${inputCls}`}
+          />
+          <button type="submit" disabled={searching || q.trim().length < 4} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm font-semibold text-foreground hover:bg-foreground/[0.04] disabled:opacity-40">
+            {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Buscar
+          </button>
+        </form>
+        <button onClick={locate} disabled={locating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60">
+          {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
+          {locating ? `Aguardando o GPS${reading ? ` (± ${fmtM(reading.acc)})` : '…'}` : 'Usar minha localização (celular)'}
         </button>
+      </div>
+      {hits && hits.length > 0 && (
+        <ul className="mt-2 border border-border rounded-lg divide-y divide-border/60 text-sm">
+          {hits.map((h) => (
+            <li key={`${h.lat},${h.lon}`}>
+              <button
+                type="button"
+                onClick={() => { setPoint({ lat: Number(h.lat), lng: Number(h.lon) }, true); setHits(null); }}
+                className="w-full text-left px-3 py-2 hover:bg-foreground/[0.04] text-foreground"
+              >
+                {h.display_name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {reading?.done && (
+        <p className={`mt-2 text-xs ${reading.acc <= LOCAL_MAX_ACC_M ? 'text-emerald-600' : 'text-rose-600'}`}>
+          {reading.acc <= LOCAL_MAX_ACC_M
+            ? `Leitura boa (± ${fmtM(reading.acc)}). Confira no mapa se o ponto azul está em cima da clínica.`
+            : reading.acc > SEM_GPS_M
+              ? `Este aparelho está sem GPS (± ${fmtM(reading.acc)}) — a localização veio da internet e erra por quilômetros. Marque no mapa.`
+              : `Leitura imprecisa (± ${fmtM(reading.acc)}). Tente de novo perto de uma janela, ou marque no mapa.`}
+        </p>
+      )}
+
+      <div className="mt-3">
+        <PontoMap
+          center={center}
+          recenterKey={mapKey}
+          zoom={data.local || coordsOk ? 17 : 13}
+          clinic={coordsOk ? { lat: latN, lng: lngN, raio_m: Number.isFinite(raioN) && raioN > 0 ? raioN : 100 } : null}
+          onPick={(p) => setPoint(p, false)}
+          height={320}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 mt-3">
+        <label className="text-xs font-semibold text-muted-foreground">Raio da área (m)
+          <input value={raio} onChange={(e) => setRaio(e.target.value)} inputMode="numeric" className={`mt-1 block w-24 ${inputCls}`} />
+        </label>
         <label className="text-xs font-semibold text-muted-foreground">Latitude
           <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="-9.665800" className={`mt-1 block w-32 ${inputCls}`} />
         </label>
         <label className="text-xs font-semibold text-muted-foreground">Longitude
           <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="-35.735300" className={`mt-1 block w-32 ${inputCls}`} />
         </label>
-        <label className="text-xs font-semibold text-muted-foreground">Raio da área (m)
-          <input value={raio} onChange={(e) => setRaio(e.target.value)} inputMode="numeric" className={`mt-1 block w-24 ${inputCls}`} />
-        </label>
         <button onClick={save} disabled={!ok || !changed || saving} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900 disabled:opacity-40">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar local
         </button>
       </div>
-      <div className="flex flex-wrap gap-3 mt-2 text-xs">
-        {acc != null && (
-          <span className={acc > 50 ? 'text-amber-600' : 'text-emerald-600'}>
-            Precisão desta leitura: ±{acc} m{acc > 50 ? ' — se puder, marque pelo celular perto do centro da clínica' : ''}
-          </span>
+      <div className="mt-2">
+        <input
+          value={paste}
+          onChange={(e) => {
+            setPaste(e.target.value);
+            const p = parseCoords(e.target.value);
+            if (p) setPoint(p, true);
+          }}
+          placeholder="Ou cole aqui as coordenadas / o link do Google Maps (ex.: -9.665800, -35.735300)"
+          className={`w-full ${inputCls}`}
+        />
+        {paste.trim() && !parseCoords(paste) && (
+          <p className="text-xs text-amber-700 mt-1">Não achei coordenadas aí. No Google Maps, toque e segure em cima da clínica e copie os números que aparecem (link curto “maps.app.goo.gl” não serve).</p>
         )}
-        {ok && (
-          <a href={`https://www.google.com/maps?q=${latN},${lngN}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-            Conferir no mapa
-          </a>
-        )}
-        <span className="text-muted-foreground">Raio sugerido: 50 a 150 m (o GPS dentro de prédios erra uns 10 a 50 m).</span>
       </div>
+      <p className="text-xs text-muted-foreground mt-2">
+        Raio sugerido: 50 a 150 m (o GPS do celular dentro de prédios erra uns 10 a 50 m). Computador de mesa não tem GPS — o ponto é pelo celular.
+      </p>
     </section>
   );
 }

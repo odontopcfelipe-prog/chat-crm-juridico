@@ -207,7 +207,10 @@ export class PontoService {
         SEM_REF: 'O administrador ainda não cadastrou o local do ponto.',
         SEM_GPS: 'Ative a localização do aparelho e permita o acesso para registrar o ponto.',
         FORA: `Você está a ${fmtDist(geo.distance_m ?? 0)} da clínica (área de ${local?.raio_m ?? 0} m). O ponto só pode ser registrado no local.`,
-        IMPRECISO: `Localização imprecisa${pos?.accuracy != null ? ` (± ${fmtDist(pos.accuracy)})` : ''}. Ative o GPS (ou o Wi-Fi) e tente de novo.`,
+        IMPRECISO:
+          pos?.accuracy != null && pos.accuracy > 1000
+            ? `Este aparelho está sem GPS (localização aproximada, ± ${fmtDist(pos.accuracy)}). Bata o ponto pelo celular, com a localização precisa ligada.`
+            : `Sinal de GPS fraco${pos?.accuracy != null ? ` (± ${fmtDist(pos.accuracy)})` : ''}. Aguarde alguns segundos, de preferência perto de uma janela, e tente de novo.`,
       };
       throw new BadRequestException(msg[geo.status] ?? 'Localização inválida.');
     }
