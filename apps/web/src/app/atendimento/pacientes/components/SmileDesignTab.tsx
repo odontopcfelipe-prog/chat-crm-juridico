@@ -12,13 +12,25 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   Sparkles, Loader2, Upload, X, Plus, AlertTriangle, Trash2, Image as ImgIcon,
-  Maximize2, Download, RefreshCw, Columns2, MoveHorizontal,
+  Maximize2, Download, RefreshCw, Columns2, MoveHorizontal, Film,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import {
-  SmileRegion, buildSideBySide, canvasToBlob, composeAfter, downloadBlob, loadImage, prepareUpload,
+  SmileRegion, buildBeforeAfterVideo, buildSideBySide, canvasToBlob, composeAfter, downloadBlob, loadImage,
+  prepareUpload,
 } from './smile-design-canvas';
+
+interface PresentPayload {
+  before: string;
+  after: string;
+  download: () => void;
+  downloadVideo: () => void;
+}
+
+/** Um vídeo por vez (é gravado em tempo real, ~9 s). */
+let videoInProgress = false;
 
 interface Simulation {
   id: string;
@@ -75,7 +87,7 @@ export default function SmileDesignTab({ patientId }: { patientId: string }) {
   const [configured, setConfigured] = useState(true);
   const [openNew, setOpenNew] = useState(false);
   const [variationOf, setVariationOf] = useState<Simulation | null>(null);
-  const [presenting, setPresenting] = useState<{ before: string; after: string; download: () => void } | null>(null);
+  const [presenting, setPresenting] = useState<PresentPayload | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -196,6 +208,7 @@ export default function SmileDesignTab({ patientId }: { patientId: string }) {
           before={presenting.before}
           after={presenting.after}
           onDownload={presenting.download}
+          onDownloadVideo={presenting.downloadVideo}
           onClose={() => setPresenting(null)}
         />
       )}
@@ -260,7 +273,7 @@ function SimulationCard({
   sim: Simulation;
   onRemove: () => void;
   onVariation: () => void;
-  onPresent: (p: { before: string; after: string; download: () => void }) => void;
+  onPresent: (p: PresentPayload) => void;
 }) {
   const img = useSimImages(sim);
   const cfg = STATUS_CFG[sim.status] || STATUS_CFG.PROCESSING;
@@ -277,6 +290,29 @@ function SimulationCard({
       downloadBlob(blob, `smile-design-${sim.created_at.slice(0, 10)}.jpg`);
     } catch {
       showError('Não foi possível montar a imagem');
+    }
+  };
+
+  const [videoBusy, setVideoBusy] = useState(false);
+  const downloadVideo = async () => {
+    if (!img.beforeImg || !img.afterEl) return;
+    if (videoInProgress) { showError('Já tem um vídeo sendo gerado — aguarde terminar'); return; }
+    videoInProgress = true;
+    setVideoBusy(true);
+    const id = toast.loading('Gerando vídeo… 0% (deixe esta aba aberta)');
+    let shown = 0;
+    try {
+      const { blob, ext } = await buildBeforeAfterVideo(img.beforeImg, img.afterEl, (p) => {
+        const pct = Math.floor(p * 10) * 10;
+        if (pct > shown) { shown = pct; toast.loading(`Gerando vídeo… ${pct}% (deixe esta aba aberta)`, { id }); }
+      });
+      downloadBlob(blob, `smile-design-${sim.created_at.slice(0, 10)}.${ext}`);
+      toast.success(ext === 'mp4' ? 'Vídeo pronto' : 'Vídeo pronto (formato WebM — este navegador não grava MP4)', { id });
+    } catch (e) {
+      toast.error((e as Error)?.message || 'Não foi possível gerar o vídeo', { id });
+    } finally {
+      videoInProgress = false;
+      setVideoBusy(false);
     }
   };
 
@@ -351,7 +387,7 @@ function SimulationCard({
         <div className="px-3 py-2 border-t border-border flex items-center gap-2 flex-wrap">
           <button
             disabled={!ready}
-            onClick={() => img.beforeUrl && img.afterUrl && onPresent({ before: img.beforeUrl, after: img.afterUrl, download })}
+            onClick={() => img.beforeUrl && img.afterUrl && onPresent({ before: img.beforeUrl, after: img.afterUrl, download, downloadVideo })}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
           >
             <Maximize2 size={12} /> Apresentar
@@ -362,6 +398,13 @@ function SimulationCard({
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-accent disabled:opacity-50"
           >
             <Download size={12} /> Baixar antes/depois
+          </button>
+          <button
+            disabled={!ready || videoBusy}
+            onClick={downloadVideo}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {videoBusy ? <Loader2 size={12} className="animate-spin" /> : <Film size={12} />} Baixar vídeo
           </button>
           <button
             onClick={onVariation}
@@ -384,8 +427,8 @@ function SimulationCard({
 // ─── Apresentação para o paciente (deslizar antes ↔ depois) ──────────────────
 
 function PresentModal({
-  before, after, onDownload, onClose,
-}: { before: string; after: string; onDownload: () => void; onClose: () => void }) {
+  before, after, onDownload, onDownloadVideo, onClose,
+}: { before: string; after: string; onDownload: () => void; onDownloadVideo: () => void; onClose: () => void }) {
   const [pos, setPos] = useState(50);
   const [mode, setMode] = useState<'slider' | 'side'>('slider');
   const boxRef = useRef<HTMLDivElement>(null);
@@ -422,7 +465,10 @@ function PresentModal({
         </div>
         <div className="flex items-center gap-1">
           <button onClick={onDownload} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-white/90 hover:bg-white/10">
-            <Download size={13} /> Baixar
+            <Download size={13} /> Imagem
+          </button>
+          <button onClick={onDownloadVideo} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-white/90 hover:bg-white/10">
+            <Film size={13} /> Vídeo
           </button>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-white/10" title="Fechar (Esc)">
             <X size={18} />
