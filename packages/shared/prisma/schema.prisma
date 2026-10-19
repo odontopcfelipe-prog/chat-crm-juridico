@@ -144,6 +144,7 @@ model Tenant {
   email_templates             TenantEmailTemplate[]
   // Relógio de ponto (out/2026)
   time_clock_punches          TimeClockPunch[]
+  time_clock_members          TimeClockMember[]
 }
 
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
@@ -1648,6 +1649,45 @@ model TimeClockPunch {
 
   @@index([tenant_id, user_id, punched_at])
   @@index([tenant_id, punched_at])
+}
+
+/// Equipe do ponto: só quem está aqui (e dentro do período) bate o ponto. Datas são
+/// DIAS de Maceió em texto (AAAA-MM-DD) — sem fuso pra confundir. `start_date` = 1º
+/// dia que conta (faltas valem a partir dele); `end_date` = último dia (null = ativo).
+model TimeClockMember {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  user_id    String
+  user_name  String
+  start_date String
+  end_date   String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant    Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  schedules TimeClockSchedule[]
+
+  @@unique([tenant_id, user_id])
+}
+
+/// Horário de trabalho do funcionário, com VIGÊNCIA: cada dia usa a versão mais
+/// recente com `valid_from` <= dia. Mudar o horário não reescreve meses passados
+/// (o que já foi pra contabilidade não muda). `days` = 7 posições (0 = domingo):
+/// null (folga) ou {in, break_start, break_end, out} em "HH:mm" (intervalo opcional).
+model TimeClockSchedule {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  member_id     String
+  valid_from    String
+  days          Json
+  created_by_id String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  member TimeClockMember @relation(fields: [member_id], references: [id], onDelete: Cascade)
+
+  @@unique([member_id, valid_from])
+  @@index([tenant_id])
 }
 
 /// O "caixa do dia" — 1 por tenant por data. Recepção abre (implícito no 1º

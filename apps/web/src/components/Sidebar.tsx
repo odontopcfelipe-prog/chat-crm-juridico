@@ -19,6 +19,7 @@ import { useAuthedImage } from '@/lib/use-authed-image';
 import { useRole } from '@/lib/useRole';
 // Onda 17.32.120 — Filtra sidebar pelas permissoes do setor + overrides
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { usePontoStatus } from '@/lib/usePontoStatus';
 // Onda 17.32.78 — White-label: nome + logo + cor por tenant
 import { useTenant, applyTenantTheme } from '@/lib/useTenant';
 import { THEMES } from '@/components/ThemeSwitcher';
@@ -95,6 +96,7 @@ export function Sidebar() {
   const perms = useRole();
   // Onda 17.32.120 — Permissoes por setor (resolvidas async, fallback otimista)
   const { hasPermission } = useUserPermissions();
+  const pontoStatus = usePontoStatus();
   // Onda 17.32.78 — Branding por tenant (white-label).
   // Aplica theme_color como CSS var no <html> e disponibiliza nome+logo.
   const tenant = useTenant();
@@ -529,13 +531,14 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/caixa'),
       show: hasPermission('operate_cash'),
     },
-    // Relógio de ponto — todo mundo bate; quem gerencia usuários vê a equipe lá dentro.
+    // Relógio de ponto — adm abre a central da equipe; quem só está na equipe do
+    // ponto abre o próprio ponto. Quem não é nenhum dos dois não vê.
     ponto: {
       label: 'Ponto',
-      href: '/atendimento/ponto',
+      href: hasPermission('manage_users') ? '/atendimento/ponto/equipe' : '/atendimento/ponto',
       icon: <Clock size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/ponto'),
-      show: true,
+      show: hasPermission('manage_users') || pontoStatus.member,
     },
     // Onda 17.32.88 — Atalho pro admin SaaS. So aparece se SUPER_ADMIN.
     adminTenants: {

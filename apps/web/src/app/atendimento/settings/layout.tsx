@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, MessageCircle, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send, RotateCcw,
+  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send, RotateCcw, Clock,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -22,6 +22,8 @@ const settingsSections: MenuSection[] = [
     items: [
       { label: 'Usuários & Perfis', href: '/atendimento/settings/users', icon: UserCog },
       { label: 'Permissões', href: '/atendimento/settings/permissions', icon: Shield },
+      // Relógio de ponto: local base + quem bate e o horário de cada um (adm).
+      { label: 'Ponto', href: '/atendimento/settings/ponto', icon: Clock },
     ],
   },
   {
@@ -100,6 +102,7 @@ const settingsSections: MenuSection[] = [
 const adminOnlyPaths = new Set([
   '/atendimento/settings/users',
   '/atendimento/settings/permissions',
+  '/atendimento/settings/ponto',
   '/atendimento/settings/ai',
   '/atendimento/settings/ai/teste',
   '/atendimento/settings/costs',

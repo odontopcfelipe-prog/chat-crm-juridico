@@ -627,16 +627,21 @@ export function resolveHomeActions(
     }
   }
 
-  // 3) Relógio de ponto: todo mundo bate o ponto, então o balão vale pra qualquer setor.
-  if (!hrefs.has(PONTO_BALAO.href)) extras.push(PONTO_BALAO);
-
   return [...base, ...extras];
 }
 
-/** Balão do relógio de ponto — aparece pra TODOS os setores (não depende de permissão). */
+/**
+ * Balões do relógio de ponto. NÃO entram em resolveHomeActions: a home mostra o
+ * do funcionário só pra quem está na equipe do ponto (GET /ponto/status) e o da
+ * central só pra quem gerencia usuários (o adm).
+ */
 export const PONTO_BALAO: HomeAction = {
-  lucide: 'Clock', icon: '⏰', label: 'Ponto', desc: 'Registre entrada e saída e veja suas horas.',
+  lucide: 'Clock', icon: '⏰', label: 'Meu ponto', desc: 'Registre entrada e saída e veja suas horas.',
   href: '/atendimento/ponto', tone: 'sky',
+};
+export const PONTO_ADM_BALAO: HomeAction = {
+  lucide: 'Clock', icon: '⏰', label: 'Ponto da equipe', desc: 'Horas da equipe, ajustes e relatório da contabilidade.',
+  href: '/atendimento/ponto/equipe', tone: 'sky',
 };
 
 // ─── Acesso por TELA (out/2026) ─────────────────────────────────
@@ -690,9 +695,11 @@ export const ROUTE_ACCESS: RouteAccessRule[] = [
   { path: '/atendimento/influenciadores',         anyOf: ['view_marketing'] },
   { path: '/atendimento/referrals',               anyOf: ['view_marketing'] },
   // Sistema.
-  // Relógio de ponto: /atendimento/ponto (bater + meu espelho) é de todos; a gestão
-  // da equipe exige manage_users, igual ao backend (/ponto/team, ajustes, config).
+  // Relógio de ponto: /atendimento/ponto (bater + meu espelho) é de todos (o backend
+  // só deixa bater quem está na equipe do ponto); a central da equipe e a
+  // configuração exigem manage_users, igual ao backend (/ponto/team, report, config).
   { path: '/atendimento/ponto/equipe',            anyOf: ['manage_users'] },
+  { path: '/atendimento/settings/ponto',          anyOf: ['manage_users'] },
   { path: '/atendimento/settings',                anyOf: ['view_settings', 'manage_settings', 'manage_users'] },
   { path: '/atendimento/billing',                 anyOf: ['manage_settings'] },
   // Clínico.

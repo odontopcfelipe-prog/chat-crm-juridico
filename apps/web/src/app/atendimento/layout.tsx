@@ -24,6 +24,7 @@ import { useRole } from '@/lib/useRole';
 // tela que o perfil não pode vê "Sem acesso" em vez da tela (ex.: Dentista).
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { canAccessRoute } from '@crm/shared';
+import { usePontoStatus } from '@/lib/usePontoStatus';
 import { Lock } from 'lucide-react';
 import { SocketProvider } from '@/lib/SocketProvider';
 import { NotificationToggle } from '@/components/NotificationToggle';
@@ -168,6 +169,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   // login/troca de conta (o layout persiste no login → dashboard).
   const { hasPermission, ready: permsReady, sector: permSector } = useUserPermissions({ tokenKey: authToken });
   const routeAllowed = canAccessRoute(pathname, hasPermission);
+  const pontoStatus = usePontoStatus(authToken);
   // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
   // da clínica. Se ganhar manage_agenda (admin liberou), volta a ter o calendário.
   // (Esconde o calendário já pelo fallback do JWT; só redireciona com /users/me pronto.)
@@ -313,8 +315,10 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   const allMoreItems = [
     { label: 'Dashboard', href: '/atendimento/dashboard', icon: LayoutDashboard, match: (p: string) => p.startsWith('/atendimento/dashboard'), show: perms.canViewDashboard },
-    // Relógio de ponto — todo mundo bate (no celular é o caminho mais comum).
-    { label: 'Ponto', href: '/atendimento/ponto', icon: Clock, match: (p: string) => p.startsWith('/atendimento/ponto'), show: true },
+    // Relógio de ponto — no celular é o caminho mais comum. "Meu ponto" só pra quem
+    // está na equipe do ponto; a central só pro adm.
+    { label: 'Meu ponto', href: '/atendimento/ponto', icon: Clock, match: (p: string) => p === '/atendimento/ponto', show: pontoStatus.member },
+    { label: 'Ponto da equipe', href: '/atendimento/ponto/equipe', icon: Clock, match: (p: string) => p.startsWith('/atendimento/ponto/equipe'), show: hasPermission('manage_users') },
     { label: 'Agenda & Tarefas', href: '/atendimento/agenda', icon: Calendar, match: (p: string) => p.startsWith('/atendimento/agenda') || p.startsWith('/atendimento/tasks'), badge: overdueCount, show: true },
     { label: 'Marketing', href: '/atendimento/marketing/analytics', icon: Megaphone, match: (p: string) => p.startsWith('/atendimento/marketing'), show: perms.canViewAnalytics },
     { label: 'Ajustes', href: '/atendimento/settings', icon: Settings, match: (p: string) => p.startsWith('/atendimento/settings'), show: perms.canManageSettings },

@@ -3,7 +3,6 @@ import {
   IsNumber,
   IsInt,
   IsOptional,
-  IsBoolean,
   IsArray,
   Min,
   Max,
@@ -12,12 +11,12 @@ import {
   MaxLength,
   ArrayMinSize,
   ArrayMaxSize,
-  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
-// Localização do aparelho na hora da batida (opcional: sem GPS a batida é aceita,
-// a não ser que a clínica exija o local).
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+// Localização do aparelho na hora da batida. Obrigatória (o serviço recusa sem ela),
+// mas opcional no DTO pra devolver a mensagem certa em vez de um 400 genérico.
 export class PunchDto {
   @IsOptional() @IsNumber() @Min(-90) @Max(90)
   latitude?: number;
@@ -29,9 +28,9 @@ export class PunchDto {
   accuracy?: number;
 }
 
-// Batida lançada pelo gestor (esquecimento, falta de sinal...). Data/hora LOCAL de Maceió.
+// Batida lançada pelo adm (esquecimento). Data/hora LOCAL de Maceió.
 export class ManualPunchDto {
-  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data inválida (AAAA-MM-DD)' })
+  @IsString() @Matches(YMD, { message: 'Data inválida (AAAA-MM-DD)' })
   date: string;
 
   @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Hora inválida (HH:mm)' })
@@ -46,6 +45,7 @@ export class VoidPunchDto {
   reason: string;
 }
 
+// Local base do ponto: centro + raio. Fora do raio a batida é recusada.
 export class PontoLocalDto {
   @IsNumber() @Min(-90) @Max(90)
   lat: number;
@@ -53,29 +53,36 @@ export class PontoLocalDto {
   @IsNumber() @Min(-180) @Max(180)
   lng: number;
 
-  @IsInt() @Min(20) @Max(5000)
+  @IsInt() @Min(20) @Max(2000)
   raio_m: number;
 }
 
-export class PontoConfigDto {
-  // null = apagar o local da clínica
-  @IsOptional() @ValidateNested() @Type(() => PontoLocalDto)
-  local?: PontoLocalDto | null;
+// `days` = 7 posições (0 = domingo): null ou {in, break_start, break_end, out} "HH:mm".
+// Validado a fundo no serviço (normalizeWeek) — aqui só o formato da lista.
+export class CreateMemberDto {
+  @IsString() @MinLength(1)
+  user_id: string;
 
-  @IsOptional() @IsBoolean()
-  exigir_local?: boolean;
+  @IsString() @Matches(YMD, { message: 'Data de início inválida (AAAA-MM-DD)' })
+  start_date: string;
 
-  @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true })
-  ips?: string[];
-
-  @IsOptional() @IsArray() @ArrayMinSize(7) @ArrayMaxSize(7)
-  @IsInt({ each: true }) @Min(0, { each: true }) @Max(1440, { each: true })
-  jornada_padrao?: number[];
+  @IsArray() @ArrayMinSize(7) @ArrayMaxSize(7)
+  days: any[];
 }
 
-// Jornada própria do funcionário (minutos por dia, 0 = domingo). null = usa a padrão.
-export class UserScheduleDto {
-  @IsOptional() @IsArray() @ArrayMinSize(7) @ArrayMaxSize(7)
-  @IsInt({ each: true }) @Min(0, { each: true }) @Max(1440, { each: true })
-  minutes?: number[] | null;
+export class UpdateMemberDto {
+  @IsOptional() @IsString() @Matches(YMD, { message: 'Data de início inválida (AAAA-MM-DD)' })
+  start_date?: string;
+
+  // null = volta a ficar ativo; data = último dia no ponto.
+  @IsOptional() @IsString() @Matches(YMD, { message: 'Data de saída inválida (AAAA-MM-DD)' })
+  end_date?: string | null;
+}
+
+export class ScheduleDto {
+  @IsString() @Matches(YMD, { message: 'Data de vigência inválida (AAAA-MM-DD)' })
+  valid_from: string;
+
+  @IsArray() @ArrayMinSize(7) @ArrayMaxSize(7)
+  days: any[];
 }

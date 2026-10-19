@@ -19,8 +19,12 @@ import {
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
   Megaphone, Settings, Cake, ClipboardCheck, Activity, Trophy, Clock, type LucideIcon,
 } from 'lucide-react';
-import { getSector, resolveHomeActions, SECTORS, type Sector, type Permission } from '@crm/shared';
+import {
+  getSector, resolveHomeActions, SECTORS, PONTO_BALAO, PONTO_ADM_BALAO, type Sector, type Permission,
+} from '@crm/shared';
 import { useModuleBadges } from '@/lib/useModuleBadges';
+import { usePontoStatus } from '@/lib/usePontoStatus';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import './home-por-setor.css';
 
 interface Props {
@@ -50,11 +54,22 @@ export default function HomeBySector({ sector, allowSwitch = false, extraGrants 
   const meta      = getSector(active);
   // Cards EFETIVOS (com grants/revokes do usuário). Só aplica os ajustes no setor
   // REAL; no preview do admin (switcher) mostra só o padrão.
-  const actions   = resolveHomeActions(
+  const baseActions = resolveHomeActions(
     active,
     active === sector ? extraGrants : [],
     active === sector ? extraRevokes : [],
   );
+  // Relógio de ponto: "Meu ponto" só pra quem está na equipe do ponto; "Ponto da
+  // equipe" só pro adm. Só no setor REAL (não no preview do switcher).
+  const ponto = usePontoStatus();
+  const { hasPermission } = useUserPermissions();
+  const actions = active === sector
+    ? [
+        ...baseActions,
+        ...(ponto.member ? [PONTO_BALAO] : []),
+        ...(hasPermission('manage_users') ? [PONTO_ADM_BALAO] : []),
+      ]
+    : baseActions;
 
   const { data: badgesData } = useModuleBadges(active);
 

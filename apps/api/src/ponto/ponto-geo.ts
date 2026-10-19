@@ -1,5 +1,6 @@
 /**
  * Relógio de ponto — localização da batida (puro; testado em ponto-geo.spec.ts).
+ * Regra da clínica: o ponto SÓ vale com localização, dentro da área cadastrada.
  */
 
 export interface PontoLocal {
@@ -14,10 +15,11 @@ export interface PontoPos {
   accuracy?: number | null;
 }
 
-export type GeoStatus = 'NO_LOCAL' | 'FORA' | 'SEM_GPS' | 'SEM_REF' | 'REDE_CLINICA' | 'MANUAL';
+/** NO_LOCAL = aceita. Os demais recusam a batida (MANUAL = lançada pelo adm). */
+export type GeoStatus = 'NO_LOCAL' | 'FORA' | 'SEM_GPS' | 'IMPRECISO' | 'SEM_REF' | 'MANUAL';
 
-/** Folga máxima dada pela imprecisão do GPS (o aparelho informa a margem em metros). */
-const MAX_FOLGA_PRECISAO_M = 100;
+/** Precisão mínima exigida do GPS (margem de erro informada pelo aparelho). */
+export const MAX_PRECISAO_M = 150;
 
 /** Distância em metros entre dois pontos (haversine). */
 export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -30,31 +32,24 @@ export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: n
 }
 
 /**
- * Situação da batida: dentro do raio da clínica (com folga da precisão do GPS, até
- * 100 m), fora, sem GPS ou sem local configurado. Batida feita da rede da clínica
- * (IP cadastrado) conta como no local mesmo sem GPS — o computador da recepção
- * costuma não ter GPS e a localização por Wi-Fi/IP erra por quilômetros.
+ * Situação da batida. Dentro = distância até o ponto da clínica <= raio (sem folga).
+ * Leitura imprecisa (margem > 150 m ou sem margem) é recusada mesmo "dentro": a
+ * localização por Wi-Fi/IP de computador erra por quilômetros.
  */
 export function evalGeo(
   pos: PontoPos | null,
   local: PontoLocal | null,
-  ipConfiavel: boolean,
 ): { status: GeoStatus; distance_m: number | null } {
-  let status: GeoStatus;
-  let distance: number | null = null;
-  if (pos) {
-    if (local) {
-      distance = Math.round(distanceMeters(pos.latitude, pos.longitude, local.lat, local.lng));
-      const folga = Math.min(Math.max(Number(pos.accuracy) || 0, 0), MAX_FOLGA_PRECISAO_M);
-      status = distance <= local.raio_m + folga ? 'NO_LOCAL' : 'FORA';
-    } else {
-      status = 'SEM_REF';
-    }
-  } else {
-    status = 'SEM_GPS';
+  if (!local) return { status: 'SEM_REF', distance_m: null };
+  if (!pos || !Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)) {
+    return { status: 'SEM_GPS', distance_m: null };
   }
-  if (ipConfiavel && status !== 'NO_LOCAL') status = 'REDE_CLINICA';
-  return { status, distance_m: distance };
+  const distance = Math.round(distanceMeters(pos.latitude, pos.longitude, local.lat, local.lng));
+  if (distance > local.raio_m) return { status: 'FORA', distance_m: distance };
+  // Number(null) = 0 — sem margem informada NÃO pode passar como "precisão perfeita".
+  const acc = pos.accuracy == null ? NaN : Number(pos.accuracy);
+  if (!Number.isFinite(acc) || acc < 0 || acc > MAX_PRECISAO_M) return { status: 'IMPRECISO', distance_m: distance };
+  return { status: 'NO_LOCAL', distance_m: distance };
 }
 
 /** "::ffff:1.2.3.4" → "1.2.3.4"; tira espaços. */
@@ -65,9 +60,8 @@ export function normalizeIp(raw: string | null | undefined): string | null {
 }
 
 /**
- * IP do aparelho. Atrás do Cloudflare, só o `cf-connecting-ip` é confiável (o
- * Cloudflare ANEXA ao X-Forwarded-For que o cliente mandar, então o 1º item dele
- * pode ser forjado). Sem Cloudflare, cai no X-Forwarded-For e depois no socket.
+ * IP do aparelho (só registro/auditoria). Atrás do Cloudflare, só o
+ * `cf-connecting-ip` é confiável (o 1º item do X-Forwarded-For pode ser forjado).
  */
 export function clientIp(req: any): string | null {
   const h = req?.headers ?? {};
@@ -77,30 +71,4 @@ export function clientIp(req: any): string | null {
   const xff = first(h['x-forwarded-for']);
   if (xff) return normalizeIp(xff.split(',')[0]);
   return normalizeIp(req?.ip);
-}
-
-/**
- * IP público (dá pra confiar como "rede da clínica"). IP interno (docker, rede local,
- * loopback) NUNCA: se o proxy não repassar o IP real, todo mundo chegaria com o
- * mesmo IP interno e qualquer batida contaria como "na clínica".
- */
-export function isPublicIp(ip: string | null | undefined): boolean {
-  const s = normalizeIp(ip);
-  if (!s) return false;
-  const v4 = s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if ([a, b, Number(v4[3]), Number(v4[4])].some((x) => x > 255)) return false;
-    if (a === 10 || a === 127 || a === 0) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
-    return true;
-  }
-  if (!s.includes(':')) return false;
-  const low = s.toLowerCase();
-  if (low === '::1' || low === '::') return false;
-  if (/^f[cd]/.test(low) || /^fe[89ab]/.test(low)) return false; // ULA / link-local
-  return true;
 }

@@ -1,38 +1,36 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   computeDay,
   computeMonth,
-  DEFAULT_WEEKLY,
+  holidaysForMonth,
   isValidYm,
+  isValidYmd,
   maceioHhmm,
   maceioLocalToInstant,
   maceioYmd,
   monthRange,
-  normalizeWeekly,
+  normalizeWeek,
+  punchLabel,
+  scheduleOn,
+  type DayCalc,
   type MonthTotals,
+  type ScheduleVersion,
+  type WeekSchedule,
 } from './ponto-calc';
-import { evalGeo, isPublicIp, normalizeIp, type PontoLocal } from './ponto-geo';
-import { ManualPunchDto, PontoConfigDto, PunchDto } from './ponto.dto';
+import { evalGeo, MAX_PRECISAO_M, type PontoLocal } from './ponto-geo';
+import { CreateMemberDto, ManualPunchDto, PontoLocalDto, PunchDto, ScheduleDto, UpdateMemberDto } from './ponto.dto';
 
-// Config do ponto da clínica: um JSON em TenantSetting (sem tabela própria).
+// Local base do ponto: JSON em TenantSetting ({ local: {lat, lng, raio_m} }).
 const CONFIG_KEY = 'PONTO_CONFIG';
 // Duas batidas em menos de 1 min = clique duplo / reenvio — a 2ª é recusada.
 const ANTI_DUPLO_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface PontoConfig {
-  local: PontoLocal | null;
-  exigir_local: boolean;
-  ips: string[];
-  jornada_padrao: number[];
-  /** Jornada própria por usuário (minutos por dia da semana, 0 = domingo). */
-  jornadas: Record<string, number[]>;
-}
-
 type PunchRow = {
   id: string;
   user_id: string;
+  user_name: string;
   punched_at: Date;
   source: string;
   latitude: number | null;
@@ -47,115 +45,171 @@ type PunchRow = {
   void_reason: string | null;
 };
 
+type MemberRow = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  start_date: string;
+  end_date: string | null;
+  schedules: { valid_from: string; days: unknown; created_at: Date }[];
+};
+
+const fmtYmd = (ymd: string) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}`;
+const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`);
+
 @Injectable()
 export class PontoService {
   constructor(private prisma: PrismaService) {}
 
-  // ─── Config ─────────────────────────────────────────────
-  async getConfig(tenantId: string): Promise<PontoConfig> {
+  // ─── Local base ─────────────────────────────────────────
+  async getLocal(tenantId: string): Promise<PontoLocal | null> {
     const row = await this.prisma.tenantSetting.findUnique({
       where: { tenant_id_key: { tenant_id: tenantId, key: CONFIG_KEY } },
     });
-    let raw: any = {};
     try {
-      raw = row?.value ? JSON.parse(row.value) : {};
+      const l = row?.value ? JSON.parse(row.value)?.local : null;
+      if (l && Number.isFinite(Number(l.lat)) && Number.isFinite(Number(l.lng)) && Number(l.raio_m) > 0) {
+        return { lat: Number(l.lat), lng: Number(l.lng), raio_m: Number(l.raio_m) };
+      }
     } catch {
-      raw = {};
+      /* config corrompida = sem local */
     }
-    const l = raw.local;
-    const local: PontoLocal | null =
-      l && Number.isFinite(Number(l.lat)) && Number.isFinite(Number(l.lng))
-        ? { lat: Number(l.lat), lng: Number(l.lng), raio_m: Number(l.raio_m) || 150 }
-        : null;
-    const jornadas: Record<string, number[]> = {};
-    for (const [uid, w] of Object.entries(raw.jornadas ?? {})) {
-      const n = normalizeWeekly(w);
-      if (n) jornadas[uid] = n;
-    }
-    return {
-      local,
-      exigir_local: !!raw.exigir_local,
-      ips: Array.isArray(raw.ips) ? raw.ips.filter((ip: string) => isPublicIp(ip)) : [],
-      jornada_padrao: normalizeWeekly(raw.jornada_padrao) ?? DEFAULT_WEEKLY,
-      jornadas,
-    };
+    return null;
   }
 
-  private async writeConfig(tenantId: string, cfg: PontoConfig) {
-    const value = JSON.stringify(cfg);
+  async saveLocal(tenantId: string, dto: PontoLocalDto) {
+    const value = JSON.stringify({ local: { lat: dto.lat, lng: dto.lng, raio_m: dto.raio_m } });
     await this.prisma.tenantSetting.upsert({
       where: { tenant_id_key: { tenant_id: tenantId, key: CONFIG_KEY } },
       create: { tenant_id: tenantId, key: CONFIG_KEY, value },
       update: { value },
     });
+    return this.getLocal(tenantId);
   }
 
-  async adminConfig(tenantId: string, ip: string | null) {
-    const cfg = await this.getConfig(tenantId);
-    return { ...cfg, my_ip: ip, my_ip_publico: isPublicIp(ip) };
+  // ─── Equipe do ponto (adm) ──────────────────────────────
+  async configView(tenantId: string) {
+    const [local, members, users] = await Promise.all([
+      this.getLocal(tenantId),
+      this.prisma.timeClockMember.findMany({
+        where: { tenant_id: tenantId },
+        include: { schedules: { orderBy: { valid_from: 'desc' } } },
+      }),
+      this.prisma.user.findMany({
+        where: { tenant_id: tenantId },
+        select: { id: true, name: true, sector: true, roles: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+    const nameBy = new Map(users.map((u) => [u.id, u.name]));
+    const today = maceioYmd(new Date());
+    return {
+      local,
+      max_precisao_m: MAX_PRECISAO_M,
+      today,
+      members: members
+        .map((m) => ({
+          user_id: m.user_id,
+          name: nameBy.get(m.user_id) ?? m.user_name,
+          removed_user: !nameBy.has(m.user_id),
+          start_date: m.start_date,
+          end_date: m.end_date,
+          active: today >= m.start_date && (!m.end_date || today <= m.end_date),
+          schedules: m.schedules.map((s) => ({ valid_from: s.valid_from, days: this.parseDays(s.days) })),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+      users: users
+        .filter((u) => !(u.roles || []).includes('SUPER_ADMIN'))
+        .map((u) => ({ id: u.id, name: u.name, sector: u.sector })),
+    };
   }
 
-  async saveConfig(tenantId: string, dto: PontoConfigDto, ip: string | null) {
-    const cfg = await this.getConfig(tenantId);
-    if (dto.local !== undefined) {
-      cfg.local = dto.local ? { lat: dto.local.lat, lng: dto.local.lng, raio_m: dto.local.raio_m } : null;
-    }
-    if (dto.exigir_local !== undefined) cfg.exigir_local = dto.exigir_local;
-    if (dto.ips !== undefined) {
-      const ips = [...new Set(dto.ips.map((x) => normalizeIp(x)).filter((x): x is string => !!x))];
-      const ruins = ips.filter((x) => !isPublicIp(x));
-      if (ruins.length) {
-        throw new BadRequestException(`IP interno ou inválido não pode ser usado como rede da clínica: ${ruins.join(', ')}`);
-      }
-      cfg.ips = ips;
-    }
-    if (dto.jornada_padrao !== undefined) {
-      const n = normalizeWeekly(dto.jornada_padrao);
-      if (!n) throw new BadRequestException('Jornada inválida (7 dias, de 0 a 24h).');
-      cfg.jornada_padrao = n;
-    }
-    await this.writeConfig(tenantId, cfg);
-    return this.adminConfig(tenantId, ip);
+  async createMember(tenantId: string, adminId: string, dto: CreateMemberDto) {
+    if (!isValidYmd(dto.start_date)) throw new BadRequestException('Data de início inválida.');
+    const week = normalizeWeek(dto.days);
+    if (!week.ok) throw new BadRequestException(week.error);
+    const user = await this.assertUser(tenantId, dto.user_id);
+    const exists = await this.prisma.timeClockMember.findUnique({
+      where: { tenant_id_user_id: { tenant_id: tenantId, user_id: user.id } },
+      select: { id: true },
+    });
+    if (exists) throw new BadRequestException(`${user.name} já está na equipe do ponto — edite o cadastro dele.`);
+    await this.prisma.timeClockMember.create({
+      data: {
+        tenant_id: tenantId,
+        user_id: user.id,
+        user_name: user.name,
+        start_date: dto.start_date,
+        schedules: {
+          create: { tenant_id: tenantId, valid_from: dto.start_date, days: week.value as any, created_by_id: adminId },
+        },
+      },
+    });
+    return this.configView(tenantId);
   }
 
-  async saveUserSchedule(tenantId: string, userId: string, minutes: number[] | null | undefined) {
-    await this.assertUser(tenantId, userId);
-    const cfg = await this.getConfig(tenantId);
-    if (minutes == null) {
-      delete cfg.jornadas[userId];
-    } else {
-      const n = normalizeWeekly(minutes);
-      if (!n) throw new BadRequestException('Jornada inválida (7 dias, de 0 a 24h).');
-      cfg.jornadas[userId] = n;
-    }
-    await this.writeConfig(tenantId, cfg);
-    return { user_id: userId, jornada: cfg.jornadas[userId] ?? null, jornada_padrao: cfg.jornada_padrao };
+  async updateMember(tenantId: string, userId: string, dto: UpdateMemberDto) {
+    const m = await this.findMember(tenantId, userId);
+    if (!m) throw new NotFoundException('Funcionário não está na equipe do ponto.');
+    const start = dto.start_date ?? m.start_date;
+    const end = dto.end_date === undefined ? m.end_date : dto.end_date;
+    if (!isValidYmd(start)) throw new BadRequestException('Data de início inválida.');
+    if (end != null && !isValidYmd(end)) throw new BadRequestException('Data de saída inválida.');
+    if (end != null && end < start) throw new BadRequestException('O último dia não pode ser antes do início.');
+    await this.prisma.timeClockMember.update({ where: { id: m.id }, data: { start_date: start, end_date: end } });
+    return this.configView(tenantId);
   }
 
-  // ─── Bater o ponto ──────────────────────────────────────
+  async saveSchedule(tenantId: string, adminId: string, userId: string, dto: ScheduleDto) {
+    const m = await this.findMember(tenantId, userId);
+    if (!m) throw new NotFoundException('Funcionário não está na equipe do ponto.');
+    if (!isValidYmd(dto.valid_from)) throw new BadRequestException('Data de vigência inválida.');
+    const week = normalizeWeek(dto.days);
+    if (!week.ok) throw new BadRequestException(week.error);
+    await this.prisma.timeClockSchedule.upsert({
+      where: { member_id_valid_from: { member_id: m.id, valid_from: dto.valid_from } },
+      create: { tenant_id: tenantId, member_id: m.id, valid_from: dto.valid_from, days: week.value as any, created_by_id: adminId },
+      update: { days: week.value as any, created_by_id: adminId },
+    });
+    return this.configView(tenantId);
+  }
+
+  async deleteSchedule(tenantId: string, userId: string, validFrom: string) {
+    const m = await this.findMember(tenantId, userId);
+    if (!m) throw new NotFoundException('Funcionário não está na equipe do ponto.');
+    if (m.schedules.length <= 1) throw new BadRequestException('O funcionário precisa ter pelo menos um horário.');
+    const s = m.schedules.find((x) => x.valid_from === validFrom);
+    if (!s) throw new NotFoundException('Horário não encontrado.');
+    await this.prisma.timeClockSchedule.delete({
+      where: { member_id_valid_from: { member_id: m.id, valid_from: validFrom } },
+    });
+    return this.configView(tenantId);
+  }
+
+  // ─── Bater o ponto (funcionário) ────────────────────────
   async punch(tenantId: string, userId: string, dto: PunchDto, ip: string | null, userAgent: string | null) {
-    const user = await this.assertUser(tenantId, userId);
-    const cfg = await this.getConfig(tenantId);
+    const today = maceioYmd(new Date());
+    const member = await this.findMember(tenantId, userId);
+    if (!member) throw new ForbiddenException('Você não está na equipe do ponto. Fale com o administrador.');
+    if (today < member.start_date) throw new ForbiddenException(`Seu ponto começa em ${fmtYmd(member.start_date)}.`);
+    if (member.end_date && today > member.end_date) {
+      throw new ForbiddenException('Seu ponto foi encerrado. Fale com o administrador.');
+    }
 
+    const local = await this.getLocal(tenantId);
     const pos =
       Number.isFinite(dto.latitude) && Number.isFinite(dto.longitude)
         ? { latitude: dto.latitude as number, longitude: dto.longitude as number, accuracy: dto.accuracy ?? null }
         : null;
-    const geo = evalGeo(pos, cfg.local, !!ip && cfg.ips.includes(ip));
-
-    // Exigir o local só vale com alguma referência (local no mapa ou rede da clínica).
-    const exige = cfg.exigir_local && (!!cfg.local || cfg.ips.length > 0);
-    if (exige && geo.status !== 'NO_LOCAL' && geo.status !== 'REDE_CLINICA') {
-      if (geo.status === 'FORA' && geo.distance_m != null && cfg.local) {
-        throw new BadRequestException(
-          `Você está a ${fmtDist(geo.distance_m)} da clínica (limite de ${cfg.local.raio_m} m). O ponto só pode ser registrado no local.`,
-        );
-      }
-      throw new BadRequestException(
-        cfg.local
-          ? 'Ative a localização do aparelho para registrar o ponto — a clínica exige estar no local.'
-          : 'O ponto só pode ser registrado pela rede (Wi-Fi) da clínica.',
-      );
+    const geo = evalGeo(pos, local);
+    if (geo.status !== 'NO_LOCAL') {
+      const msg: Record<string, string> = {
+        SEM_REF: 'O administrador ainda não cadastrou o local do ponto.',
+        SEM_GPS: 'Ative a localização do aparelho e permita o acesso para registrar o ponto.',
+        FORA: `Você está a ${fmtDist(geo.distance_m ?? 0)} da clínica (área de ${local?.raio_m ?? 0} m). O ponto só pode ser registrado no local.`,
+        IMPRECISO: `Localização imprecisa${pos?.accuracy != null ? ` (± ${fmtDist(pos.accuracy)})` : ''}. Ative o GPS (ou o Wi-Fi) e tente de novo.`,
+      };
+      throw new BadRequestException(msg[geo.status] ?? 'Localização inválida.');
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -176,12 +230,12 @@ export class PontoService {
         data: {
           tenant_id: tenantId,
           user_id: userId,
-          user_name: user.name,
+          user_name: member.user_name,
           punched_at: now,
           source: 'APP',
-          latitude: pos?.latitude ?? null,
-          longitude: pos?.longitude ?? null,
-          accuracy_m: pos?.accuracy != null ? Math.round(pos.accuracy) : null,
+          latitude: pos!.latitude,
+          longitude: pos!.longitude,
+          accuracy_m: pos!.accuracy != null ? Math.round(pos!.accuracy) : null,
           distance_m: geo.distance_m,
           geo_status: geo.status,
           ip,
@@ -190,228 +244,150 @@ export class PontoService {
       });
     });
 
-    const today = await this.validPunchesOfDay(tenantId, userId, maceioYmd(created.punched_at));
-    const kind = today.length % 2 === 1 ? 'ENTRADA' : 'SAIDA';
+    const count = (await this.validPunchesOfDay(tenantId, userId, today)).length;
+    const sched = scheduleOn(this.versionsOf(member), today);
     return {
-      kind,
+      label: punchLabel(count - 1, !!sched?.break_start),
       hora: maceioHhmm(created.punched_at),
-      geo_status: created.geo_status,
       distance_m: created.distance_m,
     };
   }
 
-  // ─── Meu ponto ──────────────────────────────────────────
+  // ─── Meu ponto (funcionário) ────────────────────────────
   async me(tenantId: string, userId: string, ym?: string) {
-    const user = await this.assertUser(tenantId, userId);
-    const cfg = await this.getConfig(tenantId);
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenant_id: tenantId },
+      select: { id: true, name: true },
+    });
+    if (!user) throw new NotFoundException('Usuário não encontrado nesta clínica.');
     const now = new Date();
     const todayYmd = maceioYmd(now);
     const month = isValidYm(ym ?? '') ? (ym as string) : todayYmd.slice(0, 7);
 
-    const [espelho, todayRows, holidays] = await Promise.all([
-      this.espelho(tenantId, userId, month, cfg),
-      this.prisma.timeClockPunch.findMany({
-        where: { tenant_id: tenantId, user_id: userId, ...this.dayWhere(todayYmd) },
-        orderBy: { punched_at: 'asc' },
-      }),
-      this.holidaysOf(tenantId, todayYmd.slice(0, 7)),
+    const [member, local, data] = await Promise.all([
+      this.findMember(tenantId, userId),
+      this.getLocal(tenantId),
+      this.monthData(tenantId, month, userId),
     ]);
+    const espelho = this.buildEspelho(month, userId, user.name, member, data.rows, data.clinicHol, data.names, now);
+
+    const todayRows = await this.prisma.timeClockPunch.findMany({
+      where: { tenant_id: tenantId, user_id: userId, ...this.dayWhere(todayYmd) },
+      orderBy: { punched_at: 'asc' },
+    });
+    const todayHol = holidaysForMonth(todayYmd.slice(0, 7), await this.clinicHolidays(tenantId, todayYmd.slice(0, 7)));
+    const sched = member ? scheduleOn(this.versionsOf(member), todayYmd) : null;
     const valid = todayRows.filter((r) => !r.voided_at);
     const todayCalc = computeDay({
       date: todayYmd,
       punches: valid.map((r) => r.punched_at),
-      weekly: cfg.jornadas[userId] ?? cfg.jornada_padrao,
-      holiday: holidays.get(todayYmd) ?? null,
+      schedule: sched,
+      holiday: todayHol.get(todayYmd) ?? null,
       todayYmd,
       now,
-      startYmd: todayYmd,
+      startYmd: member?.start_date ?? null,
+      endYmd: member?.end_date ?? null,
     });
     const names = await this.userNames(
       tenantId,
       todayRows.flatMap((r) => [r.created_by_id, r.voided_by_id]).filter((x): x is string => !!x),
     );
-    let idx = 0;
-    const todayPunches = todayRows.map((r) =>
-      this.mapPunch(r, r.voided_at ? null : idx++ % 2 === 0 ? 'ENTRADA' : 'SAIDA', names),
-    );
+    const active = !!member && todayYmd >= member.start_date && (!member.end_date || todayYmd <= member.end_date);
 
     return {
       server_now: now.toISOString(),
       today: todayYmd,
       user: { id: user.id, name: user.name },
-      next: valid.length % 2 === 0 ? 'ENTRADA' : 'SAIDA',
+      member: member ? { start_date: member.start_date, end_date: member.end_date, active } : null,
+      local,
+      max_precisao_m: MAX_PRECISAO_M,
+      today_schedule: sched,
+      next_label: punchLabel(valid.length, !!sched?.break_start),
+      next_is_entry: valid.length % 2 === 0,
       today_calc: todayCalc,
-      today_punches: todayPunches,
-      config: {
-        local: cfg.local,
-        exigir_local: cfg.exigir_local && (!!cfg.local || cfg.ips.length > 0),
-        tem_rede: cfg.ips.length > 0,
-      },
+      today_punches: this.mapDayPunches(todayRows, !!sched?.break_start, names),
       espelho,
     };
   }
 
-  // ─── Espelho do mês (funcionário ou gestor) ─────────────
-  async espelho(tenantId: string, userId: string, ym: string, cfgIn?: PontoConfig) {
+  /** Só pra mostrar/esconder atalhos (balão, menu). */
+  async status(tenantId: string, userId: string) {
+    const m = await this.findMember(tenantId, userId);
+    const today = maceioYmd(new Date());
+    return { member: !!m, active: !!m && today >= m.start_date && (!m.end_date || today <= m.end_date) };
+  }
+
+  // ─── Espelhos (adm) ─────────────────────────────────────
+  async espelho(tenantId: string, userId: string, ym: string) {
     if (!isValidYm(ym)) throw new BadRequestException('Mês inválido (AAAA-MM).');
-    const cfg = cfgIn ?? (await this.getConfig(tenantId));
-    const now = new Date();
-    const { startUtc, endUtc } = monthRange(ym);
-
-    const [rows, first, holidays] = await Promise.all([
-      this.prisma.timeClockPunch.findMany({
-        where: {
-          tenant_id: tenantId,
-          user_id: userId,
-          punched_at: { gte: new Date(startUtc.getTime() - DAY_MS), lt: endUtc },
-        },
-        orderBy: { punched_at: 'asc' },
-      }),
-      this.prisma.timeClockPunch.findFirst({
-        where: { tenant_id: tenantId, user_id: userId, voided_at: null },
-        orderBy: { punched_at: 'asc' },
-        select: { punched_at: true },
-      }),
-      this.holidaysOf(tenantId, ym),
+    const [user, member, data] = await Promise.all([
+      this.prisma.user.findFirst({ where: { id: userId, tenant_id: tenantId }, select: { name: true } }),
+      this.findMember(tenantId, userId),
+      this.monthData(tenantId, ym, userId),
     ]);
-
-    const weekly = cfg.jornadas[userId] ?? cfg.jornada_padrao;
-    const { days, totals } = computeMonth({
-      ym,
-      punches: rows.filter((r) => !r.voided_at).map((r) => r.punched_at),
-      weekly,
-      holidays,
-      todayYmd: maceioYmd(now),
-      now,
-      startYmd: first ? maceioYmd(first.punched_at) : null,
+    const anyPunch = user || member ? null : await this.prisma.timeClockPunch.findFirst({
+      where: { tenant_id: tenantId, user_id: userId },
+      select: { user_name: true },
     });
+    if (!user && !member && !anyPunch) throw new NotFoundException('Usuário não encontrado nesta clínica.');
+    const name = user?.name ?? member?.user_name ?? anyPunch!.user_name;
+    return this.buildEspelho(ym, userId, name, member, data.rows, data.clinicHol, data.names, new Date());
+  }
 
-    const names = await this.userNames(
-      tenantId,
-      rows.flatMap((r) => [r.created_by_id, r.voided_by_id]).filter((x): x is string => !!x),
-    );
-    const byDay = new Map<string, PunchRow[]>();
-    for (const r of rows) {
-      const k = maceioYmd(r.punched_at);
-      if (!k.startsWith(ym)) continue;
-      const arr = byDay.get(k);
-      if (arr) arr.push(r);
-      else byDay.set(k, [r]);
-    }
-
+  /** Todos os espelhos do mês (pra contabilidade) — mesma conta do espelho individual. */
+  async report(tenantId: string, ym?: string) {
+    const now = new Date();
+    const month = isValidYm(ym ?? '') ? (ym as string) : maceioYmd(now).slice(0, 7);
+    const data = await this.monthData(tenantId, month);
+    const people = this.peopleOfMonth(month, data);
     return {
-      ym,
-      user_id: userId,
-      jornada: weekly,
-      jornada_propria: !!cfg.jornadas[userId],
-      totals,
-      days: days.map((d) => {
-        let idx = 0;
-        const punches = (byDay.get(d.date) ?? []).map((r) => {
-          const kind = r.voided_at ? null : idx++ % 2 === 0 ? 'ENTRADA' : 'SAIDA';
-          return this.mapPunch(r, kind, names);
-        });
-        return { ...d, punches };
-      }),
+      ym: month,
+      today: maceioYmd(now),
+      people: people.map((p) =>
+        this.buildEspelho(month, p.user_id, p.name, p.member, data.rows, data.clinicHol, data.names, now),
+      ),
     };
   }
 
-  // ─── Equipe (gestor) ────────────────────────────────────
   async team(tenantId: string, ym?: string) {
-    const now = new Date();
-    const todayYmd = maceioYmd(now);
-    const month = isValidYm(ym ?? '') ? (ym as string) : todayYmd.slice(0, 7);
-    const cfg = await this.getConfig(tenantId);
-    const { startUtc, endUtc } = monthRange(month);
-
-    const [users, rows, firsts, holidays, todayRows] = await Promise.all([
-      this.prisma.user.findMany({
-        where: { tenant_id: tenantId },
-        select: { id: true, name: true, sector: true, roles: true },
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.timeClockPunch.findMany({
-        where: {
-          tenant_id: tenantId,
-          voided_at: null,
-          punched_at: { gte: new Date(startUtc.getTime() - DAY_MS), lt: endUtc },
-        },
-        select: { user_id: true, user_name: true, punched_at: true, geo_status: true },
-        orderBy: { punched_at: 'asc' },
-      }),
-      this.prisma.timeClockPunch.groupBy({
-        by: ['user_id'],
-        where: { tenant_id: tenantId, voided_at: null },
-        _min: { punched_at: true },
-      }),
-      this.holidaysOf(tenantId, month),
-      this.prisma.timeClockPunch.findMany({
-        where: { tenant_id: tenantId, voided_at: null, ...this.dayWhere(todayYmd) },
-        select: { user_id: true, punched_at: true },
-        orderBy: { punched_at: 'asc' },
-      }),
-    ]);
-
-    const firstBy = new Map(firsts.map((f) => [f.user_id, f._min.punched_at]));
-    const byUser = new Map<string, typeof rows>();
-    for (const r of rows) {
-      const arr = byUser.get(r.user_id);
-      if (arr) arr.push(r);
-      else byUser.set(r.user_id, [r]);
-    }
+    const rep = await this.report(tenantId, ym);
+    const todayRows = await this.prisma.timeClockPunch.findMany({
+      where: { tenant_id: tenantId, voided_at: null, ...this.dayWhere(rep.today) },
+      select: { user_id: true, punched_at: true },
+      orderBy: { punched_at: 'asc' },
+    });
     const todayBy = new Map<string, Date[]>();
     for (const r of todayRows) {
       const arr = todayBy.get(r.user_id);
       if (arr) arr.push(r.punched_at);
       else todayBy.set(r.user_id, [r.punched_at]);
     }
-
-    // Usuários atuais (menos o SUPER_ADMIN do SaaS) + quem tem batida mas foi excluído.
-    const people: { id: string; name: string; sector: string | null; removed: boolean }[] = users
-      .filter((u) => !(u.roles || []).includes('SUPER_ADMIN') || byUser.has(u.id))
-      .map((u) => ({ id: u.id, name: u.name, sector: u.sector, removed: false }));
-    const known = new Set(people.map((p) => p.id));
-    for (const [uid, list] of byUser) {
-      if (!known.has(uid)) people.push({ id: uid, name: list[0].user_name, sector: null, removed: true });
-    }
-
-    const list = people.map((p) => {
-      const mine = byUser.get(p.id) ?? [];
-      const first = firstBy.get(p.id);
-      const { totals } = computeMonth({
-        ym: month,
-        punches: mine.map((r) => r.punched_at),
-        weekly: cfg.jornadas[p.id] ?? cfg.jornada_padrao,
-        holidays,
-        todayYmd,
-        now,
-        startYmd: first ? maceioYmd(first) : null,
-      });
-      const inMonth = mine.filter((r) => maceioYmd(r.punched_at).startsWith(month));
-      const today = todayBy.get(p.id) ?? [];
-      return {
-        ...p,
-        jornada: cfg.jornadas[p.id] ?? null,
-        totals: totals as MonthTotals,
-        punches_count: inMonth.length,
-        fora_do_local: inMonth.filter((r) => r.geo_status === 'FORA').length,
-        sem_gps: inMonth.filter((r) => r.geo_status === 'SEM_GPS').length,
-        trabalhando_agora: today.length % 2 === 1,
-        ultima_batida: today.length ? maceioHhmm(today[today.length - 1]) : null,
-      };
-    });
-
-    return { ym: month, today: todayYmd, jornada_padrao: cfg.jornada_padrao, people: list };
+    return {
+      ym: rep.ym,
+      today: rep.today,
+      people: rep.people.map((e) => {
+        const today = todayBy.get(e.user_id) ?? [];
+        return {
+          user_id: e.user_id,
+          name: e.name,
+          member: e.member,
+          totals: e.totals,
+          punches_count: e.punches_count,
+          adjustments: e.adjustments,
+          alerts_count: e.days.reduce((s, d) => s + d.alerts.length, 0),
+          trabalhando_agora: today.length % 2 === 1,
+          ultima_batida: today.length ? maceioHhmm(today[today.length - 1]) : null,
+        };
+      }),
+    };
   }
 
-  // ─── Ajustes do gestor ──────────────────────────────────
+  // ─── Ajustes do adm ─────────────────────────────────────
   async addManual(tenantId: string, adminId: string, userId: string, dto: ManualPunchDto) {
+    if (!isValidYmd(dto.date)) throw new BadRequestException('Data inválida.');
     const user = await this.assertUser(tenantId, userId);
     const at = maceioLocalToInstant(dto.date, dto.time);
-    if (Number.isNaN(at.getTime())) throw new BadRequestException('Data/hora inválida.');
-    if (at.getTime() > Date.now() + 60_000) {
-      throw new BadRequestException('Não dá para lançar batida no futuro.');
-    }
+    if (at.getTime() > Date.now() + 60_000) throw new BadRequestException('Não dá para lançar batida no futuro.');
     const minute = Math.floor(at.getTime() / 60000) * 60000;
     const dup = await this.prisma.timeClockPunch.findFirst({
       where: {
@@ -423,7 +399,6 @@ export class PontoService {
       select: { id: true },
     });
     if (dup) throw new BadRequestException(`Já existe uma batida às ${dto.time} nesse dia.`);
-
     await this.prisma.timeClockPunch.create({
       data: {
         tenant_id: tenantId,
@@ -453,7 +428,149 @@ export class PontoService {
     return this.espelho(tenantId, p.user_id, maceioYmd(p.punched_at).slice(0, 7));
   }
 
+  // ─── Montagem do espelho (uma regra só pra tudo) ────────
+  private async monthData(tenantId: string, ym: string, onlyUserId?: string) {
+    const { startUtc, endUtc } = monthRange(ym);
+    const [members, rows, clinicHol] = await Promise.all([
+      this.prisma.timeClockMember.findMany({
+        where: { tenant_id: tenantId, ...(onlyUserId ? { user_id: onlyUserId } : {}) },
+        include: { schedules: true },
+      }),
+      this.prisma.timeClockPunch.findMany({
+        where: {
+          tenant_id: tenantId,
+          ...(onlyUserId ? { user_id: onlyUserId } : {}),
+          punched_at: { gte: new Date(startUtc.getTime() - DAY_MS), lt: endUtc },
+        },
+        orderBy: { punched_at: 'asc' },
+      }),
+      this.clinicHolidays(tenantId, ym),
+    ]);
+    const names = await this.userNames(
+      tenantId,
+      rows.flatMap((r) => [r.created_by_id, r.voided_by_id]).filter((x): x is string => !!x),
+    );
+    const users = await this.prisma.user.findMany({
+      where: { tenant_id: tenantId, id: { in: [...new Set([...members.map((m) => m.user_id), ...rows.map((r) => r.user_id)])] } },
+      select: { id: true, name: true },
+    });
+    return { members: members as MemberRow[], rows: rows as PunchRow[], clinicHol, names, userNames: new Map(users.map((u) => [u.id, u.name])) };
+  }
+
+  /** Quem entra no mês: membro com período no mês + quem tem batida no mês. */
+  private peopleOfMonth(ym: string, data: Awaited<ReturnType<PontoService['monthData']>>) {
+    const { days } = monthRange(ym);
+    const first = days[0];
+    const last = days[days.length - 1];
+    const out = new Map<string, { user_id: string; name: string; member: MemberRow | null }>();
+    for (const m of data.members) {
+      if (m.start_date <= last && (!m.end_date || m.end_date >= first)) {
+        out.set(m.user_id, { user_id: m.user_id, name: data.userNames.get(m.user_id) ?? m.user_name, member: m });
+      }
+    }
+    for (const r of data.rows) {
+      if (!out.has(r.user_id) && maceioYmd(r.punched_at).startsWith(ym)) {
+        const m = data.members.find((x) => x.user_id === r.user_id) ?? null;
+        out.set(r.user_id, { user_id: r.user_id, name: data.userNames.get(r.user_id) ?? r.user_name, member: m });
+      }
+    }
+    return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }
+
+  private buildEspelho(
+    ym: string,
+    userId: string,
+    name: string,
+    member: MemberRow | null,
+    allRows: PunchRow[],
+    clinicHol: Map<string, string>,
+    names: Map<string, string>,
+    now: Date,
+  ) {
+    const rows = allRows.filter((r) => r.user_id === userId);
+    const versions = member ? this.versionsOf(member) : [];
+    const { days, totals } = computeMonth({
+      ym,
+      punches: rows.filter((r) => !r.voided_at).map((r) => r.punched_at),
+      versions,
+      holidays: clinicHol,
+      todayYmd: maceioYmd(now),
+      now,
+      startYmd: member?.start_date ?? null,
+      endYmd: member?.end_date ?? null,
+    });
+    const byDay = new Map<string, PunchRow[]>();
+    for (const r of rows) {
+      const k = maceioYmd(r.punched_at);
+      if (!k.startsWith(ym)) continue;
+      const arr = byDay.get(k);
+      if (arr) arr.push(r);
+      else byDay.set(k, [r]);
+    }
+    const inMonth = rows.filter((r) => maceioYmd(r.punched_at).startsWith(ym));
+    return {
+      ym,
+      user_id: userId,
+      name,
+      member: member ? { start_date: member.start_date, end_date: member.end_date } : null,
+      schedules: versions
+        .filter((v) => v.valid_from <= `${ym}-31`)
+        .sort((a, b) => b.valid_from.localeCompare(a.valid_from)),
+      totals: totals as MonthTotals,
+      punches_count: inMonth.filter((r) => !r.voided_at).length,
+      adjustments: inMonth.filter((r) => r.source === 'MANUAL' || r.voided_at).length,
+      days: days.map((d: DayCalc) => ({
+        ...d,
+        punches: this.mapDayPunches(byDay.get(d.date) ?? [], !!d.schedule?.break_start, names),
+      })),
+    };
+  }
+
+  private mapDayPunches(rows: PunchRow[], hasBreak: boolean, names: Map<string, string>) {
+    let idx = 0;
+    return rows.map((r) => {
+      const label = r.voided_at ? null : punchLabel(idx, hasBreak);
+      const kind = r.voided_at ? null : idx % 2 === 0 ? 'ENTRADA' : 'SAIDA';
+      if (!r.voided_at) idx++;
+      return {
+        id: r.id,
+        at: r.punched_at.toISOString(),
+        hora: maceioHhmm(r.punched_at),
+        kind,
+        label,
+        source: r.source,
+        geo_status: r.geo_status,
+        distance_m: r.distance_m,
+        accuracy_m: r.accuracy_m,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        note: r.note,
+        created_by: r.created_by_id ? names.get(r.created_by_id) ?? null : null,
+        voided: !!r.voided_at,
+        voided_at: r.voided_at ? r.voided_at.toISOString() : null,
+        void_reason: r.void_reason,
+        voided_by: r.voided_by_id ? names.get(r.voided_by_id) ?? null : null,
+      };
+    });
+  }
+
   // ─── Apoio ──────────────────────────────────────────────
+  private parseDays(raw: unknown): WeekSchedule {
+    const w = normalizeWeek(raw);
+    return w.ok ? w.value : [null, null, null, null, null, null, null];
+  }
+
+  private versionsOf(m: MemberRow): ScheduleVersion[] {
+    return m.schedules.map((s) => ({ valid_from: s.valid_from, days: this.parseDays(s.days) }));
+  }
+
+  private findMember(tenantId: string, userId: string): Promise<MemberRow | null> {
+    return this.prisma.timeClockMember.findUnique({
+      where: { tenant_id_user_id: { tenant_id: tenantId, user_id: userId } },
+      include: { schedules: true },
+    }) as Promise<MemberRow | null>;
+  }
+
   private async assertUser(tenantId: string, userId: string) {
     const u = await this.prisma.user.findFirst({
       where: { id: userId, tenant_id: tenantId },
@@ -461,17 +578,6 @@ export class PontoService {
     });
     if (!u) throw new NotFoundException('Usuário não encontrado nesta clínica.');
     return u;
-  }
-
-  /** Funcionário ativo OU excluído com batidas nesta clínica (o espelho continua acessível). */
-  async assertPerson(tenantId: string, userId: string) {
-    const u = await this.prisma.user.findFirst({ where: { id: userId, tenant_id: tenantId }, select: { id: true } });
-    if (u) return;
-    const p = await this.prisma.timeClockPunch.findFirst({
-      where: { tenant_id: tenantId, user_id: userId },
-      select: { id: true },
-    });
-    if (!p) throw new NotFoundException('Usuário não encontrado nesta clínica.');
   }
 
   private dayWhere(ymd: string) {
@@ -489,10 +595,11 @@ export class PontoService {
   }
 
   /**
-   * Feriados do mês: os da clínica + os globais. `date` segue a convenção da agenda
-   * (dia local nos componentes UTC); recorrente vale todo ano no mesmo dia/mês.
+   * Feriados da CLÍNICA no mês (os da clínica + os globais da tabela Holiday). Os
+   * nacionais entram no cálculo (holidaysForMonth). `date` segue a convenção da
+   * agenda (dia local nos componentes UTC); recorrente vale todo ano.
    */
-  private async holidaysOf(tenantId: string, ym: string): Promise<Map<string, string>> {
+  private async clinicHolidays(tenantId: string, ym: string): Promise<Map<string, string>> {
     const rows = await this.prisma.holiday.findMany({
       where: { OR: [{ tenant_id: tenantId }, { tenant_id: null }] },
       select: { date: true, name: true, recurring_yearly: true },
@@ -520,29 +627,4 @@ export class PontoService {
     });
     return new Map(users.map((u) => [u.id, u.name]));
   }
-
-  private mapPunch(r: PunchRow, kind: 'ENTRADA' | 'SAIDA' | null, names: Map<string, string>) {
-    return {
-      id: r.id,
-      at: r.punched_at.toISOString(),
-      hora: maceioHhmm(r.punched_at),
-      kind,
-      source: r.source,
-      geo_status: r.geo_status,
-      distance_m: r.distance_m,
-      accuracy_m: r.accuracy_m,
-      latitude: r.latitude,
-      longitude: r.longitude,
-      note: r.note,
-      created_by: r.created_by_id ? names.get(r.created_by_id) ?? null : null,
-      voided: !!r.voided_at,
-      voided_at: r.voided_at ? r.voided_at.toISOString() : null,
-      void_reason: r.void_reason,
-      voided_by: r.voided_by_id ? names.get(r.voided_by_id) ?? null : null,
-    };
-  }
-}
-
-function fmtDist(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
 }
