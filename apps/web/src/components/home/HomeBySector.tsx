@@ -25,11 +25,12 @@ import {
 import { useModuleBadges } from '@/lib/useModuleBadges';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import DentistHome from './DentistHome';
 import './home-por-setor.css';
 
 interface Props {
   sector: Sector;
-  /** @deprecated mantido por compat — header de saudacao foi removido */
+  /** Nome do usuário — usado na prévia do painel do dentista (admin no switcher). */
   userName?: string;
   /** @deprecated mantido por compat — nao e mais renderizado */
   skySlot?: React.ReactNode;
@@ -45,7 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   Megaphone, Settings, Cake, ClipboardCheck, Activity, Trophy, Clock,
 };
 
-export default function HomeBySector({ sector, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
+export default function HomeBySector({ sector, userName, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
   const [previewSector, setPreviewSector] = useState<Sector>(sector);
 
   useEffect(() => { setPreviewSector(sector); }, [sector]);
@@ -96,6 +97,20 @@ export default function HomeBySector({ sector, allowSwitch = false, extraGrants 
         </div>
       )}
 
+      {/* O dentista tem painel próprio (DentistHome): no "visualizar como Dentista"
+          o admin vê ESSE painel, não a grade — senão a prévia mente. Os números
+          são os do próprio admin (cada dentista vê os dele). */}
+      {active === 'dentista' ? (
+        <>
+          <p className="hb-preview-note">
+            Prévia do painel do dentista — aqui com os <b>seus</b> números; cada dentista vê os dele.
+          </p>
+          <div className="hb-dentist-preview">
+            <DentistHome userName={userName} />
+          </div>
+        </>
+      ) : (
+      <>
       {/* Grade de MÓDULOS */}
       <div className="hb-section-label">Módulos</div>
       <div className="hb-grid">
@@ -116,6 +131,8 @@ export default function HomeBySector({ sector, allowSwitch = false, extraGrants 
           );
         })}
       </div>
+      </>
+      )}
     </div>
   );
 }
