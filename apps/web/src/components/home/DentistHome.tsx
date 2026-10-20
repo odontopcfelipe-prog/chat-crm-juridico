@@ -34,7 +34,6 @@ import { useModuleBadges } from '@/lib/useModuleBadges';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
-import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 import {
   CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt,
 } from './dentist-illustrations';
@@ -272,8 +271,9 @@ function TopBar({ userName }: { userName?: string | null }) {
         {tenant?.name && <span className="dh-brand-name">{tenant.name}</span>}
       </Link>
       <PatientSearch />
+      {/* Sem sino de notificações: regra do dono — o dentista não recebe as
+          notificações da clínica (o layout também esconde pro setor dentista). */}
       <div className="dh-top-right">
-        <span className="dh-bell"><NotificationCenter /></span>
         <AccountMenu name={userName} subtitle="Dentista" />
       </div>
     </header>

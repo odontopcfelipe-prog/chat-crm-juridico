@@ -427,9 +427,12 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                   NAO tem a barra lateral (la eles ficam no rodape). */}
               {!showSidebar && (
                 <div className="flex items-center gap-1 shrink-0">
-                  <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
-                    <NotificationCenter />
-                  </div>
+                  {/* Out/2026 — regra do dono: o dentista não tem o sino de notificações. */}
+                  {permSector !== 'dentista' && (
+                    <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
+                      <NotificationCenter />
+                    </div>
+                  )}
                   <ThemeMenuButton variant="header" align="right" />
                   <AccountMenu />
                 </div>

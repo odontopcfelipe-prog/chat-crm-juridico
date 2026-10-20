@@ -99,11 +99,6 @@
 .dh-search-empty { display: flex; align-items: center; gap: 8px; padding: 12px; font-size: 13px; color: var(--dh-muted); }
 
 .dh-top-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.dh-bell {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 42px; height: 42px; border-radius: 50%; color: var(--dh-ink); background: #fff;
-  box-shadow: 0 1px 2px rgba(22, 24, 29, 0.05), 0 6px 14px -8px rgba(22, 24, 29, 0.16);
-}
 
 /* ─── Linha 1: saudação (grafite) + relógio com a fila ───────────────────── */
 .dh-row1 {
