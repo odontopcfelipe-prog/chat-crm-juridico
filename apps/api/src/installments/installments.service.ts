@@ -22,6 +22,22 @@ export class InstallmentsService {
 
   async create(tenantId: string, dto: CreateInstallmentDto) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // Anti-IDOR: paciente e orçamento têm que ser DESTA clínica. Sem isso a parcela
+    // nascia com o tenant do operador apontando pro paciente de OUTRA clínica — a
+    // listagem expunha nome/CPF/telefone dele e a renegociação mexia nas parcelas
+    // daquele orçamento.
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: dto.patient_id, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    if (dto.quote_id) {
+      const quote = await this.prisma.quote.findFirst({
+        where: { id: dto.quote_id, patient: { tenant_id: tenantId } },
+        select: { id: true },
+      });
+      if (!quote) throw new NotFoundException('Orcamento nao encontrado');
+    }
     return this.prisma.installment.create({
       data: {
         tenant_id: tenantId,
@@ -46,8 +62,8 @@ export class InstallmentsService {
       where: { id: quoteId },
       include: { patient: { select: { id: true, tenant_id: true } } },
     });
-    if (!quote) throw new NotFoundException('Orcamento nao encontrado');
-    if (quote.patient.tenant_id !== tenantId) throw new BadRequestException('Orcamento de outro tenant');
+    // Orçamento de outra clínica responde igual a inexistente (não confirma o id).
+    if (!quote || quote.patient.tenant_id !== tenantId) throw new NotFoundException('Orcamento nao encontrado');
     if (quote.status !== 'ACCEPTED') {
       throw new BadRequestException(`Quote precisa estar ACCEPTED (atual: ${quote.status})`);
     }
@@ -243,9 +259,11 @@ export class InstallmentsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Cancela todas as parcelas ABERTA/PARCIAL/ATRASADA do mesmo quote
+      // 1. Cancela todas as parcelas ABERTA/PARCIAL/ATRASADA do mesmo quote — só as
+      // DESTA clínica (anti-IDOR: o quote_id sozinho alcançava parcelas de outra).
       const open = await tx.installment.findMany({
         where: {
+          tenant_id: tenantId,
           quote_id: original.quote_id,
           status: { in: ['ABERTA', 'PARCIAL', 'ATRASADA'] },
         },
@@ -264,7 +282,7 @@ export class InstallmentsService {
 
       const interval = dto.interval_days ?? 30;
       const baseDate = new Date(dto.new_first_due_date);
-      const newSeq = await tx.installment.count({ where: { quote_id: original.quote_id! } });
+      const newSeq = await tx.installment.count({ where: { tenant_id: tenantId, quote_id: original.quote_id! } });
 
       // 2. Cria entrada (se houver) + novas parcelas
       let seq = newSeq + 1;
@@ -313,7 +331,7 @@ export class InstallmentsService {
       // 3. Marca parcelas antigas como RENEGOCIADA apontando para a primeira nova
       const firstNew = created[0];
       await tx.installment.updateMany({
-        where: { id: { in: open.map((p) => p.id) } },
+        where: { id: { in: open.map((p) => p.id) }, tenant_id: tenantId },
         data: { status: 'RENEGOCIADA', renegotiated_to_id: firstNew.id },
       });
 

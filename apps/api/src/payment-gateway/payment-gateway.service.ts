@@ -42,6 +42,14 @@ const ASAAS_STATUS_MAP: Record<string, string> = {
   RECEIVED_IN_CASH: 'RECEIVED',
 };
 
+/** Fase 0.1 (anti-IDOR) — o registro é de OUTRA clínica? Mesma regra do
+ *  resolveChargeTenant/deleteCharge: só barra quando os DOIS tenants estão
+ *  preenchidos e diferem. Legado sem tenant_id segue como antes, e chamada sem
+ *  tenant (SUPER_ADMIN/sistema) é cross-tenant de propósito. */
+function deOutraClinica(ownerTenantId: string | null | undefined, callerTenantId: string | null | undefined): boolean {
+  return !!ownerTenantId && !!callerTenantId && ownerTenantId !== callerTenantId;
+}
+
 @Injectable()
 export class PaymentGatewayService {
   private readonly logger = new Logger(PaymentGatewayService.name);
@@ -995,6 +1003,24 @@ export class PaymentGatewayService {
   }
 
   async ensureCustomer(leadId: string, tenantId?: string) {
+    // Buscar dados do lead — ANTES de tudo: anti-IDOR (lead de outra clínica → 404).
+    // Antes criava o cliente na conta Asaas de quem chamou com nome/CPF/telefone do
+    // lead alheio e devolvia o registro (com o CPF).
+    // STUBBED: FichaTrabalhista removida Fase 0.2
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        cpf_cnpj: true,
+        tenant_id: true,
+      },
+    });
+
+    if (!lead || deOutraClinica(lead.tenant_id, tenantId)) throw new NotFoundException('Lead nao encontrado');
+
     // Verificar se ja existe registro local
     const existing = await this.prisma.paymentGatewayCustomer.findFirst({
       where: {
@@ -1018,22 +1044,6 @@ export class PaymentGatewayService {
         this.logger.warn(`[CUSTOMER] external_id ${existing.external_id} nao existe no Asaas atual (404) — recriando p/ lead ${leadId}`);
       }
     }
-
-    // Buscar dados do lead
-    // STUBBED: FichaTrabalhista removida Fase 0.2
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        email: true,
-        cpf_cnpj: true,
-        tenant_id: true,
-      },
-    });
-
-    if (!lead) throw new NotFoundException('Lead nao encontrado');
 
     // STUBBED: fallback via ficha trabalhista removido
     const cpfCnpj = lead.cpf_cnpj || null;
@@ -1109,6 +1119,10 @@ export class PaymentGatewayService {
       where: { lead_honorario_payment_id: leadHonorarioPaymentId },
     });
     if (existingCharge) {
+      // Anti-IDOR: cobrança de outra clínica responde igual a inexistente.
+      if (deOutraClinica(existingCharge.tenant_id, tenantId)) {
+        throw new NotFoundException('Pagamento de honorário negociado não encontrado');
+      }
       this.logger.warn(`[CHARGE] Ja existe cobranca para lead payment ${leadHonorarioPaymentId}: ${existingCharge.external_id}`);
       return existingCharge;
     }
@@ -1118,7 +1132,7 @@ export class PaymentGatewayService {
       include: {
         lead_honorario: {
           include: {
-            lead: { select: { id: true, name: true, phone: true, email: true } },
+            lead: { select: { id: true, name: true, phone: true, email: true, tenant_id: true } },
           },
         },
       },
@@ -1130,6 +1144,11 @@ export class PaymentGatewayService {
     if (!lead?.id) throw new BadRequestException('Honorário negociado não possui lead vinculado');
 
     const honTenant = (payment as any).lead_honorario?.tenant_id;
+    // Anti-IDOR: honorário (ou, no legado sem tenant, o lead) de outra clínica → 404.
+    // Antes gerava a cobrança na conta Asaas de quem chamou, com os dados do lead alheio.
+    if (deOutraClinica(honTenant ?? lead.tenant_id, tenantId)) {
+      throw new NotFoundException('Pagamento de honorário negociado não encontrado');
+    }
     const customer = await this.ensureCustomer(lead.id, tenantId || honTenant);
 
     const dueDate = payment.due_date ? new Date(payment.due_date) : new Date();
@@ -1249,6 +1268,14 @@ export class PaymentGatewayService {
     billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
     tenantId: string,
   ) {
+    // Anti-IDOR: a parcela tem que ser DESTA clínica ANTES da idempotência — senão um
+    // id de parcela de outra clínica devolvia a cobrança dela (PIX copia-e-cola/boleto).
+    const own = await this.prisma.installment.findFirst({
+      where: { id: installmentId, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!own) throw new NotFoundException('Parcela nao encontrada');
+
     // Idempotencia
     const existing = await this.prisma.paymentGatewayCharge.findUnique({
       where: { installment_id: installmentId },
@@ -1387,11 +1414,9 @@ export class PaymentGatewayService {
     const charge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { installment_id: installmentId },
     });
-    if (!charge) {
+    // Cobrança de outra clínica responde igual a inexistente (não confirma o id).
+    if (!charge || charge.tenant_id !== tenantId) {
       throw new NotFoundException('Cobranca nao encontrada para esta parcela');
-    }
-    if (charge.tenant_id !== tenantId) {
-      throw new BadRequestException('Acesso negado');
     }
 
     let asaasData: any = null;
@@ -1427,7 +1452,7 @@ export class PaymentGatewayService {
     const honorario = await this.prisma.leadHonorario.findUnique({
       where: { id: leadHonorarioId },
       include: {
-        lead: { select: { id: true, name: true, phone: true, email: true } },
+        lead: { select: { id: true, name: true, phone: true, email: true, tenant_id: true } },
         payments: {
           where: { status: { in: ['PENDENTE', 'ATRASADO'] } },
           orderBy: { due_date: 'asc' },
@@ -1435,7 +1460,10 @@ export class PaymentGatewayService {
       },
     });
 
-    if (!honorario) throw new NotFoundException('Honorário negociado não encontrado');
+    // Anti-IDOR: honorário (ou, no legado sem tenant, o lead) de outra clínica → 404.
+    if (!honorario || deOutraClinica(honorario.tenant_id ?? honorario.lead?.tenant_id, tenantId)) {
+      throw new NotFoundException('Honorário negociado não encontrado');
+    }
     if (!honorario.lead?.id) throw new BadRequestException('Lead não vinculado');
     if (honorario.payments.length === 0) throw new BadRequestException('Nenhuma parcela pendente');
 
@@ -2750,13 +2778,15 @@ export class PaymentGatewayService {
 
   /** Vinculacao manual: conecta um cliente Asaas a um lead do CRM */
   async linkCustomerToLead(asaasCustomerId: string, leadId: string, tenantId?: string) {
+    // Verificar se lead existe E é desta clínica (anti-IDOR: antes vinculava o lead de
+    // outra clínica e ainda gravava o CPF nele) — antes de bater no Asaas. Rota sem uso
+    // no front: aqui o lead órfão (sem tenant) também é recusado pra quem tem clínica.
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, tenant_id: true } });
+    if (!lead || (tenantId && lead.tenant_id !== tenantId)) throw new NotFoundException('Lead nao encontrado');
+
     // Buscar dados do cliente no Asaas (usa tenantId quando disponivel)
     const cust = await this.asaas.getCustomer(asaasCustomerId, tenantId);
     if (!cust) throw new NotFoundException('Cliente nao encontrado no Asaas');
-
-    // Verificar se lead existe
-    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { id: true } });
-    if (!lead) throw new NotFoundException('Lead nao encontrado');
 
     // Criar vinculo
     const record = await this.prisma.paymentGatewayCustomer.create({
@@ -2782,8 +2812,15 @@ export class PaymentGatewayService {
     return record;
   }
 
-  /** Desvincular um cliente */
-  async unlinkCustomer(id: string) {
+  /** Desvincular um cliente — só o vínculo DESTA clínica (anti-IDOR: antes apagava
+   *  o de qualquer clínica pelo id). Como apaga, o vínculo sem tenant também é
+   *  recusado pra quem tem clínica (rota sem uso no front). */
+  async unlinkCustomer(id: string, tenantId?: string) {
+    const record = await this.prisma.paymentGatewayCustomer.findUnique({
+      where: { id },
+      select: { id: true, tenant_id: true },
+    });
+    if (!record || (tenantId && record.tenant_id !== tenantId)) throw new NotFoundException('Cliente nao encontrado');
     return this.prisma.paymentGatewayCustomer.delete({ where: { id } });
   }
 

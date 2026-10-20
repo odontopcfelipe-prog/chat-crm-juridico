@@ -634,8 +634,9 @@ export class PaymentGatewayController {
 
   /** Desvincular */
   @Delete('customers/:id')
-  async unlinkCustomer(@Param('id') id: string) {
-    return this.service.unlinkCustomer(id);
+  async unlinkCustomer(@Param('id') id: string, @Req() req: any) {
+    // Anti-IDOR: só desvincula cliente da própria clínica (o service confere).
+    return this.service.unlinkCustomer(id, req.user?.tenant_id);
   }
 
   /** Sync individual */

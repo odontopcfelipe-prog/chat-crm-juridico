@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { buildCondicoesBlock } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -92,6 +92,7 @@ export class BoletoDeliveryService {
   async deliverNow(planId: string, tenantId: string, testPhone: string): Promise<{ ok: boolean; detail: string }> {
     const phone = (testPhone || '').trim();
     if (!phone) return { ok: false, detail: 'Informe um telefone de teste.' };
+    await this.assertPlanoDaClinica(planId, tenantId);
     // Isolamento: a venda tem boleto DESTE tenant? (não vaza venda de outra clínica)
     // O filtro tem que ser o MESMO do sendBoletos (em aberto, não recebido na clínica):
     // sem isso o precheck passava numa venda já quitada, o sendBoletos não achava nada,
@@ -128,6 +129,7 @@ export class BoletoDeliveryService {
    * por tenant. boleto_url nulo é enriquecido via Asaas antes de enviar.
    */
   async sendCurrentBoleto(planId: string, tenantId: string): Promise<{ ok: boolean; detail: string }> {
+    await this.assertPlanoDaClinica(planId, tenantId);
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
         tenant_id: tenantId,
@@ -193,6 +195,23 @@ export class BoletoDeliveryService {
     }
     const ok = this.wasSent(res);
     return { ok, detail: ok ? `Boleto enviado ao paciente (${phone}).` : 'A Evolution recusou o envio (número/chip).' };
+  }
+
+  /**
+   * Fase 0.1 (anti-IDOR) — a venda (plano) tem que ser DESTA clínica; senão 404.
+   * As cobranças já eram filtradas por tenant, mas o plan_id cru entrava no
+   * `contains: 'plan:<id>'`: vazio virava 'plan:' e casava TODOS os boletos em aberto
+   * da clínica — o teste mandava os de todos os pacientes pro número digitado.
+   */
+  private async assertPlanoDaClinica(planId: string, tenantId: string): Promise<void> {
+    const id = typeof planId === 'string' ? planId.trim() : '';
+    const plan = id && tenantId
+      ? await this.prisma.treatmentPlan.findFirst({
+          where: { id, patient: { tenant_id: tenantId } },
+          select: { id: true },
+        })
+      : null;
+    if (!plan) throw new NotFoundException('Venda não encontrada.');
   }
 
   /** Entrega os boletos de UMA venda, imediatamente (sem cooldown). */
