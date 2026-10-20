@@ -11,7 +11,7 @@ import { leadIdForCharge, promoteLeadInBackground } from '../leads/clinic-transf
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 // Fase 0 — funções puras (sem DI): regra D da baixa e rastro na aba Log.
-import { motivoBloqueioBaixa } from '../payment-gateway/baixa-regras';
+import { isCartaoMaquineta, motivoBloqueioBaixa, MSG_CARTAO_VALIDAR } from '../payment-gateway/baixa-regras';
 import { registrarAuditoria } from '../common/utils/audit-log.util';
 
 /**
@@ -880,6 +880,7 @@ export class DownPaymentFlowService {
     if (charge.gateway !== 'CASH') {
       throw new BadRequestException('Esta cobranca nao eh em especie (use o webhook do Asaas)');
     }
+    if (isCartaoMaquineta(charge.external_id)) throw new BadRequestException(MSG_CARTAO_VALIDAR);
     if (charge.received_in_cash) {
       this.logger.warn(`[DOWN-PMT] Charge ${chargeId} ja foi marcada como recebida`);
       return charge;

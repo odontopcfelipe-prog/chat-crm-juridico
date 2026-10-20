@@ -19,6 +19,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
@@ -340,26 +341,6 @@ export default function BoletosTab({ dentistId }: Props) {
   // A forma (espécie/PIX/cartão) é escolhida na hora — vai pro caixa e pro
   // comprovante; antes ia tudo como "dinheiro".
   const handleMarkCash = async (c: Charge) => {
-    // Venda no CARTÃO "a receber" (cobrança local `cash-…-CARTAO-…`): confirma como CARTÃO.
-    // Antes ia pro mark-cash-received, que ignorava a forma e não lançava a receita.
-    if ((c.external_id || '').includes('-CARTAO-')) {
-      if (!window.confirm(
-        `Confirmar que o cartão de ${c.patient?.name || 'paciente'} foi passado na maquineta (${fmtBRL(c.amount)})?\n\n` +
-        `Marca a venda como RECEBIDA e lança nas Entradas como CARTÃO.`,
-      )) return;
-      setMarkingCash(c.id);
-      try {
-        await api.post(`/payment-gateway/charges/${c.id}/confirm-cartao`);
-        showSuccess('Recebimento no cartão confirmado');
-        fetchData({ silencioso: true });
-        fetchKpis();
-      } catch (e: any) {
-        showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento no cartão');
-      } finally {
-        setMarkingCash(null);
-      }
-      return;
-    }
     const METHODS = [
       { key: 'DINHEIRO', label: 'Espécie (dinheiro)' },
       { key: 'PIX', label: 'PIX da clínica' },
@@ -920,6 +901,7 @@ export default function BoletosTab({ dentistId }: Props) {
                   {isOpen && g.rows.map((c) => {
                   const isOverdue = c.computed_status === 'ATRASADO';
                   const isPaid = c.computed_status === 'PAGO';
+                  const isCartaoMaquineta = (c.external_id || '').includes('-CARTAO-');
                   const isDueToday = !!c.due_today && c.computed_status === 'EM_ABERTO';
                   // Do mês: a LINHA inteira leva a cor da situação (faixa à esquerda + fundo).
                   const tom = isMes ? statusDoMes(c) : null;
@@ -1018,7 +1000,18 @@ export default function BoletosTab({ dentistId }: Props) {
                               <Copy size={13} />
                             </button>
                           )}
-                          {!isPaid && c.patient?.phone && (
+                          {/* Venda no CARTÃO da maquineta: sem lembrete nem baixa — o cartão
+                              foi passado na hora e o Financeiro confirma no Validar. */}
+                          {!isPaid && isCartaoMaquineta && c.computed_status !== 'CANCELADO' && (
+                            <Link
+                              href="/atendimento/financeiro/validar"
+                              className="text-[10px] font-semibold px-2 py-1 rounded-md border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 transition-colors whitespace-nowrap"
+                              title="Cartão passado na maquineta — o Financeiro confirma o recebimento no Validar"
+                            >
+                              Validar
+                            </Link>
+                          )}
+                          {!isPaid && !isCartaoMaquineta && c.patient?.phone && (
                             <a
                               href={waLink(c.patient.phone, reminderMsg) || '#'}
                               target="_blank"
@@ -1030,7 +1023,7 @@ export default function BoletosTab({ dentistId }: Props) {
                             </a>
                           )}
                           {/* Vale pros dois gateways: ASAAS dá baixa no Asaas + caixa; CASH marca local. */}
-                          {!isPaid && c.computed_status !== 'CANCELADO' && (
+                          {!isPaid && !isCartaoMaquineta && c.computed_status !== 'CANCELADO' && (
                             <button
                               onClick={() => handleMarkCash(c)}
                               disabled={markingCash === c.id}

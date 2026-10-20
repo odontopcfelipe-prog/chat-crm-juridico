@@ -24,6 +24,15 @@ export function motivoBloqueioBaixa(
   return null;
 }
 
+export const MSG_CARTAO_VALIDAR =
+  'Venda no cartão da maquineta: o recebimento é confirmado pelo Financeiro no "Validar", não por baixa.';
+
+/** Venda no CARTÃO da maquineta (cobrança local `cash-<plano>-CARTAO-…`): o cartão é passado
+ *  na hora — não recebe baixa manual; quem confirma é o Validar do Financeiro. */
+export function isCartaoMaquineta(externalId?: string | null): boolean {
+  return !!externalId && externalId.includes('-CARTAO-');
+}
+
 export const round2 = (v: number) => Math.round(v * 100) / 100;
 
 const brl = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;

@@ -26,7 +26,7 @@ import { CaixaService } from '../caixa/caixa.service';
 // Fase 0 — funções PURAS (sem DI): auditoria, aviso aos ADMs e regras C/D da baixa.
 import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { avisarAdmsSeguranca } from '../common/utils/aviso-adm-seguranca.util';
-import { erroSomaFormas, motivoBloqueioBaixa } from './baixa-regras';
+import { erroSomaFormas, isCartaoMaquineta, motivoBloqueioBaixa, MSG_CARTAO_VALIDAR } from './baixa-regras';
 // Fase 0 — import estático (o quotes.service já faz igual): o import() dinâmico não
 // roda no jest sem --experimental-vm-modules e o setup do Asaas precisa de teste.
 import { setTenantSetting } from '../tenants/tenant-settings.helper';
@@ -70,6 +70,7 @@ export class PaymentGatewayService {
    * Cobrança local inexistente segue o fluxo atual (charge_not_found).
    */
   async assertClinicReceiptAllowed(externalId: string, opts?: { payments?: Array<{ value: number }> }) {
+    if (isCartaoMaquineta(externalId)) throw new BadRequestException(MSG_CARTAO_VALIDAR);
     const c = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
       select: { status: true, cancelled_at: true, amount: true },
@@ -190,10 +191,10 @@ export class PaymentGatewayService {
   /**
    * CONFIRMA (1 clique) o recebimento de uma venda no CARTÃO a receber (maquineta sem
    * integração): marca a cobrança local recebida e lança o TOTAL no caixa como CARTAO
-   * (método antecipado). Idempotente — se já recebida, não duplica. Usado pelo botão
-   * "Confirmar recebimento" do Financeiro / do modal de resultado.
+   * (método antecipado). Idempotente — se já recebida, não duplica. Usado pelo Validar
+   * do Financeiro (treatment-plans.validate), que é quem confirma o cartão.
    */
-  async confirmCartaoReceipt(chargeId: string, tenantId: string, userId?: string) {
+  async confirmCartaoReceipt(chargeId: string, tenantId: string, userId?: string, origem = 'confirm-cartao') {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { id: chargeId, tenant_id: tenantId },
       select: { id: true, external_id: true, status: true, received_in_cash: true, description: true, cancelled_at: true },
@@ -208,7 +209,7 @@ export class PaymentGatewayService {
     // Nº de parcelas da operadora (só informativo na receita): "(cartão 3x · a receber)".
     const nx = Number(/cart[ãa]o\s+(\d+)\s*x/i.exec(charge.description || '')?.[1]) || undefined;
     return this.registerClinicReceipt(charge.external_id, {
-      paymentMethod: 'CARTAO', userId, installments: nx, origem: 'confirm-cartao',
+      paymentMethod: 'CARTAO', userId, installments: nx, origem,
     });
   }
 

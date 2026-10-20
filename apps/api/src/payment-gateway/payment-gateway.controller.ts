@@ -25,7 +25,7 @@ import { RequiresPermission } from '../auth/decorators/requires-permission.decor
 // Fase 0 — funções puras (sem DI): permissão no handler, rastro e regra D da baixa.
 import { assertAnyPermission } from '../auth/require-any-permission';
 import { registrarAuditoria } from '../common/utils/audit-log.util';
-import { motivoBloqueioBaixa } from './baixa-regras';
+import { motivoBloqueioBaixa, MSG_CARTAO_VALIDAR } from './baixa-regras';
 
 @Controller('payment-gateway')
 export class PaymentGatewayController {
@@ -488,6 +488,8 @@ export class PaymentGatewayController {
   @Post('charges/:id/confirm-cartao')
   async confirmCartao(@Param('id') id: string, @Req() req: any) {
     this.logger.log(`[POST /charges/${id}/confirm-cartao] Confirmando recebimento no cartão`);
+    // Cartão da maquineta: quem confirma o recebimento é o Financeiro (ADMIN passa).
+    await assertAnyPermission(this.prisma, req.user, ['manage_financial'], MSG_CARTAO_VALIDAR);
     return this.service.confirmCartaoReceipt(id, req.user?.tenant_id, req.user?.id);
   }
 

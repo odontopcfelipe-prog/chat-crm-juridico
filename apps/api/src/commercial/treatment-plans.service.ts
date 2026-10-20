@@ -16,6 +16,18 @@ function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Venda no CARTÃO da maquineta ainda não confirmada (cobrança local `cash-<plano>-CARTAO-…`
+ * "a receber" — vendas de out/2026 antes do cartão entrar recebido na hora). O cartão é
+ * passado na clínica: ninguém cobra nem dá baixa — o Validar do Financeiro confirma.
+ */
+export const CARTAO_A_CONFIRMAR_WHERE = {
+  external_id: { contains: '-CARTAO-' },
+  status: { in: ['PENDING', 'OVERDUE'] },
+  received_in_cash: false,
+  cancelled_at: null,
+};
+
 @Injectable()
 export class TreatmentPlansService implements OnModuleInit {
   private readonly logger = new Logger(TreatmentPlansService.name);
@@ -193,11 +205,26 @@ export class TreatmentPlansService implements OnModuleInit {
    * e liberar pro dentista confirmar os procedimentos no Tratamento.
    */
   async findPendingFinancialValidation(tenantId: string) {
+    // Cartão da maquineta ainda "a receber": o Financeiro confirma o recebimento no
+    // Validar — por isso o plano entra na fila mesmo se já estiver liberado.
+    const cartoes = await this.prisma.paymentGatewayCharge.findMany({
+      where: { tenant_id: tenantId, treatment_plan_id: { not: null }, ...CARTAO_A_CONFIRMAR_WHERE } as any,
+      select: { treatment_plan_id: true, amount: true },
+    });
+    const cartaoPorPlano = new Map<string, number>();
+    for (const c of cartoes) {
+      const pid = c.treatment_plan_id as string;
+      cartaoPorPlano.set(pid, (cartaoPorPlano.get(pid) || 0) + Number(c.amount));
+    }
     const plans = await this.prisma.treatmentPlan.findMany({
       where: {
         patient: { tenant_id: tenantId },
-        status: 'ACTIVE',
-        validated_by_financial_at: null,
+        OR: [
+          { status: 'ACTIVE', validated_by_financial_at: null },
+          ...(cartaoPorPlano.size
+            ? [{ id: { in: [...cartaoPorPlano.keys()] }, status: { not: 'CANCELLED' } }]
+            : []),
+        ],
       } as any,
       orderBy: { created_at: 'desc' },
       include: {
@@ -216,6 +243,8 @@ export class TreatmentPlansService implements OnModuleInit {
       accepted_at: p.quote?.accepted_at?.toISOString() ?? null,
       total: Number(p.total_value),
       items_count: p._count.items,
+      cartao_a_confirmar: cartaoPorPlano.get(p.id) ?? 0,
+      ja_liberado: !!(p as any).validated_by_financial_at,
     }));
   }
 
@@ -324,14 +353,16 @@ export class TreatmentPlansService implements OnModuleInit {
 
   /** Onda 17.72 — Validação financeira: o Financeiro confere a negociação e LIBERA o
    *  tratamento. Seta validated_by_financial_at (gate pra o dentista confirmar os
-   *  procedimentos no Tratamento). Idempotente. */
+   *  procedimentos no Tratamento). Idempotente. Venda no CARTÃO da maquineta ainda
+   *  "a receber": validar = confirmar o recebimento (vale também pra plano já liberado). */
   async validate(id: string, tenantId: string, userId: string) {
     const plan = await this.findOne(id, tenantId);
     if (plan.status === 'CANCELLED') {
       throw new BadRequestException('Plano cancelado — não pode ser validado');
     }
+    const cartao_confirmado = await this.confirmarCartoesDoPlano(id, tenantId, userId);
     if ((plan as any).validated_by_financial_at) {
-      return plan; // idempotente — já validado
+      return { ...plan, cartao_confirmado }; // idempotente — já validado
     }
     const updated = await this.prisma.treatmentPlan.update({
       where: { id },
@@ -345,7 +376,25 @@ export class TreatmentPlansService implements OnModuleInit {
       } as any,
     });
     this.logger.log(`[PLAN-VALIDATE] Plano ${id} validado/liberado pelo Financeiro (user ${userId})`);
-    return updated;
+    return { ...updated, cartao_confirmado };
+  }
+
+  /** Confirma (receita CARTÃO nas Entradas) o cartão da maquineta ainda "a receber" do
+   *  plano. ModuleRef + require evitam ciclo TreatmentPlans↔PaymentGateway. */
+  private async confirmarCartoesDoPlano(planId: string, tenantId: string, userId: string): Promise<number> {
+    const cartoes = await this.prisma.paymentGatewayCharge.findMany({
+      where: { tenant_id: tenantId, treatment_plan_id: planId, ...CARTAO_A_CONFIRMAR_WHERE } as any,
+      select: { id: true },
+    });
+    if (!cartoes.length) return 0;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PaymentGatewayService } = require('../payment-gateway/payment-gateway.service');
+    const pg: any = this.moduleRef.get(PaymentGatewayService, { strict: false });
+    for (const c of cartoes) {
+      await pg.confirmCartaoReceipt(c.id, tenantId, userId, 'validar-financeiro');
+    }
+    this.logger.log(`[PLAN-VALIDATE] Plano ${planId}: ${cartoes.length} cartão(ões) da maquineta confirmado(s) pelo Financeiro (user ${userId})`);
+    return cartoes.length;
   }
 
   /**

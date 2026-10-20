@@ -5,6 +5,8 @@
  * liberação do Financeiro (gate Financeiro→Tratamento). Validar aqui é a MESMA ação
  * do botão por-paciente: seta validated_by_financial_at e libera o dentista a confirmar
  * os procedimentos no Tratamento. Só pra quem tem manage_financial (gate no backend tb).
+ * Venda no CARTÃO da maquineta ainda "a receber" também aparece aqui (mesmo com o plano
+ * já liberado): validar confirma o recebimento e lança nas Entradas como cartão.
  */
 import { useEffect, useState, useCallback } from 'react';
 import { Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
@@ -20,6 +22,9 @@ interface PendingPlan {
   accepted_at: string | null;
   total: number;
   items_count: number;
+  /** Cartão da maquineta ainda não confirmado (R$) — o Validar confirma o recebimento. */
+  cartao_a_confirmar?: number;
+  ja_liberado?: boolean;
 }
 
 const fmtBRL = (v: number) =>
@@ -46,15 +51,20 @@ export default function ValidarTab() {
   useEffect(() => { load(); }, [load]);
 
   const validate = async (p: PendingPlan) => {
+    const cartao = Number(p.cartao_a_confirmar) || 0;
     const ok = window.confirm(
-      `Validar o tratamento de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(p.total)})?\n\n` +
-      'Confirme que a negociação está certa. Isso libera o dentista a confirmar os procedimentos no Tratamento.',
+      cartao > 0
+        ? `Confirmar que o cartão de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(cartao)}) foi passado na maquineta?\n\n` +
+          'Isso marca a venda como RECEBIDA e lança nas Entradas como CARTÃO' +
+          (p.ja_liberado ? '.' : ', e libera o dentista a confirmar os procedimentos no Tratamento.')
+        : `Validar o tratamento de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(p.total)})?\n\n` +
+          'Confirme que a negociação está certa. Isso libera o dentista a confirmar os procedimentos no Tratamento.',
     );
     if (!ok) return;
     setValidatingId(p.plan_id);
     try {
       await api.post(`/treatment-plans/${p.plan_id}/validate`);
-      showSuccess('Tratamento liberado pro dentista.');
+      showSuccess(cartao > 0 ? 'Recebimento no cartão confirmado — lançado nas Entradas.' : 'Tratamento liberado pro dentista.');
       setPlans((prev) => prev.filter((x) => x.plan_id !== p.plan_id));
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
@@ -116,6 +126,12 @@ export default function ValidarTab() {
                       {p.quote_title || ''}
                       {p.items_count ? `${p.quote_title ? ' · ' : ''}${p.items_count} item(ns)` : ''}
                     </div>
+                    {Number(p.cartao_a_confirmar) > 0 && (
+                      <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
+                        Cartão a confirmar: R$ {fmtBRL(Number(p.cartao_a_confirmar))}
+                        {p.ja_liberado ? ' · tratamento já liberado' : ''}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {p.accepted_at ? new Date(p.accepted_at).toLocaleDateString('pt-BR') : '—'}

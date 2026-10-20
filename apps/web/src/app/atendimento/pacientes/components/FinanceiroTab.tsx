@@ -77,6 +77,7 @@ interface Charge {
   cancelled_by_user_id?: string | null;
   cancelled_by_name?: string | null;
   cancel_reason?: string | null;
+  received_in_cash?: boolean;
 }
 
 interface Installment {
@@ -154,6 +155,13 @@ const fmtDateTime = (iso?: string | null) => {
 const CANCELLED_CHARGE_STATUSES = ['DELETED', 'CANCELLED', 'REFUNDED'];
 const isCancelledStatus = (status?: string | null): boolean =>
   !!status && CANCELLED_CHARGE_STATUSES.includes(status);
+
+// Venda no CARTÃO da maquineta (cobrança local `cash-<plano>-CARTAO-…`): o cartão é passado
+// na hora — ninguém cobra nem dá baixa; o recebimento é confirmado no Validar do Financeiro.
+const isCartaoMaquineta = (externalId?: string | null): boolean => (externalId || '').includes('-CARTAO-');
+// Cobrança LOCAL (sem Asaas: cartão, espécie, PIX na clínica) — não há link pra cobrar no WhatsApp.
+const isCobrancaLocal = (externalId?: string | null): boolean => /^(cash|local)-/.test(externalId || '');
+const isUnpaidStatus = (status?: string | null): boolean => status === 'PENDING' || status === 'OVERDUE';
 
 // Onda 18.5 — data por extenso pra cabecalho de grupo ("03 de julho de 2026").
 const fmtDiaHeader = (iso: string | null) => {
@@ -299,6 +307,11 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
       // Pagas
       if (st === 'RECEIVED' || st === 'CONFIRMED' || st === 'RECEIVED_IN_CASH') {
         paid += amt;
+        continue;
+      }
+      // Cartão da maquineta não atrasa: já foi passado, falta o Financeiro validar.
+      if (isCartaoMaquineta(c.external_id)) {
+        pending += amt;
         continue;
       }
       // Atrasadas
@@ -795,25 +808,6 @@ function ProposalFinancialCard({
   };
   const handleRegistrar = async (p: ParcelaItem) => {
     if (registeringId) return; // evita duplo-clique
-    // Venda no CARTÃO "a receber" (cobrança local `cash-…-CARTAO-…`, sem Asaas): confirma
-    // como CARTÃO. Antes caía no receive-in-cash e lançava a venda como DINHEIRO.
-    if ((p.asaasId || '').includes('-CARTAO-')) {
-      if (!window.confirm(
-        `Confirmar que o cartão foi passado na maquineta (${fmtBRL(p.value)})?\n\n` +
-        `Isso marca a venda como RECEBIDA e lança a receita nas Entradas como CARTÃO.`,
-      )) return;
-      setRegisteringId(p.asaasId);
-      try {
-        await api.post(`/payment-gateway/charges/${p.chargeId}/confirm-cartao`);
-        showSuccess('Recebimento no cartão confirmado — receita lançada como cartão.');
-        onReload?.();
-      } catch (e: any) {
-        showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento no cartão.');
-      } finally {
-        setRegisteringId(null);
-      }
-      return;
-    }
     if (!p.asaasId) {
       showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.');
       return;
@@ -925,15 +919,25 @@ function ProposalFinancialCard({
   const isValidated = !!quoteDetail?.treatment_plan?.validated_by_financial_at;
 
   // Onda 17.72 — Financeiro valida → libera o dentista a confirmar atendimento.
+  // Cartão da maquineta ainda "a receber": validar = confirmar o recebimento (o
+  // servidor lança a receita CARTÃO) — vale também pra plano já liberado.
   const handleValidate = async () => {
     if (!planId) {
       showError('Plano de tratamento ainda não carregado — aguarde um instante.');
       return;
     }
+    if (cartaoAConfirmar > 0 && !window.confirm(
+      `Confirmar que o cartão de ${fmtBRL(cartaoAConfirmar)} foi passado na maquineta?\n\n` +
+      `Isso marca a venda como RECEBIDA e lança nas Entradas como CARTÃO` +
+      (isValidated ? '.' : ', e libera o tratamento pro dentista.'),
+    )) return;
     setValidatingPlanId(planId);
     try {
       await api.post(`/treatment-plans/${planId}/validate`);
-      showSuccess('Tratamento liberado — o dentista já pode confirmar os procedimentos.');
+      showSuccess(cartaoAConfirmar > 0
+        ? 'Recebimento no cartão confirmado — lançado nas Entradas como cartão.'
+        : 'Tratamento liberado — o dentista já pode confirmar os procedimentos.');
+      if (cartaoAConfirmar > 0) onReload?.();
       // Recarrega o quote detail pra refletir validated_by_financial_at.
       const { data } = await api.get<QuoteFullDetail>(`/quotes/${quote.id}`);
       setQuoteDetail(data);
@@ -987,6 +991,11 @@ function ProposalFinancialCard({
     }
     return { relatedCharges: Array.from(byKey.values()), dupChargesCount: dups.length };
   }, [relatedChargesRaw]);
+
+  // Valor do cartão da maquineta ainda "a receber" — o Validar do Financeiro confirma.
+  const cartaoAConfirmar = relatedCharges
+    .filter((c) => isCartaoMaquineta(c.external_id) && isUnpaidStatus(c.status) && !c.received_in_cash)
+    .reduce((s, c) => s + Number(c.amount), 0);
 
   // Financiamento PARCIAL: emitiu o SINAL mas NÃO as parcelas (INSTALLMENT) — recuperável
   // pelo apply-financing (idempotente por kind: pula o sinal, cria entrada + parcelas).
@@ -1378,11 +1387,16 @@ function ProposalFinancialCard({
     const hasOverdue = parcelas.some((p) => {
       const isUnpaid = p.status !== 'RECEIVED' && p.status !== 'CONFIRMED' && p.status !== 'DELETED' && p.status !== 'REFUNDED';
       if (!isUnpaid) return false;
+      // Cartão da maquineta não atrasa: já foi passado, falta só o Financeiro validar.
+      if (isCartaoMaquineta(p.asaasId)) return false;
       const dueMs = p.dueDate ? new Date(p.dueDate).getTime() : 0;
       return dueMs && dueMs < Date.now();
     });
     if (hasOverdue) {
       return { label: 'ATRASADO', cls: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30' };
+    }
+    if (cartaoAConfirmar > 0) {
+      return { label: 'CARTÃO A VALIDAR', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
     }
     if (agg.totalCount === 0) {
       return { label: 'SEM COBRANÇA', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
@@ -1522,22 +1536,18 @@ function ProposalFinancialCard({
               - Já validado: selo verde "✓ Liberado".
               - Não validado + manage_financial: botão "Validar" (azul) que
                 libera o dentista a confirmar os procedimentos no Tratamento.
-              - Não validado sem permissão: nada (só o Financeiro libera). */}
-          {isValidated ? (
-            <span
-              className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 text-xs font-bold"
-              title="Tratamento liberado pelo Financeiro — o dentista pode confirmar os procedimentos"
-            >
-              <CheckCircle2 size={12} />
-              Liberado
-            </span>
-          ) : hasPermission('manage_financial') ? (
+              - Não validado sem permissão: nada (só o Financeiro libera).
+              - Cartão da maquineta a confirmar: "Validar" volta (mesmo liberado) e
+                confirma o recebimento. */}
+          {hasPermission('manage_financial') && (!isValidated || cartaoAConfirmar > 0) ? (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleValidate(); }}
               disabled={validatingPlanId === planId || loadingQuoteDetail || !planId}
               className="px-2.5 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Validar a negociação e liberar o tratamento pro dentista confirmar os procedimentos"
+              title={cartaoAConfirmar > 0
+                ? 'Confirmar que o cartão foi passado na maquineta — marca recebido e lança nas Entradas como cartão'
+                : 'Validar a negociação e liberar o tratamento pro dentista confirmar os procedimentos'}
             >
               {validatingPlanId === planId ? (
                 <>
@@ -1551,6 +1561,14 @@ function ProposalFinancialCard({
                 </>
               )}
             </button>
+          ) : isValidated ? (
+            <span
+              className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 text-xs font-bold"
+              title="Tratamento liberado pelo Financeiro — o dentista pode confirmar os procedimentos"
+            >
+              <CheckCircle2 size={12} />
+              Liberado
+            </span>
           ) : null}
           {/* Venda no CARTÃO (maquineta) não tem boletos de parcela pra gerar. */}
           {isPartialFinancing && !String(quoteDetail?.chosen_payment_key || '').startsWith('cartao-') && hasPermission('manage_financial') && (
@@ -1780,6 +1798,8 @@ function ParcelaLinha({
   const maceioToday = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
   const isOverdue = !isPaid && !!dueDay && dueDay < maceioToday;
   const isCancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
+  const cartaoMaquineta = isCartaoMaquineta(p.asaasId);
+  const cartaoAValidar = cartaoMaquineta && !isPaid && !isCancelled;
   // Onda 17.32.76 — "Sinal de fechamento" SO quando kind eh explicitamente
   // SINAL. Antes 1 cobranca unica (totalCount=1, kind=null) caia como
   // "Sinal" tambem — gerava confusao em Venda Rapida e vendas a vista,
@@ -1792,6 +1812,7 @@ function ParcelaLinha({
   const status = (() => {
     if (isCancelled) return { label: 'CANCELADA', cls: 'bg-muted text-muted-foreground border-border' };
     if (isPaid) return { label: 'PAGA', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' };
+    if (cartaoAValidar) return { label: 'A VALIDAR', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
     if (isOverdue) return { label: 'VENCIDO', cls: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30' };
     if (p.isNext) return { label: 'EM ABERTO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
     return { label: 'AGENDADA', cls: 'bg-muted/50 text-muted-foreground border-border' };
@@ -1811,6 +1832,7 @@ function ParcelaLinha({
     if (p.method === 'PIX') return 'PIX';
     if (p.method === 'BOLETO') return 'Boleto';
     if (p.method === 'CREDIT_CARD') return 'Cartão';
+    if (cartaoMaquineta) return 'Cartão (maquineta)';
     return p.method || '—';
   })();
   // Cor do icone — Sinal: emerald (destacado). Demais: cor do metodo.
@@ -1847,7 +1869,8 @@ function ParcelaLinha({
           Antes cada botao era uma coluna do grid e o 3o botao caia
           pra linha de baixo. */}
       <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
-        {!isPaid && !isCancelled && (
+        {/* Cobrança local (cartão/espécie na clínica) não tem link pra cobrar no WhatsApp. */}
+        {!isPaid && !isCancelled && !isCobrancaLocal(p.asaasId) && (
           <button
             type="button"
             onClick={onReenviar}
@@ -1880,8 +1903,17 @@ function ParcelaLinha({
         )}
         {/* Onda 18.11 — "Dar baixa" (vermelho) enquanto não recebido. Clicar fecha
             no Asaas + lança no caixa. Quando paga — manual OU automático (webhook)
-            — some e o selo "Pago" verde acima aparece. Fase 0 — só pra quem pode dar baixa. */}
-        {canRegistrar && !isPaid && !isCancelled && (
+            — some e o selo "Pago" verde acima aparece. Fase 0 — só pra quem pode dar baixa.
+            Cartão da maquineta não tem baixa: foi passado na hora e o Financeiro valida. */}
+        {cartaoAValidar && (
+          <span
+            className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 px-2 py-1.5 whitespace-nowrap"
+            title="Cartão passado na maquineta — o Financeiro confirma o recebimento no Validar"
+          >
+            Financeiro valida
+          </span>
+        )}
+        {canRegistrar && !isPaid && !isCancelled && !cartaoMaquineta && (
           <button
             type="button"
             onClick={onRegistrar}
@@ -2571,12 +2603,14 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
   const isPending = c.status === 'PENDING';
   const isOverdue = c.status === 'OVERDUE';
   const isCancelled = c.status === 'DELETED' || c.status === 'REFUNDED';
-  // Venda no CARTÃO a receber (maquineta sem integração): cobrança local CASH com
-  // external_id `cash-<plan>-CARTAO-...`. O Financeiro confirma num clique.
-  const isCartaoReceber = (c.external_id || '').includes('-CARTAO-');
+  // Venda no CARTÃO da maquineta: cobrança local CASH com external_id `cash-<plan>-CARTAO-...`.
+  // Sem baixa aqui — o Financeiro confirma o recebimento no Validar.
+  const isCartaoReceber = isCartaoMaquineta(c.external_id);
+  const cartaoAValidar = isCartaoReceber && (isPending || isOverdue);
 
   const statusLabel =
     isPaid ? 'Pago' :
+    cartaoAValidar ? 'A validar' :
     isOverdue ? 'Vencido' :
     isPending ? 'Pendente' :
     c.status === 'REFUNDED' ? 'Estornado' :
@@ -2585,6 +2619,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
 
   const statusCls =
     isPaid ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' :
+    cartaoAValidar ? 'bg-amber-500/10 text-amber-700 border-amber-500/20' :
     isOverdue ? 'bg-red-500/10 text-red-700 border-red-500/20' :
     isPending ? 'bg-blue-500/10 text-blue-700 border-blue-500/20' :
     'bg-muted text-muted-foreground border-border';
@@ -2626,27 +2661,6 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
       showError(e?.response?.data?.message || 'Erro ao registrar o recebimento.');
     } finally {
       setReceiving(false);
-    }
-  };
-
-  // CARTÃO a receber (maquineta): confirma o recebimento num CLIQUE — lança o TOTAL
-  // no caixa como CARTÃO (método antecipado). Sem Asaas, sem prompt de método.
-  const [confirmingCartao, setConfirmingCartao] = useState(false);
-  const handleConfirmCartao = async () => {
-    if (confirmingCartao || isPaid) return;
-    if (!window.confirm(
-      `Confirmar recebimento no cartão (${fmtBRL(c.amount)})?\n\n` +
-      `Lança o valor TOTAL no caixa como CARTÃO (método antecipado).`,
-    )) return;
-    setConfirmingCartao(true);
-    try {
-      await api.post(`/payment-gateway/charges/${c.id}/confirm-cartao`);
-      showSuccess('Recebimento confirmado — lançado no caixa como cartão.');
-      onReload?.();
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao confirmar o recebimento.');
-    } finally {
-      setConfirmingCartao(false);
     }
   };
 
@@ -2699,18 +2713,14 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
         <p className="text-sm font-bold">{fmtBRL(c.amount)}</p>
       </div>
       <div className="flex items-center gap-1">
-        {/* Cartão a receber (maquineta): confirmar recebimento num clique → caixa. */}
-        {podeDarBaixa && isCartaoReceber && isPending && (
-          <button
-            type="button"
-            onClick={handleConfirmCartao}
-            disabled={confirmingCartao}
-            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-60"
-            title="Confirmar recebimento no cartão — lança o total no caixa"
+        {/* Cartão da maquineta: sem baixa — o Financeiro confirma no Validar. */}
+        {cartaoAValidar && (
+          <span
+            className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 px-2 py-1"
+            title="Cartão passado na maquineta — o Financeiro confirma o recebimento no Validar"
           >
-            {confirmingCartao ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            Confirmar recebimento
-          </button>
+            Financeiro valida
+          </span>
         )}
         {/* Ações específicas por tipo */}
         {isBoleto && c.boleto_url && (
@@ -2759,7 +2769,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
           </a>
         )}
         {/* Dar baixa "pago" manual — paciente pagou por fora. Fecha no Asaas + caixa. */}
-        {podeDarBaixa && !isPaid && !isCancelled && c.external_id && (
+        {podeDarBaixa && !isPaid && !isCancelled && c.external_id && !isCartaoReceber && (
           <button
             type="button"
             onClick={handleReceive}
@@ -3299,7 +3309,7 @@ function ProposalDetailModal({
                                 Abrir boleto PDF ↗
                               </a>
                             )}
-                            {!isPaid && (
+                            {!isPaid && !isCobrancaLocal(c.external_id) && (
                               <button
                                 type="button"
                                 onClick={() => handleSendChargeWhatsapp(c.id)}
