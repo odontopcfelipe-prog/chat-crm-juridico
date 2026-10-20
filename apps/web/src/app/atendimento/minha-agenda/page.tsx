@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -249,6 +250,19 @@ export default function MinhaAgendaPage() {
     return c;
   }, [events]);
 
+  const confirmModal = confirming ? (
+    <ConfirmarAtendimentoModal
+      event={confirming}
+      onClose={() => setConfirming(null)}
+      onConfirmed={(patch) => {
+        const id = confirming.id;
+        patchLocal(id, patch);
+        setPendentes((l) => l.filter((e) => e.id !== id));
+        setConfirming(null);
+      }}
+    />
+  ) : null;
+
   return (
     // RAIZ rolável: o <main> do layout é overflow-hidden.
     <div className="h-full overflow-y-auto">
@@ -380,11 +394,6 @@ export default function MinhaAgendaPage() {
               const st = STATUS_BY_ID[ev.status] ?? STATUS_BY_ID.AGENDADO;
               const name = ev.patient?.name || ev.lead?.name || ev.title || 'Paciente';
               const what = ev.appointment_type?.name || TYPE_LABEL[ev.type] || ev.type;
-              const isDone = ev.status === 'CONCLUIDO';
-              // Recepção marcou "Atendido" mas o dentista ainda não confirmou: o botão
-              // segue clicável e VALIDA (some do quadrante "Confirmar atendimentos").
-              const needsConfirm = isDone && !ev.validated_at && !!ev.assigned_user_id;
-              const isNoShow = ev.status === 'NO_SHOW';
               const cancelled = ev.status === 'CANCELADO';
               const busy = savingId === ev.id;
               return (
@@ -455,32 +464,13 @@ export default function MinhaAgendaPage() {
                         <span className="w-2 h-2 rounded-full" style={{ background: st.color }} />
                         {st.label}
                       </span>
-                      <button
-                        type="button"
-                        disabled={busy || (isDone && !needsConfirm)}
-                        onClick={() => pedirAtendido(ev)}
-                        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-semibold border transition-colors disabled:cursor-default"
-                        style={isDone
-                          ? { background: STATUS_BY_ID.CONCLUIDO.color, color: '#fff', borderColor: STATUS_BY_ID.CONCLUIDO.color }
-                          : { color: STATUS_BY_ID.CONCLUIDO.color, borderColor: `${STATUS_BY_ID.CONCLUIDO.color}66` }}
-                        title={needsConfirm ? 'Confirmar que você atendeu' : 'Marcar como atendido'}
-                      >
-                        {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {needsConfirm ? 'Confirmar' : 'Atendido'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || isNoShow || travado(ev, 'NO_SHOW')}
-                        onClick={() => setStatus(ev, 'NO_SHOW')}
-                        className="h-9 px-3 inline-flex items-center gap-1 rounded-lg text-sm font-semibold border transition-colors disabled:cursor-default disabled:opacity-60"
-                        style={isNoShow
-                          ? { background: STATUS_BY_ID.NO_SHOW.color, color: '#fff', borderColor: STATUS_BY_ID.NO_SHOW.color }
-                          : { color: STATUS_BY_ID.NO_SHOW.color, borderColor: `${STATUS_BY_ID.NO_SHOW.color}66` }}
-                        title={travado(ev, 'NO_SHOW')
-                          ? 'Atendimento já validado — só o administrador marca Faltou'
-                          : 'Marcar que o paciente faltou'}
-                      >
-                        <X size={15} /> Faltou
-                      </button>
+                      <BotoesAtendimento
+                        ev={ev}
+                        busy={busy}
+                        travadoFaltou={travado(ev, 'NO_SHOW')}
+                        onAtendido={() => pedirAtendido(ev)}
+                        onFaltou={() => setStatus(ev, 'NO_SHOW')}
+                      />
                       <div className="relative">
                         <button
                           type="button"
@@ -528,21 +518,78 @@ export default function MinhaAgendaPage() {
           startId={welcomeId}
           dentistName={myName}
           onClose={() => setWelcomeId(null)}
+          pausado={!!confirming}
+          acoes={(e) => (
+            <BotoesAtendimento
+              ev={e}
+              busy={savingId === e.id}
+              travadoFaltou={travado(e, 'NO_SHOW')}
+              onAtendido={() => pedirAtendido(e)}
+              onFaltou={() => setStatus(e, 'NO_SHOW')}
+              big
+            />
+          )}
         />
       )}
-      {confirming && (
-        <ConfirmarAtendimentoModal
-          event={confirming}
-          onClose={() => setConfirming(null)}
-          onConfirmed={(patch) => {
-            const id = confirming.id;
-            patchLocal(id, patch);
-            setPendentes((l) => l.filter((e) => e.id !== id));
-            setConfirming(null);
-          }}
-        />
-      )}
+      {/* Com as boas-vindas abertas (tela cheia, z 900) a confirmação sobe por cima dela. */}
+      {confirmModal && (welcomeId ? createPortal(<div className="relative z-[950]">{confirmModal}</div>, document.body) : confirmModal)}
     </div>
+  );
+}
+
+/**
+ * "Atendido" + "Faltou" de um atendimento — na linha da lista e, maiores (`big`), na
+ * tela de boas-vindas. Mesma regra nos dois lugares: "Atendido" abre a confirmação
+ * (o que foi feito → prontuário); já confirmado trava; Faltou de consulta validada
+ * só o admin.
+ */
+function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big = false }: {
+  ev: AgendaEvent;
+  busy: boolean;
+  travadoFaltou: boolean;
+  onAtendido: () => void;
+  onFaltou: () => void;
+  big?: boolean;
+}) {
+  const isDone = ev.status === 'CONCLUIDO';
+  // Recepção marcou "Atendido" mas o dentista ainda não confirmou: o botão
+  // segue clicável e VALIDA (some do quadrante "Confirmar atendimentos").
+  const needsConfirm = isDone && !ev.validated_at && !!ev.assigned_user_id;
+  const isNoShow = ev.status === 'NO_SHOW';
+  const done = STATUS_BY_ID.CONCLUIDO.color;
+  const miss = STATUS_BY_ID.NO_SHOW.color;
+  const size = big ? 'h-11 px-5 gap-1.5 rounded-xl text-[15px]' : 'h-9 px-3 gap-1 rounded-lg text-sm';
+  const icon = big ? 17 : 15;
+  const idle = big ? '#ffffff' : undefined;
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy || (isDone && !needsConfirm)}
+        onClick={onAtendido}
+        className={`${size} inline-flex items-center font-semibold border transition-colors disabled:cursor-default`}
+        style={isDone
+          ? { background: done, color: '#fff', borderColor: done }
+          : { background: idle, color: done, borderColor: `${done}66` }}
+        title={needsConfirm ? 'Confirmar que você atendeu' : 'Marcar como atendido'}
+      >
+        {busy ? <Loader2 size={icon} className="animate-spin" /> : <Check size={icon} />} {needsConfirm ? 'Confirmar' : 'Atendido'}
+      </button>
+      <button
+        type="button"
+        disabled={busy || isNoShow || travadoFaltou}
+        onClick={onFaltou}
+        className={`${size} inline-flex items-center font-semibold border transition-colors disabled:cursor-default disabled:opacity-60`}
+        style={isNoShow
+          ? { background: miss, color: '#fff', borderColor: miss }
+          : { background: idle, color: miss, borderColor: `${miss}66` }}
+        title={travadoFaltou
+          ? 'Atendimento já validado — só o administrador marca Faltou'
+          : 'Marcar que o paciente faltou'}
+      >
+        <X size={icon} /> Faltou
+      </button>
+    </>
   );
 }
 

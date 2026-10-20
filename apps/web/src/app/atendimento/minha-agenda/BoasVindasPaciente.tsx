@@ -13,8 +13,10 @@
  * - Sem valores, contato nem alergia (a tela fica de frente pro paciente). O
  *   resumo vem de GET /patients/:id/welcome (carteira do dentista barrada na API).
  * - Setas (botões ou ←/→) passam pros outros pacientes do dia; Esc fecha.
+ * - Rodapé do dentista: Atendido/Faltou (os MESMOS botões da lista, via `acoes`) —
+ *   "Atendido" abre a confirmação (o que foi feito → prontuário) por cima desta tela.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
@@ -39,11 +41,15 @@ interface WelcomeSummary {
   plan: { done: number; total: number; next: string | null } | null;
 }
 
-interface Props {
-  events: BoasVindasEvento[];
+interface Props<E extends BoasVindasEvento> {
+  events: E[];
   startId: string;
   dentistName: string | null;
   onClose: () => void;
+  /** Botões do dentista no rodapé (Atendido/Faltou) — os mesmos da lista. */
+  acoes?: (ev: E) => ReactNode;
+  /** Um modal aberto por cima (confirmação): o teclado fica com ele. */
+  pausado?: boolean;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -102,7 +108,9 @@ function useClock() {
   return now;
 }
 
-export function BoasVindasPaciente({ events, startId, dentistName, onClose }: Props) {
+export function BoasVindasPaciente<E extends BoasVindasEvento>({
+  events, startId, dentistName, onClose, acoes, pausado = false,
+}: Props<E>) {
   const tenant = useTenant();
   const photo = usePhotoSize();
   const now = useClock();
@@ -126,14 +134,17 @@ export function BoasVindasPaciente({ events, startId, dentistName, onClose }: Pr
   }, [ev, summaries]);
 
   useEffect(() => {
+    if (pausado) return;
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowRight') setIdx((i) => (i + 1) % events.length);
       else if (e.key === 'ArrowLeft') setIdx((i) => (i + events.length - 1) % events.length);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [events.length, onClose]);
+  }, [events.length, onClose, pausado]);
 
   const accent = useMemo(() => accentFrom(tenant?.theme_color), [tenant?.theme_color]);
 
@@ -159,8 +170,10 @@ export function BoasVindasPaciente({ events, startId, dentistName, onClose }: Pr
 
   return createPortal(
     <div className="bv" style={style} role="dialog" aria-modal="true" aria-label={`Boas-vindas a ${fullName}`}>
-      <div className="bv-deco-a" aria-hidden />
-      <div className="bv-deco-b" aria-hidden />
+      <div className="bv-deco" aria-hidden>
+        <div className="bv-deco-a" />
+        <div className="bv-deco-b" />
+      </div>
 
       <header className="bv-top">
         <div className="bv-brand">
@@ -249,17 +262,20 @@ export function BoasVindasPaciente({ events, startId, dentistName, onClose }: Pr
             </div>
           </div>
         ) : <span />}
-        {events.length > 1 && (
-          <div className="bv-nav">
-            <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + events.length - 1) % events.length)} aria-label="Paciente anterior">
-              <ChevronLeft size={18} />
-            </button>
-            <span>paciente {idx + 1} de {events.length}</span>
-            <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + 1) % events.length)} aria-label="Próximo paciente">
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        )}
+        <div className="bv-foot-right">
+          {acoes && <div className="bv-acoes">{acoes(ev)}</div>}
+          {events.length > 1 && (
+            <div className="bv-nav">
+              <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + events.length - 1) % events.length)} aria-label="Paciente anterior">
+                <ChevronLeft size={18} />
+              </button>
+              <span>paciente {idx + 1} de {events.length}</span>
+              <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + 1) % events.length)} aria-label="Próximo paciente">
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </div>
       </footer>
     </div>,
     document.body,
