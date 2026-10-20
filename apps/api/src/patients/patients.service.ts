@@ -1686,6 +1686,74 @@ export class PatientsService {
     return { ok: true };
   }
 
+  // ─── Boas-vindas (Minha agenda) ──────────────────────────────
+  //
+  // Out/2026 — tela cheia que a dentista abre pelo botão discreto da Minha agenda
+  // e vira pro paciente. Só o que pode aparecer na frente dele: nada de valores,
+  // contato ou dado clínico sensível (alergia fica na ficha). A carteira do
+  // dentista é barrada pelo PatientScopeGuard (rota /patients/:id/...).
+
+  async getWelcomeSummary(patientId: string, tenantId: string, eventId?: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenant_id: tenantId },
+      select: { id: true, lead_id: true, gender: true, first_visit_at: true, created_at: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+
+    const mine = patient.lead_id
+      ? { OR: [{ patient_id: patient.id }, { lead_id: patient.lead_id }] }
+      : { patient_id: patient.id };
+
+    // O atendimento de hoje (se veio e é dele): define o "antes" das visitas e os
+    // procedimentos do plano marcados pra esta consulta.
+    const event = eventId
+      ? await this.prisma.calendarEvent.findFirst({
+          where: { id: eventId, tenant_id: tenantId, ...mine },
+          select: { id: true, start_at: true },
+        })
+      : null;
+    // Agenda é naive-UTC (hora de Maceió nos campos UTC): "agora" = Date.now() - 3h.
+    const before = event?.start_at ?? new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+    const [previousVisits, items] = await Promise.all([
+      this.prisma.calendarEvent.count({
+        where: {
+          tenant_id: tenantId,
+          ...mine,
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
+          start_at: { lt: before },
+          AND: [{ OR: [{ status: 'CONCLUIDO' }, { validated_at: { not: null } }] }],
+        },
+      }),
+      this.prisma.treatmentPlanItem.findMany({
+        where: {
+          treatment_plan: { patient_id: patient.id, status: { in: ['ACTIVE', 'PAUSED'] } },
+          status: { not: 'CANCELLED' },
+        },
+        select: {
+          status: true, tooth_fdi: true, scheduled_appointment_id: true,
+          procedure: { select: { name: true } },
+        },
+        orderBy: [{ treatment_plan: { created_at: 'asc' } }, { order_index: 'asc' }],
+      }),
+    ]);
+
+    const label = (it: (typeof items)[number]) =>
+      it.tooth_fdi ? `${it.procedure.name} · dente ${it.tooth_fdi}` : it.procedure.name;
+    const today = event ? items.filter((it) => it.scheduled_appointment_id === event.id) : [];
+    const next = items.find((it) => it.status !== 'DONE' && !today.includes(it));
+
+    return {
+      gender: patient.gender,
+      since: (patient.first_visit_at ?? patient.created_at).toISOString(),
+      previous_visits: previousVisits,
+      today: today.map(label),
+      plan: items.length
+        ? { done: items.filter((it) => it.status === 'DONE').length, total: items.length, next: next ? label(next) : null }
+        : null,
+    };
+  }
+
   // ─── Timeline unificada ──────────────────────────────────────
   //
   // Agrega cronologicamente eventos de 5 fontes em uma só linha do tempo:

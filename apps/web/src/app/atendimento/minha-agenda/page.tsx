@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, Calendar, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw, Clock,
+  ArrowLeft, Calendar, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw, Clock, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -33,6 +33,8 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 // Out/2026 — agenda + validação juntas: "Atendido" abre a confirmação com o que
 // foi feito (vai pro prontuário) e os procedimentos do plano executados.
 import { ConfirmarAtendimentoModal } from './ConfirmarAtendimentoModal';
+// Out/2026 — botão discreto ao lado do nome: tela cheia de boas-vindas pro paciente.
+import { BoasVindasPaciente } from './BoasVindasPaciente';
 
 // Mesmas cores/rótulos da agenda (EVENT_STATUSES em agenda/page.tsx — Onda 17.61).
 const STATUSES = [
@@ -137,6 +139,12 @@ export default function MinhaAgendaPage() {
   // Atendimentos de DIAS ANTERIORES ainda não confirmados (antes era a tela
   // separada "Confirmar atendimentos" — agora fica aqui, junto da agenda).
   const [pendentes, setPendentes] = useState<AgendaEvent[]>([]);
+  // Boas-vindas: id do atendimento aberto em tela cheia + nome de quem atende (rodapé).
+  const [welcomeId, setWelcomeId] = useState<string | null>(null);
+  const [myName, setMyName] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ name?: string | null }>('/users/me').then((r) => setMyName(r.data?.name?.trim() || null)).catch(() => {});
+  }, []);
 
   const loadPendentes = useCallback(async () => {
     const me = myUserId();
@@ -382,7 +390,7 @@ export default function MinhaAgendaPage() {
               return (
                 <li
                   key={ev.id}
-                  className={`relative bg-card border border-border rounded-xl overflow-visible ${cancelled ? 'opacity-60' : ''}`}
+                  className={`group relative bg-card border border-border rounded-xl overflow-visible ${cancelled ? 'opacity-60' : ''}`}
                   style={{ borderLeft: `5px solid ${st.color}` }}
                 >
                   <div className="flex flex-wrap items-center gap-3 p-3 sm:p-3.5">
@@ -419,6 +427,23 @@ export default function MinhaAgendaPage() {
                         )}
                         <div className="text-xs text-muted-foreground truncate">{what}</div>
                       </div>
+                      {/* Boas-vindas: quase invisível; acende no hover da linha e fica
+                          aceso quando o paciente já chegou (dá pra virar a tela pra ele). */}
+                      {!cancelled && (
+                        <button
+                          type="button"
+                          onClick={() => setWelcomeId(ev.id)}
+                          className={`h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-full transition-opacity hover:opacity-100 hover:bg-accent hover:text-primary ${
+                            ['COMPARECEU', 'EM_ATENDIMENTO'].includes(ev.status)
+                              ? 'opacity-100 text-primary'
+                              : 'opacity-30 group-hover:opacity-90 text-muted-foreground'
+                          }`}
+                          aria-label={`Boas-vindas a ${name}`}
+                          title="Boas-vindas"
+                        >
+                          <Sparkles size={17} />
+                        </button>
+                      )}
                     </div>
 
                     {/* Status + ações */}
@@ -497,6 +522,14 @@ export default function MinhaAgendaPage() {
           </ul>
         )}
       </div>
+      {welcomeId && (
+        <BoasVindasPaciente
+          events={events.filter((e) => e.status !== 'CANCELADO')}
+          startId={welcomeId}
+          dentistName={myName}
+          onClose={() => setWelcomeId(null)}
+        />
+      )}
       {confirming && (
         <ConfirmarAtendimentoModal
           event={confirming}

@@ -1,0 +1,160 @@
+/* Boas-vindas ao paciente (Minha agenda) — paleta FIXA, clara e neutra, independente
+   do tema do app. A única cor é a da clínica: --bv-accent (Tenant.theme_color). */
+
+.bv {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  background: #f6f5f2;
+  color: #16181d;
+  animation: bvFade 0.25s ease-out;
+}
+@keyframes bvFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bvUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.bv-in { animation: bvUp 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.bv-in2 { animation: bvUp 0.6s 0.12s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.bv-in3 { animation: bvUp 0.6s 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+/* Enfeites: um disco bem suave na cor da clínica e um anel cinza. */
+.bv-deco-a, .bv-deco-b { position: absolute; border-radius: 50%; pointer-events: none; }
+.bv-deco-a {
+  width: 940px; height: 940px; right: -300px; top: -360px;
+  background: color-mix(in srgb, var(--bv-accent) 6%, transparent);
+}
+.bv-deco-b { width: 560px; height: 560px; left: -220px; bottom: -300px; border: 1.5px solid #e4e0d8; }
+
+/* ─── Topo ─────────────────────────────────────────────────────────── */
+.bv-top {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px clamp(20px, 4vw, 56px);
+}
+.bv-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.bv-logo { width: 52px; height: 52px; border-radius: 14px; object-fit: contain; background: #fff; border: 1px solid #e4e0d8; }
+.bv-logo-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; color: var(--bv-accent);
+}
+.bv-brand-name { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bv-top-right { display: flex; align-items: center; gap: 20px; margin-left: auto; }
+.bv-when { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.bv-when span { font-size: 15px; color: #6b6f76; }
+.bv-when b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bv-round {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #e4e0d8; background: #fbfaf8; color: #4b5058;
+  cursor: pointer; transition: background 0.2s, border-color 0.2s;
+}
+.bv-round:hover { background: #fff; border-color: #cfcac0; }
+
+/* ─── Centro ───────────────────────────────────────────────────────── */
+.bv-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(36px, 6vw, 104px);
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 8px clamp(20px, 5vw, 96px) 24px;
+}
+.bv-photo-col { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+.bv-halo {
+  border-radius: 50%;
+  padding: clamp(14px, 1.8vw, 28px);
+  background: color-mix(in srgb, var(--bv-accent) 11%, transparent);
+}
+.bv-ring { border-radius: 50%; border: 4px solid var(--bv-accent); padding: clamp(6px, 0.8vw, 12px); background: #fff; }
+.bv-ring > [data-component='patient-avatar'] { font-weight: 700; }
+/* Sem foto: as iniciais saem num disco neutro (a cor forte do avatar padrão foge da tela). */
+.bv-ring > [data-component='patient-avatar']:not(:has(img)) { background: #ece9e3; color: var(--bv-accent); }
+.bv-badge {
+  position: relative;
+  margin-top: -22px;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px; border-radius: 999px;
+  background: #fff; border: 1px solid #e4e0d8;
+  font-size: 14px; font-weight: 600; color: #3a3e45;
+}
+.bv-badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--bv-accent); }
+
+.bv-text { flex: 1 1 520px; min-width: 0; max-width: 680px; }
+.bv-hello { margin: 0; font-size: clamp(24px, 2.4vw, 36px); color: #6b6f76; }
+.bv-name {
+  margin: 4px 0 0;
+  font-size: clamp(52px, 7.2vw, 108px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: #16181d;
+  overflow-wrap: break-word;
+}
+.bv-bar { width: 76px; height: 6px; border-radius: 4px; margin: 30px 0 26px; background: var(--bv-accent); }
+.bv-line { margin: 0; max-width: 560px; font-size: clamp(18px, 1.6vw, 23px); line-height: 1.55; color: #555a62; }
+
+.bv-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 40px;
+}
+.bv-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 22px 24px;
+  background: #fff; border: 1px solid #e8e4dc; border-radius: 22px;
+}
+.bv-card-label { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #7a7f87; }
+.bv-card-value { font-size: 23px; font-weight: 700; line-height: 1.2; color: #16181d; }
+.bv-progress { display: block; height: 8px; border-radius: 99px; background: #eeeae3; overflow: hidden; }
+.bv-progress > span { display: block; height: 100%; border-radius: 99px; background: var(--bv-accent); transition: width 0.6s ease; }
+
+.bv-loading { display: flex; flex-direction: column; gap: 12px; }
+.bv-loading span { display: block; height: 22px; border-radius: 8px; background: #ebe8e2; animation: bvPulse 1.2s ease-in-out infinite; }
+.bv-loading span:first-child { width: 80%; }
+.bv-loading span:last-child { width: 55%; height: 110px; border-radius: 22px; margin-top: 18px; }
+@keyframes bvPulse { 50% { opacity: 0.55; } }
+
+/* ─── Rodapé ───────────────────────────────────────────────────────── */
+.bv-foot {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px clamp(20px, 4vw, 56px) 28px;
+}
+.bv-dentist { display: flex; align-items: center; gap: 12px; }
+.bv-dentist-mark {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid #e4e0d8;
+  font-size: 16px; font-weight: 700; color: #3a3e45;
+}
+.bv-dentist div { display: flex; flex-direction: column; line-height: 1.3; }
+.bv-dentist span { font-size: 13px; color: #6b6f76; }
+.bv-dentist b { font-size: 17px; font-weight: 700; }
+.bv-nav { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #8a8f96; margin-left: auto; }
+.bv-nav span { min-width: 96px; text-align: center; font-variant-numeric: tabular-nums; }
+.bv-nav .bv-round { width: 44px; height: 44px; }
+
+@media (max-width: 900px) {
+  .bv-main { padding-top: 0; }
+  .bv-text { text-align: center; }
+  .bv-bar { margin: 22px auto 20px; }
+  .bv-line { margin: 0 auto; }
+  .bv-cards { text-align: left; margin-top: 28px; }
+  .bv-when span { display: none; }
+}

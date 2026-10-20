@@ -351,6 +351,15 @@ export class PatientsController {
     return this.patientsService.getTimeline(id, tenantId, lim);
   }
 
+  /** Resumo da tela de boas-vindas (Minha agenda): visitas, plano e o de hoje — sem valores. */
+  @RequiresPermission('view_patients')
+  @Get(':id/welcome')
+  getWelcome(@Param('id') id: string, @Request() req: any, @Query('eventId') eventId?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.getWelcomeSummary(id, tenantId, eventId || undefined);
+  }
+
   // Onda 17.52 — Etapa 7: editar dados do paciente exige edit_patients (antes
   // era só ADMIN). Decisão do usuário: recepção/dentista/CRC passam a editar;
   // arquivar/excluir continua só admin (canArchivePatient, nos DELETE abaixo).
