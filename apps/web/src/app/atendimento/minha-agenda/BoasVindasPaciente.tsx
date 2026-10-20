@@ -15,13 +15,17 @@
  * - Setas (botões ou ←/→) passam pros outros pacientes do dia; Esc fecha.
  * - Rodapé do dentista: Atendido/Faltou (os MESMOS botões da lista, via `acoes`) —
  *   "Atendido" abre a confirmação (o que foi feito → prontuário) por cima desta tela.
+ * - Topo: atalhos pequenos pras abas da ficha (Prontuário = anotações, Visão geral,
+ *   Anamnese…), que abrem num painel lateral (PainelFicha) sem sair daqui.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
 import { useTenant } from '@/lib/useTenant';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { ATALHOS, PainelFicha, type AtalhoId } from './PainelFicha';
 import './boas-vindas.css';
 
 export interface BoasVindasEvento {
@@ -83,13 +87,14 @@ function greeting(s: WelcomeSummary | null, first: boolean): string {
   return g === 'F' ? 'Bem-vinda de volta' : g === 'M' ? 'Bem-vindo de volta' : 'Que bom te ver de novo';
 }
 
-/** Tamanho da foto pela largura da tela (o PatientAvatar recebe px). Até 900px a
- *  tela empilha (foto em cima do texto), então a foto pode ocupar mais da largura. */
+/** Tamanho da foto pela tela (o PatientAvatar recebe px). Até 900px a tela empilha
+ *  (foto em cima do texto), então a foto pode ocupar mais da largura; lado a lado,
+ *  também limita pela ALTURA (notebook 1366×768: senão o rodapé sai da tela). */
 function usePhotoSize() {
-  const fit = (w: number) => (w < 900
+  const fit = (w: number, h: number) => (w < 900
     ? Math.min(340, Math.max(180, w * 0.5))
-    : Math.min(440, Math.max(200, w * 0.3)));
-  const calc = () => (typeof window === 'undefined' ? 400 : Math.round(fit(window.innerWidth)));
+    : Math.max(180, Math.min(440, w * 0.3, h * 0.42)));
+  const calc = () => (typeof window === 'undefined' ? 400 : Math.round(fit(window.innerWidth, window.innerHeight)));
   const [size, setSize] = useState(calc);
   useEffect(() => {
     const on = () => setSize(calc());
@@ -119,6 +124,12 @@ export function BoasVindasPaciente<E extends BoasVindasEvento>({
 
   const [idx, setIdx] = useState(() => Math.max(0, events.findIndex((e) => e.id === startId)));
   const ev = events[idx] ?? events[0];
+  // Aba da ficha aberta no painel lateral (null = fechado). Trocar de paciente fecha.
+  const [painel, setPainel] = useState<AtalhoId | null>(null);
+  const go = (delta: number) => { setPainel(null); setIdx((i) => (i + events.length + delta) % events.length); };
+  const { hasPermission } = useUserPermissions();
+  // Prontuário = view_clinical (mesma permissão da API); anotar = edit_clinical.
+  const atalhos = ATALHOS.filter((a) => a.id !== 'medical-record' || hasPermission('view_clinical'));
   const [summaries, setSummaries] = useState<Record<string, WelcomeSummary | null>>({});
   const summary = ev ? summaries[ev.id] : undefined;
 
@@ -137,14 +148,16 @@ export function BoasVindasPaciente<E extends BoasVindasEvento>({
     if (pausado) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (e.key === 'Escape') onClose();
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      // Com o painel aberto: Esc fecha só ele e as setas não trocam de paciente.
+      if (e.key === 'Escape') { if (painel) setPainel(null); else onClose(); }
+      else if (painel) return;
       else if (e.key === 'ArrowRight') setIdx((i) => (i + 1) % events.length);
       else if (e.key === 'ArrowLeft') setIdx((i) => (i + events.length - 1) % events.length);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [events.length, onClose, pausado]);
+  }, [events.length, onClose, pausado, painel]);
 
   const accent = useMemo(() => accentFrom(tenant?.theme_color), [tenant?.theme_color]);
 
@@ -185,6 +198,22 @@ export function BoasVindasPaciente<E extends BoasVindasEvento>({
           )}
           {tenant?.name && <span className="bv-brand-name">{tenant.name}</span>}
         </div>
+        {/* Atalhos da ficha — discretos; só com cadastro de paciente (lead não tem ficha). */}
+        {ev.patient && (
+          <nav className="bv-tabs" aria-label="Ficha do paciente">
+            {atalhos.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className={`bv-tab ${painel === a.id ? 'is-on' : ''}`}
+                aria-pressed={painel === a.id}
+                onClick={() => setPainel(a.id)}
+              >
+                {a.label}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="bv-top-right">
           <div className="bv-when">
             <span>{dateLabel}</span>
@@ -266,17 +295,29 @@ export function BoasVindasPaciente<E extends BoasVindasEvento>({
           {acoes && <div className="bv-acoes">{acoes(ev)}</div>}
           {events.length > 1 && (
             <div className="bv-nav">
-              <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + events.length - 1) % events.length)} aria-label="Paciente anterior">
+              <button type="button" className="bv-round" onClick={() => go(-1)} aria-label="Paciente anterior">
                 <ChevronLeft size={18} />
               </button>
               <span>paciente {idx + 1} de {events.length}</span>
-              <button type="button" className="bv-round" onClick={() => setIdx((i) => (i + 1) % events.length)} aria-label="Próximo paciente">
+              <button type="button" className="bv-round" onClick={() => go(1)} aria-label="Próximo paciente">
                 <ChevronRight size={18} />
               </button>
             </div>
           )}
         </div>
       </footer>
+
+      {painel && ev.patient && (
+        <PainelFicha
+          tab={painel}
+          patientId={ev.patient.id}
+          patientName={fullName}
+          appointmentId={ev.id}
+          podeAnotar={hasPermission('edit_clinical')}
+          onTab={setPainel}
+          onClose={() => setPainel(null)}
+        />
+      )}
     </div>,
     document.body,
   );
