@@ -395,6 +395,9 @@ export default function MinhaAgendaPage() {
                     <button type="button" onClick={() => setStatus(ev, 'NO_SHOW')} className="ma-btn is-miss">
                       <X size={14} /> Faltou
                     </button>
+                    {/* Ocupa o lugar do "…" das linhas do dia: os botões ficam alinhados com os de lá. */}
+                    <span className="ma-pend-spacer" aria-hidden />
+
                   </li>
                 );
               })}
@@ -435,7 +438,15 @@ export default function MinhaAgendaPage() {
                   </span>
                   <span className="ma-who-txt">
                     <b>{name}</b>
-                    <small>{what}</small>
+                    {/* Status embaixo do nome (não na coluna dos botões): os botões ficam
+                        com largura fixa e alinhados em todas as linhas. */}
+                    <span className="ma-who-sub">
+                      <small>{what}</small>
+                      <span className="ma-chip" style={{ color: STATUS_INK[ev.status] ?? st.color }}>
+                        <i className={arrived ? 'is-pulse' : ''} />
+                        {st.label}
+                      </span>
+                    </span>
                   </span>
                 </>
               );
@@ -468,10 +479,6 @@ export default function MinhaAgendaPage() {
                       )}
 
                       <div className="ma-actions">
-                        <span className="ma-chip" style={{ color: STATUS_INK[ev.status] ?? st.color }}>
-                          <i className={arrived ? 'is-pulse' : ''} />
-                          {st.label}
-                        </span>
                         <BotoesAtendimento
                           ev={ev}
                           busy={busy}
@@ -565,7 +572,10 @@ function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big 
   const isNoShow = ev.status === 'NO_SHOW';
   const done = STATUS_BY_ID.CONCLUIDO.color;
   const miss = STATUS_BY_ID.NO_SHOW.color;
-  const size = big ? 'h-11 px-5 gap-1.5 rounded-xl text-[15px]' : 'h-[38px] px-3.5 gap-1.5 rounded-xl text-[13.5px]';
+  const size = big ? 'h-11 px-5 gap-1.5 rounded-xl text-[15px]' : 'h-[38px] px-3.5 gap-1.5 rounded-xl text-[13.5px] justify-center';
+  // Na lista, largura FIXA: "Atendido"/"Confirmar" e "Faltou" ficam alinhados em todas as linhas.
+  const wAt = big ? '' : 'w-[124px]';
+  const wFt = big ? '' : 'w-[96px]';
   const icon = big ? 17 : 15;
   const idle = '#ffffff';
   return (
@@ -574,7 +584,7 @@ function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big 
         type="button"
         disabled={busy || (isDone && !needsConfirm)}
         onClick={onAtendido}
-        className={`${size} inline-flex items-center font-semibold border transition-colors disabled:cursor-default`}
+        className={`${size} ${wAt} inline-flex items-center font-semibold border transition-colors disabled:cursor-default`}
         style={isDone
           ? { background: done, color: '#fff', borderColor: done }
           : { background: idle, color: done, borderColor: `${done}66` }}
@@ -586,7 +596,7 @@ function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big 
         type="button"
         disabled={busy || isNoShow || travadoFaltou}
         onClick={onFaltou}
-        className={`${size} inline-flex items-center font-semibold border transition-colors disabled:cursor-default disabled:opacity-60`}
+        className={`${size} ${wFt} inline-flex items-center font-semibold border transition-colors disabled:cursor-default disabled:opacity-60`}
         style={isNoShow
           ? { background: miss, color: '#fff', borderColor: miss }
           : { background: idle, color: miss, borderColor: `${miss}66` }}

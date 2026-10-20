@@ -85,22 +85,26 @@
 .ma-progress-bar i { display: block; height: 100%; border-radius: 99px; background: var(--ma-accent-light); transition: width 0.6s ease; }
 
 /* ─── Pendentes de dias anteriores ─────────────────────────────────────── */
-.ma-pend { padding: 12px 14px; border-radius: 18px; background: #fff; box-shadow: var(--ma-shadow); }
+.ma-pend { padding: 12px; border-radius: 18px; border: 1px solid transparent; background: #fff; box-shadow: var(--ma-shadow); }
 .ma-pend-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
 .ma-pend-ico {
   width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center;
-  background: rgba(245, 158, 11, 0.12); color: #b45309;
+  /* Vermelho (não âmbar): pendência de confirmação precisa chamar atenção. */
+  background: rgba(220, 38, 38, 0.1); color: #dc2626;
 }
 .ma-pend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ma-pend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: #f7f6f3; }
+/* Linha sem padding à direita + espaçador no lugar do "…": Confirmar/Faltou caem
+   exatamente na coluna do Atendido/Faltou das linhas do dia (mesmas larguras). */
+.ma-pend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0 6px 10px; border-radius: 12px; background: #f7f6f3; }
 .ma-pend-when { width: 96px; flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--ma-muted); font-variant-numeric: tabular-nums; }
 .ma-pend-name { flex: 1; min-width: 120px; font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-pend-spacer { width: 38px; flex-shrink: 0; }
 .ma-btn {
-  height: 34px; padding: 0 12px; border-radius: 10px; display: inline-flex; align-items: center; gap: 5px;
-  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; border: 1px solid transparent;
+  height: 38px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; border: 1px solid transparent;
 }
-.ma-btn.is-ok-solid { background: #15803d; border-color: #15803d; color: #fff; }
-.ma-btn.is-miss { background: #fff; border-color: rgba(153, 27, 27, 0.25); color: #991b1b; }
+.ma-btn.is-ok-solid { width: 124px; background: #15803d; border-color: #15803d; color: #fff; }
+.ma-btn.is-miss { width: 96px; background: #fff; border-color: rgba(153, 27, 27, 0.4); color: #991b1b; }
 
 .ma-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
@@ -154,6 +158,11 @@ button.ma-who:hover .ma-av { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ma-ac
 .ma-who-txt { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
 .ma-who-txt b { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s; }
 .ma-who-txt small { font-size: 12.5px; color: var(--ma-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Procedimento + selo de status, embaixo do nome. */
+.ma-who-sub { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 3px; }
+.ma-who-sub small { min-width: 0; }
+.ma-who-sub .ma-chip { flex-shrink: 0; font-size: 10.5px; padding: 3px 8px; gap: 5px; }
+.ma-who-sub .ma-chip i { width: 6px; height: 6px; }
 button.ma-who:hover .ma-who-txt b { color: var(--ma-accent); }
 
 .ma-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
@@ -204,4 +213,5 @@ button.ma-who:hover .ma-who-txt b { color: var(--ma-accent); }
   .ma-item, .ma-now { grid-template-columns: 50px 20px minmax(0, 1fr); }
   .ma-when b { font-size: 15px; }
   .ma-actions { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .ma-pend-spacer { display: none; }
 }
