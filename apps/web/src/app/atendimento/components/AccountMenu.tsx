@@ -35,7 +35,11 @@ function readEmailFromToken(): string | null {
 
 const MENU_W = 224; // w-56
 
-export function AccountMenu() {
+/**
+ * `name`/`subtitle` (opcionais): mostra o chip com nome e cargo ao lado das
+ * iniciais (painel do dentista). Sem eles fica como sempre foi (só iniciais).
+ */
+export function AccountMenu({ name, subtitle }: { name?: string | null; subtitle?: string } = {}) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -67,7 +71,10 @@ export function AccountMenu() {
     };
   }, [open]);
 
-  const initials = (email?.trim()?.slice(0, 2) || 'U').toUpperCase();
+  const nameParts = (name || '').trim().split(/\s+/).filter(Boolean);
+  const initials = nameParts.length
+    ? (nameParts[0][0] + (nameParts.length > 1 ? nameParts[nameParts.length - 1][0] : nameParts[0][1] || '')).toUpperCase()
+    : (email?.trim()?.slice(0, 2) || 'U').toUpperCase();
 
   const toggle = (e: React.MouseEvent) => {
     if (open) { setOpen(false); setPos(null); return; }
@@ -93,14 +100,28 @@ export function AccountMenu() {
         ref={btnRef}
         type="button"
         onClick={toggle}
-        className="inline-flex items-center gap-1.5 h-10 pl-1 pr-2 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all"
+        className={name
+          ? 'inline-flex items-center gap-2.5 py-1 pl-1 pr-2 rounded-2xl hover:bg-black/5 transition-all'
+          : 'inline-flex items-center gap-1.5 h-10 pl-1 pr-2 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all'}
         title="Conta"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className="w-7 h-7 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center">
-          {initials}
-        </span>
+        {name ? (
+          <>
+            <span className="w-11 h-11 rounded-full bg-[#0b3b30] text-white text-sm font-bold flex items-center justify-center">
+              {initials}
+            </span>
+            <span className="hidden sm:flex flex-col items-start leading-tight text-left">
+              <span className="text-[15px] font-semibold text-[#0f2a24]">{nameParts[0]}</span>
+              {subtitle && <span className="text-xs text-[#5b6b66]">{subtitle}</span>}
+            </span>
+          </>
+        ) : (
+          <span className="w-7 h-7 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center">
+            {initials}
+          </span>
+        )}
         <ChevronDown size={14} className="text-muted-foreground" />
       </button>
 

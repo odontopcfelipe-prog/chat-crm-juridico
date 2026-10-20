@@ -387,6 +387,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // — pedido: "nao usamos essa barra, pode remover pra ganhar espaco".
           // Papeis sem barra lateral continuam com o header (Inicio + icones).
           if (showSidebar && hideSearch) return null;
+          // Out/2026 — a home do Dentista tem topo próprio (logo, busca nos
+          // pacientes dele, conta). O header global aqui seria uma 2ª busca.
+          if (!showSidebar && permSector === 'dentista' && pathname === '/atendimento/dashboard') return null;
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-1.5 border-b border-border bg-card shrink-0">
               {/* Onda 17.50 — Botao "Inicio" aparece quando a barra lateral

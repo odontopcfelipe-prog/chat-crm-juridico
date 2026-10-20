@@ -28,6 +28,7 @@ import api from '@/lib/api';
 import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
 import HomeBySector from '@/components/home/HomeBySector';
+import DentistHome from '@/components/home/DentistHome';
 import { mapBackendRole, type Sector, type Permission } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
 // Onda 17.32.125 — Lembrete persistente do onboarding pendente
@@ -176,6 +177,22 @@ export default function VisaoGeralPage() {
     ? `${cap(DIAS[now.getDay()])}, ${now.getDate()} de ${MESES[now.getMonth()]} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     : '—';
 
+  // O setor vem do token (só existe no navegador): no servidor ele cairia em
+  // "recepção" e a tela trocaria depois (hydration mismatch + pisca a home errada).
+  // Até montar, não desenha a home — `now` só é preenchido no navegador.
+  if (!now) return <div className="h-full overflow-y-auto bg-background" />;
+
+  // Out/2026 — Dentista tem painel próprio (topo com logo + busca nos pacientes
+  // DELE, boas-vindas, cards ilustrados, resumo do dia). Admin no "visualizar
+  // como" continua vendo a grade (DentistHome usa os dados do usuário logado).
+  if (resolvedSector === 'dentista' && !(role?.isAdmin || role?.isSuperAdmin)) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <OnboardingPendingBanner />
+        <DentistHome userName={userName} extraGrants={userGrants} extraRevokes={userRevokes} />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-background relative">
