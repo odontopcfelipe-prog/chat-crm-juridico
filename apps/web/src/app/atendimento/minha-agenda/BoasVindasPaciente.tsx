@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
 import { useTenant } from '@/lib/useTenant';
+import { tenantAccent } from '@/lib/tenant-accent';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { ATALHOS, PainelFicha, type AtalhoId } from './PainelFicha';
@@ -61,18 +62,6 @@ const TYPE_LABEL: Record<string, string> = {
 };
 const DAYS_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 const MONTHS_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const NEUTRAL = '#6B7280';
-
-/** Cor da clínica legível no fundo claro: sem cor (ou inválida) = cinza; clara demais = escurece. */
-function accentFrom(hex: string | null | undefined): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
-  if (!m) return NEUTRAL;
-  const n = parseInt(m[1], 16);
-  let [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  if (lum > 0.62) [r, g, b] = [r, g, b].map((c) => Math.round(c * 0.62));
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
-}
 
 /** "Maria Aparecida Santos" → "Maria Aparecida"; "Ana de Souza" → "Ana de Souza". */
 function welcomeName(full: string): string {
@@ -159,7 +148,7 @@ export function BoasVindasPaciente<E extends BoasVindasEvento>({
     return () => window.removeEventListener('keydown', onKey);
   }, [events.length, onClose, pausado, painel]);
 
-  const accent = useMemo(() => accentFrom(tenant?.theme_color), [tenant?.theme_color]);
+  const accent = useMemo(() => tenantAccent(tenant?.theme_color), [tenant?.theme_color]);
 
   if (!mounted || !ev) return null;
 
