@@ -17,7 +17,7 @@ import {
   apiErr, cap1, dateBr, distanceMeters, EspelhoActions, EspelhoTable, fmtDist, fmtMin, GEO_META, MonthNav,
   PunchDetail, scheduleText, TotalsCards, type Day, type DaySchedule, type Espelho, type Punch, type PontoLocal,
 } from './ponto-ui';
-import { getBestPosition, isFail, precisionHint, type GeoReading } from './geo-client';
+import { getBestPosition, isFail, precisionHint, SEM_GPS_M, type GeoReading } from './geo-client';
 import { PontoMap } from './PontoMap';
 
 interface MeData {
@@ -188,7 +188,10 @@ export default function PontoPage() {
   // Fora da área com leitura PRECISA = fora mesmo. Leitura ruim ainda pode melhorar:
   // o botão fica liberado e, ao clicar, espera o GPS firmar antes de mandar.
   const surelyOut = !!geo.pos && precise && !inside;
-  const canPunch = data.member.active && !!local && geo.kind !== 'denied' && !surelyOut;
+  // Leitura de quilômetros = aparelho sem GPS (computador / celular sem "localização
+  // precisa"): não melhora esperando, então o botão trava (o "Localizar de novo" tenta de novo).
+  const noGps = !!geo.pos && geo.pos.accuracy > SEM_GPS_M;
+  const canPunch = data.member.active && !!local && geo.kind !== 'denied' && !surelyOut && !noGps;
   const hint = geo.pos ? precisionHint(geo.pos.accuracy, data.max_precisao_m) : null;
 
   return (
@@ -267,15 +270,23 @@ export default function PontoPage() {
               </div>
               {showMap && (
                 <div className="mt-3 w-full max-w-md">
+                  {/* Só mostra (sem onPick): o funcionário NÃO escolhe o local — o ponto usa só o GPS.
+                      Leitura imprecisa não vira bolinha verde: com ±50 km a internet "chuta" o
+                      centro da cidade, que pode cair perto da clínica e enganar. */}
                   <PontoMap
-                    center={geo.pos ? { lat: geo.pos.latitude, lng: geo.pos.longitude } : { lat: local.lat, lng: local.lng }}
-                    recenterKey={geo.pos ? 'you' : 'clinic'}
-                    zoom={geo.pos && geo.pos.accuracy > 2000 ? 10 : 16}
+                    center={geo.pos && precise ? { lat: geo.pos.latitude, lng: geo.pos.longitude } : { lat: local.lat, lng: local.lng }}
+                    recenterKey={geo.pos && precise ? 'you' : 'clinic'}
+                    zoom={16}
                     clinic={local}
-                    you={geo.pos ? { lat: geo.pos.latitude, lng: geo.pos.longitude, accuracy: geo.pos.accuracy } : null}
+                    you={geo.pos && precise ? { lat: geo.pos.latitude, lng: geo.pos.longitude, accuracy: geo.pos.accuracy } : null}
                     height={240}
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">Azul = área da clínica · verde = você (o tracejado é a margem de erro do GPS).</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {geo.pos && !precise
+                      ? `Sua posição não aparece: a leitura deste aparelho erra até ± ${fmtDist(geo.pos.accuracy)}, então não dá pra saber onde você está.`
+                      : 'Azul = área da clínica · verde = você (o tracejado é a margem de erro do GPS).'}{' '}
+                    O mapa só mostra — o ponto usa o GPS do aparelho.
+                  </p>
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">O ponto só é aceito com localização, dentro da área da clínica.</p>
