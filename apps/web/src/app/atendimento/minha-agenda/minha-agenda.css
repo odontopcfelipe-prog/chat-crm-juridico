@@ -1,0 +1,207 @@
+/* Minha agenda — out/2026: visual NEUTRO multi-clínica (mesmo padrão do painel do
+   dentista). Paleta FIXA clara + topo grafite; a única cor é a da clínica
+   (--ma-accent, Tenant.theme_color). As cores de STATUS são as da agenda. */
+
+.ma {
+  --ma-accent: #6b7280;
+  --ma-accent-soft: color-mix(in srgb, var(--ma-accent) 20%, transparent);
+  --ma-accent-light: color-mix(in srgb, var(--ma-accent) 55%, #fff);
+  --ma-ink: #16181d;
+  --ma-muted: #6b6f76;
+  --ma-faint: #8a8f96;
+  --ma-line: #e4e0d8;
+  --ma-shadow: 0 1px 2px rgba(22, 24, 29, 0.04), 0 10px 24px -20px rgba(22, 24, 29, 0.28);
+  background: #f3f2ee;
+  color: var(--ma-ink);
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.ma *, .ma *::before, .ma *::after { box-sizing: border-box; }
+.ma-wrap {
+  max-width: 980px; margin: 0 auto;
+  padding: 20px clamp(14px, 3vw, 32px) 32px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+@media (max-width: 767px) { .ma-wrap { padding-bottom: 96px; } }
+
+.ma-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ma-muted);
+}
+.ma-back:hover { color: var(--ma-ink); }
+
+/* ─── Topo grafite ─────────────────────────────────────────────────────── */
+.ma-hero {
+  position: relative; overflow: hidden;
+  border-radius: 26px; padding: 22px 26px 20px;
+  background: #17191e; color: #fff;
+  box-shadow: 0 2px 4px rgba(22, 24, 29, 0.06), 0 26px 50px -26px rgba(22, 24, 29, 0.45);
+}
+.ma-hero-glow {
+  position: absolute; right: 120px; top: -80px; width: 240px; height: 240px; border-radius: 50%;
+  background: var(--ma-accent); opacity: 0.28; filter: blur(60px); pointer-events: none;
+}
+.ma-hero-rings {
+  position: absolute; right: -170px; top: -230px; width: 520px; height: 520px; pointer-events: none;
+  fill: none; stroke: rgba(255, 255, 255, 0.07); stroke-width: 1.2;
+}
+.ma-hero-top { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; }
+.ma-hero-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.ma-hero-ico {
+  width: 50px; height: 50px; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--ma-accent-light);
+}
+.ma-eyebrow { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ma-accent-light); }
+.ma-hero h1 { margin: 2px 0 0; font-size: clamp(20px, 2.4vw, 26px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; color: #fff; }
+.ma-today {
+  align-self: flex-end; margin-bottom: 3px; flex-shrink: 0;
+  font-size: 11px; font-weight: 800; padding: 4px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.12);
+}
+
+.ma-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ma-hbtn {
+  height: 40px; padding: 0 14px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.06);
+  color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: background 0.2s;
+}
+.ma-hbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.ma-hbtn:disabled { color: rgba(255, 255, 255, 0.45); cursor: default; }
+.ma-hbtn.is-icon { width: 40px; padding: 0; }
+.ma-date { padding: 0 10px 0 12px; cursor: pointer; }
+.ma-date input {
+  width: 116px; border: 0; outline: 0; background: transparent; color: #fff; color-scheme: dark;
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+
+.ma-stats { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.ma-stat { padding: 11px 14px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.09); }
+.ma-stat span { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #a3a8b0; }
+.ma-stat span i { width: 8px; height: 8px; border-radius: 50%; }
+.ma-stat b { display: block; margin-top: 4px; font-size: 26px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ma-progress { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 12px; font-weight: 700; color: #c3c7ce; }
+.ma-progress-bar { flex: 1; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.ma-progress-bar i { display: block; height: 100%; border-radius: 99px; background: var(--ma-accent-light); transition: width 0.6s ease; }
+
+/* ─── Pendentes de dias anteriores ─────────────────────────────────────── */
+.ma-pend { padding: 12px 14px; border-radius: 18px; background: #fff; box-shadow: var(--ma-shadow); }
+.ma-pend-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.ma-pend-ico {
+  width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center;
+  background: rgba(245, 158, 11, 0.12); color: #b45309;
+}
+.ma-pend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ma-pend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: #f7f6f3; }
+.ma-pend-when { width: 96px; flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--ma-muted); font-variant-numeric: tabular-nums; }
+.ma-pend-name { flex: 1; min-width: 120px; font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-btn {
+  height: 34px; padding: 0 12px; border-radius: 10px; display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; border: 1px solid transparent;
+}
+.ma-btn.is-ok-solid { background: #15803d; border-color: #15803d; color: #fff; }
+.ma-btn.is-miss { background: #fff; border-color: rgba(153, 27, 27, 0.25); color: #991b1b; }
+
+.ma-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 48px 16px; border-radius: 20px; background: #fff; box-shadow: var(--ma-shadow);
+  font-size: 14px; color: var(--ma-muted); text-align: center;
+}
+.ma-empty svg { opacity: 0.5; }
+
+/* ─── Lista em linha do tempo ──────────────────────────────────────────── */
+.ma-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ma-item, .ma-now { display: grid; grid-template-columns: 64px 26px minmax(0, 1fr); }
+/* Linha com o menu "…" aberto fica por cima das seguintes (senão os botões delas cobrem o menu). */
+.ma-item { position: relative; }
+.ma-item.is-menu { z-index: 30; }
+.ma-when { padding-top: 16px; text-align: right; line-height: 1.2; }
+.ma-when b { display: block; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ma-when span { display: block; font-size: 11px; color: var(--ma-faint); font-variant-numeric: tabular-nums; }
+.ma-rail { position: relative; display: flex; justify-content: center; }
+.ma-rail::before { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ma-line); }
+.ma-list > :first-child .ma-rail::before { top: 22px; }
+.ma-list > :last-child .ma-rail::before { bottom: auto; height: 22px; }
+.ma-rail i {
+  position: relative; margin-top: 22px; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--ma-st, #c3c7ce);
+}
+
+.ma-card {
+  margin-bottom: 10px; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 11px 12px;
+  border-radius: 18px; background: #fff; border: 1px solid transparent; box-shadow: var(--ma-shadow);
+  transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.25s;
+}
+.ma-card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(22, 24, 29, 0.04), 0 18px 32px -16px rgba(22, 24, 29, 0.18); }
+.ma-item.is-arrived .ma-card { background: #f4fafe; border-color: rgba(14, 165, 233, 0.2); }
+.ma-item.is-past .ma-when b, .ma-item.is-past .ma-who-txt b { color: var(--ma-muted); }
+.ma-item.is-cancelled { opacity: 0.55; }
+
+/* Foto + nome: abre as boas-vindas. */
+.ma-who {
+  flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 12px;
+  margin: -4px; padding: 4px; border: 0; border-radius: 14px; background: transparent;
+  font: inherit; color: inherit; text-align: left;
+}
+button.ma-who { cursor: pointer; transition: background 0.2s; }
+button.ma-who:hover { background: rgba(22, 24, 29, 0.035); }
+.ma-av { flex-shrink: 0; display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ma-line); transition: box-shadow 0.2s; }
+/* Sem foto: iniciais em disco neutro (o avatar padrão é colorido demais aqui). */
+.ma-av [data-component='patient-avatar']:not(:has(img)) { background: #ece9e3; color: #4b5058; font-weight: 800; }
+.ma-item.is-arrived .ma-av { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #0ea5e9; }
+button.ma-who:hover .ma-av { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ma-accent); }
+.ma-who-txt { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.ma-who-txt b { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s; }
+.ma-who-txt small { font-size: 12.5px; color: var(--ma-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.ma-who:hover .ma-who-txt b { color: var(--ma-accent); }
+
+.ma-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.ma-chip {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 11.5px; font-weight: 800; padding: 5px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ma-st) 12%, transparent);
+}
+.ma-chip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ma-chip i.is-pulse { animation: maPulse 1.8s ease-out infinite; }
+@keyframes maPulse {
+  0% { box-shadow: 0 0 0 0 rgba(3, 105, 161, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(3, 105, 161, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(3, 105, 161, 0); }
+}
+.ma-more {
+  width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
+  border: 1px solid var(--ma-line); background: #fff; color: #3a3e45; cursor: pointer; transition: background 0.2s;
+}
+.ma-more:hover:not(:disabled) { background: #f3f2ee; }
+.ma-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 190px;
+  padding: 6px; border-radius: 14px; background: #fff;
+  box-shadow: 0 18px 40px -12px rgba(22, 24, 29, 0.28), 0 0 0 1px rgba(22, 24, 29, 0.05);
+}
+.ma-menu button {
+  width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+  border: 0; border-radius: 10px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 13.5px; color: var(--ma-ink); text-align: left;
+}
+.ma-menu button:hover:not(:disabled) { background: #f7f6f3; }
+.ma-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
+.ma-menu button.is-current { font-weight: 800; }
+.ma-menu-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ma-menu-check { margin-left: auto; color: var(--ma-faint); }
+
+/* Marcador "Agora" (dia de hoje). */
+.ma-now { align-items: center; margin: 2px 0 10px; }
+.ma-now-label { text-align: right; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ma-accent); }
+.ma-now-dot { justify-self: center; width: 12px; height: 12px; border-radius: 50%; background: var(--ma-accent); box-shadow: 0 0 0 4px var(--ma-accent-soft); }
+.ma-now-line { display: flex; align-items: center; gap: 10px; }
+.ma-now-line i { flex: 1; height: 2px; border-radius: 2px; background: var(--ma-accent); opacity: 0.45; }
+.ma-now-line b { font-size: 12px; font-weight: 800; color: var(--ma-accent); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .ma-hero { padding: 18px 16px 16px; }
+  .ma-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ma-item, .ma-now { grid-template-columns: 50px 20px minmax(0, 1fr); }
+  .ma-when b { font-size: 15px; }
+  .ma-actions { margin-left: 0; width: 100%; justify-content: flex-start; }
+}

@@ -18,24 +18,31 @@
  * - Sem telefone/WhatsApp do paciente (a API já apaga o contato pro dentista).
  * - Agenda é naive-UTC: hora de Maceió nos campos UTC → tudo lido via getUTC* e
  *   "hoje" = Date.now() - 3h.
+ * - Out/2026 — visual neutro multi-clínica (igual ao painel do dentista): topo
+ *   grafite com os contadores, lista em linha do tempo com o marcador "Agora"; a
+ *   única cor é a da clínica. Clicar na FOTO ou no NOME abre as boas-vindas (a ficha
+ *   segue a um clique pelos atalhos de lá).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, Calendar, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw, Clock, Sparkles,
+  ArrowLeft, Calendar, CalendarDays, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
+import { useTenant } from '@/lib/useTenant';
+import { tenantAccent } from '@/lib/tenant-accent';
 import { PatientAvatar } from '@/components/PatientAvatar';
 // Out/2026 — agenda + validação juntas: "Atendido" abre a confirmação com o que
 // foi feito (vai pro prontuário) e os procedimentos do plano executados.
 import { ConfirmarAtendimentoModal } from './ConfirmarAtendimentoModal';
-// Out/2026 — botão discreto ao lado do nome: tela cheia de boas-vindas pro paciente.
+// Out/2026 — clicar no nome/foto abre a tela cheia de boas-vindas pro paciente.
 import { BoasVindasPaciente } from './BoasVindasPaciente';
+import './minha-agenda.css';
 
 // Mesmas cores/rótulos da agenda (EVENT_STATUSES em agenda/page.tsx — Onda 17.61).
 const STATUSES = [
@@ -50,6 +57,14 @@ const STATUSES = [
 
 const STATUS_BY_ID: Record<string, { id: string; label: string; color: string }> =
   Object.fromEntries(STATUSES.map((s) => [s.id, s]));
+
+// Texto dos selos de status: tom mais escuro da mesma cor (o claro some no fundo claro).
+const STATUS_INK: Record<string, string> = {
+  AGENDADO: '#be185d', CONFIRMADO: '#15803d', COMPARECEU: '#0369a1', EM_ATENDIMENTO: '#c2410c',
+  CONCLUIDO: '#15803d', CANCELADO: '#a16207', NO_SHOW: '#991b1b',
+};
+/** A recepção já registrou a chegada. */
+const CHEGOU = ['COMPARECEU', 'EM_ATENDIMENTO'];
 
 // Fase 0 — consulta já validada: Faltou/Desmarcou/Adiado só o ADMIN (a API barra com 403;
 // aqui só não oferece o botão).
@@ -122,9 +137,17 @@ function hhmm(iso: string | null | undefined): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+/** "Agora" no modelo naive-UTC (hora de Maceió nos campos UTC). */
+function naiveNowIso(): string {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+}
+
 export default function MinhaAgendaPage() {
   const router = useRouter();
   const role = useRole();
+  const tenant = useTenant();
+  // A única cor da tela é a da clínica (cinza se ela não cadastrou).
+  const accent = useMemo(() => tenantAccent(tenant?.theme_color), [tenant?.theme_color]);
   // Fase 0 — mesmo critério da API: ADMIN ou SUPER_ADMIN passa a trava pós-validação.
   const souAdmin = role.isAdmin || role.isSuperAdmin;
   const travado = (ev: AgendaEvent, statusId: string) =>
@@ -263,11 +286,25 @@ export default function MinhaAgendaPage() {
     />
   ) : null;
 
+  // Marcador "Agora" (só no dia de hoje): antes do primeiro atendimento que ainda não começou.
+  const nowIso = naiveNowIso();
+  const agoraIdx = day === today && events.length > 0
+    ? (() => { const i = events.findIndex((e) => e.start_at > nowIso); return i === -1 ? events.length : i; })()
+    : -1;
+  const agoraMarker = (
+    <li className="ma-now" aria-label={`Agora, ${hhmm(nowIso)}`}>
+      <span className="ma-now-label">Agora</span>
+      <span className="ma-now-dot" aria-hidden />
+      <span className="ma-now-line" aria-hidden><i /><b>{hhmm(nowIso)}</b></span>
+    </li>
+  );
+  const resolvidos = counts.atendidos + counts.faltas;
+
   return (
     // RAIZ rolável: o <main> do layout é overflow-hidden.
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto ma" style={{ '--ma-accent': accent } as CSSProperties}>
       {/* pb-24 no celular: o último paciente não fica atrás do menu inferior. */}
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-5 sm:pt-6 pb-24 md:pb-6">
+      <div className="ma-wrap">
         {/* Voltar — pra tela de onde veio (histórico); sem histórico (link direto) cai
             no Início. Mesmo padrão da ficha do paciente. */}
         <button
@@ -276,239 +313,209 @@ export default function MinhaAgendaPage() {
             if (typeof window !== 'undefined' && window.history.length > 1) router.back();
             else router.push('/atendimento/dashboard');
           }}
-          className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3"
+          className="ma-back"
         >
           <ArrowLeft size={14} /> Voltar
         </button>
-        <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Calendar size={24} className="text-primary shrink-0" /> Minha agenda
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {dayTitle(day)}{day === today ? ' · hoje' : ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setDay((d) => shiftDay(d, -1))}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-border bg-card hover:bg-accent"
-              aria-label="Dia anterior"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setDay(today)}
-              disabled={day === today}
-              className="h-9 px-3 rounded-lg border border-border bg-card text-sm font-semibold hover:bg-accent disabled:opacity-50"
-            >
-              Hoje
-            </button>
-            <button
-              type="button"
-              onClick={() => setDay((d) => shiftDay(d, 1))}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-border bg-card hover:bg-accent"
-              aria-label="Próximo dia"
-            >
-              <ChevronRight size={18} />
-            </button>
-            <input
-              type="date"
-              value={day}
-              onChange={(e) => e.target.value && setDay(e.target.value)}
-              className="h-9 px-2 rounded-lg border border-border bg-card text-sm text-foreground"
-              aria-label="Escolher dia"
-            />
-            <button
-              type="button"
-              onClick={() => load()}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-border bg-card hover:bg-accent"
-              aria-label="Atualizar"
-              title="Atualizar"
-            >
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
-        </div>
 
-        {/* Resumo do dia */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <Chip label={counts.total === 1 ? 'paciente' : 'pacientes'} value={counts.total} color="#64748b" />
-          <Chip label="a atender" value={counts.pendentes} color={STATUS_BY_ID.AGENDADO.color} />
-          <Chip label={counts.atendidos === 1 ? 'atendido' : 'atendidos'} value={counts.atendidos} color={STATUS_BY_ID.CONCLUIDO.color} />
-          <Chip label={counts.faltas === 1 ? 'faltou' : 'faltaram'} value={counts.faltas} color={STATUS_BY_ID.NO_SHOW.color} />
-        </div>
+        {/* Topo grafite: dia + navegação + resumo do dia */}
+        <section className="ma-hero">
+          <span className="ma-hero-glow" aria-hidden />
+          <svg className="ma-hero-rings" viewBox="0 0 600 600" aria-hidden="true">
+            <circle cx="300" cy="300" r="290" />
+            <circle cx="300" cy="300" r="210" />
+            <circle cx="300" cy="300" r="130" />
+          </svg>
+          <div className="ma-hero-top">
+            <div className="ma-hero-title">
+              <span className="ma-hero-ico"><Calendar size={22} /></span>
+              <div>
+                <p className="ma-eyebrow">Minha agenda</p>
+                <h1>{dayTitle(day)}</h1>
+              </div>
+              {day === today && <span className="ma-today">hoje</span>}
+            </div>
+            <div className="ma-nav">
+              <button type="button" onClick={() => setDay((d) => shiftDay(d, -1))} className="ma-hbtn is-icon" aria-label="Dia anterior">
+                <ChevronLeft size={17} />
+              </button>
+              <button type="button" onClick={() => setDay(today)} disabled={day === today} className="ma-hbtn">
+                Hoje
+              </button>
+              <button type="button" onClick={() => setDay((d) => shiftDay(d, 1))} className="ma-hbtn is-icon" aria-label="Próximo dia">
+                <ChevronRight size={17} />
+              </button>
+              <label className="ma-hbtn ma-date">
+                <CalendarDays size={15} />
+                <input
+                  type="date"
+                  value={day}
+                  onChange={(e) => e.target.value && setDay(e.target.value)}
+                  aria-label="Escolher dia"
+                />
+              </label>
+              <button type="button" onClick={() => load()} className="ma-hbtn is-icon" aria-label="Atualizar" title="Atualizar">
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {/* Resumo do dia */}
+          <div className="ma-stats">
+            <Stat label={counts.total === 1 ? 'paciente' : 'pacientes'} value={counts.total} dot="#c3c7ce" />
+            <Stat label="a atender" value={counts.pendentes} dot={STATUS_BY_ID.AGENDADO.color} />
+            <Stat label={counts.atendidos === 1 ? 'atendido' : 'atendidos'} value={counts.atendidos} dot="#22c55e" />
+            <Stat label={counts.faltas === 1 ? 'faltou' : 'faltaram'} value={counts.faltas} dot="#ef4444" />
+          </div>
+          {counts.total > 0 && (
+            <div className="ma-progress">
+              <span className="ma-progress-bar"><i style={{ width: `${Math.round((resolvidos / counts.total) * 100)}%` }} /></span>
+              <span>{resolvidos} de {counts.total} resolvidos</span>
+            </div>
+          )}
+        </section>
 
         {/* Dias anteriores ainda sem confirmação — confirma aqui mesmo. */}
         {pendentes.length > 0 && (
-          <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
-              ⚠ {pendentes.length === 1 ? '1 atendimento' : `${pendentes.length} atendimentos`} dos últimos {PENDENTES_DIAS} dias a confirmar
-            </p>
-            <ul className="space-y-1.5">
+          <section className="ma-pend">
+            <div className="ma-pend-head">
+              <span className="ma-pend-ico"><AlertTriangle size={16} /></span>
+              <b>{pendentes.length === 1 ? '1 atendimento' : `${pendentes.length} atendimentos`} dos últimos {PENDENTES_DIAS} dias a confirmar</b>
+            </div>
+            <ul>
               {pendentes.map((ev) => {
                 const nomeP = ev.patient?.name || ev.lead?.name || ev.title || 'Paciente';
                 return (
-                  <li key={ev.id} className="flex flex-wrap items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
-                    <span className="text-xs font-bold tabular-nums text-muted-foreground w-[92px] shrink-0">
-                      {ev.start_at.slice(8, 10)}/{ev.start_at.slice(5, 7)} · {hhmm(ev.start_at)}
-                    </span>
-                    <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-[120px]">{nomeP}</span>
-                    <button
-                      type="button"
-                      onClick={() => pedirAtendido(ev)}
-                      className="h-8 px-3 inline-flex items-center gap-1 rounded-lg text-xs font-semibold text-white"
-                      style={{ background: STATUS_BY_ID.CONCLUIDO.color }}
-                    >
+                  <li key={ev.id} className="ma-pend-row">
+                    <span className="ma-pend-when">{ev.start_at.slice(8, 10)}/{ev.start_at.slice(5, 7)} · {hhmm(ev.start_at)}</span>
+                    <span className="ma-pend-name">{nomeP}</span>
+                    <button type="button" onClick={() => pedirAtendido(ev)} className="ma-btn is-ok-solid">
                       <Check size={14} /> Confirmar
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatus(ev, 'NO_SHOW')}
-                      className="h-8 px-3 inline-flex items-center gap-1 rounded-lg text-xs font-semibold border"
-                      style={{ color: STATUS_BY_ID.NO_SHOW.color, borderColor: `${STATUS_BY_ID.NO_SHOW.color}66` }}
-                    >
+                    <button type="button" onClick={() => setStatus(ev, 'NO_SHOW')} className="ma-btn is-miss">
                       <X size={14} /> Faltou
                     </button>
                   </li>
                 );
               })}
             </ul>
-          </div>
+          </section>
         )}
 
         {loading && events.length === 0 ? (
-          <div className="p-12 flex items-center justify-center text-muted-foreground">
-            <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
+          <div className="ma-empty">
+            <Loader2 size={20} className="animate-spin" /> Carregando...
           </div>
         ) : events.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-12 text-center text-sm text-muted-foreground">
-            <Calendar size={28} className="mx-auto mb-2 opacity-50" />
+          <div className="ma-empty">
+            <Calendar size={28} />
             Nenhum paciente na sua agenda neste dia.
           </div>
         ) : (
-          <ul className="space-y-2.5">
-            {events.map((ev) => {
+          <ul className="ma-list">
+            {events.map((ev, idx) => {
               const st = STATUS_BY_ID[ev.status] ?? STATUS_BY_ID.AGENDADO;
               const name = ev.patient?.name || ev.lead?.name || ev.title || 'Paciente';
               const what = ev.appointment_type?.name || TYPE_LABEL[ev.type] || ev.type;
               const cancelled = ev.status === 'CANCELADO';
+              const arrived = CHEGOU.includes(ev.status);
+              const past = ev.status === 'CONCLUIDO' || ev.status === 'NO_SHOW';
               const busy = savingId === ev.id;
+              const who = (
+                <>
+                  <span className="ma-av">
+                    <PatientAvatar
+                      patientId={ev.patient?.id ?? ev.lead?.id ?? ev.id}
+                      patientName={name}
+                      avatarUrl={ev.patient?.avatar_url ?? null}
+                      fallbackPhotoUrl={ev.lead?.profile_picture_url}
+                      size={42}
+                      shape="circle"
+                    />
+                  </span>
+                  <span className="ma-who-txt">
+                    <b>{name}</b>
+                    <small>{what}</small>
+                  </span>
+                </>
+              );
               return (
-                <li
-                  key={ev.id}
-                  className={`group relative bg-card border border-border rounded-xl overflow-visible ${cancelled ? 'opacity-60' : ''}`}
-                  style={{ borderLeft: `5px solid ${st.color}` }}
-                >
-                  <div className="flex flex-wrap items-center gap-3 p-3 sm:p-3.5">
-                    {/* Horário */}
-                    <div className="w-[64px] shrink-0">
-                      <div className="text-base font-bold text-foreground tabular-nums leading-tight">{hhmm(ev.start_at)}</div>
-                      {ev.end_at && (
-                        <div className="text-[11px] text-muted-foreground tabular-nums flex items-center gap-0.5">
-                          <Clock size={10} /> {hhmm(ev.end_at)}
-                        </div>
-                      )}
+                <Fragment key={ev.id}>
+                  {idx === agoraIdx && agoraMarker}
+                  <li
+                    className={`ma-item${arrived ? ' is-arrived' : ''}${past ? ' is-past' : ''}${cancelled ? ' is-cancelled' : ''}${menuFor === ev.id ? ' is-menu' : ''}`}
+                    style={{ '--ma-st': st.color } as CSSProperties}
+                  >
+                    <div className="ma-when">
+                      <b>{hhmm(ev.start_at)}</b>
+                      {ev.end_at && <span>até {hhmm(ev.end_at)}</span>}
                     </div>
-
-                    {/* Paciente */}
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1 basis-[180px]">
-                      <PatientAvatar
-                        patientId={ev.patient?.id ?? ev.lead?.id ?? ev.id}
-                        patientName={name}
-                        avatarUrl={ev.patient?.avatar_url ?? null}
-                        fallbackPhotoUrl={ev.lead?.profile_picture_url}
-                        size={36}
-                        shape="circle"
-                      />
-                      <div className="min-w-0">
-                        {ev.patient ? (
-                          <Link
-                            href={`/atendimento/pacientes/${ev.patient.id}`}
-                            className="block text-sm font-semibold text-foreground truncate hover:underline"
-                          >
-                            {name}
-                          </Link>
-                        ) : (
-                          <span className="block text-sm font-semibold text-foreground truncate">{name}</span>
-                        )}
-                        <div className="text-xs text-muted-foreground truncate">{what}</div>
-                      </div>
-                      {/* Boas-vindas: quase invisível; acende no hover da linha e fica
-                          aceso quando o paciente já chegou (dá pra virar a tela pra ele). */}
-                      {!cancelled && (
+                    <div className="ma-rail" aria-hidden><i /></div>
+                    <div className="ma-card">
+                      {/* Foto + nome abrem as boas-vindas (a ficha fica a um clique pelos atalhos de lá). */}
+                      {cancelled ? (
+                        <div className="ma-who">{who}</div>
+                      ) : (
                         <button
                           type="button"
+                          className="ma-who"
                           onClick={() => setWelcomeId(ev.id)}
-                          className={`h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-full transition-opacity hover:opacity-100 hover:bg-accent hover:text-primary ${
-                            ['COMPARECEU', 'EM_ATENDIMENTO'].includes(ev.status)
-                              ? 'opacity-100 text-primary'
-                              : 'opacity-30 group-hover:opacity-90 text-muted-foreground'
-                          }`}
                           aria-label={`Boas-vindas a ${name}`}
-                          title="Boas-vindas"
+                          title="Abrir boas-vindas"
                         >
-                          <Sparkles size={17} />
+                          {who}
                         </button>
                       )}
-                    </div>
 
-                    {/* Status + ações */}
-                    <div className="flex items-center gap-1.5 ml-auto">
-                      <span
-                        className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-full"
-                        style={{ background: `${st.color}1f`, color: st.color }}
-                      >
-                        <span className="w-2 h-2 rounded-full" style={{ background: st.color }} />
-                        {st.label}
-                      </span>
-                      <BotoesAtendimento
-                        ev={ev}
-                        busy={busy}
-                        travadoFaltou={travado(ev, 'NO_SHOW')}
-                        onAtendido={() => pedirAtendido(ev)}
-                        onFaltou={() => setStatus(ev, 'NO_SHOW')}
-                      />
-                      <div className="relative">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={(e) => { e.stopPropagation(); setMenuFor((m) => (m === ev.id ? null : ev.id)); }}
-                          className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-border hover:bg-accent"
-                          aria-label="Outros status"
-                          title="Outros status"
-                        >
-                          <MoreHorizontal size={16} />
-                        </button>
-                        {menuFor === ev.id && (
-                          <div
-                            className="absolute right-0 top-full mt-1 z-20 w-44 bg-card border border-border rounded-xl shadow-lg py-1"
-                            onClick={(e) => e.stopPropagation()}
+                      <div className="ma-actions">
+                        <span className="ma-chip" style={{ color: STATUS_INK[ev.status] ?? st.color }}>
+                          <i className={arrived ? 'is-pulse' : ''} />
+                          {st.label}
+                        </span>
+                        <BotoesAtendimento
+                          ev={ev}
+                          busy={busy}
+                          travadoFaltou={travado(ev, 'NO_SHOW')}
+                          onAtendido={() => pedirAtendido(ev)}
+                          onFaltou={() => setStatus(ev, 'NO_SHOW')}
+                        />
+                        <div className="relative">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={(e) => { e.stopPropagation(); setMenuFor((m) => (m === ev.id ? null : ev.id)); }}
+                            className="ma-more"
+                            aria-label="Outros status"
+                            title="Outros status"
                           >
-                            {STATUSES.map((s) => (
-                              <button
-                                key={s.id}
-                                type="button"
-                                disabled={travado(ev, s.id)}
-                                title={travado(ev, s.id) ? 'Atendimento já validado — só o administrador' : undefined}
-                                onClick={() => (s.id === 'CONCLUIDO' ? pedirAtendido(ev) : setStatus(ev, s.id))}
-                                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent ${s.id === ev.status ? 'font-bold' : ''}`}
-                              >
-                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                                {s.label}
-                                {s.id === ev.status && <Check size={14} className="ml-auto text-muted-foreground" />}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                            <MoreHorizontal size={16} />
+                          </button>
+                          {menuFor === ev.id && (
+                            <div className="ma-menu" onClick={(e) => e.stopPropagation()}>
+                              {STATUSES.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  disabled={travado(ev, s.id)}
+                                  title={travado(ev, s.id) ? 'Atendimento já validado — só o administrador' : undefined}
+                                  onClick={() => (s.id === 'CONCLUIDO' ? pedirAtendido(ev) : setStatus(ev, s.id))}
+                                  className={s.id === ev.status ? 'is-current' : ''}
+                                >
+                                  <span className="ma-menu-dot" style={{ background: s.color }} />
+                                  {s.label}
+                                  {s.id === ev.status && <Check size={14} className="ma-menu-check" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </li>
+                  </li>
+                </Fragment>
               );
             })}
+            {agoraIdx === events.length && agoraMarker}
           </ul>
         )}
       </div>
@@ -558,9 +565,9 @@ function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big 
   const isNoShow = ev.status === 'NO_SHOW';
   const done = STATUS_BY_ID.CONCLUIDO.color;
   const miss = STATUS_BY_ID.NO_SHOW.color;
-  const size = big ? 'h-11 px-5 gap-1.5 rounded-xl text-[15px]' : 'h-9 px-3 gap-1 rounded-lg text-sm';
+  const size = big ? 'h-11 px-5 gap-1.5 rounded-xl text-[15px]' : 'h-[38px] px-3.5 gap-1.5 rounded-xl text-[13.5px]';
   const icon = big ? 17 : 15;
-  const idle = big ? '#ffffff' : undefined;
+  const idle = '#ffffff';
   return (
     <>
       <button
@@ -593,13 +600,12 @@ function BotoesAtendimento({ ev, busy, travadoFaltou, onAtendido, onFaltou, big 
   );
 }
 
-function Chip({ label, value, color }: { label: string; value: number; color: string }) {
+/** Contador do resumo do dia, no topo grafite. */
+function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border"
-      style={{ borderColor: `${color}55`, color }}
-    >
-      <span className="text-sm font-bold tabular-nums">{value}</span> {label}
-    </span>
+    <div className="ma-stat">
+      <span><i style={{ background: dot }} />{label}</span>
+      <b>{value}</b>
+    </div>
   );
 }
