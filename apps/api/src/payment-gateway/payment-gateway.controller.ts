@@ -442,6 +442,9 @@ export class PaymentGatewayController {
     } = {},
     @Req() req: any,
   ) {
+    // Fase 0 — Deploy 3: dar baixa é do Caixa/Financeiro (ADMIN passa). A venda de
+    // balcão não chama mais esta rota (POST /venda-rapida/balcao faz tudo no servidor).
+    await assertAnyPermission(this.prisma, req.user, ['operate_cash', 'manage_financial'], 'Sem permissão para dar baixa em cobrança — só Caixa/Financeiro ou o administrador.');
     this.logger.log(`[POST /charges/asaas/${chargeId}/receive-in-cash] Confirmando pagamento em dinheiro`);
     // Isolamento + authz: barra baixar cobrança de outra clínica (roda ANTES de
     // mexer no Asaas E no caixa via registerClinicReceipt) e usa a conta do dono.

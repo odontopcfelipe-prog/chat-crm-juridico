@@ -4,17 +4,20 @@
  *   B1) receive-in-cash valida D/C na cobrança LOCAL antes do Asaas; ler o Asaas é
  *       best-effort, mas cobrança cancelada LÁ barra (antes o catch engolia);
  *   B4) PUT charges/asaas só com manage_financial, com rastro;
- *   B5) cancelar exige motivo (3+ letras) no servidor.
+ *   B5) cancelar exige motivo (3+ letras) no servidor;
+ *   Deploy 3) receive-in-cash só com operate_cash/manage_financial; confirm-cartao
+ *       só com manage_financial (o Financeiro valida o cartão). ADMIN passa sempre.
  */
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PaymentGatewayController } from './payment-gateway.controller';
 import { PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
 import { ROLES_KEY } from '../auth/decorators/roles.decorator';
-import { MSG_COBRANCA_CANCELADA } from './baixa-regras';
+import { MSG_CARTAO_VALIDAR, MSG_COBRANCA_CANCELADA } from './baixa-regras';
 
 const TENANT = 't1';
 const ADMIN = { id: 'adm1', tenant_id: TENANT, roles: ['ADMIN'] };
 const RECEPCAO = { id: 'rec1', tenant_id: TENANT, roles: ['OPERATOR'] };
+const CRC = { id: 'crc1', tenant_id: TENANT, roles: ['COMERCIAL'] };
 
 function montar(o: { localCharge?: any } = {}) {
   const service: any = {
@@ -22,6 +25,7 @@ function montar(o: { localCharge?: any } = {}) {
     registerClinicReceipt: jest.fn().mockResolvedValue({ ok: true, transaction_id: 'tx1', charge_id: 'ch1' }),
     deleteCharge: jest.fn().mockResolvedValue({ deleted: true, asaasSynced: true }),
     setupAsaas: jest.fn().mockResolvedValue({ ok: true, sandbox: false }),
+    confirmCartaoReceipt: jest.fn().mockResolvedValue({ ok: true }),
   };
   const asaasClient: any = {
     getCharge: jest.fn().mockResolvedValue({ id: 'pay_1', status: 'PENDING', value: 100, dueDate: '2026-10-30', description: 'x' }),
@@ -102,6 +106,86 @@ describe('PaymentGatewayController.receiveInCash — Fase 0 (B1)', () => {
   it('cobrança de outra clínica continua 403', async () => {
     const { ctrl } = montar({ localCharge: { tenant_id: 'outro' } });
     await expect(ctrl.receiveInCash('pay_1', {}, { user: ADMIN })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('PaymentGatewayController.receiveInCash — Fase 0 (Deploy 3) permissão', () => {
+  it('sem operate_cash/manage_financial (CRC): 403 PERMISSION_DENIED antes de tocar em cobrança, Asaas ou caixa', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['view_patients', 'manage_proposals']) as any);
+    const { ctrl, service, asaasClient, prisma } = montar();
+    const err: any = await ctrl.receiveInCash('pay_1', { payment_method: 'DINHEIRO' }, { user: CRC }).catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse().code).toBe('PERMISSION_DENIED');
+    expect(err.message).toMatch(/dar baixa em cobrança/);
+    expect(prisma.paymentGatewayCharge.findUnique).not.toHaveBeenCalled();
+    expect(service.assertClinicReceiptAllowed).not.toHaveBeenCalled();
+    expect(asaasClient.getCharge).not.toHaveBeenCalled();
+    expect(asaasClient.receiveInCash).not.toHaveBeenCalled();
+    expect(service.registerClinicReceipt).not.toHaveBeenCalled();
+  });
+
+  it('com operate_cash (recepção): dá baixa e lança no caixa', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['operate_cash']) as any);
+    const { ctrl, service, asaasClient } = montar();
+    await ctrl.receiveInCash('pay_1', { payment_method: 'DINHEIRO' }, { user: RECEPCAO });
+    expect(asaasClient.receiveInCash).toHaveBeenCalledWith('pay_1', expect.any(String), 100, TENANT);
+    expect(service.registerClinicReceipt).toHaveBeenCalledWith('pay_1', expect.objectContaining({ userId: 'rec1' }));
+  });
+
+  it('com manage_financial (sem operate_cash): passa', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['manage_financial']) as any);
+    const { ctrl, service } = montar();
+    await ctrl.receiveInCash('pay_1', {}, { user: RECEPCAO });
+    expect(service.registerClinicReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it('ADMIN passa sem consultar permissões', async () => {
+    const spy = jest.spyOn(PermissionsGuard, 'permissionsFor');
+    const { ctrl, service } = montar();
+    await ctrl.receiveInCash('pay_1', {}, { user: ADMIN });
+    expect(spy).not.toHaveBeenCalled();
+    expect(service.registerClinicReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem usuário autenticado: 403 e não dá baixa', async () => {
+    const { ctrl, service } = montar();
+    await expect(ctrl.receiveInCash('pay_1', {}, { user: undefined })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(service.registerClinicReceipt).not.toHaveBeenCalled();
+  });
+});
+
+describe('PaymentGatewayController.confirmCartao — Fase 0 (Deploy 3) permissão', () => {
+  it('só operate_cash (recepção): 403 PERMISSION_DENIED — o cartão é validado pelo Financeiro', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['operate_cash']) as any);
+    const { ctrl, service } = montar();
+    const err: any = await ctrl.confirmCartao('ch1', { user: RECEPCAO }).catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse().code).toBe('PERMISSION_DENIED');
+    expect(err.message).toBe(MSG_CARTAO_VALIDAR);
+    expect(service.confirmCartaoReceipt).not.toHaveBeenCalled();
+  });
+
+  it('sem permissão nenhuma (CRC): 403 PERMISSION_DENIED', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['view_patients']) as any);
+    const { ctrl, service } = montar();
+    const err: any = await ctrl.confirmCartao('ch1', { user: CRC }).catch((e) => e);
+    expect(err.getResponse().code).toBe('PERMISSION_DENIED');
+    expect(service.confirmCartaoReceipt).not.toHaveBeenCalled();
+  });
+
+  it('com manage_financial: confirma com tenant e usuário', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['manage_financial']) as any);
+    const { ctrl, service } = montar();
+    await ctrl.confirmCartao('ch1', { user: RECEPCAO });
+    expect(service.confirmCartaoReceipt).toHaveBeenCalledWith('ch1', TENANT, 'rec1');
+  });
+
+  it('ADMIN passa sem consultar permissões', async () => {
+    const spy = jest.spyOn(PermissionsGuard, 'permissionsFor');
+    const { ctrl, service } = montar();
+    await ctrl.confirmCartao('ch1', { user: ADMIN });
+    expect(spy).not.toHaveBeenCalled();
+    expect(service.confirmCartaoReceipt).toHaveBeenCalledWith('ch1', TENANT, 'adm1');
   });
 });
 
