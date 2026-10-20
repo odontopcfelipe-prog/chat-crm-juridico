@@ -180,6 +180,8 @@
   color: transparent;
   overflow-wrap: anywhere;
 }
+/* Nome completo do cadastro: menor pra caber em até 2 linhas sem invadir a arte. */
+.dh-hero-name-long { font-size: clamp(30px, 3.3vw, 44px); line-height: 1.08; }
 .dh-hero-name-wait { width: 220px; max-width: 70%; border-radius: 12px; background: rgba(255, 255, 255, 0.12); }
 .dh-hero-lead { font-size: 21px; font-weight: 500; margin: 0 0 18px; }
 .dh-hero-quote { font-size: 15px; opacity: 0.85; margin: 0; }

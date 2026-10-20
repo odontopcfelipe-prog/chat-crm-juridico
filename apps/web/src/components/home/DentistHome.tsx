@@ -268,14 +268,14 @@ function TopBar({ userName }: { userName?: string | null }) {
 
 // ─── Boas-vindas + relógio ────────────────────────────────────────────────────
 
-function Hero({ firstName, clinicName, today }: { firstName: string; clinicName?: string; today: Date }) {
+function Hero({ name, clinicName, today }: { name: string; clinicName?: string; today: Date }) {
   const { text } = salutation(today.getHours());
   return (
     <section className="dh-hero">
       <div className="dh-hero-text">
         <p className="dh-hero-hello">{text},</p>
-        {firstName
-          ? <h1 className="dh-hero-name">{firstName}!</h1>
+        {name
+          ? <h1 className={`dh-hero-name ${name.length > 14 ? 'dh-hero-name-long' : ''}`}>{name}!</h1>
           : <h1 className="dh-hero-name dh-hero-name-wait" aria-hidden>&nbsp;</h1>}
         <p className="dh-hero-lead">Que tal fazer mais sorrisos hoje? <span aria-hidden>😊</span></p>
         <p className="dh-hero-quote">&ldquo;{QUOTES[dayOfYear(today) % QUOTES.length]}&rdquo;</p>
@@ -548,14 +548,15 @@ export default function DentistHome({ userName, extraGrants = [], extraRevokes =
     ...resolveHomeActions('dentista', extraGrants, extraRevokes),
     ...(ponto.member ? [PONTO_BALAO] : []),
   ];
-  // Vazio até o /users/me chegar (evita piscar "Doutor(a)" antes do nome).
-  const firstName = (userName || '').trim().split(/\s+/)[0] || '';
+  // Nome COMPLETO como está no cadastro (ex.: "Dra. Rayane ..."). Vazio até o
+  // /users/me chegar (evita piscar "Doutor(a)" antes do nome).
+  const fullName = (userName || '').trim().replace(/\s+/g, ' ');
 
   return (
     <div className="dh">
       <TopBar userName={userName} />
       <div className="dh-row1">
-        {today ? <Hero firstName={firstName} clinicName={tenant?.name} today={today} /> : <section className="dh-hero" />}
+        {today ? <Hero name={fullName} clinicName={tenant?.name} today={today} /> : <section className="dh-hero" />}
         <ClockCard next={summary.next} />
       </div>
       <ModuleCards actions={actions} badges={badgesData?.badges ?? {}} />
