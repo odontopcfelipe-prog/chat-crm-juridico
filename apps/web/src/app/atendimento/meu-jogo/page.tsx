@@ -96,7 +96,7 @@ export default function MeuJogoPage() {
         </button>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--cj-ink)' }}>
-            <Trophy size={24} className="text-amber-500" /> Meu jogo
+            <Trophy size={24} className="text-amber-500" /> Pontuação
           </h1>
           <div className="flex items-center gap-1.5">
             <button

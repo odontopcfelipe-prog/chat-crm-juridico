@@ -148,7 +148,7 @@ export function GameScoringSection({ value, onChange }: { value: ScoringDraft; o
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground opacity-70 ml-1 leading-snug">
-        Em branco = padrão (o número cinza). É o que o profissional vê em <b>Meu jogo</b>, sempre em pontos, nunca em R$.
+        Em branco = padrão (o número cinza). É o que o profissional vê em <b>Pontuação</b>, sempre em pontos, nunca em R$.
         A pontuação zera todo mês.
       </p>
     </div>

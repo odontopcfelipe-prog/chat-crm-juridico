@@ -296,7 +296,7 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'ClipboardCheck', icon: '✅', label: 'Validar atendimento',    desc: 'Atendimentos feitos que ainda falta confirmar e registrar no prontuário.', href: '/atendimento/minha-agenda', badgeKey: 'my_to_validate', tone: 'rose' },
         // Out/2026 — com o profissional NÃO se fala em comissão (risco trabalhista):
         // ele vê PONTOS pela produção clínica, nível, metas e missões ("Meu jogo").
-        { lucide: 'Trophy',         icon: '🏆', label: 'Meu jogo',               desc: 'Sua pontuação, nível, metas e missões do mês.',        href: '/atendimento/meu-jogo',            badgeKey: 'my_game_points',           tone: 'amber'   },
+        { lucide: 'Trophy',         icon: '🏆', label: 'Pontuação',              desc: 'Seus pontos, nível, metas e missões do mês.',        href: '/atendimento/meu-jogo',            badgeKey: 'my_game_points',           tone: 'amber'   },
       ],
       todos: [
         'Pacientes pra atender hoje',

@@ -42,7 +42,7 @@ describe('setor Dentista (regra do dono, out/2026)', () => {
     }
   });
 
-  it('home do dentista: lista "Minha agenda", pacientes e "Meu jogo" — sem orçamentos nem comissão', () => {
+  it('home do dentista: lista "Minha agenda", pacientes e "Pontuação" — sem orçamentos nem comissão', () => {
     const acts = SECTORS.find((s) => s.id === 'dentista')!.home.actions;
     const hrefs = acts.map((a) => a.href);
     expect(hrefs).toContain('/atendimento/minha-agenda');
