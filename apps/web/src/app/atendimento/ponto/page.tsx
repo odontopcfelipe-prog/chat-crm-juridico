@@ -19,6 +19,7 @@ import {
 } from './ponto-ui';
 import { getBestPosition, isFail, precisionHint, SEM_GPS_M, type GeoReading } from './geo-client';
 import { PontoMap } from './PontoMap';
+import { LocationHelp } from './LocationHelp';
 
 interface MeData {
   server_now: string;
@@ -232,8 +233,8 @@ export default function PontoPage() {
             <>
               <div className="mt-3 text-sm min-h-[1.5rem] flex flex-wrap items-center justify-center gap-x-2">
                 {geo.kind === 'loading' && !geo.pos && <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Localizando…</span>}
-                {geo.kind === 'denied' && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4" /> Localização bloqueada — permita no cadeado ao lado do endereço</span>}
-                {geo.kind === 'unavailable' && !geo.pos && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4" /> Não consegui sua localização — ative o GPS</span>}
+                {geo.kind === 'denied' && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4 shrink-0" /> Localização bloqueada neste aparelho — veja abaixo como liberar</span>}
+                {geo.kind === 'unavailable' && !geo.pos && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4 shrink-0" /> Não consegui sua localização — ative a localização do aparelho</span>}
                 {geo.pos && !precise && hint && (
                   <span className="text-amber-700 flex items-start gap-1.5 max-w-md"><Crosshair className="w-4 h-4 shrink-0 mt-0.5" /> {hint.text}</span>
                 )}
@@ -288,6 +289,10 @@ export default function PontoPage() {
                     O mapa só mostra — o ponto usa o GPS do aparelho.
                   </p>
                 </div>
+              )}
+              {/* Bloqueada, sem leitura ou só aproximada (localização precisa desligada): passo a passo do aparelho. */}
+              {(geo.kind === 'denied' || (geo.kind === 'unavailable' && !geo.pos) || (geo.pos && !precise)) && (
+                <LocationHelp key={geo.kind} defaultOpen={geo.kind === 'denied' || geo.kind === 'unavailable'} />
               )}
               <p className="text-xs text-slate-400 mt-2">O ponto só é aceito com localização, dentro da área da clínica.</p>
             </>

@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, ArrowRight, Copy, Search, Crosshair } from 'lucide-react';
+import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, ArrowRight, Copy, Crosshair } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { resetPontoStatusCache } from '@/lib/usePontoStatus';
@@ -18,6 +18,7 @@ import {
   type DaySchedule, type PontoLocal, type ScheduleVersion, type WeekSchedule,
 } from '../../ponto/ponto-ui';
 import { PontoMap } from '../../ponto/PontoMap';
+import { EnderecoBusca, suggestEnderecos, type EnderecoHit } from './EnderecoBusca';
 import { fmtM, getBestPosition, isFail, parseCoords, SEM_GPS_M } from '../../ponto/geo-client';
 
 interface Member {
@@ -31,6 +32,9 @@ interface Member {
 }
 interface ConfigData {
   local: PontoLocal | null;
+  /** Endereço de Identidade da clínica (a busca usa sozinha). */
+  clinic_address: string | null;
+  clinic_city: string | null;
   max_precisao_m: number;
   today: string;
   members: Member[];
@@ -74,9 +78,50 @@ function ScheduleEditor({ rows, onChange }: { rows: Row[]; onChange: (r: Row[]) 
   const set = (i: number, patch: Partial<Row>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const total = rows.reduce((s, r) => s + (rowError(r) ? 0 : scheduleMinutes(rowToDay(r))), 0);
   const copyMonday = () => onChange(rows.map((r, i) => (i >= 1 && i <= 5 ? { ...rows[1] } : r)));
+  const timeField = (i: number, key: 'in' | 'bs' | 'be' | 'out', label: string) => (
+    <label className="text-[11px] font-semibold text-muted-foreground">
+      {label}
+      <input
+        type="time"
+        value={rows[i][key]}
+        onChange={(e) => set(i, { [key]: e.target.value } as Partial<Row>)}
+        className={`mt-0.5 block w-full ${inputCls}`}
+        aria-label={`${WEEKDAYS_LONG[i]} ${label.toLowerCase()}`}
+      />
+    </label>
+  );
   return (
     <div>
-      <div className="overflow-x-auto">
+      {/* celular: um bloco por dia, horários em 2 colunas (a tabela não cabe) */}
+      <div className="sm:hidden space-y-2">
+        {rows.map((r, i) => {
+          const err = rowError(r);
+          return (
+            <div key={i} className="border border-border/60 rounded-lg p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={r.on} onChange={(e) => set(i, { on: e.target.checked })} className="w-4 h-4" />
+                  <span className={r.on ? 'text-foreground font-medium text-sm' : 'text-muted-foreground text-sm'}>{WEEKDAYS_LONG[i]}</span>
+                </label>
+                <span className={`text-xs tabular-nums ${err ? 'text-rose-600' : 'text-muted-foreground'}`}>
+                  {!r.on ? 'Folga' : err ?? fmtMin(scheduleMinutes(rowToDay(r)))}
+                </span>
+              </div>
+              {r.on && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {timeField(i, 'in', 'Entrada')}
+                  {timeField(i, 'out', 'Saída')}
+                  {timeField(i, 'bs', 'Saída intervalo')}
+                  {timeField(i, 'be', 'Volta intervalo')}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* computador: tabela */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-sm min-w-[560px]">
           <thead>
             <tr className="text-[11px] uppercase tracking-wide text-muted-foreground text-left">
@@ -157,7 +202,7 @@ export default function PontoSettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-4xl mx-auto p-6 pb-24">
+      <div className="max-w-4xl mx-auto px-3 py-4 sm:p-6 pb-24">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -186,7 +231,7 @@ export default function PontoSettingsPage() {
           <div className="space-y-5">
             <LocalCard data={data} onSaved={(local) => { setData({ ...data, local }); showSuccess('Local do ponto salvo.'); }} />
 
-            <section className="bg-card border border-border rounded-2xl p-5">
+            <section className="bg-card border border-border rounded-2xl p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -278,8 +323,6 @@ export default function PontoSettingsPage() {
 const LOCAL_MAX_ACC_M = 50;
 const MACEIO = { lat: -9.6658, lng: -35.7353 };
 
-type SearchHit = { display_name: string; lat: string; lon: string };
-
 function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLocal) => void }) {
   const [lat, setLat] = useState(data.local ? String(data.local.lat) : '');
   const [lng, setLng] = useState(data.local ? String(data.local.lng) : '');
@@ -288,9 +331,8 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mapKey, setMapKey] = useState('init');
-  const [q, setQ] = useState('');
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  // Ponto de referência pras sugestões (sem local salvo: a cidade da clínica).
+  const [cityCenter, setCityCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [paste, setPaste] = useState('');
   const [pasteState, setPasteState] = useState<{ kind: 'idle' | 'reading' | 'ok' | 'error'; text?: string }>({ kind: 'idle' });
   const [hint, setHint] = useState<string | null>(null);
@@ -363,21 +405,47 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
     setPoint({ lat: r.latitude, lng: r.longitude }, true);
   };
 
-  const search = async () => {
-    if (q.trim().length < 4) return;
-    setSearching(true);
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=br&accept-language=pt-BR&q=${encodeURIComponent(q.trim())}`;
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      const list = (await res.json()) as SearchHit[];
-      setHits(list);
-      if (!list.length) showError('Endereço não encontrado. Tente rua, número e cidade.');
-    } catch {
-      showError('Não consegui buscar o endereço agora.');
-    } finally {
-      setSearching(false);
-    }
+  const pickEndereco = (h: EnderecoHit, auto = false) => {
+    setPoint({ lat: h.lat, lng: h.lng }, true);
+    setHint(
+      (auto ? `Achei pelo endereço cadastrado da clínica (${h.title}). ` : '') +
+        (h.kind === 'street'
+          ? 'A busca marca o MEIO da rua, não o número: toque no mapa exatamente em cima da clínica e depois salve.'
+          : 'Confira no mapa se o ponto azul está em cima da clínica e salve.'),
+    );
   };
+
+  // Sem local salvo: busca sozinha pelo endereço de Identidade da clínica e já
+  // propõe o ponto (não salva — o adm confere e salva). Só a cidade cadastrada?
+  // Centraliza o mapa e as sugestões nela.
+  useEffect(() => {
+    if (data.local) return;
+    let alive = true;
+    const run = async () => {
+      try {
+        if (data.clinic_address) {
+          const [first] = await suggestEnderecos(data.clinic_address, null);
+          if (alive && first) {
+            setCityCenter({ lat: first.lat, lng: first.lng });
+            pickEndereco(first, true);
+            return;
+          }
+        }
+        if (data.clinic_city) {
+          const [city] = await suggestEnderecos(data.clinic_city, null);
+          if (alive && city) {
+            setCityCenter({ lat: city.lat, lng: city.lng });
+            setMapKey(`city-${Date.now()}`);
+          }
+        }
+      } catch {
+        /* sem internet pro serviço de mapas: segue no padrão */
+      }
+    };
+    void run();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só ao abrir a tela
+  }, []);
 
   const save = async () => {
     setSaving(true);
@@ -391,10 +459,11 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
     }
   };
 
-  const center = coordsOk ? { lat: latN, lng: lngN } : data.local ?? MACEIO;
+  const center = coordsOk ? { lat: latN, lng: lngN } : data.local ?? cityCenter ?? MACEIO;
+  const bias = coordsOk ? { lat: latN, lng: lngN } : data.local ?? cityCenter;
 
   return (
-    <section className="bg-card border border-border rounded-2xl p-5">
+    <section className="bg-card border border-border rounded-2xl p-4 sm:p-5">
       <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5" /> Local base do ponto
       </h2>
@@ -408,46 +477,14 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
         </p>
       )}
 
-      {/* achar a clínica no mapa */}
+      {/* achar a clínica no mapa: busca inteligente (sugestões ao digitar) ou a localização deste celular */}
       <div className="flex flex-wrap gap-2 mt-3">
-        <form
-          className="flex flex-1 min-w-[240px] gap-2"
-          onSubmit={(e) => { e.preventDefault(); void search(); }}
-        >
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar endereço da clínica (rua, número, cidade)"
-            className={`flex-1 min-w-0 ${inputCls}`}
-          />
-          <button type="submit" disabled={searching || q.trim().length < 4} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm font-semibold text-foreground hover:bg-foreground/[0.04] disabled:opacity-40">
-            {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Buscar
-          </button>
-        </form>
+        <EnderecoBusca bias={bias} onPick={(h) => pickEndereco(h)} inputCls={inputCls} />
         <button onClick={locate} disabled={locating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60">
           {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
           {locating ? `Aguardando o GPS${reading ? ` (± ${fmtM(reading.acc)})` : '…'}` : 'Usar minha localização (celular)'}
         </button>
       </div>
-      {hits && hits.length > 0 && (
-        <ul className="mt-2 border border-border rounded-lg divide-y divide-border/60 text-sm">
-          {hits.map((h) => (
-            <li key={`${h.lat},${h.lon}`}>
-              <button
-                type="button"
-                onClick={() => {
-                  setPoint({ lat: Number(h.lat), lng: Number(h.lon) }, true);
-                  setHits(null);
-                  setHint('A busca marca o MEIO da rua, não o número. Toque no mapa exatamente em cima da clínica e depois salve.');
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-foreground/[0.04] text-foreground"
-              >
-                {h.display_name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
       {reading?.done && (
         <p className={`mt-2 text-xs ${reading.acc <= LOCAL_MAX_ACC_M ? 'text-emerald-600' : 'text-rose-600'}`}>
           {reading.acc <= LOCAL_MAX_ACC_M

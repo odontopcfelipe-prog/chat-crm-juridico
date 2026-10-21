@@ -150,7 +150,57 @@ function EquipeView() {
         <MonthNav ym={ym} maxYm={currentYm()} onChange={(m) => { setLoading(true); setYm(m); }} />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+      {/* celular: um cartão por funcionário (a tabela de 9 colunas não cabe) */}
+      <div className="sm:hidden space-y-2">
+        {data.people.length === 0 && (
+          <p className="bg-white border border-slate-200 rounded-xl px-3 py-8 text-center text-sm text-slate-400">
+            Ninguém no ponto neste mês. <Link href="/atendimento/settings/ponto" className="text-sky-600 hover:underline">Adicione a equipe em Configurações › Ponto</Link>.
+          </p>
+        )}
+        {data.people.map((p) => {
+          const t = p.totals;
+          const cell = (label: string, value: string, cls = 'text-slate-700') => (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400">{label}</div>
+              <div className={`text-sm tabular-nums font-semibold ${cls}`}>{value}</div>
+            </div>
+          );
+          return (
+            <button key={p.user_id} onClick={() => setSelected(p)} className="w-full text-left bg-white border border-slate-200 rounded-xl p-3 active:bg-sky-50">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-800 flex items-center gap-2">
+                    {p.trabalhando_agora && <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Trabalhando agora" />}
+                    <span className="truncate">{p.name}</span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {p.member ? `desde ${dateBr(p.member.start_date)}` : 'fora da equipe — não conta'} · {p.punches_count} batida(s)
+                  </div>
+                </div>
+                <div className={`text-base tabular-nums font-bold shrink-0 ${saldoCls(t.balance_min)}`}>{fmtSaldo(t.balance_min)}</div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {cell('Trabalhado', fmtMin(t.worked_min))}
+                {cell('Previsto', fmtMin(t.expected_min), 'text-slate-500')}
+                {cell('Extras', fmtMin(t.extra_min), t.extra_min ? 'text-emerald-600' : 'text-slate-400')}
+                {cell('Dom./feriado', fmtMin(t.extra_dsr_min), t.extra_dsr_min ? 'text-emerald-600' : 'text-slate-400')}
+                {cell('Atrasos', fmtMin(t.debit_min), t.debit_min ? 'text-rose-600' : 'text-slate-400')}
+                {cell('Faltas', String(t.absences), t.absences ? 'text-rose-600' : 'text-slate-400')}
+              </div>
+              {(t.incomplete > 0 || p.alerts_count > 0 || p.adjustments > 0) && (
+                <div className="mt-2 text-xs flex flex-wrap gap-x-3">
+                  {t.incomplete > 0 && <span className="text-amber-600 font-semibold">{t.incomplete} dia(s) sem saída</span>}
+                  {p.alerts_count > 0 && <span className="text-amber-700">{p.alerts_count} alerta(s)</span>}
+                  {p.adjustments > 0 && <span className="text-violet-600">{p.adjustments} ajuste(s) do adm</span>}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* computador: tabela */}
+      <div className="hidden sm:block bg-white border border-slate-200 rounded-xl overflow-x-auto">
         <table className="w-full text-sm min-w-[860px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">

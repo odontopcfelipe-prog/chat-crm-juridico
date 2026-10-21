@@ -236,6 +236,52 @@ const STATUS_TXT: Partial<Record<DayStatus, { label: string; cls: string }>> = {
 export const visibleDays = (e: Espelho) =>
   e.days.filter((d) => d.status !== 'FUTURO' && !(d.status === 'FORA_DO_PERIODO' && d.punches.length === 0));
 
+function PunchChips({ d, onPunchClick }: { d: Day; onPunchClick: (p: Punch, date: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {d.punches.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => onPunchClick(p, d.date)}
+          title={p.voided ? `Anulada: ${p.void_reason ?? ''}` : `${p.label ?? ''} · ${GEO_META[p.geo_status]?.label ?? ''}`}
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums transition hover:shadow-sm ${
+            p.voided
+              ? 'border-slate-200 text-slate-300 line-through'
+              : p.kind === 'ENTRADA'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-slate-50 text-slate-700'
+          }`}
+        >
+          {p.hora}
+          {!p.voided && <GeoIcon p={p} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DayNotes({ d }: { d: Day }) {
+  const st = STATUS_TXT[d.status];
+  return (
+    <>
+      {st && <span className={`font-semibold ${st.cls}`}>{st.label}{d.holiday ? `: ${d.holiday}` : ''}</span>}
+      {!st && d.holiday && <span className="font-semibold text-violet-600">{d.holiday}</span>}
+      {d.tolerance_applied && d.worked_min !== d.expected_min && (
+        <div className="text-slate-400">
+          Dentro da tolerância: {fmtMin(Math.abs(d.worked_min - d.expected_min))} {d.worked_min < d.expected_min ? 'a menos' : 'a mais'}, não conta
+        </div>
+      )}
+      {d.alerts.map((a) => (
+        <div key={a} className="flex items-start gap-1 text-amber-700"><AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />{a}</div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Espelho do mês. No computador é tabela; no CELULAR vira um cartão por dia —
+ * a tabela de 7 colunas não cabe e obrigava a rolar pro lado.
+ */
 export function EspelhoTable({
   data,
   onPunchClick,
@@ -247,87 +293,98 @@ export function EspelhoTable({
   onAdd?: (date: string) => void;
 }) {
   const rows = visibleDays(data);
+  const rowBg = (d: Day) =>
+    `${d.weekday === 0 || d.weekday === 6 || d.holiday ? 'bg-slate-50/60' : ''} ${d.status === 'HOJE' ? 'bg-sky-50/50' : ''}`;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
-      <table className="w-full text-sm min-w-[760px]">
-        <thead>
-          <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-            <th className="px-3 py-2.5 font-semibold">Dia</th>
-            <th className="px-3 py-2.5 font-semibold">Horário</th>
-            <th className="px-3 py-2.5 font-semibold">Batidas</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Trabalhado</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Previsto</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Saldo</th>
-            <th className="px-3 py-2.5 font-semibold">Observação</th>
-            {onAdd && <th className="px-2 py-2.5" />}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr><td colSpan={onAdd ? 8 : 7} className="px-3 py-8 text-center text-slate-400">Nenhum dia do ponto neste mês.</td></tr>
-          )}
-          {rows.map((d) => {
-            const weekend = d.weekday === 0 || d.weekday === 6;
-            const st = STATUS_TXT[d.status];
-            const off = d.status === 'FORA_DO_PERIODO';
-            return (
-              <tr key={d.date} className={`border-b border-slate-50 align-top ${weekend || d.holiday ? 'bg-slate-50/60' : ''} ${d.status === 'HOJE' ? 'bg-sky-50/50' : ''}`}>
-                <td className="px-3 py-2 whitespace-nowrap text-slate-700">
-                  <span className="font-semibold tabular-nums">{dayLabel(d.date)}</span>{' '}
-                  <span className="text-xs text-slate-400">{WEEKDAYS[d.weekday]}</span>
-                </td>
-                <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap tabular-nums">{off ? '—' : d.holiday ? 'Feriado' : scheduleText(d.schedule)}</td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {d.punches.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => onPunchClick(p, d.date)}
-                        title={p.voided ? `Anulada: ${p.void_reason ?? ''}` : `${p.label ?? ''} · ${GEO_META[p.geo_status]?.label ?? ''}`}
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums transition hover:shadow-sm ${
-                          p.voided
-                            ? 'border-slate-200 text-slate-300 line-through'
-                            : p.kind === 'ENTRADA'
-                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                              : 'border-slate-200 bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        {p.hora}
-                        {!p.voided && <GeoIcon p={p} />}
-                      </button>
-                    ))}
+    <>
+      {/* celular: cartões */}
+      <div className="sm:hidden bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
+        {rows.length === 0 && <p className="px-3 py-8 text-center text-sm text-slate-400">Nenhum dia do ponto neste mês.</p>}
+        {rows.map((d) => {
+          const off = d.status === 'FORA_DO_PERIODO';
+          return (
+            <div key={d.date} className={`px-3 py-2.5 ${rowBg(d)}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm text-slate-700">
+                    <span className="font-semibold tabular-nums">{dayLabel(d.date)}</span>{' '}
+                    <span className="text-xs text-slate-400">{WEEKDAYS[d.weekday]}</span>
                   </div>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{d.punches.length || d.worked_min ? fmtMin(d.worked_min) : <span className="text-slate-300">—</span>}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-500">{off ? <span className="text-slate-300">—</span> : fmtMin(d.expected_min)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums font-semibold ${saldoCls(d.balance_min)}`}>
-                  {d.balance_min == null ? '—' : fmtSaldo(d.balance_min)}
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {st && <span className={`font-semibold ${st.cls}`}>{st.label}{d.holiday ? `: ${d.holiday}` : ''}</span>}
-                  {!st && d.holiday && <span className="font-semibold text-violet-600">{d.holiday}</span>}
-                  {d.tolerance_applied && d.worked_min !== d.expected_min && (
-                    <div className="text-slate-400">
-                      Dentro da tolerância: {fmtMin(Math.abs(d.worked_min - d.expected_min))} {d.worked_min < d.expected_min ? 'a menos' : 'a mais'}, não conta
-                    </div>
+                  {!off && (
+                    <div className="text-[11px] text-slate-400 tabular-nums">{d.holiday ? 'Feriado' : scheduleText(d.schedule)}</div>
                   )}
-                  {d.alerts.map((a) => (
-                    <div key={a} className="flex items-start gap-1 text-amber-700"><AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />{a}</div>
-                  ))}
-                </td>
-                {onAdd && (
-                  <td className="px-2 py-2">
-                    <button onClick={() => onAdd(d.date)} className="p-1 rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50" title="Lançar batida neste dia">
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className={`text-sm tabular-nums font-semibold ${saldoCls(d.balance_min)}`}>
+                    {d.balance_min == null ? '—' : fmtSaldo(d.balance_min)}
+                  </span>
+                  {onAdd && (
+                    <button onClick={() => onAdd(d.date)} className="p-1 rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50" title="Lançar batida neste dia" aria-label="Lançar batida neste dia">
                       <Plus className="w-4 h-4" />
                     </button>
+                  )}
+                </div>
+              </div>
+              {d.punches.length > 0 && <div className="mt-1.5"><PunchChips d={d} onPunchClick={onPunchClick} /></div>}
+              <div className="mt-1 text-xs text-slate-500 tabular-nums">
+                Trabalhado {d.punches.length || d.worked_min ? fmtMin(d.worked_min) : '—'}
+                {!off && <> · Previsto {fmtMin(d.expected_min)}</>}
+              </div>
+              <div className="text-xs mt-0.5"><DayNotes d={d} /></div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* computador: tabela */}
+      <div className="hidden sm:block bg-white border border-slate-200 rounded-xl overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
+              <th className="px-3 py-2.5 font-semibold">Dia</th>
+              <th className="px-3 py-2.5 font-semibold">Horário</th>
+              <th className="px-3 py-2.5 font-semibold">Batidas</th>
+              <th className="px-3 py-2.5 font-semibold text-right">Trabalhado</th>
+              <th className="px-3 py-2.5 font-semibold text-right">Previsto</th>
+              <th className="px-3 py-2.5 font-semibold text-right">Saldo</th>
+              <th className="px-3 py-2.5 font-semibold">Observação</th>
+              {onAdd && <th className="px-2 py-2.5" />}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={onAdd ? 8 : 7} className="px-3 py-8 text-center text-slate-400">Nenhum dia do ponto neste mês.</td></tr>
+            )}
+            {rows.map((d) => {
+              const off = d.status === 'FORA_DO_PERIODO';
+              return (
+                <tr key={d.date} className={`border-b border-slate-50 align-top ${rowBg(d)}`}>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-700">
+                    <span className="font-semibold tabular-nums">{dayLabel(d.date)}</span>{' '}
+                    <span className="text-xs text-slate-400">{WEEKDAYS[d.weekday]}</span>
                   </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap tabular-nums">{off ? '—' : d.holiday ? 'Feriado' : scheduleText(d.schedule)}</td>
+                  <td className="px-3 py-2"><PunchChips d={d} onPunchClick={onPunchClick} /></td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{d.punches.length || d.worked_min ? fmtMin(d.worked_min) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-500">{off ? <span className="text-slate-300">—</span> : fmtMin(d.expected_min)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${saldoCls(d.balance_min)}`}>
+                    {d.balance_min == null ? '—' : fmtSaldo(d.balance_min)}
+                  </td>
+                  <td className="px-3 py-2 text-xs"><DayNotes d={d} /></td>
+                  {onAdd && (
+                    <td className="px-2 py-2">
+                      <button onClick={() => onAdd(d.date)} className="p-1 rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50" title="Lançar batida neste dia">
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -339,7 +396,8 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4 overflow-y-auto" onClick={onClose}>
+    // z-[70]: acima da barra de baixo do celular (z-[60] no layout), senão ela cobre o botão de salvar.
+    <div className="fixed inset-0 z-[70] bg-black/40 grid place-items-center p-4 overflow-y-auto" onClick={onClose}>
       <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-3xl' : 'max-w-md'} p-5 my-auto`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold text-slate-800">{title}</h3>

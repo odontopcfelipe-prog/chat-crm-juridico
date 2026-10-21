@@ -137,7 +137,7 @@ export class PontoService {
 
   // ─── Equipe do ponto (adm) ──────────────────────────────
   async configView(tenantId: string) {
-    const [local, members, users] = await Promise.all([
+    const [local, members, users, tenant] = await Promise.all([
       this.getLocal(tenantId),
       this.prisma.timeClockMember.findMany({
         where: { tenant_id: tenantId },
@@ -148,11 +148,22 @@ export class PontoService {
         select: { id: true, name: true, sector: true, roles: true },
         orderBy: { name: 'asc' },
       }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { address: true, address_number: true, neighborhood: true, city: true, state: true },
+      }),
     ]);
     const nameBy = new Map(users.map((u) => [u.id, u.name]));
     const today = maceioYmd(new Date());
+    // Endereço cadastrado em Identidade da clínica: a tela busca por ele sozinha
+    // (sugestões perto da cidade e, sem local salvo, já propõe o ponto).
+    const t = tenant ?? null;
+    const cidade = [t?.city, t?.state].filter(Boolean).join(' - ') || null;
+    const endereco = t?.address ? [t.address, t.address_number, t.neighborhood, cidade].filter(Boolean).join(', ') : null;
     return {
       local,
+      clinic_address: endereco,
+      clinic_city: cidade,
       max_precisao_m: MAX_PRECISAO_M,
       today,
       members: members

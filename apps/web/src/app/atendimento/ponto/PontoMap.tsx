@@ -61,7 +61,7 @@ export function PontoMap({
   const [seenKey, setSeenKey] = useState(recenterKey);
   if (recenterKey !== seenKey) {
     setSeenKey(recenterKey);
-    setView((v) => ({ lat: center.lat, lng: center.lng, z: v.z }));
+    setView({ lat: center.lat, lng: center.lng, z: zoom });
   }
 
   useEffect(() => {
