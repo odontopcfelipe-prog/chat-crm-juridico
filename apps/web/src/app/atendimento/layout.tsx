@@ -16,7 +16,7 @@ import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search, Clock,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search, Clock, Trophy,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -308,10 +308,21 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     { label: 'Chat', href: '/atendimento', icon: MessageSquare, match: (p: string) => p === '/atendimento' || p.startsWith('/atendimento/chat'), isCenter: true, badge: unreadTotal },
     { label: 'Contatos', href: '/atendimento/contacts', icon: Users, match: (p: string) => p.startsWith('/atendimento/contacts') },
   ];
+  // Out/2026 — Dentista no celular: SÓ as funções dele (as do painel) — Início,
+  // Minha agenda, Pacientes e Pontuação. Nada de chat, CRC, calendário da clínica etc.
+  const isDentistNav = permSector === 'dentista';
+  const dentistTabs = [
+    { label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), badge: 0 },
+    { label: 'Agenda', href: '/atendimento/minha-agenda', icon: Calendar, match: (p: string) => p.startsWith('/atendimento/minha-agenda'), isCenter: true, badge: 0 },
+    { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users, match: (p: string) => p.startsWith('/atendimento/pacientes'), badge: 0 },
+    { label: 'Pontuação', href: '/atendimento/meu-jogo', icon: Trophy, match: (p: string) => p.startsWith('/atendimento/meu-jogo'), badge: 0 },
+  ];
   const allowedMainTabs = allMainTabs.filter(t => canAccessRoute(t.href, hasPermission));
-  const mainTabs = allowedMainTabs.length > 0
-    ? allowedMainTabs
-    : [{ label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), isCenter: true, badge: 0 }];
+  const mainTabs = isDentistNav
+    ? dentistTabs.filter(t => canAccessRoute(t.href, hasPermission))
+    : allowedMainTabs.length > 0
+      ? allowedMainTabs
+      : [{ label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), isCenter: true, badge: 0 }];
 
   const allMoreItems = [
     { label: 'Dashboard', href: '/atendimento/dashboard', icon: LayoutDashboard, match: (p: string) => p.startsWith('/atendimento/dashboard'), show: perms.canViewDashboard },
@@ -323,7 +334,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     { label: 'Marketing', href: '/atendimento/marketing/analytics', icon: Megaphone, match: (p: string) => p.startsWith('/atendimento/marketing'), show: perms.canViewAnalytics },
     { label: 'Ajustes', href: '/atendimento/settings', icon: Settings, match: (p: string) => p.startsWith('/atendimento/settings'), show: perms.canManageSettings },
   ];
-  const moreItems = allMoreItems.filter(item => item.show && canAccessRoute(item.href, hasPermission));
+  const moreItems = allMoreItems.filter(item => item.show && canAccessRoute(item.href, hasPermission))
+    // Dentista: no "Mais" só o próprio ponto (se estiver na equipe do ponto).
+    .filter(item => !isDentistNav || item.href === '/atendimento/ponto');
 
   const showBottomNav = isMobile && !mobileChatOpen;
   const isMoreActive = moreItems.some(item => item.match(pathname));
@@ -569,10 +582,13 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
                 <div className="h-px bg-border my-1.5" />
 
-                {/* Toggle global de notificações */}
-                <NotificationToggle variant="mobile-menu" />
-
-                <div className="h-px bg-border my-1.5" />
+                {/* Toggle global de notificações (dentista não tem notificações) */}
+                {!isDentistNav && (
+                  <>
+                    <NotificationToggle variant="mobile-menu" />
+                    <div className="h-px bg-border my-1.5" />
+                  </>
+                )}
 
                 {/* Logout */}
                 <button
