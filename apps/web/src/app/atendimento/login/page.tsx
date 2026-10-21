@@ -33,6 +33,8 @@ export default function LoginPage() {
     // Sem isto, um token de OUTRA conta (ex.: sessão antiga ainda válida) fazia o
     // usuário cair na conta errada — "entrei com um login e caiu em outra conta".
     // Também garante que um login que falha não deixe o usuário ver a conta antiga.
+    // O motivo do logout automático é lido ANTES: clearSessionTraces() o apaga.
+    const reason = localStorage.getItem('auth_logout_reason');
     localStorage.removeItem('token');
     clearSessionTraces();
 
@@ -42,13 +44,13 @@ export default function LoginPage() {
       setRememberMe(true);
     }
     // Verifica se foi redirecionado por logout automático
-    const reason = localStorage.getItem('auth_logout_reason');
     if (reason) {
-      localStorage.removeItem('auth_logout_reason');
       setSessionMsg(
         reason === 'expired'
           ? 'Sua sessão expirou. Faça login novamente.'
-          : 'Acesso não autorizado. Faça login novamente.'
+          : reason === 'role_changed'
+            ? 'Sua função no sistema foi alterada. Entre de novo para continuar.'
+            : 'Acesso não autorizado. Faça login novamente.'
       );
     }
   }, []);

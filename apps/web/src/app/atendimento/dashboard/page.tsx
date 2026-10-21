@@ -147,7 +147,10 @@ export default function VisaoGeralPage() {
   // Onda 17.52 — permissões individuais do user (refletem nos balões da home)
   const [userGrants, setUserGrants] = useState<Permission[]>([]);
   const [userRevokes, setUserRevokes] = useState<Permission[]>([]);
-  // Fallback: deriva setor de roles do JWT se /users/me ainda nao retornou
+  // Out/2026 — só desenha a home depois do /users/me: com o JWT velho (função
+  // trocada depois do login) ela abria num papel e "virava" no outro.
+  const [meReady, setMeReady] = useState(false);
+  // Fallback: deriva setor de roles do JWT se /users/me falhar
   const role = useRole();
   const resolvedSector: Sector = (userSector as Sector) || mapBackendRole(role?.roles ?? []);
   // Onda 17.6 — modal de seleção de paciente pra avaliação
@@ -165,7 +168,8 @@ export default function VisaoGeralPage() {
         setUserGrants(r.data?.extra_grants || []);
         setUserRevokes(r.data?.extra_revokes || []);
       })
-      .catch(() => {/* falha silenciosa — usa fallback */});
+      .catch(() => {/* falha silenciosa — usa fallback */})
+      .finally(() => setMeReady(true));
 
     return () => clearInterval(id);
   }, []);
@@ -180,7 +184,7 @@ export default function VisaoGeralPage() {
   // O setor vem do token (só existe no navegador): no servidor ele cairia em
   // "recepção" e a tela trocaria depois (hydration mismatch + pisca a home errada).
   // Até montar, não desenha a home — `now` só é preenchido no navegador.
-  if (!now) return <div className="h-full overflow-y-auto bg-background" />;
+  if (!now || !meReady) return <div className="h-full overflow-y-auto bg-background" />;
 
   // Out/2026 — Dentista tem painel próprio (topo com logo + busca nos pacientes
   // DELE, boas-vindas, cards ilustrados, resumo do dia). Admin no "visualizar

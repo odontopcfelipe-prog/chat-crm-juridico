@@ -51,17 +51,25 @@ interface SocketProviderProps {
   children: React.ReactNode;
   /** Rota atual do Next.js (para guard de som duplo) */
   pathname: string;
+  /**
+   * Out/2026 — false = quem não tem WhatsApp (view_chat, ex.: dentista): sem
+   * toast/som/aviso de mensagem, lead ou transferência. O servidor já não manda;
+   * isto cobre socket antigo ainda nos rooms do setor.
+   */
+  chatNotifications?: boolean;
 }
 
-export function SocketProvider({ children, pathname }: SocketProviderProps) {
+export function SocketProvider({ children, pathname, chatNotifications = true }: SocketProviderProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const pathnameRef = useRef(pathname);
+  const chatNotifsRef = useRef(chatNotifications);
 
   // Atualiza ref de pathname sem re-render do socket
   useEffect(() => { pathnameRef.current = pathname; }, [pathname]);
+  useEffect(() => { chatNotifsRef.current = chatNotifications; }, [chatNotifications]);
 
   // ─── Re-lê token a cada navegação (captura momento pós-login) ──
   useEffect(() => {
@@ -127,6 +135,7 @@ export function SocketProvider({ children, pathname }: SocketProviderProps) {
     // page.tsx NÃO registra handler próprio nem toca som em newMessage.
     // _prefs vem do backend (NotificationSettingsService) com flags por usuário.
     s.on('incoming_message_notification', (data: { conversationId?: string; contactName?: string; _prefs?: { skipSound?: boolean; skipDesktop?: boolean } }) => {
+      if (!chatNotifsRef.current) return;
       const onChatPage = pathnameRef.current === '/atendimento' ||
         pathnameRef.current.startsWith('/atendimento/chat');
       const prefs = data._prefs || {};
@@ -168,6 +177,7 @@ export function SocketProvider({ children, pathname }: SocketProviderProps) {
 
     // ─── Novo lead chegou: toast + som + desktop (respeita _prefs) ────
     s.on('new_lead_notification', (data: { leadId?: string; leadName?: string | null; phone?: string | null; origin?: string | null; _prefs?: { skipSound?: boolean; skipDesktop?: boolean } }) => {
+      if (!chatNotifsRef.current) return;
       const prefs = data._prefs || {};
       const name = data?.leadName || data?.phone || 'Novo contato';
       const via = data?.origin ? ` via ${data.origin}` : '';
@@ -189,6 +199,7 @@ export function SocketProvider({ children, pathname }: SocketProviderProps) {
 
     // ─── Transferências: toast + som (respeita _prefs) ──────────
     s.on('transfer_request', (data: { contactName?: string; fromUserName?: string; _prefs?: { skipSound?: boolean; skipDesktop?: boolean } }) => {
+      if (!chatNotifsRef.current) return;
       const onChatPage = pathnameRef.current === '/atendimento' ||
         pathnameRef.current.startsWith('/atendimento/chat');
       const prefs = data._prefs || {};

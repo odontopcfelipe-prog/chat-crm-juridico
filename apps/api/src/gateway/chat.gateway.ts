@@ -5,6 +5,19 @@ import { InboxesService } from '../inboxes/inboxes.service';
 import { NotificationSettingsService, type NotifEventType } from '../notification-settings/notification-settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
+import { mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
+
+/**
+ * Out/2026 — só quem tem WhatsApp (view_chat) recebe aviso de mensagem/lead.
+ * Dentista não tem: antes, quem já tinha sido recepção continuava nos inboxes
+ * (ou atribuído a conversas) e o aviso "Nova mensagem" descia na tela dele.
+ */
+function userCanChat(u: { roles?: unknown; sector?: string | null; extra_grants?: string[] | null; extra_revokes?: string[] | null }): boolean {
+  const roles: string[] = Array.isArray(u.roles) ? (u.roles as string[]) : (u.roles ? [u.roles as string] : []);
+  if (roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')) return true;
+  const sector = ((u.sector as Sector) || mapBackendRole(roles));
+  return resolvePermissions(sector, (u.extra_grants ?? []) as Permission[], (u.extra_revokes ?? []) as Permission[]).has('view_chat');
+}
 
 @Injectable()
 export class ChatGateway {
@@ -158,6 +171,19 @@ export class ChatGateway {
    *  - ADVOGADO puro: nenhuma inbox, nenhum operators room (so user:{id})
    *  - ADMIN: joina TODOS inboxes do tenant + operators room (ve tudo)
    */
+  /** Falha ao consultar → mantém o aviso (comportamento antigo). */
+  private async canUseChat(userId: string): Promise<boolean> {
+    try {
+      const u = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { roles: true, sector: true, extra_grants: true, extra_revokes: true },
+      });
+      return !!u && userCanChat(u);
+    } catch {
+      return true;
+    }
+  }
+
   async autoJoinRooms(userId: string, tenantId: string | null | undefined, client: Socket): Promise<void> {
     try {
       const user = await this.prisma.user.findUnique({
@@ -174,10 +200,15 @@ export class ChatGateway {
         userRoles.includes('OPERADOR') ||
         userRoles.includes('COMERCIAL') ||
         userRoles.includes('Atendente Comercial');
+      // Sem WhatsApp (ex.: dentista que já foi recepção e ficou nos inboxes):
+      // nenhum room de pool — só user:{id}.
+      const canChat = userCanChat(user);
 
       // Inbox rooms
       let inboxIds: string[];
-      if (isAdmin && tenantId) {
+      if (!canChat) {
+        inboxIds = [];
+      } else if (isAdmin && tenantId) {
         const all = await this.prisma.inbox.findMany({
           where: { tenant_id: tenantId },
           select: { id: true },
@@ -191,13 +222,13 @@ export class ChatGateway {
       }
 
       // Operators room (pool de leads sem inbox — formulario web, criacao manual via CRM)
-      const joinOperators = !!tenantId && (isAdmin || isOperador);
+      const joinOperators = !!tenantId && canChat && (isAdmin || isOperador);
       if (joinOperators) {
         client.join(`operators:${tenantId}`);
       }
 
       this.logger.log(
-        `[SOCKET] ${client.id} rooms: ${inboxIds.length} inbox(es), operators=${joinOperators} (admin=${isAdmin}, operador=${isOperador})`,
+        `[SOCKET] ${client.id} rooms: ${inboxIds.length} inbox(es), operators=${joinOperators} (admin=${isAdmin}, operador=${isOperador}, chat=${canChat})`,
       );
     } catch (e: any) {
       this.logger.warn(`[SOCKET] autoJoinRooms falhou para user ${userId}: ${e.message}`);
@@ -385,8 +416,11 @@ export class ChatGateway {
     isClient?: boolean,
   ) {
     const basePayload = { ...data, assignedUserId };
+    // Atribuída a quem não tem WhatsApp (ex.: virou dentista): ele não recebe, e
+    // a mensagem cai no pool do setor como se não tivesse operador.
+    const operatorCanChat = assignedUserId ? await this.canUseChat(assignedUserId) : false;
 
-    if (assignedUserId) {
+    if (assignedUserId && operatorCanChat) {
       // Checa mute da conversa para o operador
       const isMuted = await this.notificationsService.isConversationMuted(assignedUserId, data.conversationId).catch(() => false);
       const prefs = isMuted
@@ -419,7 +453,7 @@ export class ChatGateway {
       }
 
       // Para clientes: notifica também o dentista responsável (se diferente do operador)
-      if (isClient && assignedDentistId && assignedDentistId !== assignedUserId) {
+      if (isClient && assignedDentistId && assignedDentistId !== assignedUserId && await this.canUseChat(assignedDentistId)) {
         const dentistMuted = await this.notificationsService.isConversationMuted(assignedDentistId, data.conversationId).catch(() => false);
         const dentistPrefs = dentistMuted
           ? { skipSound: true, skipDesktop: true }
@@ -477,7 +511,7 @@ export class ChatGateway {
       : `${contactName} acabou de chegar`;
     const basePayload = { ...data, assignedUserId };
 
-    if (assignedUserId) {
+    if (assignedUserId && await this.canUseChat(assignedUserId)) {
       const prefs = await this.notifSettings
         .getNotifFlags(assignedUserId, 'new_lead' as NotifEventType)
         .catch(() => ({ skipSound: false, skipDesktop: false }));

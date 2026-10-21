@@ -22,7 +22,8 @@ import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
 // Out/2026 — acesso por TELA (ROUTE_ACCESS do shared): quem abre pelo link uma
 // tela que o perfil não pode vê "Sem acesso" em vez da tela (ex.: Dentista).
-import { useUserPermissions } from '@/lib/useUserPermissions';
+import { useUserPermissions, resetUserPermissionsCache } from '@/lib/useUserPermissions';
+import { clearSessionTraces } from '@/lib/api';
 import { canAccessRoute } from '@crm/shared';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { Lock } from 'lucide-react';
@@ -167,7 +168,18 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   // Out/2026 — acesso por tela. `tokenKey` faz as permissões acompanharem o
   // login/troca de conta (o layout persiste no login → dashboard).
-  const { hasPermission, ready: permsReady, sector: permSector } = useUserPermissions({ tokenKey: authToken });
+  const { hasPermission, ready: permsReady, sector: permSector, rolesChanged } = useUserPermissions({ tokenKey: authToken });
+  // Out/2026 — o admin mudou a função da pessoa depois do login: o token ainda
+  // tem o papel velho (barra lateral, home e gates leem o JWT) e o painel ficava
+  // trocando entre um e outro. Pede login de novo pra emitir o token certo.
+  useEffect(() => {
+    if (!rolesChanged || pathname === '/atendimento/login') return;
+    localStorage.removeItem('token');
+    clearSessionTraces();
+    resetUserPermissionsCache();
+    localStorage.setItem('auth_logout_reason', 'role_changed');
+    router.replace('/atendimento/login');
+  }, [rolesChanged, pathname, router]);
   const routeAllowed = canAccessRoute(pathname, hasPermission);
   const pontoStatus = usePontoStatus(authToken);
   // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
@@ -342,7 +354,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const isMoreActive = moreItems.some(item => item.match(pathname));
 
   return (
-    <SocketProvider pathname={pathname}>
+    <SocketProvider pathname={pathname} chatNotifications={hasPermission('view_chat')}>
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — desktop only. Escondida em modo chatonly (?chatonly=1) usado
           pelos iframes do Split View pra mostrar so a aba de conversa. */}

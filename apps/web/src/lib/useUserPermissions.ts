@@ -42,6 +42,21 @@ interface CachedState {
   grants:  Permission[];
   revokes: Permission[];
   ready: boolean;
+  rolesChanged: boolean;
+}
+
+/**
+ * Out/2026 — a função (roles) do banco difere da do token: o admin mudou o
+ * papel da pessoa depois do login. Barra lateral, home e gates que leem o JWT
+ * ficariam no papel velho (o painel "trocava" sozinho) até ela sair e entrar.
+ */
+function rolesDiffer(tokenRoles: string[], dbRoles: string[] | null | undefined): boolean {
+  const db = (dbRoles ?? []).map((r) => String(r).toUpperCase());
+  // Sem roles no banco o login usa ['OPERADOR'] de fallback — não dá pra comparar.
+  if (db.length === 0 || tokenRoles.length === 0) return false;
+  const a = new Set(tokenRoles);
+  const b = new Set(db);
+  return a.size !== b.size || [...a].some((r) => !b.has(r));
 }
 
 let cached: MeFromApi | null = null;
@@ -109,6 +124,8 @@ export interface UserPermissions {
   ready: boolean;
   /** Verifica se o user tem a permissao (sector default + overrides) */
   hasPermission: (perm: Permission) => boolean;
+  /** Função mudou desde o login → precisa entrar de novo (token velho). */
+  rolesChanged: boolean;
 }
 
 export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPermissions {
@@ -122,6 +139,7 @@ export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPer
     grants:  [],
     revokes: [],
     ready:   isFresh(), // se ja tem cache DESTE token em memoria, ja considera pronto
+    rolesChanged: isFresh() && rolesDiffer(rolesFromJwt(currentToken()), cached?.roles),
   }));
 
   useEffect(() => {
@@ -129,7 +147,7 @@ export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPer
     // Token mudou desde o cache (login/troca de conta): volta pro fallback do
     // token atual até o /users/me novo chegar — nunca usa permissão da conta anterior.
     if (!isFresh()) {
-      setState({ sector: fallbackSector, grants: [], revokes: [], ready: false });
+      setState({ sector: fallbackSector, grants: [], revokes: [], ready: false, rolesChanged: false });
     }
     fetchMe().then((me) => {
       if (cancelled) return;
@@ -143,6 +161,7 @@ export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPer
         grants:  (me.extra_grants  as Permission[]) ?? [],
         revokes: (me.extra_revokes as Permission[]) ?? [],
         ready:   true,
+        rolesChanged: rolesDiffer(rolesFromJwt(currentToken()), me.roles),
       });
     });
     return () => { cancelled = true; };
@@ -155,5 +174,6 @@ export function useUserPermissions(opts?: { tokenKey?: string | null }): UserPer
     sector: state.sector,
     ready:  state.ready,
     hasPermission: (perm: Permission) => effective.has(perm),
+    rolesChanged: state.rolesChanged,
   };
 }
