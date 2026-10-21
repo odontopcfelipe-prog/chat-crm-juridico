@@ -25,10 +25,11 @@ export interface ModuleBadgesResponse {
 // Evita calcular contagem que nenhum card vai mostrar.
 const SECTOR_BADGES: Record<string, string[]> = {
   recepcao:   ['agenda_today', 'patients_total', 'whatsapp_open', 'returns_pending', 'proposals_sent'],
-  // Out/2026 — quadrantes do dentista com dados SÓ dele (agenda, atendimentos a
-  // confirmar, carteira, em tratamento e a pontuação do "Meu jogo") — nada da clínica
-  // toda e nada em R$ (com o profissional não se fala em comissão).
-  dentista:   ['my_agenda_today', 'my_patients_total', 'my_patients_in_treatment', 'my_game_points'],
+  // Out/2026 — quadrantes do dentista com dados SÓ dele (agenda, carteira e a
+  // pontuação do "Meu jogo") — nada da clínica toda e nada em R$ (com o profissional
+  // não se fala em comissão). O "Validar atendimento" é contado no próprio painel
+  // (pending-validation, que ele já carrega) — não precisa de badge aqui.
+  dentista:   ['my_agenda_today', 'my_patients_total', 'my_game_points'],
   acd_asb:    ['agenda_today', 'patients_total'],
   crc:        ['crc_queue', 'marketing_active', 'returns_pending', 'proposals_sent', 'whatsapp_open'],
   financeiro: ['financeiro_today', 'proposals_sent', 'reports_pct'],

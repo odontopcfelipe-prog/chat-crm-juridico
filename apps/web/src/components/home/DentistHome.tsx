@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   Search, Calendar, Users, Activity, Trophy, Clock, ArrowRight, Sun, CloudSun, Moon,
   BarChart3, CheckSquare, Circle, CheckCircle2, CalendarDays, CalendarX2, Loader2, UserRound,
-  ChevronDown, TrendingUp, type LucideIcon,
+  ChevronDown, TrendingUp, ClipboardCheck, type LucideIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { resolveHomeActions, PONTO_BALAO, type HomeAction, type Permission } from '@crm/shared';
@@ -35,7 +35,7 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
 import {
-  CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt,
+  CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt, ValidateArt,
 } from './dentist-illustrations';
 import './dentist-home.css';
 
@@ -451,9 +451,11 @@ function QueueRow({ ev, hidden }: { ev: AgendaEvent; hidden: boolean }) {
 
 // ─── Cards dos módulos (mesmos do setor, com ilustração) ──────────────────────
 
-const ICONS: Record<string, LucideIcon> = { Calendar, Users, Activity, Trophy, Clock };
+const ICONS: Record<string, LucideIcon> = { Calendar, Users, Activity, Trophy, Clock, ClipboardCheck };
 
 function artFor(a: HomeAction) {
+  // Antes do teste de href: "Validar atendimento" também leva à Minha agenda.
+  if (a.badgeKey === 'my_to_validate') return <ValidateArt />;
   if (a.href.startsWith('/atendimento/minha-agenda')) return <CalendarArt />;
   if (a.href.includes('plano=ativo')) return <ToothRingArt />;
   if (a.href.startsWith('/atendimento/pacientes')) return <PatientCardsArt />;
@@ -461,19 +463,31 @@ function artFor(a: HomeAction) {
   return <ClockArt />;
 }
 
-function ModuleCards({ actions, badges }: { actions: HomeAction[]; badges: Record<string, { value: string }> }) {
+function ModuleCards({ actions, badges, toValidate }: {
+  actions: HomeAction[];
+  badges: Record<string, { value: string }>;
+  /** Atendimentos que já passaram e falta validar (null = ainda carregando). */
+  toValidate: number | null;
+}) {
   return (
     <div className="dh-cards">
       {actions.map((a) => {
         const Icon = (a.lucide && ICONS[a.lucide]) || Calendar;
-        const badge = a.badgeKey ? badges[a.badgeKey] : undefined;
+        // "Validar atendimento": o número vem do próprio painel (pending-validation);
+        // com pendência o selo fica vermelho, sem nenhuma vira "Tudo validado".
+        const validar = a.badgeKey === 'my_to_validate';
+        const badge = validar
+          ? (toValidate === null ? undefined : { value: toValidate > 0 ? `${toValidate} a validar` : 'Tudo validado ✓' })
+          : (a.badgeKey ? badges[a.badgeKey] : undefined);
+        const tone = a.badgeKey === 'my_agenda_today' ? 'is-strong'
+          : validar ? (toValidate ? 'is-alert' : 'is-ok') : '';
         return (
           <Link key={a.label} href={a.href} className="dh-card">
             <span className="dh-card-halo" aria-hidden />
             <div className="dh-card-head">
               <span className="dh-card-ico"><Icon size={20} strokeWidth={2} /></span>
               {badge && (
-                <span className={`dh-card-badge ${a.badgeKey === 'my_agenda_today' ? 'is-strong' : ''}`}>
+                <span className={`dh-card-badge ${tone}`}>
                   {a.badgeKey === 'my_game_points' ? '🏅 ' : ''}{badge.value}
                 </span>
               )}
@@ -688,7 +702,7 @@ export default function DentistHome({ userName, extraGrants = [], extraRevokes =
         {today ? <Hero name={fullName} clinicName={tenant?.name} today={today} /> : <section className="dh-hero" />}
         <ClockCard queue={queue} loading={loading} />
       </div>
-      <ModuleCards actions={actions} badges={badgesData?.badges ?? {}} />
+      <ModuleCards actions={actions} badges={badgesData?.badges ?? {}} toValidate={loading ? null : summary.toConfirm} />
       <div className="dh-row3">
         <DaySummary loading={loading} s={summary} />
         <MonthProcedures />

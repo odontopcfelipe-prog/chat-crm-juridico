@@ -288,7 +288,12 @@ export const SECTORS: SectorMeta[] = [
         // Agenda + confirmação juntas (out/2026): o badge mostra hoje E os pendentes.
         { lucide: 'Calendar',       icon: '📅', label: 'Minha agenda',           desc: 'Seus pacientes do dia — confirme o atendimento e registre o que foi feito.', href: '/atendimento/minha-agenda', badgeKey: 'my_agenda_today', tone: 'violet'  },
         { lucide: 'Users',          icon: '👥', label: 'Meus pacientes',         desc: 'Prontuário, avaliação e plano de tratamento.',         href: '/atendimento/pacientes',           badgeKey: 'my_patients_total',        tone: 'sky'     },
-        { lucide: 'Activity',       icon: '🦷', label: 'Em tratamento',          desc: 'Seus pacientes com plano de tratamento ativo.',        href: '/atendimento/pacientes?plano=ativo', badgeKey: 'my_patients_in_treatment', tone: 'emerald' },
+        // Out/2026 — "Validar atendimento" no lugar de "Em tratamento" (pedido do dono):
+        // reforça os atendimentos que já passaram e ainda falta confirmar/registrar no
+        // prontuário. O número é o de GET /calendar/events/pending-validation (contado
+        // no próprio painel — DentistHome). "Em tratamento" segue em Meus pacientes
+        // (contador + filtro "Apenas com plano ativo").
+        { lucide: 'ClipboardCheck', icon: '✅', label: 'Validar atendimento',    desc: 'Atendimentos feitos que ainda falta confirmar e registrar no prontuário.', href: '/atendimento/minha-agenda', badgeKey: 'my_to_validate', tone: 'rose' },
         // Out/2026 — com o profissional NÃO se fala em comissão (risco trabalhista):
         // ele vê PONTOS pela produção clínica, nível, metas e missões ("Meu jogo").
         { lucide: 'Trophy',         icon: '🏆', label: 'Meu jogo',               desc: 'Sua pontuação, nível, metas e missões do mês.',        href: '/atendimento/meu-jogo',            badgeKey: 'my_game_points',           tone: 'amber'   },

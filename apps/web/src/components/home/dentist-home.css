@@ -258,6 +258,9 @@
   background: var(--dh-chip); color: #2b2f36; white-space: nowrap;
 }
 .dh-card-badge.is-strong { background: var(--dh-graphite); color: #fff; }
+/* "Validar atendimento": vermelho com pendência (chama atenção), verde quando zerou. */
+.dh-card-badge.is-alert { background: #dc2626; color: #fff; }
+.dh-card-badge.is-ok { background: rgba(21, 128, 61, 0.1); color: #15803d; }
 .dh-card h3 { position: relative; margin: 8px 0 0; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
 .dh-card p { position: relative; margin: 0; max-width: 215px; font-size: 13px; line-height: 1.5; color: var(--dh-muted); }
 .dh-card-go {

@@ -92,6 +92,29 @@ export function TrophyArt() {
   );
 }
 
+/** "Validar atendimento": prancheta com a lista — o item validado na cor da clínica. */
+export function ValidateArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="102" cy="140" rx="56" ry="6" fill="#000" opacity="0.07" />
+      <g transform="rotate(-7 102 80)">
+        <rect x="52" y="20" width="104" height="118" rx="14" fill="#E9E5DE" />
+        <rect x="60" y="30" width="88" height="102" rx="9" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+        <rect x="84" y="12" width="40" height="18" rx="7" fill="#4B5058" />
+        <rect x="96" y="16" width="16" height="5" rx="2.5" fill="#9AA0A8" />
+        <circle className="dh-af" cx="78" cy="58" r="8" />
+        <path d="M74.5 58l2.6 2.6 5-5.2" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="92" y="54" width="44" height="8" rx="4" fill="#D6D1C6" />
+        <circle cx="78" cy="83" r="7" fill="none" stroke="#CFC9BC" strokeWidth="2.5" />
+        <rect x="92" y="79" width="38" height="8" rx="4" fill="#E8E4DC" />
+        <circle cx="78" cy="107" r="7" fill="none" stroke="#CFC9BC" strokeWidth="2.5" />
+        <rect x="92" y="103" width="42" height="8" rx="4" fill="#E8E4DC" />
+      </g>
+      <path className="dh-af dh-tw" d={SPARK(158, 30, 8.8)} />
+    </svg>
+  );
+}
+
 export function ClockArt() {
   return (
     <svg viewBox="0 0 180 150" aria-hidden="true">
