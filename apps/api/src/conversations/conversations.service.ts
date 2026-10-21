@@ -1128,8 +1128,9 @@ export class ConversationsService {
       status: { not: 'ENCERRADO' },
       OR: [
         { inbox: { purpose: 'FINANCEIRO' }, lead: { stage: { notIn: ['PERDIDO'] } } },
-        // stage é nullable: `not` sozinho descartaria cliente sem etapa
-        { ...notFinanceiro, lead: { is_client: true, OR: [{ stage: null }, { stage: { not: 'PERDIDO' } }] } },
+        // Lead.stage é obrigatório (@default "NOVO"): filtrar `stage: null` faz o
+        // Prisma recusar a query inteira ("Argument stage is missing") → 500.
+        { ...notFinanceiro, lead: { is_client: true, stage: { not: 'PERDIDO' } } },
         { ...notFinanceiro, lead: { is_client: false, stage: { notIn: ['PERDIDO', 'FINALIZADO'] } } },
       ],
     };
