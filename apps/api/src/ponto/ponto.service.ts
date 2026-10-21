@@ -18,7 +18,7 @@ import {
   type ScheduleVersion,
   type WeekSchedule,
 } from './ponto-calc';
-import { evalGeo, MAX_PRECISAO_M, type PontoLocal } from './ponto-geo';
+import { coordsFromText, evalGeo, isGoogleMapsUrl, MAX_PRECISAO_M, type PontoLocal } from './ponto-geo';
 import { CreateMemberDto, ManualPunchDto, PontoLocalDto, PunchDto, ScheduleDto, UpdateMemberDto } from './ponto.dto';
 
 // Local base do ponto: JSON em TenantSetting ({ local: {lat, lng, raio_m} }).
@@ -85,6 +85,54 @@ export class PontoService {
       update: { value },
     });
     return this.getLocal(tenantId);
+  }
+
+  /**
+   * Coordenadas de um link do Google Maps — inclusive o curto do "Compartilhar"
+   * (maps.app.goo.gl), que o navegador não consegue abrir por causa do CORS. Segue
+   * os redirecionamentos (só pra domínios do Google Maps, no máx. 6) e lê o PINO
+   * (!3d/!4d) ou ponto explícito (?q=lat,lng) das URLs. Nunca o "centro da tela"
+   * nem o HTML da página: lá vem o centro do mapa, que pode estar a centenas de
+   * metros (com ele salvo, ninguém bate o ponto). Sem pino = recusa e explica.
+   */
+  async resolveMapLink(raw: string) {
+    const url = String(raw ?? '').trim();
+    // Link: só pino/ponto explícito (o "@" de um link é o centro da tela). Texto puro: números.
+    const direct = coordsFromText(url, { strict: /^https?:\/\//i.test(url) });
+    if (direct) return direct;
+    if (!isGoogleMapsUrl(url)) {
+      throw new BadRequestException('Cole um link do Google Maps (maps.app.goo.gl ou google.com/maps).');
+    }
+    let current = url;
+    for (let hop = 0; hop < 6; hop++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      let res: Response;
+      try {
+        res = await fetch(current, {
+          redirect: 'manual',
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (ponto; +https://sistema.institutoodontopassos.com.br)', 'Accept-Language': 'pt-BR' },
+        });
+      } catch {
+        throw new BadRequestException('Não consegui abrir o link do Google Maps agora. Tente de novo ou cole as coordenadas.');
+      } finally {
+        clearTimeout(timer);
+      }
+      const loc = res.headers.get('location');
+      if (res.status >= 300 && res.status < 400 && loc) {
+        const next = new URL(loc, current).toString();
+        const pin = coordsFromText(next, { strict: true });
+        if (pin) return pin;
+        if (!isGoogleMapsUrl(next)) break;
+        current = next;
+        continue;
+      }
+      break;
+    }
+    throw new BadRequestException(
+      'Esse link não traz o ponto exato da clínica. No Google Maps, abra a clínica e use "Compartilhar", ou toque e segure em cima dela e copie os números que aparecem.',
+    );
   }
 
   // ─── Equipe do ponto (adm) ──────────────────────────────

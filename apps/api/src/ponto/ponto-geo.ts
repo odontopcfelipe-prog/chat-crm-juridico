@@ -73,3 +73,65 @@ export function clientIp(req: any): string | null {
   if (xff) return normalizeIp(xff.split(',')[0]);
   return normalizeIp(req?.ip);
 }
+
+// ─── Link do Google Maps (local base da clínica) ─────────────────
+
+/**
+ * Coordenadas dentro de um texto/URL do Google Maps, na ordem de confiança:
+ * "!3d<lat>!4d<lng>" (o PINO do lugar) > "q=/query=/ll=/destination=lat,lng" (ponto
+ * explícito) > "@lat,lng" (só o CENTRO DA TELA) > par solto "lat, lng".
+ * `strict` = só pino ou ponto explícito: é o que vale nos redirecionamentos de um
+ * link curto. O centro da tela pode estar a centenas de metros do lugar — a página
+ * do Google de uma clínica de Arapiraca trouxe o centro a 470 m do pino.
+ */
+export function coordsFromText(
+  raw: string | null | undefined,
+  opts: { strict?: boolean } = {},
+): { lat: number; lng: number } | null {
+  let s = String(raw ?? '');
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* texto com % solto: usa como veio */
+  }
+  s = s.replace(/%2C/gi, ',');
+  const pats = [
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|query|ll|destination)=(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/,
+  ];
+  if (!opts.strict) {
+    pats.push(/@(-?\d{1,2}\.\d{3,}),(-?\d{1,3}\.\d{3,})/);
+    pats.push(/(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})/);
+  }
+  for (const re of pats) {
+    const m = s.match(re);
+    if (!m) continue;
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+  }
+  return null;
+}
+
+/**
+ * Só segue link do Google Maps (o servidor faz a requisição — nada de buscar URL
+ * qualquer que alguém cole). Aceita maps.app.goo.gl, goo.gl/maps e google.*\/maps.
+ */
+export function isGoogleMapsUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  const h = u.hostname.toLowerCase();
+  if (h === 'maps.app.goo.gl') return true;
+  if (h === 'goo.gl' && u.pathname.startsWith('/maps')) return true;
+  if (h === 'maps.google.com' || /^maps\.google\.[a-z.]+$/.test(h)) return true;
+  if ((h === 'google.com' || h === 'www.google.com' || /^(www\.)?google\.com?\.[a-z]{2}$/.test(h)) && u.pathname.startsWith('/maps')) {
+    return true;
+  }
+  if (h === 'consent.google.com') return true; // tela de consentimento: a URL de destino vem no "continue"
+  return false;
+}

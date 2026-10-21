@@ -84,6 +84,13 @@ export class PontoController {
     return this.service.saveLocal(user.tenant_id, body);
   }
 
+  // Link do "Compartilhar" do Google Maps → coordenadas (o navegador não abre o link curto).
+  @RequiresPermission('manage_users')
+  @Get('config/resolve-map')
+  resolveMap(@Query('url') url: string) {
+    return this.service.resolveMapLink(url);
+  }
+
   @RequiresPermission('manage_users')
   @Post('members')
   createMember(@Body() body: CreateMemberDto, @Authenticated() user: AuthUser) {

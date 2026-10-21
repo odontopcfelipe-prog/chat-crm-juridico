@@ -7,7 +7,7 @@
  *     (entrada, intervalo, saída por dia da semana). Horário tem VIGÊNCIA: mudar não
  *     reescreve meses que já foram pra contabilidade.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, ArrowRight, Copy, Search, Crosshair } from 'lucide-react';
 import api from '@/lib/api';
@@ -292,6 +292,9 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [paste, setPaste] = useState('');
+  const [pasteState, setPasteState] = useState<{ kind: 'idle' | 'reading' | 'ok' | 'error'; text?: string }>({ kind: 'idle' });
+  const [hint, setHint] = useState<string | null>(null);
+  const pasteSeq = useRef(0);
 
   const latN = Number(lat.replace(',', '.'));
   const lngN = Number(lng.replace(',', '.'));
@@ -306,6 +309,37 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
     setLat(p.lat.toFixed(6));
     setLng(p.lng.toFixed(6));
     if (recenter) setMapKey(`${p.lat},${p.lng},${Date.now()}`);
+  };
+
+  // Colar: coordenadas ou link do Google Maps. O link curto do "Compartilhar"
+  // (maps.app.goo.gl) não traz os números — o servidor segue o link e lê o pino.
+  const onPaste = async (text: string) => {
+    setPaste(text);
+    const seq = ++pasteSeq.current;
+    const t = text.trim();
+    if (!t) { setPasteState({ kind: 'idle' }); return; }
+    const p = parseCoords(t);
+    if (p) {
+      setPoint(p, true);
+      setHint(null);
+      setPasteState({ kind: 'ok', text: 'Pronto: o ponto azul foi pro local colado. Confira no mapa e salve.' });
+      return;
+    }
+    if (!/^https?:\/\/\S*(goo\.gl|google\.[a-z.]+\/maps|maps\.google)/i.test(t)) {
+      setPasteState({ kind: 'error', text: 'Não achei coordenadas aí. Cole o link do Google Maps ou os números (ex.: -9.748534, -36.651963).' });
+      return;
+    }
+    setPasteState({ kind: 'reading' });
+    try {
+      const res = await api.get<{ lat: number; lng: number }>('/ponto/config/resolve-map', { params: { url: t } });
+      if (seq !== pasteSeq.current) return;
+      setPoint(res.data, true);
+      setHint(null);
+      setPasteState({ kind: 'ok', text: 'Pronto: li o pino do link do Google Maps. Confira no mapa e salve.' });
+    } catch (e) {
+      if (seq !== pasteSeq.current) return;
+      setPasteState({ kind: 'error', text: apiErr(e, 'Não consegui ler esse link.') });
+    }
   };
 
   const locate = async () => {
@@ -401,7 +435,11 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
             <li key={`${h.lat},${h.lon}`}>
               <button
                 type="button"
-                onClick={() => { setPoint({ lat: Number(h.lat), lng: Number(h.lon) }, true); setHits(null); }}
+                onClick={() => {
+                  setPoint({ lat: Number(h.lat), lng: Number(h.lon) }, true);
+                  setHits(null);
+                  setHint('A busca marca o MEIO da rua, não o número. Toque no mapa exatamente em cima da clínica e depois salve.');
+                }}
                 className="w-full text-left px-3 py-2 hover:bg-foreground/[0.04] text-foreground"
               >
                 {h.display_name}
@@ -426,7 +464,7 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
           recenterKey={mapKey}
           zoom={data.local || coordsOk ? 17 : 13}
           clinic={coordsOk ? { lat: latN, lng: lngN, raio_m: Number.isFinite(raioN) && raioN > 0 ? raioN : 100 } : null}
-          onPick={(p) => setPoint(p, false)}
+          onPick={(p) => { setPoint(p, false); setHint(null); }}
           height={320}
         />
       </div>
@@ -448,18 +486,17 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
       <div className="mt-2">
         <input
           value={paste}
-          onChange={(e) => {
-            setPaste(e.target.value);
-            const p = parseCoords(e.target.value);
-            if (p) setPoint(p, true);
-          }}
-          placeholder="Ou cole aqui as coordenadas / o link do Google Maps (ex.: -9.665800, -35.735300)"
+          onChange={(e) => onPaste(e.target.value)}
+          placeholder="Ou cole aqui o link do Google Maps (o do “Compartilhar” serve) ou as coordenadas"
           className={`w-full ${inputCls}`}
         />
-        {paste.trim() && !parseCoords(paste) && (
-          <p className="text-xs text-amber-700 mt-1">Não achei coordenadas aí. No Google Maps, toque e segure em cima da clínica e copie os números que aparecem (link curto “maps.app.goo.gl” não serve).</p>
+        {pasteState.kind === 'reading' && (
+          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Lendo o link do Google Maps…</p>
         )}
+        {pasteState.kind === 'ok' && <p className="text-xs text-emerald-600 mt-1">{pasteState.text}</p>}
+        {pasteState.kind === 'error' && <p className="text-xs text-amber-700 mt-1">{pasteState.text}</p>}
       </div>
+      {hint && <p className="text-xs font-semibold text-sky-700 mt-2">{hint}</p>}
       <p className="text-xs text-muted-foreground mt-2">
         Raio sugerido: 50 a 150 m (o GPS do celular dentro de prédios erra uns 10 a 50 m). Computador de mesa não tem GPS — o ponto é pelo celular.
       </p>

@@ -79,16 +79,25 @@ export function precisionHint(accuracy: number, maxM: number): { ok: boolean; te
 export const fmtM = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`);
 
 /**
- * Coordenadas coladas: "-9.6658, -35.7353" ou um link do Google Maps
- * (".../place/...!3d-9.6658!4d-35.7353" = o pino; "@-9.6658,-35.7353,17z" = o centro
- * da tela; "?q=-9.6658,-35.7353"). Link curto (maps.app.goo.gl) não dá pra ler.
+ * Coordenadas coladas: "-9.6658, -35.7353" (os números do "toque e segure") ou um
+ * link do Google Maps — mas de LINK só vale o pino ("!3d…!4d…") ou um ponto explícito
+ * ("?q=lat,lng"). O "@lat,lng" de um link é só o centro da tela (numa página de busca
+ * pode estar a centenas de metros); link sem pino vai pro servidor, que segue o link
+ * curto do "Compartilhar" e lê o pino (ou recusa).
  */
 export function parseCoords(text: string): { lat: number; lng: number } | null {
-  const s = String(text || '').trim();
+  let s = String(text || '').trim();
   if (!s) return null;
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* % solto: usa como veio */
+  }
+  const isUrl = /^https?:\/\//i.test(s);
   const pin = s.match(/!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/);
-  const pair = s.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
-  const m = pin ?? pair;
+  const point = s.match(/[?&](?:q|query|ll|destination)=(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+  const pair = isUrl ? null : s.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+  const m = pin ?? point ?? pair;
   if (!m) return null;
   const lat = Number(m[1]);
   const lng = Number(m[2]);
