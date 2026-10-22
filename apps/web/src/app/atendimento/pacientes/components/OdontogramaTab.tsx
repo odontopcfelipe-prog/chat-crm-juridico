@@ -1114,7 +1114,7 @@ function QuoteMiniRow({
   superior: boolean;
 }) {
   return (
-    <div className={`flex gap-0.5 ${superior ? 'items-end' : 'items-start'}`}>
+    <div className={`flex gap-0.5 ${superior ? 'items-end pt-3' : 'items-start pb-3'}`}>
       {fdiList.map((fdi) => (
         <DenteReal key={fdi} fdi={fdi} superior={superior} marcas={marcas.get(fdi) ?? []} altura={46} />
       ))}
