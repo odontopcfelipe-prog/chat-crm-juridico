@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { SCHEDULING_RULES, isClosingWithoutScheduling, replyProposesSlots, replyListsSlots, promisesSlotsLater } from './conversation-guide';
+import { CONVERSATION_GUIDE, SCHEDULING_RULES, isClosingWithoutScheduling, replyProposesSlots, replyListsSlots, promisesSlotsLater } from './conversation-guide';
 import { PromptBuilder } from './prompt-builder';
 
 describe('isClosingWithoutScheduling', () => {
@@ -86,6 +86,31 @@ describe('SCHEDULING_RULES — contrato de saída', () => {
     expect(corr).toContain('Na dúvida, é paciente.');
     const regra4 = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('4. NÃO empurre'), SCHEDULING_RULES.indexOf('5. CONFIRMOU'));
     expect(regra4).toContain('Única exceção: quem NÃO é paciente');
+  });
+});
+
+describe('tom — simples, direta e humana', () => {
+  it('o guia traz o que entrega que é robô e os pares robótico × natural', () => {
+    expect(CONVERSATION_GUIDE).toContain('O QUE ENTREGA QUE É ROBÔ');
+    expect(CONVERSATION_GUIDE).toContain('COMO SOA (só pra mostrar o tom — não copie estas frases)');
+    expect(CONVERSATION_GUIDE).toContain('"Fazer" em vez de "realizar"');
+  });
+
+  it('o bloco final anula as regras de formato e as respostas padrão das skills', () => {
+    const jeito = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('JEITO DE ESCREVER'), SCHEDULING_RULES.indexOf('VALORES —'));
+    expect(jeito).toContain('"nunca pule linha"');
+    expect(jeito).toContain('"Resposta padrão", roteiros e exemplos das skills e referências são CONTEÚDO');
+    expect(jeito).toContain('Quando for passar VALOR, siga o COMO VENDER');
+  });
+
+  it('o jeito de vender do dono continua (valor antes do preço, "apenas R$", oferta leve de agenda)', () => {
+    const vender = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('COMO VENDER'), SCHEDULING_RULES.indexOf('REGRAS DE AGENDAMENTO'));
+    expect(vender).toContain('CONSTRUA O VALOR ANTES DO PREÇO');
+    expect(vender).toContain('Tudo isso fica apenas R$ 350');
+    expect(vender).toContain('Posso dar uma olhada na agenda e ver se consigo pra essa semana?');
+    expect(vender).toContain('depende muito do que você vai precisar');
+    // A oferta leve de agenda continua sendo reconhecida como proposta (o "beleza" depois dela é um sim).
+    expect(replyProposesSlots('Posso dar uma olhada na agenda e ver se consigo pra essa semana?')).toBe(true);
   });
 });
 
