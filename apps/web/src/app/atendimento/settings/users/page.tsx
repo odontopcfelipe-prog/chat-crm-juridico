@@ -191,6 +191,29 @@ export default function UsersSettingsPage() {
   const [scoringTouched, setScoringTouched] = useState(false);
   const [scoringLoaded, setScoringLoaded] = useState(false);
   const [organizarOpen, setOrganizarOpen] = useState(false);
+  // Out/2026 — trocar a função de quem tem permissões individuais pergunta antes
+  // (antes apagava em silêncio: "a Suellen perdeu o caminho de pacientes").
+  const [sectorSwap, setSectorSwap] = useState<Sector | null>(null);
+  /** Individuais que ainda fazem diferença no setor novo (o resto ele já tem/não tem). */
+  const carryOver = (f: UserForm, target: Sector) => {
+    const defaults = new Set(SECTORS.find(x => x.id === target)?.defaultPermissions ?? []);
+    return {
+      grants: f.extra_grants.filter(p => !defaults.has(p)),
+      revokes: f.extra_revokes.filter(p => defaults.has(p)),
+    };
+  };
+  // Manter guarda TODAS (inclusive as que o setor novo já tem): numa ida e volta
+  // (Dentista → Recepção → Dentista) elas não podem sumir pelo caminho.
+  const applySector = (target: Sector, keepCustom: boolean) => {
+    setForm(f => ({
+      ...f,
+      sector: target,
+      roles: [SECTOR_ROLE[target]],
+      extra_grants: keepCustom ? f.extra_grants : [],
+      extra_revokes: keepCustom ? f.extra_revokes : [],
+    }));
+    setSectorSwap(null);
+  };
   // Onda 17.32.172 — reenvio do e-mail de confirmacao
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resentId, setResentId] = useState<string | null>(null);
@@ -1171,15 +1194,16 @@ export default function UsersSettingsPage() {
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setForm(f => ({
-                          ...f,
-                          sector: s.id,
-                          // Re-clicar o card já escolhido não derruba o papel
-                          // combinado (Administrador + Dentista); trocar de card
-                          // reinicia o papel pro do setor novo.
-                          roles: f.sector === s.id && f.roles.length > 0 ? f.roles : [SECTOR_ROLE[s.id]],
-                          extra_grants: [], extra_revokes: [],
-                        }))}
+                        onClick={() => {
+                          // Re-clicar o card já escolhido não muda nada (nem o
+                          // papel combinado Administrador + Dentista, nem as
+                          // permissões individuais).
+                          if (form.sector === s.id) return;
+                          // Só pergunta se alguma individual se perderia na troca.
+                          const kept = carryOver(form, s.id);
+                          if (kept.grants.length + kept.revokes.length > 0) setSectorSwap(s.id);
+                          else applySector(s.id, true);
+                        }}
                         className={`text-left p-3 rounded-xl border-2 transition-all ${
                           selected
                             ? 'bg-violet-500/10 border-violet-500/50 ring-2 ring-violet-500/20'
@@ -1354,6 +1378,66 @@ export default function UsersSettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Trocar a função de quem tem permissões individuais: manter ou apagar */}
+      {sectorSwap && (() => {
+        const target = SECTORS.find(s => s.id === sectorSwap);
+        const label = (k: Permission) => PERMISSIONS.find(p => p.key === k)?.label ?? k;
+        const quem = form.name.trim() || 'Este usuário';
+        const kept = carryOver(form, sectorSwap);
+        return (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 dark">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSectorSwap(null)} />
+            <div className="relative z-10 w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                  <ShieldCheck size={18} className="text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-[14px] font-bold text-foreground">Trocar a função para {target?.name}?</p>
+                  <p className="text-[11px] text-muted-foreground">{quem} tem permissões marcadas individualmente que a função nova não tem.</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-3 space-y-1.5">
+                {kept.grants.map(k => (
+                  <p key={`g-${k}`} className="text-[11px] text-foreground"><span className="font-bold text-emerald-400">+</span> {label(k)}</p>
+                ))}
+                {kept.revokes.map(k => (
+                  <p key={`r-${k}`} className="text-[11px] text-foreground"><span className="font-bold text-red-400">−</span> {label(k)} <span className="text-muted-foreground">(removida)</span></p>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Manter leva essas permissões para a função nova. Usar o padrão deixa só o que a função {target?.name} já tem.
+              </p>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => applySector(sectorSwap, true)}
+                  className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-[12px] font-bold transition-colors"
+                >
+                  Manter as permissões individuais
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySector(sectorSwap, false)}
+                  className="w-full py-2.5 rounded-xl bg-accent hover:bg-accent/80 text-foreground text-[12px] font-medium transition-colors"
+                >
+                  Usar só o padrão da função
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSectorSwap(null)}
+                  className="w-full py-2 rounded-xl text-muted-foreground hover:text-foreground text-[12px] transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal de exclusão com transferência */}
       {deleteModal && (
