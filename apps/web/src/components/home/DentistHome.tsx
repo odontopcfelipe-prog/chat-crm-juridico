@@ -517,7 +517,12 @@ function DaySummary({ loading, s }: { loading: boolean; s: ReturnType<typeof use
       <h2><span className="dh-panel-ico"><BarChart3 size={15} /></span> Resumo do dia</h2>
       <div className="dh-sum">
         {tiles.map(({ label, value, Icon, tone }) => (
-          <Link key={label} href="/atendimento/minha-agenda" className="dh-sum-tile" data-tone={tone}>
+          <Link
+            key={label}
+            href={label === 'A confirmar' ? '/atendimento/minha-agenda?validar=1' : '/atendimento/minha-agenda'}
+            className="dh-sum-tile"
+            data-tone={tone}
+          >
             <span className="dh-sum-ico"><Icon size={15} /></span>
             <strong>{loading ? '–' : value}</strong>
             <span>{label}</span>
@@ -632,7 +637,7 @@ function TodayTasks({ userId, toConfirm }: { userId: string | null; toConfirm: n
       <ul className="dh-tasks">
         {toConfirm > 0 && (
           <li>
-            <Link href="/atendimento/minha-agenda" className="dh-task is-auto">
+            <Link href="/atendimento/minha-agenda?validar=1" className="dh-task is-auto">
               <CheckCircle2 size={18} />
               <span className="dh-task-title">
                 Confirmar {toConfirm} atendimento{toConfirm > 1 ? 's' : ''} e registrar o que foi feito

@@ -12,8 +12,9 @@
  * - "Atendido" abre a CONFIRMAÇÃO (ConfirmarAtendimentoModal): o dentista escreve o
  *   que fez + marca os procedimentos do plano → evolução no prontuário + itens
  *   executados + atendimento validado. Agenda e validação num passo só (out/2026).
- * - Atendimentos de dias anteriores sem confirmação aparecem no topo (antes era a
- *   tela separada "Confirmar atendimentos").
+ * - Atendimentos de dias anteriores sem confirmação: SÓ no modo "Validar atendimento"
+ *   (?validar=1, aberto pelo card do painel) — a agenda do dia não repete a lista
+ *   (pedido do dono, out/2026: um lugar só).
  * - Demais status = PATCH /calendar/events/:id/status (mesmo da agenda).
  * - Sem telefone/WhatsApp do paciente (a API já apaga o contato pro dentista).
  * - Agenda é naive-UTC: hora de Maceió nos campos UTC → tudo lido via getUTC* e
@@ -24,12 +25,12 @@
  *   segue a um clique pelos atalhos de lá).
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Calendar, CalendarDays, ChevronLeft, ChevronRight, Check, X, MoreHorizontal, Loader2, RefreshCw,
-  AlertTriangle,
+  AlertTriangle, ClipboardCheck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
@@ -142,8 +143,19 @@ function naiveNowIso(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
 }
 
+// useSearchParams exige Suspense no build do Next.
 export default function MinhaAgendaPage() {
+  return (
+    <Suspense fallback={<div className="ma-empty"><Loader2 size={20} className="animate-spin" /> Carregando...</div>}>
+      <MinhaAgendaConteudo />
+    </Suspense>
+  );
+}
+
+function MinhaAgendaConteudo() {
   const router = useRouter();
+  // ?validar=1 (card "Validar atendimento"): só os atendimentos a confirmar, sem a agenda do dia.
+  const validarMode = useSearchParams().get('validar') === '1';
   const role = useRole();
   const tenant = useTenant();
   // A única cor da tela é a da clínica (cinza se ela não cadastrou).
@@ -160,9 +172,9 @@ export default function MinhaAgendaPage() {
   const today = maceioTodayStr();
   const reqRef = useRef(0);
   const [confirming, setConfirming] = useState<AgendaEvent | null>(null);
-  // Atendimentos de DIAS ANTERIORES ainda não confirmados (antes era a tela
-  // separada "Confirmar atendimentos" — agora fica aqui, junto da agenda).
+  // Atendimentos de DIAS ANTERIORES ainda não confirmados — só no modo validar.
   const [pendentes, setPendentes] = useState<AgendaEvent[]>([]);
+  const [pendLoaded, setPendLoaded] = useState(false);
   // Boas-vindas: id do atendimento aberto em tela cheia + nome de quem atende (rodapé).
   const [welcomeId, setWelcomeId] = useState<string | null>(null);
   const [myName, setMyName] = useState<string | null>(null);
@@ -171,8 +183,9 @@ export default function MinhaAgendaPage() {
   }, []);
 
   const loadPendentes = useCallback(async () => {
+    if (!validarMode) return;
     const me = myUserId();
-    if (!me) { setPendentes([]); return; }
+    if (!me) { setPendentes([]); setPendLoaded(true); return; }
     try {
       // onlyMine: admin-dentista também vê só os DELE (sem isso vinham os de todos).
       const { data } = await api.get<AgendaEvent[]>('/calendar/events/pending-validation', {
@@ -187,8 +200,10 @@ export default function MinhaAgendaPage() {
       );
     } catch {
       /* sem pendentes visíveis — a lista do dia segue funcionando */
+    } finally {
+      setPendLoaded(true);
     }
-  }, []);
+  }, [validarMode]);
   useEffect(() => { loadPendentes(); }, [loadPendentes]);
 
   const load = useCallback(async (silent = false) => {
@@ -318,7 +333,41 @@ export default function MinhaAgendaPage() {
           <ArrowLeft size={14} /> Voltar
         </button>
 
+        {/* Modo "Validar atendimento" (card do painel): só os atendimentos a confirmar. */}
+        {validarMode && (
+          <section className="ma-hero">
+            <span className="ma-hero-glow" aria-hidden />
+            <svg className="ma-hero-rings" viewBox="0 0 600 600" aria-hidden="true">
+              <circle cx="300" cy="300" r="290" />
+              <circle cx="300" cy="300" r="210" />
+              <circle cx="300" cy="300" r="130" />
+            </svg>
+            <div className="ma-hero-top">
+              <div className="ma-hero-title">
+                <span className="ma-hero-ico"><ClipboardCheck size={22} /></span>
+                <div>
+                  <p className="ma-eyebrow">Validar atendimento</p>
+                  <h1>
+                    {!pendLoaded ? 'Carregando...'
+                      : pendentes.length === 0 ? 'Tudo validado'
+                      : `${pendentes.length} ${pendentes.length === 1 ? 'atendimento' : 'atendimentos'} a confirmar`}
+                  </h1>
+                </div>
+              </div>
+              <div className="ma-nav">
+                <button type="button" onClick={() => router.push('/atendimento/minha-agenda')} className="ma-hbtn">
+                  <Calendar size={15} /> Agenda do dia
+                </button>
+                <button type="button" onClick={() => loadPendentes()} className="ma-hbtn is-icon" aria-label="Atualizar" title="Atualizar">
+                  <RefreshCw size={16} />
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Topo grafite: dia + navegação + resumo do dia */}
+        {!validarMode && (
         <section className="ma-hero">
           <span className="ma-hero-glow" aria-hidden />
           <svg className="ma-hero-rings" viewBox="0 0 600 600" aria-hidden="true">
@@ -374,9 +423,17 @@ export default function MinhaAgendaPage() {
             </div>
           )}
         </section>
+        )}
 
-        {/* Dias anteriores ainda sem confirmação — confirma aqui mesmo. */}
-        {pendentes.length > 0 && (
+        {validarMode && pendLoaded && pendentes.length === 0 && (
+          <div className="ma-empty">
+            <ClipboardCheck size={28} />
+            Nenhum atendimento dos últimos {PENDENTES_DIAS} dias falta confirmar.
+          </div>
+        )}
+
+        {/* Dias anteriores ainda sem confirmação — só no modo validar. */}
+        {validarMode && pendentes.length > 0 && (
           <section className="ma-pend">
             <div className="ma-pend-head">
               <span className="ma-pend-ico"><AlertTriangle size={16} /></span>
@@ -405,7 +462,7 @@ export default function MinhaAgendaPage() {
           </section>
         )}
 
-        {loading && events.length === 0 ? (
+        {validarMode ? null : loading && events.length === 0 ? (
           <div className="ma-empty">
             <Loader2 size={20} className="animate-spin" /> Carregando...
           </div>
