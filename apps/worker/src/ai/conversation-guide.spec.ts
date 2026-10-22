@@ -103,6 +103,16 @@ describe('tom — simples, direta e humana', () => {
     expect(jeito).toContain('Quando for passar VALOR, siga o COMO VENDER');
   });
 
+  it('valor da consulta é respondido com o número, sem arrodear (caso real: "qual valor da consulta?")', () => {
+    expect(CONVERSATION_GUIDE).toContain('Descrever o serviço sem dizer o número NÃO é resposta');
+    expect(CONVERSATION_GUIDE).toContain('Não arrodeie');
+    expect(SCHEDULING_RULES).toContain('VALOR DA CONSULTA ≠ VALOR DO TRATAMENTO');
+    expect(SCHEDULING_RULES).toContain('Nunca responda "o valor sai na consulta" pra quem perguntou o preço da própria consulta');
+    // A correção 2 não pode mais soar como "não fale R$ 150 da avaliação".
+    expect(SCHEDULING_RULES).not.toContain('inclusive "avaliação R$ 150 fixo"');
+    expect(SCHEDULING_RULES).not.toContain('mostre de outro jeito por que a avaliação vale a pena');
+  });
+
   it('o jeito de vender do dono continua (valor antes do preço, "apenas R$", oferta leve de agenda)', () => {
     const vender = SCHEDULING_RULES.slice(SCHEDULING_RULES.indexOf('COMO VENDER'), SCHEDULING_RULES.indexOf('REGRAS DE AGENDAMENTO'));
     expect(vender).toContain('CONSTRUA O VALOR ANTES DO PREÇO');
