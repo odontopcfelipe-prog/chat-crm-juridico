@@ -1031,7 +1031,7 @@ function ToothRow({
   // Out/2026 — dente realista (formato pelo tipo + raízes) com o procedimento
   // desenhado nele. Coroas das duas arcadas se encontram no meio, como na boca.
   return (
-    <div className={`flex gap-0.5 ${isUpper ? 'items-end pt-5' : 'items-start pb-5'}`}>
+    <div className={`flex gap-0.5 ${isUpper ? 'items-end pt-3' : 'items-start pb-3'}`}>
       {fdiList.map((fdi) => {
         const isActive = activeSet.has(fdi);
         const otherProcName = otherUsedFdis.get(fdi);

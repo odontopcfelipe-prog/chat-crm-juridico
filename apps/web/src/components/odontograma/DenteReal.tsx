@@ -151,13 +151,13 @@ export interface DenteRealProps {
   title?: string;
   /** Número do dente na faixa do MEIO (entre as arcadas), ou sem número. */
   numero?: 'meio' | 'nenhum';
-  /** Curva do sorriso (molares mais longe do meio). */
+  /** Curva do sorriso (molares mais longe do meio). Desligada: o dono quer tudo alinhado. */
   curva?: boolean;
 }
 
 export function DenteReal({
   fdi, superior, marcas = [], selecionado = false, altura = ALTURA_PADRAO,
-  onClick, disabled = false, title, numero = 'meio', curva = true,
+  onClick, disabled = false, title, numero = 'meio', curva = false,
 }: DenteRealProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const forma = formaDoDente(fdi);
