@@ -544,8 +544,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         {/* ─── BODY (lista esquerda + cesta direita) ────────── */}
         {/* Onda 17.68 — piso de altura (min-h-[240px]) garante que a lista de
             procedimentos sempre apareça com vários itens, mesmo em tela baixa
-            (era min-h-0 = podia encolher até sumir). */}
-        <div className="flex-1 min-h-[240px] grid grid-cols-1 md:grid-cols-[1fr_340px] gap-0 overflow-hidden border-t border-border">
+            (era min-h-0 = podia encolher até sumir).
+            Out/2026 — lista e Cesta divididas ao meio (pedido do dono; a Cesta
+            tinha 340px fixos e ficava espremida). */}
+        <div className="flex-1 min-h-[240px] grid grid-cols-1 md:grid-cols-2 gap-0 overflow-hidden border-t border-border">
           {/* COLUNA ESQ — busca + pills + lista plana */}
           <div className="flex flex-col overflow-hidden min-h-0">
             {/* Busca */}
