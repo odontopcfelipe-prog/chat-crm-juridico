@@ -443,23 +443,32 @@ export interface ItemResumo {
   qtd?: number;
 }
 
-/** Resumo ao lado: a soma por tipo de procedimento ("10 implantes, 8 restaurações"). */
+/**
+ * Resumo ao lado: a soma POR ITEM (procedimento como está cadastrado) — pedido do
+ * dono: "separe por itens". Somar por TIPO contava duas vezes o que é um item só
+ * ("coroa sobre implante" = a coroa em cima e o implante embaixo, 1 procedimento).
+ * Mesmo procedimento em vários dentes vira uma linha com a soma.
+ */
 export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResumo[]; className?: string }) {
-  const por = new Map<MarcaTipo, { n: number; dentes: Set<string> }>();
+  const por = new Map<string, { nome: string; tipos: MarcaTipo[]; n: number; dentes: Set<string> }>();
   const todosDentes = new Set<string>();
   let total = 0;
   for (const it of itens) {
     const n = it.dentes.length || Math.max(1, it.qtd ?? 1);
     total += n;
     it.dentes.forEach((d) => todosDentes.add(d));
-    for (const tipo of classificarProcedimento(it.nome, it.especialidade)) {
-      const g = por.get(tipo) ?? { n: 0, dentes: new Set<string>() };
-      g.n += n;
-      it.dentes.forEach((d) => g.dentes.add(d));
-      por.set(tipo, g);
-    }
+    const chave = sem(it.nome).trim();
+    const g = por.get(chave) ?? {
+      nome: it.nome,
+      tipos: classificarProcedimento(it.nome, it.especialidade),
+      n: 0,
+      dentes: new Set<string>(),
+    };
+    g.n += n;
+    it.dentes.forEach((d) => g.dentes.add(d));
+    por.set(chave, g);
   }
-  const linhas = [...por.entries()].sort((a, b) => b[1].n - a[1].n);
+  const linhas = [...por.values()].sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome));
   return (
     <aside className={`rounded-2xl border border-border bg-background p-3 ${className}`}>
       <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Resumo do plano</p>
@@ -470,18 +479,23 @@ export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResu
       ) : (
         <>
           <ul className="max-h-[230px] divide-y divide-border overflow-y-auto">
-            {linhas.map(([tipo, g]) => (
-              <li key={tipo} className="flex items-center gap-2.5 py-1.5">
-                <span className="w-8 shrink-0 text-right text-xl font-extrabold tabular-nums" style={{ color: MARCAS[tipo].cor }}>
+            {linhas.map((g) => (
+              <li key={g.nome} className="flex items-center gap-2.5 py-1.5">
+                <span className="w-8 shrink-0 text-right text-xl font-extrabold tabular-nums" style={{ color: MARCAS[g.tipos[0]].cor }}>
                   {g.n}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold leading-tight text-foreground">
-                    {g.n === 1 ? MARCAS[tipo].label : MARCAS[tipo].plural}
+                  <span className="flex items-start gap-1.5">
+                    <span className="mt-[5px] flex shrink-0 gap-0.5">
+                      {g.tipos.map((t) => (
+                        <span key={t} className="h-2 w-2 rounded-full" style={{ background: MARCAS[t].cor }} title={MARCAS[t].label} />
+                      ))}
+                    </span>
+                    <span className="line-clamp-2 text-[13px] font-semibold leading-tight text-foreground" title={g.nome}>{g.nome}</span>
                   </span>
                   {g.dentes.size > 0 && (
                     <span className="block truncate text-[10.5px] tabular-nums text-muted-foreground" title={[...g.dentes].sort().join(', ')}>
-                      {[...g.dentes].sort().join(', ')}
+                      {g.dentes.size === 1 ? 'Dente ' : 'Dentes '}{[...g.dentes].sort().join(', ')}
                     </span>
                   )}
                 </span>
