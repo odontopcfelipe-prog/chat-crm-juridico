@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Activity, Stethoscope } from 'lucide-react';
 import api from '@/lib/api';
+import { OdontogramaPrancha, LegendaMarcas, marcaDoEstadoClinico, MARCAS, type MarcaDente } from '@/components/odontograma/DenteReal';
 
 // ─── Dados ────────────────────────────────────────────────────
 
@@ -49,26 +50,6 @@ interface TimelineResponse {
   items: TimelineItem[];
   total: number;
 }
-
-// FDI adulto (permanente) — espelha OdontogramaTab pra manter consistencia
-const FDI_SUP_DIR = ['18', '17', '16', '15', '14', '13', '12', '11'];
-const FDI_SUP_ESQ = ['21', '22', '23', '24', '25', '26', '27', '28'];
-const FDI_INF_ESQ = ['31', '32', '33', '34', '35', '36', '37', '38'];
-const FDI_INF_DIR = ['48', '47', '46', '45', '44', '43', '42', '41'];
-
-// Estados clinicos — espelha OdontogramaTab. Mantemos sincronizado.
-const STATES = [
-  { v: 'CARIE',             label: 'Cárie',           cls: 'bg-red-500/20 text-red-700 border-red-500' },
-  { v: 'RESTAURADO',        label: 'Restaurado',      cls: 'bg-blue-500/20 text-blue-700 border-blue-500' },
-  { v: 'AUSENTE',           label: 'Ausente',         cls: 'bg-muted text-muted-foreground border-border' },
-  { v: 'PROTESE',           label: 'Prótese',         cls: 'bg-purple-500/20 text-purple-700 border-purple-500' },
-  { v: 'IMPLANTE',          label: 'Implante',        cls: 'bg-indigo-500/20 text-indigo-700 border-indigo-500' },
-  { v: 'ENDODONTIA',        label: 'Endodontia',      cls: 'bg-amber-500/20 text-amber-700 border-amber-500' },
-  { v: 'EXTRACAO_INDICADA', label: 'Extração ind.',   cls: 'bg-orange-500/20 text-orange-700 border-orange-500' },
-  { v: 'COROA',             label: 'Coroa',           cls: 'bg-teal-500/20 text-teal-700 border-teal-500' },
-  { v: 'FRATURA',           label: 'Fratura',         cls: 'bg-pink-500/20 text-pink-700 border-pink-500' },
-] as const;
-const STATE_CLS: Record<string, string> = Object.fromEntries(STATES.map((s) => [s.v, s.cls]));
 
 interface Props {
   patientId: string;
@@ -113,12 +94,14 @@ export default function OverviewClinicalSection({
 
   useEffect(() => { load(); }, [load]);
 
-  // Mapa fdi → state pra render rapido
-  const stateByFdi = new Map<string, string>();
+  // Out/2026 — estados anotados viram o desenho no dente (cárie, restauração,
+  // implante, canal...) na mesma prancha da avaliação.
+  const marcas = new Map<string, MarcaDente[]>();
   for (const t of odonto?.teeth || []) {
-    if (!stateByFdi.has(t.tooth_fdi)) {
-      stateByFdi.set(t.tooth_fdi, t.state);
-    }
+    const tipo = marcaDoEstadoClinico(t.state);
+    const lista = marcas.get(t.tooth_fdi) ?? [];
+    if (!lista.some((m) => m.tipo === tipo)) lista.push({ tipo, nome: MARCAS[tipo].label });
+    marcas.set(t.tooth_fdi, lista);
   }
 
   return (
@@ -147,27 +130,19 @@ export default function OverviewClinicalSection({
           </div>
         ) : (
           <>
-            {/* Arcadas — 4 rows agrupadas em 2 (sup / inf) com separador central */}
-            <div className="flex flex-col items-center gap-1.5 pb-3 border-b border-border/40">
-              <div className="flex items-center gap-2">
-                <ToothRow fdiList={FDI_SUP_DIR} stateByFdi={stateByFdi} onClick={onGoToOdontogram} />
-                <div className="w-px h-7 bg-border" />
-                <ToothRow fdiList={FDI_SUP_ESQ} stateByFdi={stateByFdi} onClick={onGoToOdontogram} />
-              </div>
-              <div className="flex items-center gap-2">
-                <ToothRow fdiList={FDI_INF_DIR} stateByFdi={stateByFdi} onClick={onGoToOdontogram} />
-                <div className="w-px h-7 bg-border" />
-                <ToothRow fdiList={FDI_INF_ESQ} stateByFdi={stateByFdi} onClick={onGoToOdontogram} />
+            <div className="overflow-x-auto pb-3 border-b border-border/40">
+              <div className="flex justify-center min-w-max">
+                <OdontogramaPrancha
+                  altura={44}
+                  marcas={marcas}
+                  onToggle={onGoToOdontogram ? () => onGoToOdontogram() : undefined}
+                />
               </div>
             </div>
-            {/* Legenda */}
-            <div className="pt-3 flex items-center gap-2 flex-wrap text-[10px]">
-              <LegendDot cls="bg-background border-border text-muted-foreground" label="Hígido" />
-              {STATES.slice(0, 5).map((s) => (
-                <LegendDot key={s.v} cls={s.cls} label={s.label} />
-              ))}
+            <div className="pt-2">
+              <LegendaMarcas porDente={marcas} />
             </div>
-            {stateByFdi.size === 0 && (
+            {marcas.size === 0 && (
               <p className="text-[11px] text-muted-foreground italic mt-3">
                 Sem anotações no odontograma ainda — clique em um dente pra começar.
               </p>
@@ -236,45 +211,6 @@ export default function OverviewClinicalSection({
 }
 
 // ─── Sub-componentes internos ─────────────────────────────────
-
-function ToothRow({
-  fdiList, stateByFdi, onClick,
-}: {
-  fdiList: string[];
-  stateByFdi: Map<string, string>;
-  onClick?: () => void;
-}) {
-  return (
-    <div className="flex gap-1">
-      {fdiList.map((fdi) => {
-        const state = stateByFdi.get(fdi);
-        const cls = state
-          ? STATE_CLS[state] || 'bg-background border-border text-muted-foreground'
-          : 'bg-background border-border text-muted-foreground';
-        return (
-          <button
-            key={fdi}
-            type="button"
-            onClick={onClick}
-            className={`w-7 h-7 rounded-md border-2 text-[10px] font-bold flex items-center justify-center hover:scale-110 transition-transform ${cls}`}
-            title={state ? `Dente ${fdi} — ${state}` : `Dente ${fdi}`}
-          >
-            {fdi}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function LegendDot({ cls, label }: { cls: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`w-2.5 h-2.5 rounded-sm border ${cls}`} />
-      <span className="text-muted-foreground">{label}</span>
-    </span>
-  );
-}
 
 function formatDateShort(iso: string): string {
   try {

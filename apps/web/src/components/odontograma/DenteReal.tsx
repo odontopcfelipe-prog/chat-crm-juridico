@@ -21,7 +21,9 @@ import { useId, type CSSProperties } from 'react';
 
 export type MarcaTipo =
   | 'implante' | 'faceta' | 'coroa' | 'canal' | 'restauracao'
-  | 'extracao' | 'limpeza' | 'clareamento' | 'ortodontia' | 'outro';
+  | 'extracao' | 'limpeza' | 'clareamento' | 'ortodontia' | 'outro'
+  // Estados clínicos do odontograma da ficha (o que o dente TEM, não o que vai fazer).
+  | 'carie' | 'fratura' | 'ausente';
 
 export const MARCAS: Record<MarcaTipo, { label: string; plural: string; cor: string }> = {
   implante:    { label: 'Implante',           plural: 'Implantes',            cor: '#64748b' },
@@ -34,7 +36,26 @@ export const MARCAS: Record<MarcaTipo, { label: string; plural: string; cor: str
   clareamento: { label: 'Clareamento',        plural: 'Clareamentos',         cor: '#ca8a04' },
   ortodontia:  { label: 'Aparelho',           plural: 'Aparelhos',            cor: '#475569' },
   outro:       { label: 'Outro procedimento', plural: 'Outros procedimentos', cor: '#7c3aed' },
+  carie:       { label: 'Cárie',              plural: 'Cáries',               cor: '#7c4a1e' },
+  fratura:     { label: 'Fratura',            plural: 'Fraturas',             cor: '#be185d' },
+  ausente:     { label: 'Ausente',            plural: 'Ausentes',             cor: '#9ca3af' },
 };
+
+/** Estado anotado no odontograma da ficha (ToothRecord.state) → marca do dente. */
+export function marcaDoEstadoClinico(estado: string): MarcaTipo {
+  switch (estado) {
+    case 'CARIE': return 'carie';
+    case 'RESTAURADO': return 'restauracao';
+    case 'AUSENTE': return 'ausente';
+    case 'PROTESE':
+    case 'COROA': return 'coroa';
+    case 'IMPLANTE': return 'implante';
+    case 'ENDODONTIA': return 'canal';
+    case 'EXTRACAO_INDICADA': return 'extracao';
+    case 'FRATURA': return 'fratura';
+    default: return 'outro';
+  }
+}
 
 const sem = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -169,6 +190,7 @@ export function DenteReal({
   const temImplante = tipos.has('implante');
   const temCanal = tipos.has('canal') && !temImplante;
   const extraido = tipos.has('extracao');
+  const ausente = tipos.has('ausente');
   const largura = Math.round((altura * f.w) / 80);
   const x0 = (40 - f.w) / 2;
   const xr = x0 + f.w;
@@ -256,7 +278,7 @@ export function DenteReal({
         </defs>
 
         <g transform={espelho}>
-          <g opacity={extraido ? 0.25 : 1}>
+          <g opacity={ausente ? 0.12 : extraido ? 0.25 : 1}>
             {/* Raízes (ou o parafuso do implante no lugar delas) */}
             {temImplante ? (
               <g>
@@ -313,6 +335,30 @@ export function DenteReal({
               </g>
             )}
             {tipos.has('faceta') && <path d={f.coroa} fill="none" stroke="#38bdf8" strokeWidth="0.9" />}
+
+            {/* Cárie: mancha escura na face oclusal / incisal */}
+            {tipos.has('carie') && (
+              <g>
+                <ellipse cx={ox + 1} cy={oy + 5} rx={forma === 'molar' ? 6.5 : 4.2} ry="3.4" fill="#b45309" opacity="0.35" />
+                <path
+                  d={`M${ox - 2.6} ${oy + 4.4} q1.2 -2.2 3 -1.2 q2 -1 2.6 1 q0.8 2 -1 2.8 q-1.6 1.2 -3.2 0.2 q-1.8 -0.8 -1.4 -2.8 z`}
+                  fill="#3f2410"
+                  opacity="0.9"
+                />
+              </g>
+            )}
+
+            {/* Fratura: trinca em zigue-zague na coroa */}
+            {tipos.has('fratura') && (
+              <path
+                d={`M${x0 + 5} 6 L${20 - 2} 13 L${20 + 2} 16 L${20 - 1} 22 L${xr - 6} 27`}
+                stroke="#9f1239"
+                strokeWidth="1.3"
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            )}
 
             {/* Restauração: resina azul na face oclusal / incisal */}
             {tipos.has('restauracao') && (
@@ -514,6 +560,83 @@ export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResu
         </>
       )}
     </aside>
+  );
+}
+
+// Quadrantes FDI na ordem de leitura (paciente de frente).
+const QUADRANTES = {
+  adulto: {
+    supDir: ['18', '17', '16', '15', '14', '13', '12', '11'],
+    supEsq: ['21', '22', '23', '24', '25', '26', '27', '28'],
+    infDir: ['48', '47', '46', '45', '44', '43', '42', '41'],
+    infEsq: ['31', '32', '33', '34', '35', '36', '37', '38'],
+  },
+  infantil: {
+    supDir: ['55', '54', '53', '52', '51'],
+    supEsq: ['61', '62', '63', '64', '65'],
+    infDir: ['85', '84', '83', '82', '81'],
+    infEsq: ['71', '72', '73', '74', '75'],
+  },
+};
+
+/**
+ * Prancha completa (as duas arcadas no fundo vinho) pra reaproveitar fora da
+ * avaliação — venda rápida (seleciona dentes) e visão geral da ficha (só mostra).
+ * `onToggle` presente = dentes clicáveis.
+ */
+export function OdontogramaPrancha({
+  infantil = false,
+  marcas,
+  selecionados,
+  onToggle,
+  altura = ALTURA_PADRAO,
+  titulo,
+}: {
+  infantil?: boolean;
+  marcas?: Map<string, MarcaDente[]>;
+  selecionados?: Set<string>;
+  onToggle?: (fdi: string) => void;
+  altura?: number;
+  titulo?: (fdi: string) => string | undefined;
+}) {
+  const q = infantil ? QUADRANTES.infantil : QUADRANTES.adulto;
+  const gap = altura < 60 ? 'gap-0.5' : 'gap-1';
+  const linha = (lista: string[], superior: boolean) => (
+    <div className={`flex ${gap} ${superior ? 'items-end pt-2' : 'items-start pb-2'}`}>
+      {lista.map((fdi) => (
+        <DenteReal
+          key={fdi}
+          fdi={fdi}
+          superior={superior}
+          marcas={marcas?.get(fdi) ?? []}
+          selecionado={selecionados?.has(fdi) ?? false}
+          altura={altura}
+          onClick={onToggle ? () => onToggle(fdi) : undefined}
+          title={titulo?.(fdi)}
+        />
+      ))}
+    </div>
+  );
+  return (
+    <div className="inline-flex flex-col">
+      <div className="relative px-2">
+        <ArcoFundo superior />
+        <div className="relative flex justify-center gap-1.5">
+          {linha(q.supDir, true)}
+          <div className="w-px self-stretch bg-white/45" style={{ marginBottom: RECUO_FUNDO }} />
+          {linha(q.supEsq, true)}
+        </div>
+      </div>
+      <div className="mx-2 h-px bg-border" />
+      <div className="relative px-2">
+        <ArcoFundo superior={false} />
+        <div className="relative flex justify-center gap-1.5">
+          {linha(q.infDir, false)}
+          <div className="w-px self-stretch bg-white/45" style={{ marginTop: RECUO_FUNDO }} />
+          {linha(q.infEsq, false)}
+        </div>
+      </div>
+    </div>
   );
 }
 
