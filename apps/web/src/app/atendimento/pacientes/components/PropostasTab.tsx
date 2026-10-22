@@ -30,6 +30,9 @@ import { useUserPermissions } from '@/lib/useUserPermissions';
 import { useSocketEvent } from '@/lib/SocketProvider';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
+import {
+  OdontogramaPrancha, ResumoProcedimentos, classificarProcedimento, type MarcaDente, type ItemResumo,
+} from '@/components/odontograma/DenteReal';
 // Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
 // Onda 14.24.1 — Painel desativado (operador pediu pra remover). Componente
 // + backend continuam no repo. Pra reativar: descomentar este import + bloco
@@ -4664,6 +4667,20 @@ function PropostaPainel({
   const remainingItems = itemsSorted.slice(4);
   const hasMore = remainingItems.length > 0;
 
+  // Out/2026 — prancha do odontograma da proposta: os procedimentos desenhados
+  // nos dentes + o resumo por item (pedido do dono, igual à avaliação).
+  const marcasProposta = new Map<string, MarcaDente[]>();
+  for (const it of detail.items) {
+    if (!it.tooth_fdi) continue;
+    const lista = marcasProposta.get(it.tooth_fdi) ?? [];
+    for (const tipo of classificarProcedimento(it.procedure.name)) lista.push({ tipo, nome: it.procedure.name });
+    marcasProposta.set(it.tooth_fdi, lista);
+  }
+  const resumoProposta: ItemResumo[] = detail.items.map((it) => ({
+    nome: it.procedure.name,
+    dentes: it.tooth_fdi ? [it.tooth_fdi] : [],
+  }));
+
   // Validade em dias (se valid_until existir).
   // Onda 14.29 (fix) — Date.now() no render dispara react-hooks/purity.
   // Uso aqui e legitimo (mostrar "X dias pra expirar" na UI). Em re-renders
@@ -5007,6 +5024,25 @@ function PropostaPainel({
         readOnly={readOnly}
         onChanged={() => onReload?.()}
       />
+
+      {/* Out/2026 — o plano desenhado no odontograma + resumo por item (só quando
+          algum procedimento tem dente; sem dente a lista abaixo já basta). */}
+      {marcasProposta.size > 0 && (
+        <div className="mb-4">
+          <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-3 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-700" />
+            Plano no odontograma
+          </p>
+          <div className="flex flex-col xl:flex-row items-center xl:items-start justify-center gap-4">
+            <div className="max-w-full overflow-x-auto">
+              <div className="min-w-max">
+                <OdontogramaPrancha altura={60} marcas={marcasProposta} />
+              </div>
+            </div>
+            <ResumoProcedimentos itens={resumoProposta} className="w-full xl:w-64 shrink-0" />
+          </div>
+        </div>
+      )}
 
       {/* Onda 17.32.20 — Lista de itens em cards individuais com check verde
           redondo, espacamento generoso e visual mais limpo (semelhante a
