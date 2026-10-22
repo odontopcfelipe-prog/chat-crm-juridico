@@ -160,13 +160,20 @@ export function punchLabel(index: number, hasBreak: boolean): string {
   return index % 2 === 0 ? 'Entrada' : 'Saída';
 }
 
-/** Horário do dia pela versão vigente (a mais recente com valid_from <= dia). */
+/**
+ * Horário do dia pela versão vigente (a mais recente com valid_from <= dia). Dia
+ * ANTES da 1ª vigência (o adm puxou o início do funcionário pra trás) usa a 1ª
+ * versão — senão o dia ficava "sem horário" e virava folga em vez de falta.
+ */
 export function scheduleOn(versions: ScheduleVersion[], ymd: string): DaySchedule | null {
   let best: ScheduleVersion | null = null;
+  let first: ScheduleVersion | null = null;
   for (const v of versions) {
     if (v.valid_from <= ymd && (!best || v.valid_from > best.valid_from)) best = v;
+    if (!first || v.valid_from < first.valid_from) first = v;
   }
-  return best ? best.days[weekdayOf(ymd)] ?? null : null;
+  const use = best ?? first;
+  return use ? use.days[weekdayOf(ymd)] ?? null : null;
 }
 
 // ─── Feriados nacionais (Lei 662/49, 6.802/80, 10.607/02, 14.759/23) ──
@@ -246,6 +253,8 @@ export interface DayCalc {
   balance_min: number | null;
   /** Dentro da tolerância da CLT (o dia fechou como previsto). */
   tolerance_applied: boolean;
+  /** Diferença (trabalhado − previsto) DESCONSIDERADA pela tolerância (−10..+10). */
+  tolerance_min: number;
   extra_min: number;
   extra_dsr_min: number;
   debit_min: number;
@@ -267,6 +276,11 @@ export interface MonthTotals {
   debit_min: number;
   /** Horas das faltas (dias inteiros sem batida). */
   absence_min: number;
+  /**
+   * Minutos desconsiderados pela tolerância da CLT. Fecha a conta:
+   * trabalhado − previsto = saldo + tolerância.
+   */
+  tolerance_min: number;
   absences: number;
   days_worked: number;
   incomplete: number;
@@ -324,6 +338,7 @@ export function computeDay(input: DayInput): DayCalc {
     expected_min: inPeriod ? expected : 0,
     balance_min: null,
     tolerance_applied: false,
+    tolerance_min: 0,
     extra_min: 0,
     extra_dsr_min: 0,
     debit_min: 0,
@@ -373,6 +388,7 @@ export function computeDay(input: DayInput): DayCalc {
       }
       const balance = day.tolerance_applied ? 0 : worked - expected;
       day.balance_min = balance;
+      day.tolerance_min = day.tolerance_applied ? worked - expected : 0;
       if (balance > 0) day.extra_min = balance;
       else if (balance < 0) day.debit_min = -balance;
     }
@@ -416,6 +432,7 @@ export function emptyTotals(): MonthTotals {
     extra_dsr_min: 0,
     debit_min: 0,
     absence_min: 0,
+    tolerance_min: 0,
     absences: 0,
     days_worked: 0,
     incomplete: 0,
@@ -473,6 +490,7 @@ export function computeMonth(input: MonthInput): { days: DayCalc[]; totals: Mont
       totals.extra_dsr_min += day.extra_dsr_min;
       totals.debit_min += day.debit_min;
       totals.absence_min += day.absence_min;
+      totals.tolerance_min += day.tolerance_min;
     }
     return day;
   });

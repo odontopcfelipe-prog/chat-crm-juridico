@@ -88,7 +88,9 @@ describe('horário do funcionário', () => {
     ];
     expect(scheduleOn(v, '2026-10-14')).toEqual(S8);
     expect(scheduleOn(v, '2026-10-15')).toEqual(SEIS);
-    expect(scheduleOn(v, '2025-12-31')).toBeNull();
+    // antes da 1ª vigência (início puxado pra trás) usa a 1ª versão — senão virava folga
+    expect(scheduleOn(v, '2025-12-31')).toEqual(S8); // quarta
+    expect(scheduleOn([], '2026-10-14')).toBeNull();
   });
 });
 
@@ -261,6 +263,7 @@ describe('computeMonth', () => {
       extra_dsr_min: 0,
       debit_min: 0,
       absence_min: 480,
+      tolerance_min: 0,
       absences: 1,
       days_worked: 2,
       incomplete: 0,
@@ -340,6 +343,97 @@ describe('computeMonth', () => {
       startYmd: '2026-10-01',
     });
     expect(r2.days[0].alerts).toContain('Descanso entre jornadas de 9h00 (mínimo 11h)');
+  });
+});
+
+describe('auditoria das horas (contabilidade)', () => {
+  it('semana completa conferida à mão: feriado, tolerância, extra, atraso, falta, sábado e domingo', () => {
+    const W = (ymd: string, hs: string[]) => hs.map((h) => at(ymd, h));
+    const r = computeMonth({
+      ym: '2026-11',
+      punches: [
+        ...W('2026-11-02', ['08:00', '12:00']),                   // seg — Finados (feriado nacional) trabalhado: +4h00 dom/fer
+        ...W('2026-11-03', ['08:04', '12:00', '13:03', '17:02']), // ter — 4+0+3+2 = 9 min: tolerância; trabalhou 7h55
+        ...W('2026-11-04', ['08:00', '12:00', '13:00', '18:30']), // qua — ficou até 18h30: +1h30 extra
+        ...W('2026-11-05', ['08:20', '12:00', '13:00', '17:00']), // qui — chegou 08h20: −0h20 atraso
+        //                                                           sex — não veio: falta de 8h
+        ...W('2026-11-07', ['08:06', '12:00']),                   // sáb — 6 min > 5: conta inteiro, −0h06
+        ...W('2026-11-08', ['09:00', '11:00']),                   // dom — sem horário: +2h00 dom/fer
+      ],
+      versions: VERSIONS,
+      holidays: new Map(),
+      todayYmd: '2026-11-09',
+      now: at('2026-11-09', '07:00'),
+      startYmd: '2026-11-02',
+    });
+    const d = (dd: number) => r.days[dd - 1];
+    expect(d(2)).toMatchObject({ status: 'OK', holiday: 'Finados', worked_min: 240, expected_min: 0, extra_dsr_min: 240, balance_min: 240 });
+    expect(d(3)).toMatchObject({ worked_min: 475, expected_min: 480, tolerance_applied: true, tolerance_min: -5, balance_min: 0 });
+    expect(d(4)).toMatchObject({ worked_min: 570, extra_min: 90, balance_min: 90 });
+    expect(d(5)).toMatchObject({ worked_min: 460, debit_min: 20, balance_min: -20 });
+    expect(d(6)).toMatchObject({ status: 'FALTA', absence_min: 480, balance_min: -480 });
+    expect(d(7)).toMatchObject({ worked_min: 234, expected_min: 240, tolerance_applied: false, debit_min: 6, balance_min: -6 });
+    expect(d(8)).toMatchObject({ worked_min: 120, expected_min: 0, extra_dsr_min: 120, balance_min: 120 });
+    expect(r.totals).toEqual({
+      worked_min: 240 + 475 + 570 + 460 + 234 + 120, // 2099 = 34h59
+      expected_min: 480 * 4 + 240,                    // 2160 = 36h00 (feriado e domingo = 0)
+      balance_min: 90 + 360 - 26 - 480,               // −56
+      extra_min: 90,
+      extra_dsr_min: 360,
+      debit_min: 26,
+      absence_min: 480,
+      tolerance_min: -5,
+      absences: 1,
+      days_worked: 6,
+      incomplete: 0,
+      today_worked_min: 0,
+    });
+    // a conta fecha: trabalhado − previsto = saldo + tolerância
+    expect(r.totals.worked_min - r.totals.expected_min).toBe(r.totals.balance_min + r.totals.tolerance_min);
+  });
+
+  it('3.000 dias sorteados: as contas sempre fecham', () => {
+    let seed = 20261022;
+    const rnd = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const NOVE: DaySchedule = { in: '08:00', break_start: null, break_end: null, out: '17:00' };
+    const schedules = [S8, SAB, NOVE, null];
+    const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    for (let i = 0; i < 3000; i++) {
+      const schedule = schedules[Math.floor(rnd() * schedules.length)];
+      const holiday = rnd() < 0.1 ? 'Feriado' : null;
+      const marks = marksOf(schedule).length ? marksOf(schedule) : [480, 720, 780, 1020];
+      const n = Math.floor(rnd() * 7);
+      const mins = new Set<number>();
+      for (let k = 0; k < n; k++) {
+        const alvo = marks[k % marks.length] + Math.floor(rnd() * 31) - 15;
+        mins.add(rnd() < 0.2 ? 360 + Math.floor(rnd() * 840) : alvo);
+      }
+      const day = computeDay({
+        ...base,
+        date: SEG,
+        schedule,
+        holiday,
+        punches: [...mins].map((m) => at(SEG, hhmm(m), Math.floor(rnd() * 60))),
+      });
+      const pairSum = day.pairs.reduce((s, p) => s + p.minutes, 0);
+      expect(day.worked_min).toBe(pairSum);
+      if (day.balance_min === null) {
+        expect(day.status).toBe('INCOMPLETO');
+        continue;
+      }
+      expect(day.balance_min).toBe(day.extra_min + day.extra_dsr_min - day.debit_min - day.absence_min);
+      expect(day.worked_min - day.expected_min).toBe(day.balance_min + day.tolerance_min);
+      for (const v of [day.extra_min, day.extra_dsr_min, day.debit_min, day.absence_min]) expect(v).toBeGreaterThanOrEqual(0);
+      expect(day.extra_min > 0 && day.debit_min > 0).toBe(false);
+      expect(Math.abs(day.tolerance_min)).toBeLessThanOrEqual(10);
+      if (day.tolerance_min !== 0) expect(day.tolerance_applied).toBe(true);
+      if (day.expected_min === 0) expect(day.debit_min + day.absence_min).toBe(0); // folga/feriado nunca vira desconto
+    }
   });
 });
 

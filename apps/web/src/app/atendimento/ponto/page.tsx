@@ -12,9 +12,8 @@ import { Clock, ChevronLeft, Loader2, LogIn, LogOut, MapPin, MapPinOff, Users, R
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { useTenant } from '@/lib/useTenant';
 import {
-  apiErr, cap1, dateBr, distanceMeters, EspelhoActions, EspelhoTable, fmtDist, fmtMin, GEO_META, MonthNav,
+  apiErr, cap1, dateBr, distanceMeters, EspelhoTable, fmtDist, fmtMin, GEO_META, MonthNav,
   PunchDetail, scheduleText, TotalsCards, type Day, type DaySchedule, type Espelho, type Punch, type PontoLocal,
 } from './ponto-ui';
 import { getBestPosition, isFail, precisionHint, SEM_GPS_M, type GeoReading } from './geo-client';
@@ -46,7 +45,6 @@ const FRESCA_MS = 15000;
 export default function PontoPage() {
   const router = useRouter();
   const { hasPermission, ready: permsReady } = useUserPermissions();
-  const tenant = useTenant();
   const [data, setData] = useState<MeData | null>(null);
   const [ym, setYm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -339,7 +337,6 @@ export default function PontoPage() {
         <h2 className="font-bold text-slate-800">Meu espelho de ponto</h2>
         <div className="flex flex-wrap items-center gap-2">
           <MonthNav ym={data.espelho.ym} maxYm={data.today.slice(0, 7)} onChange={(m) => { setYm(m); load(m); }} />
-          <EspelhoActions data={data.espelho} clinic={tenant?.name ?? 'Clínica'} />
         </div>
       </div>
       <div className="space-y-3">

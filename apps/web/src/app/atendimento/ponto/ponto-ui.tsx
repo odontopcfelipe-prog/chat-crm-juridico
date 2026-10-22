@@ -51,6 +51,7 @@ export interface Day {
   expected_min: number;
   balance_min: number | null;
   tolerance_applied: boolean;
+  tolerance_min: number;
   extra_min: number;
   extra_dsr_min: number;
   debit_min: number;
@@ -69,6 +70,8 @@ export interface Totals {
   extra_dsr_min: number;
   debit_min: number;
   absence_min: number;
+  /** Desconsiderado pela tolerância da CLT: trabalhado − previsto = saldo + tolerância. */
+  tolerance_min: number;
   absences: number;
   days_worked: number;
   incomplete: number;
@@ -215,7 +218,11 @@ export function TotalsCards({ t }: { t: Totals }) {
         ))}
       </div>
       <p className="text-xs text-slate-400 mt-2">
-        Totais dos dias fechados (até ontem). Saldo = extras + extras dom./feriado − atrasos − faltas. Tolerância da CLT:
+        Totais dos dias fechados (até ontem). Saldo = extras + extras dom./feriado − atrasos − faltas.
+        {t.tolerance_min !== 0 && (
+          <> Trabalhado − previsto = saldo {t.tolerance_min > 0 ? '+' : '−'} {fmtMin(Math.abs(t.tolerance_min))} que a tolerância desconsiderou.</>
+        )}{' '}
+        Tolerância da CLT:
         até 5 min por batida e 10 min no dia não contam (art. 58 §1º).
       </p>
     </div>
@@ -529,7 +536,7 @@ function downloadCsv(lines: (string | number)[][], filename: string) {
 }
 const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
 
-const DETAIL_HEAD = ['Funcionário', 'Data', 'Dia', 'Horário previsto', 'Batidas', 'Trabalhado', 'Previsto', 'Extra', 'Extra dom./feriado', 'Atraso/saída antes', 'Falta', 'Saldo', 'Situação', 'Alertas'];
+const DETAIL_HEAD = ['Funcionário', 'Data', 'Dia', 'Horário previsto', 'Batidas', 'Trabalhado', 'Previsto', 'Extra', 'Extra dom./feriado', 'Atraso/saída antes', 'Falta', 'Tolerância CLT (não conta)', 'Saldo', 'Situação', 'Alertas'];
 function detailLines(e: Espelho): (string | number)[][] {
   return visibleDays(e).map((d) => [
     e.name,
@@ -543,6 +550,7 @@ function detailLines(e: Espelho): (string | number)[][] {
     d.extra_dsr_min ? fmtHM(d.extra_dsr_min) : '',
     d.debit_min ? fmtHM(d.debit_min) : '',
     d.absence_min ? fmtHM(d.absence_min) : '',
+    d.tolerance_min ? fmtHM(d.tolerance_min) : '',
     d.balance_min == null ? '' : fmtHM(d.balance_min),
     situacao(d),
     d.alerts.join(' | '),
@@ -557,7 +565,7 @@ export function exportEspelhoCsv(e: Espelho) {
       DETAIL_HEAD,
       ...detailLines(e),
       [],
-      ['TOTAL (dias fechados)', '', '', '', '', fmtHM(t.worked_min), fmtHM(t.expected_min), fmtHM(t.extra_min), fmtHM(t.extra_dsr_min), fmtHM(t.debit_min), fmtHM(t.absence_min), fmtHM(t.balance_min), `Faltas: ${t.absences} dia(s)`, ''],
+      ['TOTAL (dias fechados)', '', '', '', '', fmtHM(t.worked_min), fmtHM(t.expected_min), fmtHM(t.extra_min), fmtHM(t.extra_dsr_min), fmtHM(t.debit_min), fmtHM(t.absence_min), fmtHM(t.tolerance_min), fmtHM(t.balance_min), `Faltas: ${t.absences} dia(s)`, ''],
       ['* batida lançada pelo adm. Horas em HH:MM.'],
     ],
     `ponto-${slug(e.name)}-${e.ym}.csv`,
@@ -566,7 +574,7 @@ export function exportEspelhoCsv(e: Espelho) {
 
 /** Contabilidade: RESUMO (uma linha por funcionário). */
 export function exportResumoCsv(people: Espelho[], ym: string, clinic: string) {
-  const head = ['Funcionário', 'No ponto desde', 'Último dia', 'Dias trabalhados', 'Horas trabalhadas', 'Horas previstas', 'Horas extras', 'Extras dom./feriado', 'Atrasos/saídas antes', 'Faltas (dias)', 'Faltas (horas)', 'Saldo', 'Dias sem batida de saída', 'Ajustes do adm'];
+  const head = ['Funcionário', 'No ponto desde', 'Último dia', 'Dias trabalhados', 'Horas trabalhadas', 'Horas previstas', 'Horas extras', 'Extras dom./feriado', 'Atrasos/saídas antes', 'Faltas (dias)', 'Faltas (horas)', 'Tolerância CLT (não conta)', 'Saldo', 'Dias sem batida de saída', 'Ajustes do adm'];
   const rows = people.map((e) => {
     const t = e.totals;
     return [
@@ -581,13 +589,14 @@ export function exportResumoCsv(people: Espelho[], ym: string, clinic: string) {
       fmtHM(t.debit_min),
       t.absences,
       fmtHM(t.absence_min),
+      fmtHM(t.tolerance_min),
       fmtHM(t.balance_min),
       t.incomplete,
       e.adjustments,
     ];
   });
   downloadCsv(
-    [[`${clinic} — ponto de ${monthLabel(ym)}`], [], head, ...rows, [], ['Horas em HH:MM. Totais dos dias fechados. Tolerância CLT art. 58 §1º aplicada (5 min por batida, 10 min no dia).']],
+    [[`${clinic} — ponto de ${monthLabel(ym)}`], [], head, ...rows, [], ['Horas em HH:MM. Totais dos dias fechados. Tolerância CLT art. 58 §1º aplicada (5 min por batida, 10 min no dia): Horas trabalhadas − Horas previstas = Saldo + Tolerância.']],
     `ponto-resumo-${ym}.csv`,
   );
 }
@@ -622,7 +631,7 @@ function espelhoHtml(e: Espelho, clinic: string) {
   <td>Trabalhado <b>${fmtHM(t.worked_min)}</b></td><td>Previsto <b>${fmtHM(t.expected_min)}</b></td>
   <td>Extras <b>${fmtHM(t.extra_min)}</b></td><td>Extras dom./feriado <b>${fmtHM(t.extra_dsr_min)}</b></td>
   <td>Atrasos <b>${fmtHM(t.debit_min)}</b></td><td>Faltas <b>${t.absences} (${fmtHM(t.absence_min)})</b></td>
-  <td>Saldo <b>${fmtHM(t.balance_min)}</b></td></tr></table>
+  <td>Tolerância (não conta) <b>${fmtHM(t.tolerance_min)}</b></td><td>Saldo <b>${fmtHM(t.balance_min)}</b></td></tr></table>
 <div class="nota">Horas em HH:MM, dias fechados. * batida lançada pelo adm. Tolerância CLT art. 58 §1º (5 min por batida, 10 min no dia).</div>
 <div class="sig"><div>${esc(e.name)}</div><div>Responsável — ${esc(clinic)}</div></div>
 </section>`;
