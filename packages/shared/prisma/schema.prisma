@@ -4779,3 +4779,35 @@ model DisparoAnexo {
 
   @@index([tenant_id, disparo_id])
 }
+
+// ─── Conversa da equipe (chat interno, botão "Equipe") ──────────────────────────
+// `channel`: 'geral' | id do setor ('recepcao', 'dentista', 'acd_asb', 'crc',
+// 'financeiro', 'admin') | 'dm:<idA>:<idB>' — conversa direta, ids em ordem; só os
+// dois enxergam (nem o admin). Ver apps/api/src/team-chat/team-chat-channels.ts.
+// Sem relação com as tabelas existentes: db push só adiciona.
+model TeamMessage {
+  id           String   @id @default(uuid())
+  tenant_id    String
+  channel      String
+  sender_id    String
+  text         String
+  /// Ficha de paciente anexada ("Abrir ficha") — nome é o retrato da hora do envio.
+  patient_id   String?
+  patient_name String?
+  created_at   DateTime @default(now())
+
+  @@index([tenant_id, channel, created_at])
+}
+
+/// Até onde cada pessoa leu cada canal — conta as não lidas do botão Equipe.
+/// Ter a linha = acompanha o canal (abriu uma vez, passa a contar).
+model TeamChannelRead {
+  id           String   @id @default(uuid())
+  tenant_id    String
+  user_id      String
+  channel      String
+  last_read_at DateTime
+
+  @@unique([user_id, channel])
+  @@index([tenant_id, user_id])
+}

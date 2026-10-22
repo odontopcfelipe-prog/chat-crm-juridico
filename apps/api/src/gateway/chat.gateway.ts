@@ -159,6 +159,13 @@ export class ChatGateway {
     return (this.onlineUsers.get(userId)?.size ?? 0) > 0;
   }
 
+  /** Conversa da equipe: canal → a clínica toda; conversa direta → só os dois. */
+  emitTeamMessage(tenantId: string, message: { channel: string }, dmUserIds?: string[]) {
+    if (!this.server) return;
+    const rooms = dmUserIds?.length ? dmUserIds.map((id) => `user:${id}`) : [`tenant:${tenantId}`];
+    this.server.to(rooms).emit('team_message', message);
+  }
+
   /**
    * Ao conectar, o socket entra em rooms de escopo de notificacao:
    *   - inbox:{id}       → conversas pool daquele setor (membros do inbox + ADMINs)

@@ -51,6 +51,7 @@ import { FinanceiroModule } from './financeiro/financeiro.module';
 import { PayablesModule } from './payables/payables.module';
 import { CaixaModule } from './caixa/caixa.module';
 import { PontoModule } from './ponto/ponto.module';
+import { TeamChatModule } from './team-chat/team-chat.module';
 import { PaymentGatewayModule } from './payment-gateway/payment-gateway.module';
 import { NotaFiscalModule } from './nota-fiscal/nota-fiscal.module';
 import { MemoriesModule } from './memories/memories.module';
@@ -155,6 +156,8 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     CaixaModule,
     // Relógio de ponto (bater com GPS + espelho + ajustes do gestor). Só Prisma.
     PontoModule,
+    // Conversa da equipe (botão Equipe): canais por setor + conversa direta. Prisma + socket.
+    TeamChatModule,
     PaymentGatewayModule,
     NotaFiscalModule,
     NotificationSettingsModule,

@@ -13,6 +13,7 @@ import { PatientLocatorModal } from './components/PatientLocatorModal';
 import { ContextualSearchModal } from './components/ContextualSearchModal';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
+import EquipeChat from '@/components/equipe/EquipeChat';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
@@ -496,6 +497,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
       {/* ─── Popup de alertas de tarefas (tempo real) ──────── */}
       <TaskAlertPopup />
+
+      {/* ─── Conversa da equipe (botão Equipe) — todo logado, inclusive dentista ─── */}
+      {!isChatOnly && <EquipeChat />}
 
       {/* ─── Global Command Palette (Ctrl+K) ────────────────── */}
       <GlobalCommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
