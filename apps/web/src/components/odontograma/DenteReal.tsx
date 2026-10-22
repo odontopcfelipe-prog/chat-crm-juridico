@@ -1,20 +1,21 @@
 'use client';
 
 /**
- * Out/2026 — Dente realista do odontograma (pedido do dono: "mais real e aparecer
- * os procedimentos — implante, facetas..."; depois "mais bonito e mais realista").
+ * Out/2026 — Odontograma realista (pedidos do dono: "mais real e aparecer os
+ * procedimentos", "mais bonito e mais realista", "visual semelhante à foto" —
+ * a prancha clássica: fundo vinho, faixa de gengiva vermelha ondulada, coroas
+ * brancas, raízes cor de pele e os números na faixa branca entre as arcadas).
  *
- * - Formato pelo TIPO do dente (FDI): incisivo central/lateral, canino,
- *   pré-molar, molar (vista de frente). Decíduos usam os mesmos formatos.
- * - Esmalte em camadas: translúcido azulado na borda incisal, marfim no meio,
- *   mais amarelado no colo; sombra nas laterais (volume) e brilho suave.
- * - Gengiva cobrindo o colo, com papilas entre os dentes; a raiz aparece de
- *   leve por baixo (fica nítida quando tem canal ou implante).
- * - Desenhado com a coroa pra CIMA (arcada inferior); o superior é espelhado e
- *   as arcadas fazem uma leve curva de sorriso (molares mais afastados do meio).
- * - O procedimento aparece NO dente: implante, faceta, coroa, canal, restauração,
- *   extração, limpeza, clareamento e aparelho — classificado pelo NOME (e pela
- *   especialidade, se o nome não disser); cada clínica cadastra os seus.
+ * - DenteReal: formato pelo TIPO do dente (FDI) — incisivo central/lateral,
+ *   canino, pré-molar, molar — com coroa branca (volume e brilho), raízes e a
+ *   linha rosada do colo. Superior espelhado; molares mais afastados do meio
+ *   (curva do sorriso) com os números alinhados na faixa do meio.
+ * - ArcoFundo: o painel vinho com a gengiva ondulada atrás de cada arcada.
+ * - O procedimento aparece NO dente: implante (parafuso no lugar da raiz),
+ *   faceta, coroa, canal, restauração, extração, limpeza, clareamento e
+ *   aparelho — classificado pelo NOME (e pela especialidade, se o nome não
+ *   disser); cada clínica cadastra os seus.
+ * - ResumoProcedimentos: a soma ao lado ("10 implantes, 8 restaurações...").
  */
 import { useId, type CSSProperties } from 'react';
 
@@ -22,17 +23,17 @@ export type MarcaTipo =
   | 'implante' | 'faceta' | 'coroa' | 'canal' | 'restauracao'
   | 'extracao' | 'limpeza' | 'clareamento' | 'ortodontia' | 'outro';
 
-export const MARCAS: Record<MarcaTipo, { label: string; cor: string }> = {
-  implante:    { label: 'Implante',    cor: '#64748b' },
-  faceta:      { label: 'Faceta / lente', cor: '#0ea5e9' },
-  coroa:       { label: 'Coroa / prótese', cor: '#d97706' },
-  canal:       { label: 'Canal',       cor: '#dc2626' },
-  restauracao: { label: 'Restauração', cor: '#2563eb' },
-  extracao:    { label: 'Extração',    cor: '#b91c1c' },
-  limpeza:     { label: 'Limpeza / gengiva', cor: '#16a34a' },
-  clareamento: { label: 'Clareamento', cor: '#ca8a04' },
-  ortodontia:  { label: 'Aparelho',    cor: '#475569' },
-  outro:       { label: 'Outro procedimento', cor: '#7c3aed' },
+export const MARCAS: Record<MarcaTipo, { label: string; plural: string; cor: string }> = {
+  implante:    { label: 'Implante',           plural: 'Implantes',            cor: '#64748b' },
+  faceta:      { label: 'Faceta / lente',     plural: 'Facetas / lentes',     cor: '#0ea5e9' },
+  coroa:       { label: 'Coroa / prótese',    plural: 'Coroas / próteses',    cor: '#d97706' },
+  canal:       { label: 'Canal',              plural: 'Canais',               cor: '#dc2626' },
+  restauracao: { label: 'Restauração',        plural: 'Restaurações',         cor: '#2563eb' },
+  extracao:    { label: 'Extração',           plural: 'Extrações',            cor: '#b91c1c' },
+  limpeza:     { label: 'Limpeza / gengiva',  plural: 'Limpezas / gengiva',   cor: '#16a34a' },
+  clareamento: { label: 'Clareamento',        plural: 'Clareamentos',         cor: '#ca8a04' },
+  ortodontia:  { label: 'Aparelho',           plural: 'Aparelhos',            cor: '#475569' },
+  outro:       { label: 'Outro procedimento', plural: 'Outros procedimentos', cor: '#7c3aed' },
 };
 
 const sem = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -46,7 +47,10 @@ export function classificarProcedimento(nome: string, especialidade?: string | n
   if (/canal|endodon|pulp/.test(n)) out.add('canal');
   if (/facet|lente|laminad/.test(n)) out.add('faceta');
   if (/coroa|protes|ponte|pivo|onlay|inlay|overlay|bloco ceram/.test(n)) out.add('coroa');
-  if (/restaur|resina|obtura|amalgam/.test(n)) out.add('restauracao');
+  // "Faceta de resina" / "coroa de resina" é faceta / coroa — não restauração.
+  if (/restaur|obtura|amalgam/.test(n) || (/resina/.test(n) && !out.has('faceta') && !out.has('coroa'))) {
+    out.add('restauracao');
+  }
   if (/limpeza|profilax|raspag|periodon|tartaro|polimento|gengiv/.test(n)) out.add('limpeza');
   if (/clarea/.test(n)) out.add('clareamento');
   if (/ortod|aparelho|bracket|alinhador/.test(n)) out.add('ortodontia');
@@ -84,9 +88,8 @@ function formaDoDente(fdi: string): Forma {
 // Curva do sorriso: quanto o dente se afasta do meio (px), pela posição 1..8.
 const CURVA = [0, 0, 1, 3, 5, 8, 11, 14, 17];
 
-// Coordenadas num quadro 40×80 (coroa em cima, colo em y≈32, raízes embaixo).
+// Coordenadas num quadro 40×80 (coroa em cima, colo em y≈33, raízes embaixo).
 // `w` = largura útil (o viewBox recorta o centro) — cada tipo com a largura real.
-// `sulcos` = detalhes da superfície (cúspides / lobos), bem suaves.
 const FORMAS: Record<Forma, {
   w: number; coroa: string; raizes: string[]; oclusal: [number, number]; anterior: boolean; sulcos: string[];
 }> = {
@@ -131,6 +134,8 @@ const FORMAS: Record<Forma, {
 };
 
 const ALTURA_PADRAO = 76;
+/** Altura (px) da faixa do número — o ArcoFundo não pinta essa parte. */
+export const ALTURA_NUMERO = 22;
 
 export interface DenteRealProps {
   fdi: string;
@@ -144,15 +149,15 @@ export interface DenteRealProps {
   onClick?: () => void;
   disabled?: boolean;
   title?: string;
-  /** Número do dente: 'fora' = acima no superior / abaixo no inferior. */
-  numero?: 'fora' | 'nenhum';
+  /** Número do dente na faixa do MEIO (entre as arcadas), ou sem número. */
+  numero?: 'meio' | 'nenhum';
   /** Curva do sorriso (molares mais longe do meio). */
   curva?: boolean;
 }
 
 export function DenteReal({
   fdi, superior, marcas = [], selecionado = false, altura = ALTURA_PADRAO,
-  onClick, disabled = false, title, numero = 'fora', curva = true,
+  onClick, disabled = false, title, numero = 'meio', curva = true,
 }: DenteRealProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const forma = formaDoDente(fdi);
@@ -169,59 +174,58 @@ export function DenteReal({
 
   const id = (n: string) => `${n}-${uid}`;
   const espelho = superior ? 'matrix(1 0 0 -1 0 80)' : undefined;
-  // Margem da gengiva: papilas entre os dentes (y≈24) e o colo no meio (y≈35).
-  const margem = `M${x0 - 3} 27 Q20 45 ${xr + 3} 27`;
+  // Linha rosada do colo (junção coroa-raiz), como na prancha.
+  const colo = `M${x0 + 1.5} 33 Q20 36.5 ${xr - 1.5} 33`;
 
   const titulo = title ?? (marcas.length
     ? `Dente ${fdi} — ${marcas.map((m) => m.nome).join(' · ')}`
     : `Dente ${fdi}`);
 
-  const label = numero === 'fora' && (
+  const label = numero === 'meio' && (
     <span
-      className={`min-w-[20px] rounded-full px-1 py-px text-center text-[10px] font-bold leading-[14px] tabular-nums ${
+      className={`flex items-center justify-center rounded-full px-1.5 text-[12.5px] font-semibold leading-none tabular-nums ${
         selecionado
           ? 'bg-amber-500 text-white'
-          : marcas.length ? 'bg-foreground/85 text-background' : 'text-muted-foreground'
+          : marcas.length ? 'font-extrabold text-foreground' : 'text-foreground/70'
       }`}
+      style={{ height: ALTURA_NUMERO - 4, minWidth: 22 }}
     >
       {fdi}
     </span>
   );
 
-  const estilo: CSSProperties = { width: largura, height: altura };
-  const desloc: CSSProperties | undefined = deslocamento
-    ? { transform: `translateY(${superior ? -deslocamento : deslocamento}px)` }
-    : undefined;
+  // A curva mexe só no DESENHO — os números ficam alinhados na faixa do meio.
+  const estilo: CSSProperties = {
+    width: largura,
+    height: altura,
+    transform: deslocamento ? `translateY(${superior ? -deslocamento : deslocamento}px)` : undefined,
+    filter: 'drop-shadow(0 1.5px 1.5px rgba(40, 0, 8, 0.28))',
+  };
 
   const conteudo = (
     <>
-      {superior && label}
+      {!superior && label}
       <svg viewBox={`${x0} 0 ${f.w} 80`} style={estilo} overflow="visible" aria-hidden="true">
         <defs>
-          {/* Esmalte: borda incisal translúcida → marfim → colo amarelado */}
+          {/* Coroa branca: brilho em cima, cinza frio perto do colo */}
           <linearGradient id={id('esm')} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={f.anterior ? '#e3ebee' : '#f5efe3'} />
-            <stop offset="16%" stopColor="#fbf8f0" />
-            <stop offset="55%" stopColor="#f8f0de" />
-            <stop offset="100%" stopColor="#e6d1a6" />
+            <stop offset="0%" stopColor={f.anterior ? '#f3f6f8' : '#fbfcfd'} />
+            <stop offset="35%" stopColor="#ffffff" />
+            <stop offset="78%" stopColor="#eef1f4" />
+            <stop offset="100%" stopColor="#d9dee5" />
           </linearGradient>
-          {/* Volume: laterais sombreadas */}
+          {/* Volume: laterais em cinza frio */}
           <linearGradient id={id('vol')} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#7a5c33" stopOpacity="0.34" />
-            <stop offset="24%" stopColor="#7a5c33" stopOpacity="0" />
-            <stop offset="70%" stopColor="#7a5c33" stopOpacity="0" />
-            <stop offset="100%" stopColor="#7a5c33" stopOpacity="0.42" />
+            <stop offset="0%" stopColor="#5c6878" stopOpacity="0.26" />
+            <stop offset="26%" stopColor="#5c6878" stopOpacity="0" />
+            <stop offset="66%" stopColor="#5c6878" stopOpacity="0" />
+            <stop offset="100%" stopColor="#5c6878" stopOpacity="0.36" />
           </linearGradient>
+          {/* Raiz cor de pele (pêssego) */}
           <linearGradient id={id('raiz')} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#d9c08f" />
-            <stop offset="45%" stopColor="#efdfbd" />
-            <stop offset="100%" stopColor="#cfb27c" />
-          </linearGradient>
-          {/* Gengiva: rosada na margem, sumindo em direção à raiz */}
-          <linearGradient id={id('geng')} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="28%" stopColor="#ef9aa3" />
-            <stop offset="60%" stopColor="#e7838e" stopOpacity="0.92" />
-            <stop offset="100%" stopColor="#de7581" stopOpacity="0" />
+            <stop offset="0%" stopColor="#efb98c" />
+            <stop offset="45%" stopColor="#fbd8b4" />
+            <stop offset="100%" stopColor="#e9ab7b" />
           </linearGradient>
           <linearGradient id={id('met')} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="#5b6472" />
@@ -236,7 +240,7 @@ export function DenteReal({
           </linearGradient>
           <linearGradient id={id('vidro')} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#f0faff" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#a5dcf7" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="#a5dcf7" stopOpacity="0.85" />
           </linearGradient>
           <radialGradient id={id('resina')} cx="0.35" cy="0.35" r="0.8">
             <stop offset="0%" stopColor="#93c5fd" />
@@ -249,11 +253,8 @@ export function DenteReal({
         </defs>
 
         <g transform={espelho}>
-          {/* 1. Gengiva (atrás) */}
-          <path d={`${margem} L${xr + 3} 80 L${x0 - 3} 80 Z`} fill={`url(#${id('geng')})`} />
-
-          <g opacity={extraido ? 0.22 : 1}>
-            {/* 2. Raízes por baixo da gengiva (ou o parafuso do implante) */}
+          <g opacity={extraido ? 0.25 : 1}>
+            {/* Raízes (ou o parafuso do implante no lugar delas) */}
             {temImplante ? (
               <g>
                 <path d="M14.4 35 L25.6 35 L24.2 69 Q20 76 15.8 69 Z" fill={`url(#${id('met')})`} stroke="#3f4652" strokeWidth="0.5" />
@@ -264,7 +265,7 @@ export function DenteReal({
               </g>
             ) : (
               f.raizes.map((d, i) => (
-                <path key={i} d={d} fill={`url(#${id('raiz')})`} stroke="#b89a64" strokeWidth="0.5" opacity={temCanal ? 0.75 : 0.3} />
+                <path key={i} d={d} fill={`url(#${id('raiz')})`} stroke="#dc9c6c" strokeWidth="0.45" strokeLinejoin="round" />
               ))
             )}
             {temCanal && (
@@ -280,19 +281,19 @@ export function DenteReal({
               </g>
             )}
 
-            {/* 3. Coroa em camadas */}
+            {/* Coroa branca em camadas */}
             <path d={f.coroa} fill={`url(#${id('esm')})`} />
             <g clipPath={`url(#${id('coroa')})`}>
               <rect x="0" y="0" width="40" height="40" fill={`url(#${id('vol')})`} />
-              {!f.anterior && <rect x="0" y="0" width="40" height="6.5" fill="#cdb98f" opacity="0.28" />}
+              {!f.anterior && <rect x="0" y="0" width="40" height="6.5" fill="#c9d1db" opacity="0.32" />}
               {f.sulcos.map((d, i) => (
-                <path key={i} d={d} stroke="#d8c59c" strokeWidth="0.7" fill="none" opacity="0.7" />
+                <path key={i} d={d} stroke="#d3dae3" strokeWidth="0.7" fill="none" opacity="0.8" />
               ))}
               {temCanal && <ellipse cx="20" cy="27" rx={forma === 'molar' ? 9 : 5} ry="4.5" fill="#fca5a5" opacity="0.55" />}
             </g>
-            <path d={f.coroa} fill="none" stroke="#c8b285" strokeWidth="0.55" strokeLinejoin="round" />
+            <path d={f.coroa} fill="none" stroke="#c4ccd6" strokeWidth="0.5" strokeLinejoin="round" />
 
-            {/* Coroa protética: cerâmica/ouro brilhante cobrindo a coroa */}
+            {/* Coroa protética: ouro/cerâmica brilhante */}
             {tipos.has('coroa') && (
               <g>
                 <path d={f.coroa} fill={`url(#${id('ouro')})`} />
@@ -318,9 +319,6 @@ export function DenteReal({
               </g>
             )}
 
-            {/* Clareamento: coroa mais branca */}
-            {tipos.has('clareamento') && <path d={f.coroa} fill="#ffffff" opacity="0.5" />}
-
             {/* Brilho do esmalte (suave, desfocado) */}
             <ellipse
               cx={20 - f.w * 0.18}
@@ -328,7 +326,7 @@ export function DenteReal({
               rx="2.2"
               ry="7"
               fill="#ffffff"
-              opacity={tipos.has('coroa') ? 0.55 : 0.75}
+              opacity={tipos.has('coroa') ? 0.55 : 0.9}
               filter={`url(#${id('brilho')})`}
             />
 
@@ -341,39 +339,44 @@ export function DenteReal({
               </g>
             )}
 
+            {/* Linha rosada do colo (ou verde, quando tem limpeza/gengiva) */}
+            {!temImplante && (
+              <path
+                d={colo}
+                stroke={tipos.has('limpeza') ? '#16a34a' : '#ea8f9a'}
+                strokeWidth={tipos.has('limpeza') ? 2 : 0.9}
+                fill="none"
+                strokeLinecap="round"
+              />
+            )}
+
             {/* Selecionado: coroa âmbar */}
             {selecionado && (
-              <path d={f.coroa} fill="#fbbf24" fillOpacity="0.3" stroke="#d97706" strokeWidth="1.8" strokeLinejoin="round" />
+              <path d={f.coroa} fill="#fbbf24" fillOpacity="0.32" stroke="#d97706" strokeWidth="1.8" strokeLinejoin="round" />
             )}
           </g>
-
-          {/* 4. Margem da gengiva POR CIMA do colo (papilas entre os dentes) */}
-          <path d={`${margem} L${xr + 3} 37 L${x0 - 3} 37 Z`} fill="#ef9aa3" />
-          <path d={margem} stroke="#f7c6cb" strokeWidth="1.1" fill="none" />
-          {tipos.has('limpeza') && (
-            <path d={margem} stroke="#16a34a" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-          )}
 
           {/* Outro: ponto na cor da marca */}
           {tipos.has('outro') && <circle cx="20" cy="17" r="3.4" fill="#7c3aed" stroke="#fff" strokeWidth="1" />}
         </g>
 
-        {/* Clareamento: brilhos (fora do espelho, sempre pra cima) */}
+        {/* Clareamento: brilho (fora do espelho) */}
         {tipos.has('clareamento') && (
-          <g fill="#facc15">
-            <path d={`M${xr - 4} ${superior ? 62 : 4} l1 2.4 2.4 1 -2.4 1 -1 2.4 -1 -2.4 -2.4 -1 2.4 -1 z`} />
-          </g>
+          <path
+            d={`M${xr - 4} ${superior ? 62 : 4} l1 2.4 2.4 1 -2.4 1 -1 2.4 -1 -2.4 -2.4 -1 2.4 -1 z`}
+            fill="#facc15"
+          />
         )}
 
-        {/* Extração: X vermelho por cima */}
+        {/* Extração: X vermelho por cima da coroa */}
         {extraido && (
-          <g stroke="#dc2626" strokeWidth="2.6" strokeLinecap="round">
+          <g stroke="#ff4d5e" strokeWidth="2.6" strokeLinecap="round">
             <path d={`M${x0 + 4} ${superior ? 46 : 4} L${xr - 4} ${superior ? 76 : 34}`} />
             <path d={`M${xr - 4} ${superior ? 46 : 4} L${x0 + 4} ${superior ? 76 : 34}`} />
           </g>
         )}
       </svg>
-      {!superior && label}
+      {superior && label}
     </>
   );
 
@@ -381,23 +384,122 @@ export function DenteReal({
     onClick ? (disabled ? 'cursor-not-allowed' : 'cursor-pointer transition-transform hover:scale-[1.06]') : ''
   }`;
   return onClick ? (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={titulo}
-      aria-label={titulo}
-      className={classe}
-      style={desloc}
-    >
+    <button type="button" onClick={disabled ? undefined : onClick} disabled={disabled} title={titulo} aria-label={titulo} className={classe}>
       {conteudo}
     </button>
   ) : (
-    <div title={titulo} className={classe} style={desloc}>{conteudo}</div>
+    <div title={titulo} className={classe}>{conteudo}</div>
   );
 }
 
-/** Legenda: só os tipos que aparecem no odontograma, com os dentes de cada um. */
+/**
+ * Fundo da arcada (como na prancha): painel vinho e a faixa de gengiva vermelha
+ * ondulada onde ficam as coroas. Fica atrás da fileira (posição absoluta) e
+ * não pinta a faixa do número (lado do meio).
+ */
+export function ArcoFundo({ superior, ondas = 16 }: { superior: boolean; ondas?: number }) {
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  // Faixa da gengiva: metade de baixo (superior) / de cima (inferior), com onda.
+  const base = superior ? 50 : 50;
+  const passo = 100 / ondas;
+  let onda = `M0 ${base}`;
+  for (let i = 0; i < ondas; i++) {
+    const x = i * passo;
+    onda += ` Q${(x + passo / 2).toFixed(2)} ${base + (i % 2 ? 6 : -6)} ${(x + passo).toFixed(2)} ${base}`;
+  }
+  const banda = superior ? `${onda} L100 100 L0 100 Z` : `${onda} L100 0 L0 0 Z`;
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 overflow-hidden rounded-2xl"
+      style={superior ? { top: 0, bottom: ALTURA_NUMERO } : { top: ALTURA_NUMERO, bottom: 0 }}
+    >
+      <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={`fundo-${uid}`} x1="0" y1={superior ? 0 : 1} x2="0" y2={superior ? 1 : 0}>
+            <stop offset="0%" stopColor="#a65662" />
+            <stop offset="100%" stopColor="#8f3f4b" />
+          </linearGradient>
+          <linearGradient id={`banda-${uid}`} x1="0" y1={superior ? 0 : 1} x2="0" y2={superior ? 1 : 0}>
+            <stop offset="0%" stopColor="#8a0b20" />
+            <stop offset="100%" stopColor="#b3162f" />
+          </linearGradient>
+        </defs>
+        <rect width="100" height="100" fill={`url(#fundo-${uid})`} />
+        <path d={banda} fill={`url(#banda-${uid})`} />
+        <path d={onda} fill="none" stroke="#6d0717" strokeWidth="1.4" vectorEffect="non-scaling-stroke" opacity="0.8" />
+        <path d={onda} fill="none" stroke="#d9707e" strokeWidth="0.8" vectorEffect="non-scaling-stroke" opacity="0.5" transform={`translate(0 ${superior ? -1.2 : 1.2})`} />
+      </svg>
+    </div>
+  );
+}
+
+export interface ItemResumo {
+  nome: string;
+  especialidade?: string | null;
+  /** Dentes do procedimento (cada dente conta 1). */
+  dentes: string[];
+  /** Sem dente (ex.: clareamento da boca toda): conta a quantidade. */
+  qtd?: number;
+}
+
+/** Resumo ao lado: a soma por tipo de procedimento ("10 implantes, 8 restaurações"). */
+export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResumo[]; className?: string }) {
+  const por = new Map<MarcaTipo, { n: number; dentes: Set<string> }>();
+  const todosDentes = new Set<string>();
+  let total = 0;
+  for (const it of itens) {
+    const n = it.dentes.length || Math.max(1, it.qtd ?? 1);
+    total += n;
+    it.dentes.forEach((d) => todosDentes.add(d));
+    for (const tipo of classificarProcedimento(it.nome, it.especialidade)) {
+      const g = por.get(tipo) ?? { n: 0, dentes: new Set<string>() };
+      g.n += n;
+      it.dentes.forEach((d) => g.dentes.add(d));
+      por.set(tipo, g);
+    }
+  }
+  const linhas = [...por.entries()].sort((a, b) => b[1].n - a[1].n);
+  return (
+    <aside className={`rounded-2xl border border-border bg-background p-3 ${className}`}>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Resumo do plano</p>
+      {linhas.length === 0 ? (
+        <p className="py-2 text-xs leading-snug text-muted-foreground">
+          Os procedimentos que você marcar aparecem somados aqui.
+        </p>
+      ) : (
+        <>
+          <ul className="max-h-[230px] divide-y divide-border overflow-y-auto">
+            {linhas.map(([tipo, g]) => (
+              <li key={tipo} className="flex items-center gap-2.5 py-1.5">
+                <span className="w-8 shrink-0 text-right text-xl font-extrabold tabular-nums" style={{ color: MARCAS[tipo].cor }}>
+                  {g.n}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold leading-tight text-foreground">
+                    {g.n === 1 ? MARCAS[tipo].label : MARCAS[tipo].plural}
+                  </span>
+                  {g.dentes.size > 0 && (
+                    <span className="block truncate text-[10.5px] tabular-nums text-muted-foreground" title={[...g.dentes].sort().join(', ')}>
+                      {[...g.dentes].sort().join(', ')}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
+            <strong className="text-foreground">{total}</strong> procedimento{total === 1 ? '' : 's'}
+            {' · '}
+            <strong className="text-foreground">{todosDentes.size}</strong> dente{todosDentes.size === 1 ? '' : 's'}
+          </p>
+        </>
+      )}
+    </aside>
+  );
+}
+
+/** Legenda compacta (chips) — usada no mini-odontograma do card. */
 export function LegendaMarcas({ porDente }: { porDente: Map<string, MarcaDente[]> }) {
   const grupos = new Map<MarcaTipo, string[]>();
   for (const [fdi, marcas] of porDente) {

@@ -20,7 +20,7 @@ import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { DenteReal, LegendaMarcas, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
+import { DenteReal, ArcoFundo, ResumoProcedimentos, ALTURA_NUMERO, classificarProcedimento, type MarcaDente, type ItemResumo } from '@/components/odontograma/DenteReal';
 
 interface Procedure {
   id: string;
@@ -293,6 +293,14 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     return m;
   }, [basket, procedures]);
 
+  // Out/2026 — soma ao lado do odontograma ("10 implantes, 8 restaurações").
+  const resumoItens = useMemo<ItemResumo[]>(() => basket.map((it) => ({
+    nome: it.procedure_name,
+    especialidade: procedures.find((p) => p.id === it.procedure_id)?.specialty?.name,
+    dentes: it.tooth_fdis,
+    qtd: it.quantity,
+  })), [basket, procedures]);
+
   // Resumo no footer: total dentes únicos + procedimentos efetivos + tempo
   const summaryStats = useMemo(() => {
     const allTeeth = new Set<string>();
@@ -552,6 +560,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             activeProcedureName={activeItem?.procedure_name}
             otherUsedFdis={otherUsedFdis}
             marcas={marcasPorDente}
+            resumo={resumoItens}
             onToggle={toggleToothInActive}
             hasActive={activeBasketIdx !== null}
             dentitionMode={dentitionMode}
@@ -914,6 +923,7 @@ function Odontograma({
   activeProcedureName,
   otherUsedFdis,
   marcas,
+  resumo,
   onToggle,
   hasActive,
   dentitionMode,
@@ -923,6 +933,7 @@ function Odontograma({
   activeProcedureName?: string;
   otherUsedFdis: Map<string, string>;
   marcas: Map<string, MarcaDente[]>;
+  resumo: ItemResumo[];
   onToggle: (fdi: string) => void;
   hasActive: boolean;
   dentitionMode: 'adult' | 'child';
@@ -975,27 +986,31 @@ function Odontograma({
           </div>
         </div>
 
-        {/* Grid de dentes — Onda 16.1: visual 3D em formato de dente real
-            (SVG inline com gradient + highlight + glow). Superiores rotacionam
-            180deg pra ficarem com coroa pra baixo (anatomia natural — olhando
-            de frente pra boca aberta). Separador central tipo LUMEN. */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex justify-center gap-4">
-            <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
-            <div className="w-px bg-stone-300 dark:bg-stone-700 self-stretch" />
-            <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
+        {/* Out/2026 — prancha realista (pedido do dono, "semelhante à foto"): fundo
+            vinho com a gengiva vermelha ondulada atrás de cada arcada, coroas
+            brancas e raízes à mostra; os números ficam na faixa branca do meio.
+            Ao lado, o resumo com a soma por procedimento. */}
+        <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center gap-4">
+          <div className="flex flex-col">
+            <div className="relative px-3">
+              <ArcoFundo superior />
+              <div className="relative flex justify-center gap-2">
+                <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
+                <div className="w-px self-stretch bg-white/45" style={{ marginBottom: ALTURA_NUMERO }} />
+                <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
+              </div>
+            </div>
+            <div className="mx-3 h-px bg-border" />
+            <div className="relative px-3">
+              <ArcoFundo superior={false} />
+              <div className="relative flex justify-center gap-2">
+                <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
+                <div className="w-px self-stretch bg-white/45" style={{ marginTop: ALTURA_NUMERO }} />
+                <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
+              </div>
+            </div>
           </div>
-          <div className="flex items-center w-full max-w-[560px] text-[10px] font-bold text-muted-foreground tracking-wider">
-            <div className="flex-1 h-px bg-border" />
-            <span className="px-3 uppercase">↑ superior · inferior ↓</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-          <div className="flex justify-center gap-4">
-            <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
-            <div className="w-px bg-stone-300 dark:bg-stone-700 self-stretch" />
-            <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
-          </div>
-          <LegendaMarcas porDente={marcas} />
+          <ResumoProcedimentos itens={resumo} className="w-full lg:w-60 shrink-0" />
         </div>
       </div>
     </div>
