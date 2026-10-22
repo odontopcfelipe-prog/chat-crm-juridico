@@ -8,7 +8,7 @@ import { colorForSpecialty } from '@/lib/specialty-colors';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { DenteReal, ArcoFundo, LegendaMarcas, ALTURA_NUMERO, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
+import { DenteReal, ArcoFundo, LegendaMarcas, RECUO_FUNDO, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
 import QuotePanel from './QuotePanel';
 import AddQuoteItemModal from './AddQuoteItemModal';
 
@@ -1093,7 +1093,7 @@ function QuoteMiniOdontograma({ items }: { items: QuoteItemLite[] }) {
           <ArcoFundo superior />
           <div className="relative flex justify-center gap-2">
             <QuoteMiniRow fdiList={FDI_MINI_SUP_DIR} marcas={marcas} superior />
-            <div className="w-px self-stretch bg-white/45" style={{ marginBottom: ALTURA_NUMERO }} />
+            <div className="w-px self-stretch bg-white/45" style={{ marginBottom: RECUO_FUNDO }} />
             <QuoteMiniRow fdiList={FDI_MINI_SUP_ESQ} marcas={marcas} superior />
           </div>
         </div>
@@ -1101,7 +1101,7 @@ function QuoteMiniOdontograma({ items }: { items: QuoteItemLite[] }) {
           <ArcoFundo superior={false} />
           <div className="relative flex justify-center gap-2">
             <QuoteMiniRow fdiList={FDI_MINI_INF_DIR} marcas={marcas} superior={false} />
-            <div className="w-px self-stretch bg-white/45" style={{ marginTop: ALTURA_NUMERO }} />
+            <div className="w-px self-stretch bg-white/45" style={{ marginTop: RECUO_FUNDO }} />
             <QuoteMiniRow fdiList={FDI_MINI_INF_ESQ} marcas={marcas} superior={false} />
           </div>
         </div>

@@ -20,7 +20,7 @@ import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { DenteReal, ArcoFundo, ResumoProcedimentos, ALTURA_NUMERO, classificarProcedimento, type MarcaDente, type ItemResumo } from '@/components/odontograma/DenteReal';
+import { DenteReal, ArcoFundo, ResumoProcedimentos, RECUO_FUNDO, classificarProcedimento, type MarcaDente, type ItemResumo } from '@/components/odontograma/DenteReal';
 
 interface Procedure {
   id: string;
@@ -996,7 +996,7 @@ function Odontograma({
               <ArcoFundo superior />
               <div className="relative flex justify-center gap-2">
                 <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
-                <div className="w-px self-stretch bg-white/45" style={{ marginBottom: ALTURA_NUMERO }} />
+                <div className="w-px self-stretch bg-white/45" style={{ marginBottom: RECUO_FUNDO }} />
                 <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
               </div>
             </div>
@@ -1005,7 +1005,7 @@ function Odontograma({
               <ArcoFundo superior={false} />
               <div className="relative flex justify-center gap-2">
                 <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
-                <div className="w-px self-stretch bg-white/45" style={{ marginTop: ALTURA_NUMERO }} />
+                <div className="w-px self-stretch bg-white/45" style={{ marginTop: RECUO_FUNDO }} />
                 <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
               </div>
             </div>
@@ -1031,7 +1031,7 @@ function ToothRow({
   // Out/2026 — dente realista (formato pelo tipo + raízes) com o procedimento
   // desenhado nele. Coroas das duas arcadas se encontram no meio, como na boca.
   return (
-    <div className={`flex gap-0.5 ${isUpper ? 'items-end pt-3' : 'items-start pb-3'}`}>
+    <div className={`flex gap-1 ${isUpper ? 'items-end pt-3' : 'items-start pb-3'}`}>
       {fdiList.map((fdi) => {
         const isActive = activeSet.has(fdi);
         const otherProcName = otherUsedFdis.get(fdi);

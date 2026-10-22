@@ -135,7 +135,10 @@ const FORMAS: Record<Forma, {
 
 const ALTURA_PADRAO = 76;
 /** Altura (px) da faixa do número — o ArcoFundo não pinta essa parte. */
-export const ALTURA_NUMERO = 22;
+export const ALTURA_NUMERO = 28;
+/** Onde o fundo vinho termina, contado da borda do número: sobra uma faixa
+ *  vermelha de 8px entre a ponta dos dentes e a borda (como na prancha). */
+export const RECUO_FUNDO = ALTURA_NUMERO - 8;
 
 export interface DenteRealProps {
   fdi: string;
@@ -188,7 +191,7 @@ export function DenteReal({
           ? 'bg-amber-500 text-white'
           : marcas.length ? 'font-extrabold text-foreground' : 'text-foreground/70'
       }`}
-      style={{ height: ALTURA_NUMERO - 4, minWidth: 22 }}
+      style={{ height: 18, minWidth: 22 }}
     >
       {fdi}
     </span>
@@ -380,7 +383,8 @@ export function DenteReal({
     </>
   );
 
-  const classe = `flex flex-col items-center gap-1 ${
+  // gap-2.5 (10px) entre o dente e o número = ALTURA_NUMERO (18 + 10).
+  const classe = `flex flex-col items-center gap-2.5 ${
     onClick ? (disabled ? 'cursor-not-allowed' : 'cursor-pointer transition-transform hover:scale-[1.06]') : ''
   }`;
   return onClick ? (
@@ -412,7 +416,7 @@ export function ArcoFundo({ superior, ondas = 16 }: { superior: boolean; ondas?:
     <div
       aria-hidden="true"
       className="pointer-events-none absolute inset-x-0 overflow-hidden rounded-2xl"
-      style={superior ? { top: 0, bottom: ALTURA_NUMERO } : { top: ALTURA_NUMERO, bottom: 0 }}
+      style={superior ? { top: 0, bottom: RECUO_FUNDO } : { top: RECUO_FUNDO, bottom: 0 }}
     >
       <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
