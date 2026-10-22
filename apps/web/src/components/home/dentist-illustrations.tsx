@@ -181,3 +181,198 @@ export function LeavesArt() {
     </svg>
   );
 }
+
+// ─── Out/2026 — ilustrações dos cards dos OUTROS setores (mesmo estilo neutro:
+// cinza quente + um detalhe na cor da clínica). O painel virou o de todos. ───
+
+/** WhatsApp / conversas: dois balões, o da resposta na cor da clínica. */
+export function ChatArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="58" ry="6" fill="#000" opacity="0.07" />
+      <path d="M50 26h82a14 14 0 0 1 14 14v38a14 14 0 0 1-14 14H90l-18 15V92H50a14 14 0 0 1-14-14V40a14 14 0 0 1 14-14z" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <rect x="54" y="45" width="68" height="8" rx="4" fill="#D6D1C6" />
+      <rect x="54" y="61" width="48" height="8" rx="4" fill="#E8E4DC" />
+      <path className="dh-af" d="M104 84h50a12 12 0 0 1 12 12v18a12 12 0 0 1-12 12h-4v12l-14-12h-32a12 12 0 0 1-12-12V96a12 12 0 0 1 12-12z" />
+      <circle cx="116" cy="105" r="3.6" fill="#fff" />
+      <circle cx="129" cy="105" r="3.6" fill="#fff" />
+      <circle cx="142" cy="105" r="3.6" fill="#fff" />
+      <path className="dh-af dh-tw" d={SPARK(24, 40, 8)} />
+    </svg>
+  );
+}
+
+/** CRC / follow-up: funil com os contatos entrando. */
+export function FunnelArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="46" ry="6" fill="#000" opacity="0.07" />
+      <path d="M38 40h124l-42 50v34l-40 14V90z" fill="#fff" stroke="#E4E0D8" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M38 40h124l-10 12H48z" fill="#E9E6E0" />
+      <path d="M62 66h76" stroke="#E8E4DC" strokeWidth="6" strokeLinecap="round" />
+      <circle className="dh-af" cx="74" cy="22" r="7" />
+      <circle className="dh-asoft" cx="100" cy="14" r="6" />
+      <circle className="dh-af" cx="126" cy="24" r="5.5" />
+      <path className="dh-as" d="M100 96v26" fill="none" strokeWidth="4" strokeLinecap="round" />
+      <path className="dh-af dh-tw" d={SPARK(160, 18, 8)} />
+    </svg>
+  );
+}
+
+/** Avaliação / propostas / fechamentos / relatórios: documentos com o "ok". */
+export function DocArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="102" cy="140" rx="52" ry="6" fill="#000" opacity="0.07" />
+      <rect x="68" y="18" width="88" height="112" rx="12" fill="#E9E6E0" transform="rotate(8 112 74)" />
+      <rect x="52" y="20" width="88" height="114" rx="12" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <rect x="66" y="38" width="44" height="8" rx="4" fill="#D6D1C6" />
+      <rect x="66" y="56" width="60" height="7" rx="3.5" fill="#E8E4DC" />
+      <rect x="66" y="70" width="52" height="7" rx="3.5" fill="#E8E4DC" />
+      <rect x="66" y="84" width="58" height="7" rx="3.5" fill="#E8E4DC" />
+      <circle className="dh-af" cx="134" cy="112" r="17" />
+      <path d="M126 112l6 6 11-12" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path className="dh-af dh-tw" d={SPARK(30, 50, 8)} />
+    </svg>
+  );
+}
+
+/** Caixa / financeiro: carteira com moedas. */
+export function MoneyArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="60" ry="6" fill="#000" opacity="0.07" />
+      <rect x="40" y="46" width="112" height="78" rx="16" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <path d="M40 62c0-9 7-16 16-16h80c9 0 16 7 16 16v4H40z" fill="#E9E6E0" />
+      <rect x="118" y="76" width="40" height="26" rx="10" fill="#F3F1EC" stroke="#E4E0D8" strokeWidth="2" />
+      <circle className="dh-af" cx="132" cy="89" r="5" />
+      <circle className="dh-af" cx="74" cy="34" r="15" />
+      <circle cx="74" cy="34" r="9" fill="none" stroke="#fff" strokeWidth="2" opacity="0.7" />
+      <circle className="dh-asoft" cx="98" cy="24" r="11" />
+      <path className="dh-af dh-tw" d={SPARK(160, 30, 8)} />
+    </svg>
+  );
+}
+
+/** Cobranças / boletos: boleto com código de barras e o selo. */
+export function BoletoArt() {
+  const barras = [64, 70, 73, 79, 84, 88, 94, 99, 103, 109, 114, 118, 124];
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="58" ry="6" fill="#000" opacity="0.07" />
+      <path d="M48 20h96v110l-12-8-12 8-12-8-12 8-12-8-12 8-12-8-12 8z" fill="#fff" stroke="#E4E0D8" strokeWidth="2" strokeLinejoin="round" />
+      <rect x="62" y="36" width="50" height="8" rx="4" fill="#D6D1C6" />
+      <rect x="62" y="52" width="66" height="7" rx="3.5" fill="#E8E4DC" />
+      {barras.map((x, i) => (
+        <rect key={x} x={x} y="76" width={i % 3 === 0 ? 3.4 : 2} height="26" fill="#4B5058" opacity="0.75" />
+      ))}
+      <circle className="dh-af" cx="140" cy="34" r="16" />
+      <path d="M134 34h12M140 28v12" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+      <path className="dh-af dh-tw" d={SPARK(28, 60, 8)} />
+    </svg>
+  );
+}
+
+/** CRM / visão geral / indicadores: gráfico de barras com a linha da clínica. */
+export function ChartArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="60" ry="6" fill="#000" opacity="0.07" />
+      <rect x="38" y="24" width="124" height="104" rx="16" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <rect x="56" y="82" width="14" height="30" rx="4" fill="#E8E4DC" />
+      <rect x="80" y="66" width="14" height="46" rx="4" fill="#D6D1C6" />
+      <rect x="104" y="74" width="14" height="38" rx="4" fill="#E8E4DC" />
+      <rect className="dh-af" x="128" y="50" width="14" height="62" rx="4" />
+      <path className="dh-as" d="M58 70l24-18 24 10 30-26" fill="none" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle className="dh-af" cx="136" cy="36" r="5" />
+      <path className="dh-af dh-tw" d={SPARK(26, 34, 8)} />
+    </svg>
+  );
+}
+
+/** Venda rápida: comprovante com o raio na cor da clínica. */
+export function ZapArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="54" ry="6" fill="#000" opacity="0.07" />
+      <rect x="50" y="24" width="84" height="106" rx="14" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <rect x="64" y="42" width="40" height="8" rx="4" fill="#D6D1C6" />
+      <rect x="64" y="58" width="56" height="7" rx="3.5" fill="#E8E4DC" />
+      <rect x="64" y="72" width="46" height="7" rx="3.5" fill="#E8E4DC" />
+      <rect x="64" y="102" width="56" height="12" rx="6" fill="#F3F1EC" />
+      <circle className="dh-af" cx="136" cy="44" r="22" />
+      <path d="M139 30l-12 17h9l-4 13 13-18h-9z" fill="#fff" />
+      <path className="dh-af dh-tw" d={SPARK(28, 92, 8)} />
+    </svg>
+  );
+}
+
+/** Retornos: calendário com a seta de volta. */
+export function ReturnArt() {
+  const quadradinhos: Array<[number, number]> = [];
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 2; r++) quadradinhos.push([54 + c * 20, 66 + r * 20]);
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="96" cy="140" rx="56" ry="6" fill="#000" opacity="0.07" />
+      <rect x="40" y="32" width="104" height="96" rx="14" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <path d="M40 46c0-8 6-14 14-14h76c8 0 14 6 14 14v8H40z" fill="#E9E6E0" />
+      <rect x="62" y="22" width="8" height="18" rx="4" fill="#4B5058" />
+      <rect x="114" y="22" width="8" height="18" rx="4" fill="#4B5058" />
+      {quadradinhos.map(([x, y]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width="12" height="10" rx="3" fill="#E8E4DC" />
+      ))}
+      <circle className="dh-af" cx="140" cy="104" r="22" />
+      <path d="M150 104a10 10 0 1 1-4-8" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" />
+      <path d="M148 90l-1 7 7 1" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Aniversariantes: bolo com a vela acesa na cor da clínica. */
+export function CakeArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="96" cy="140" rx="56" ry="6" fill="#000" opacity="0.07" />
+      <rect x="42" y="84" width="108" height="48" rx="12" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <rect x="56" y="58" width="80" height="30" rx="10" fill="#F3F1EC" stroke="#E4E0D8" strokeWidth="2" />
+      <path className="dh-as" d="M42 100c9 7 18 7 27 0s18-7 27 0 18 7 27 0 18-7 27 0" fill="none" strokeWidth="4" strokeLinecap="round" />
+      <rect x="92" y="36" width="8" height="22" rx="3" fill="#D6D1C6" />
+      <path className="dh-af" d="M96 18c6 7 6 13 0 16-6-3-6-9 0-16z" />
+      <path className="dh-af dh-tw" d={SPARK(150, 40, 8)} />
+      <path className="dh-af dh-tw" d={SPARK(36, 54, 6)} />
+    </svg>
+  );
+}
+
+/** Marketing: megafone com as ondas na cor da clínica. */
+export function MegaphoneArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="92" cy="140" rx="52" ry="6" fill="#000" opacity="0.07" />
+      <path d="M44 62h18l52-28v86L62 92H44a10 10 0 0 1-10-10V72a10 10 0 0 1 10-10z" fill="#fff" stroke="#E4E0D8" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M52 92l8 30h14l-6-28" fill="#E9E6E0" />
+      <rect x="110" y="34" width="10" height="86" rx="5" fill="#4B5058" />
+      <path className="dh-as" d="M134 62c8 8 8 22 0 30M146 52c14 14 14 38 0 52" fill="none" strokeWidth="4" strokeLinecap="round" />
+      <path className="dh-af dh-tw" d={SPARK(40, 34, 8)} />
+    </svg>
+  );
+}
+
+/** Configurações: engrenagem. */
+export function GearArt() {
+  const dentes = [0, 45, 90, 135, 180, 225, 270, 315];
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="96" cy="140" rx="50" ry="6" fill="#000" opacity="0.07" />
+      <g transform="translate(96 76)">
+        {dentes.map((r) => (
+          <rect key={r} x="-9" y="-56" width="18" height="22" rx="5" fill="#E9E6E0" transform={'rotate(' + r + ')'} />
+        ))}
+        <circle r="42" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+        <circle className="dh-af" r="16" />
+        <circle r="6" fill="#fff" />
+      </g>
+      <path className="dh-af dh-tw" d={SPARK(156, 28, 8)} />
+    </svg>
+  );
+}

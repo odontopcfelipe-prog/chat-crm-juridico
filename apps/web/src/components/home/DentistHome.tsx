@@ -22,20 +22,27 @@ import { useRouter } from 'next/navigation';
 import {
   Search, Calendar, Users, Activity, Trophy, Clock, ArrowRight, Sun, CloudSun, Moon,
   BarChart3, CheckSquare, Circle, CheckCircle2, CalendarDays, CalendarX2, Loader2, UserRound,
-  ChevronDown, TrendingUp, ClipboardCheck, Stethoscope, type LucideIcon,
+  ChevronDown, TrendingUp, ClipboardCheck, Stethoscope, DoorOpen,
+  Zap, MessageSquare, RotateCcw, FileText, LineChart, Workflow, CheckCheck, Layers, Receipt,
+  PieChart, Wallet, UserCog, Megaphone, Settings, Cake, type LucideIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { resolveHomeActions, PONTO_BALAO, type HomeAction, type Permission } from '@crm/shared';
+import {
+  resolveHomeActions, getSector, PONTO_BALAO, PONTO_ADM_BALAO, type HomeAction, type Permission, type Sector,
+} from '@crm/shared';
 import api from '@/lib/api';
 import { useTenant } from '@/lib/useTenant';
 import { tenantAccent } from '@/lib/tenant-accent';
 import { useRole } from '@/lib/useRole';
 import { useModuleBadges } from '@/lib/useModuleBadges';
 import { usePontoStatus } from '@/lib/usePontoStatus';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
+import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 import {
   CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt, ValidateArt, ConsultArt,
+  ChatArt, FunnelArt, DocArt, MoneyArt, BoletoArt, ChartArt, ZapArt, ReturnArt, CakeArt, MegaphoneArt, GearArt,
 } from './dentist-illustrations';
 import './dentist-home.css';
 
@@ -43,6 +50,19 @@ interface Props {
   userName?: string | null;
   extraGrants?: Permission[];
   extraRevokes?: Permission[];
+}
+
+/**
+ * Out/2026 — o painel do dentista virou o padrão da entrada de TODOS (pedido do
+ * dono: "deixe todas as entradas de usuário com esse padrão, cada um na sua
+ * realidade"). Muda por setor: os cards (resolveHomeActions + badges do setor),
+ * a agenda (o dentista vê a DELE; os demais, a da clínica), o resumo do dia e o
+ * painel do meio (dentista: procedimentos do mês; demais: próximos dias).
+ */
+interface PainelProps extends Props {
+  sector: Sector;
+  /** Barra extra acima do topo (o "visualizar como" do admin). */
+  acima?: React.ReactNode;
 }
 
 // ─── Datas (agenda é naive-UTC: hora de Maceió gravada nos campos UTC) ─────────
@@ -93,6 +113,7 @@ interface AgendaEvent {
   start_at: string;
   validated_at?: string | null;
   assigned_user_id?: string | null;
+  assigned_user?: { id: string; name: string | null } | null;
   patient?: { id: string; name: string; avatar_url?: string | null } | null;
   lead?: { id?: string; name: string | null; profile_picture_url?: string | null } | null;
   appointment_type?: { name?: string | null } | null;
@@ -103,19 +124,26 @@ const NA_FILA = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO'];
 /** A recepção já registrou a chegada. */
 const CHEGOU = ['COMPARECEU', 'EM_ATENDIMENTO'];
 
-function useMyDay(userId: string | null) {
+/**
+ * O dia na agenda: o dentista vê a DELE (+ os pendentes de validar); os demais
+ * setores veem a da clínica inteira (a recepção acompanha quem chegou).
+ */
+function useMyDay(userId: string | null, clinica = false) {
   const [events, setEvents] = useState<AgendaEvent[] | null>(null);
   const [pending, setPending] = useState<AgendaEvent[]>([]);
 
   const load = useCallback(async () => {
     if (!userId) return;
     const day = maceioToday();
-    const mine = (e: AgendaEvent) => PATIENT_TYPES.includes(e.type) && (e.assigned_user_id === userId || !e.assigned_user_id);
+    const mine = (e: AgendaEvent) => PATIENT_TYPES.includes(e.type)
+      && (clinica || e.assigned_user_id === userId || !e.assigned_user_id);
     const [ev, pend] = await Promise.allSettled([
       api.get<AgendaEvent[]>('/calendar/events', {
-        params: { start: `${day}T00:00:00.000Z`, end: `${day}T23:59:59.999Z`, userId },
+        params: { start: `${day}T00:00:00.000Z`, end: `${day}T23:59:59.999Z`, ...(clinica ? {} : { userId }) },
       }),
-      api.get<AgendaEvent[]>('/calendar/events/pending-validation', { params: { onlyMine: 'true', daysBack: 7 } }),
+      clinica
+        ? Promise.resolve({ data: [] as AgendaEvent[] })
+        : api.get<AgendaEvent[]>('/calendar/events/pending-validation', { params: { onlyMine: 'true', daysBack: 7 } }),
     ]);
     setEvents(ev.status === 'fulfilled' && Array.isArray(ev.value.data)
       ? ev.value.data.filter(mine).sort((a, b) => a.start_at.localeCompare(b.start_at))
@@ -123,7 +151,7 @@ function useMyDay(userId: string | null) {
     setPending(pend.status === 'fulfilled' && Array.isArray(pend.value.data)
       ? pend.value.data.filter((e) => PATIENT_TYPES.includes(e.type) && e.assigned_user_id === userId)
       : []);
-  }, [userId]);
+  }, [userId, clinica]);
 
   useEffect(() => {
     load();
@@ -137,6 +165,7 @@ function useMyDay(userId: string | null) {
     return {
       done: list.filter((e) => e.status === 'CONCLUIDO' || !!e.validated_at).length,
       toConfirm: pending.length,
+      arrived: list.filter((e) => CHEGOU.includes(e.status) && !e.validated_at).length,
       scheduled: list.filter((e) => e.status !== 'CANCELADO').length,
       missed: list.filter((e) => e.status === 'CANCELADO' || e.status === 'NO_SHOW').length,
     };
@@ -155,7 +184,7 @@ function useMyDay(userId: string | null) {
 
 interface PatientHit { id: string; name: string }
 
-function PatientSearch() {
+function PatientSearch({ meus = true }: { meus?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<PatientHit[]>([]);
@@ -224,8 +253,8 @@ function PatientSearch() {
           else if (e.key === 'Enter') { e.preventDefault(); go(hits[active]); }
           else if (e.key === 'Escape') { setOpen(false); inputRef.current?.blur(); }
         }}
-        placeholder="Buscar entre os meus pacientes…"
-        aria-label="Buscar entre os meus pacientes"
+        placeholder={meus ? 'Buscar entre os meus pacientes…' : 'Buscar paciente…'}
+        aria-label={meus ? 'Buscar entre os meus pacientes' : 'Buscar paciente'}
       />
       <kbd>/</kbd>
       {showList && (
@@ -233,7 +262,7 @@ function PatientSearch() {
           {loading && hits.length === 0 ? (
             <div className="dh-search-empty"><Loader2 size={14} className="animate-spin" /> Buscando…</div>
           ) : hits.length === 0 ? (
-            <div className="dh-search-empty">Nenhum paciente seu com esse nome.</div>
+            <div className="dh-search-empty">{meus ? 'Nenhum paciente seu com esse nome.' : 'Nenhum paciente com esse nome.'}</div>
           ) : (
             hits.map((p, i) => (
               <button
@@ -257,8 +286,9 @@ function PatientSearch() {
   );
 }
 
-function TopBar({ userName }: { userName?: string | null }) {
+function TopBar({ userName, sector }: { userName?: string | null; sector: Sector }) {
   const tenant = useTenant();
+  const dentista = sector === 'dentista';
   return (
     <header className="dh-top">
       <Link href="/atendimento/dashboard" className="dh-brand" title={tenant?.name || 'Início'}>
@@ -270,11 +300,14 @@ function TopBar({ userName }: { userName?: string | null }) {
         )}
         {tenant?.name && <span className="dh-brand-name">{tenant.name}</span>}
       </Link>
-      <PatientSearch />
-      {/* Sem sino de notificações: regra do dono — o dentista não recebe as
-          notificações da clínica (o layout também esconde pro setor dentista). */}
+      <PatientSearch meus={dentista} />
+      {/* O dentista não tem sino (regra do dono: não recebe as notificações da
+          clínica); os demais setores têm — o painel substitui o topo do layout. */}
       <div className="dh-top-right">
-        <AccountMenu name={userName} subtitle="Dentista" />
+        {!dentista && (
+          <span className="dh-bell"><NotificationCenter /></span>
+        )}
+        <AccountMenu name={userName} subtitle={getSector(sector).home.persona || getSector(sector).name} />
       </div>
     </header>
   );
@@ -310,7 +343,7 @@ function Hero({ name, clinicName, today }: { name: string; clinicName?: string; 
   );
 }
 
-function ClockCard({ queue, loading }: { queue: AgendaEvent[]; loading: boolean }) {
+function ClockCard({ queue, loading, clinica = false, denso = false }: { queue: AgendaEvent[]; loading: boolean; clinica?: boolean; denso?: boolean }) {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
@@ -346,7 +379,7 @@ function ClockCard({ queue, loading }: { queue: AgendaEvent[]; loading: boolean 
           </div>
         </div>
       </div>
-      <NextQueue queue={queue} loading={loading} />
+      <NextQueue queue={queue} loading={loading} clinica={clinica} denso={denso} />
     </section>
   );
 }
@@ -361,12 +394,14 @@ const QUEUE_ST: Record<string, { label: string; tone: string }> = {
   AGENDADO: { label: 'Agendado', tone: 'wait' },
 };
 
-function NextQueue({ queue, loading }: { queue: AgendaEvent[]; loading: boolean }) {
+function NextQueue({ queue, loading, clinica, denso }: { queue: AgendaEvent[]; loading: boolean; clinica: boolean; denso: boolean }) {
   const pages = useMemo(() => {
     const out: AgendaEvent[][] = [];
-    for (let i = 0; i < queue.length; i += POR_PAGINA) out.push(queue.slice(i, i + POR_PAGINA));
+    // Painel denso (duas fileiras de cards): 2 por vez, pra caber numa tela.
+    const porPagina = denso ? 2 : POR_PAGINA;
+    for (let i = 0; i < queue.length; i += porPagina) out.push(queue.slice(i, i + porPagina));
     return out;
-  }, [queue]);
+  }, [queue, denso]);
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -399,7 +434,7 @@ function NextQueue({ queue, loading }: { queue: AgendaEvent[]; loading: boolean 
             <div className="dh-queue-track" style={{ transform: `translateX(-${page * 100}%)` }}>
               {pages.map((rows, i) => (
                 <div key={i} className="dh-queue-page" aria-hidden={i !== page}>
-                  {rows.map((ev) => <QueueRow key={ev.id} ev={ev} hidden={i !== page} />)}
+                  {rows.map((ev) => <QueueRow key={ev.id} ev={ev} hidden={i !== page} clinica={clinica} />)}
                 </div>
               ))}
             </div>
@@ -423,12 +458,19 @@ function NextQueue({ queue, loading }: { queue: AgendaEvent[]; loading: boolean 
   );
 }
 
-function QueueRow({ ev, hidden }: { ev: AgendaEvent; hidden: boolean }) {
+function QueueRow({ ev, hidden, clinica }: { ev: AgendaEvent; hidden: boolean; clinica: boolean }) {
   const st = QUEUE_ST[ev.status] ?? QUEUE_ST.AGENDADO;
   const name = ev.patient?.name || ev.lead?.name || 'Paciente';
-  const what = ev.appointment_type?.name || TYPE_LABEL[ev.type] || '';
+  const tipo = ev.appointment_type?.name || TYPE_LABEL[ev.type] || '';
+  // Na agenda da clínica, com quem é a consulta.
+  const dentista = clinica ? (ev.assigned_user?.name || '').trim() : '';
+  const what = [tipo, dentista].filter(Boolean).join(' · ');
   return (
-    <Link href="/atendimento/minha-agenda" className={`dh-q is-${st.tone}`} tabIndex={hidden ? -1 : undefined}>
+    <Link
+      href={clinica ? '/atendimento/agenda' : '/atendimento/minha-agenda'}
+      className={`dh-q is-${st.tone}`}
+      tabIndex={hidden ? -1 : undefined}
+    >
       <span className="dh-q-time">{hhmmNaive(ev.start_at)}</span>
       <span className="dh-q-av">
         <PatientAvatar
@@ -451,17 +493,39 @@ function QueueRow({ ev, hidden }: { ev: AgendaEvent; hidden: boolean }) {
 
 // ─── Cards dos módulos (mesmos do setor, com ilustração) ──────────────────────
 
-const ICONS: Record<string, LucideIcon> = { Calendar, Users, Activity, Trophy, Clock, ClipboardCheck, Stethoscope };
+const ICONS: Record<string, LucideIcon> = {
+  Calendar, Users, Activity, Trophy, Clock, ClipboardCheck, Stethoscope,
+  Zap, MessageSquare, RotateCcw, FileText, LineChart, Workflow, CheckCheck, Layers, Receipt,
+  PieChart, Wallet, UserCog, Megaphone, Settings, Cake,
+};
 
 function artFor(a: HomeAction) {
-  // Antes do teste de href: "Validar atendimento" também leva à Minha agenda.
+  // Antes do ícone: "Validar atendimento" também leva à Minha agenda.
   if (a.badgeKey === 'my_to_validate') return <ValidateArt />;
-  if (a.href.startsWith('/atendimento/nova-consulta')) return <ConsultArt />;
-  if (a.href.startsWith('/atendimento/minha-agenda')) return <CalendarArt />;
   if (a.href.includes('plano=ativo')) return <ToothRingArt />;
-  if (a.href.startsWith('/atendimento/pacientes')) return <PatientCardsArt />;
-  if (a.href.startsWith('/atendimento/meu-jogo')) return <TrophyArt />;
-  return <ClockArt />;
+  switch (a.lucide) {
+    case 'Stethoscope': return <ConsultArt />;
+    case 'Calendar': return <CalendarArt />;
+    case 'Users':
+    case 'UserCog': return <PatientCardsArt />;
+    case 'Trophy': return <TrophyArt />;
+    case 'Activity': return <ToothRingArt />;
+    case 'MessageSquare': return <ChatArt />;
+    case 'Workflow': return <FunnelArt />;
+    case 'LineChart':
+    case 'PieChart': return <ChartArt />;
+    case 'FileText':
+    case 'Layers':
+    case 'CheckCheck': return <DocArt />;
+    case 'Wallet': return <MoneyArt />;
+    case 'Receipt': return <BoletoArt />;
+    case 'Zap': return <ZapArt />;
+    case 'RotateCcw': return <ReturnArt />;
+    case 'Cake': return <CakeArt />;
+    case 'Megaphone': return <MegaphoneArt />;
+    case 'Settings': return <GearArt />;
+    default: return <ClockArt />;
+  }
 }
 
 function ModuleCards({ actions, badges, toValidate }: {
@@ -470,8 +534,12 @@ function ModuleCards({ actions, badges, toValidate }: {
   /** Atendimentos que já passaram e falta validar (null = ainda carregando). */
   toValidate: number | null;
 }) {
+  // Colunas pela quantidade, pra fileiras equilibradas (8 cards = 4 + 4, não
+  // 5 + 3). Com duas fileiras os cards ficam mais baixos e o painel cabe na tela.
+  const n = actions.length;
+  const cols = n <= 6 ? n : n <= 8 ? 4 : Math.min(6, Math.ceil(n / 2));
   return (
-    <div className="dh-cards">
+    <div className={`dh-cards ${n > 6 ? 'is-2rows' : ''}`} style={{ '--dh-cols': cols } as CSSProperties}>
       {actions.map((a) => {
         const Icon = (a.lucide && ICONS[a.lucide]) || Calendar;
         // "Validar atendimento": o número vem do próprio painel (pending-validation);
@@ -480,7 +548,7 @@ function ModuleCards({ actions, badges, toValidate }: {
         const badge = validar
           ? (toValidate === null ? undefined : { value: toValidate > 0 ? `${toValidate} a validar` : 'Tudo validado ✓' })
           : (a.badgeKey ? badges[a.badgeKey] : undefined);
-        const tone = a.badgeKey === 'my_agenda_today' ? 'is-strong'
+        const tone = a.badgeKey === 'my_agenda_today' || a.badgeKey === 'agenda_today' ? 'is-strong'
           : validar ? (toValidate ? 'is-alert' : 'is-ok') : '';
         return (
           <Link key={a.label} href={a.href} className="dh-card">
@@ -506,21 +574,32 @@ function ModuleCards({ actions, badges, toValidate }: {
 
 // ─── Resumo do dia ────────────────────────────────────────────────────────────
 
-function DaySummary({ loading, s }: { loading: boolean; s: ReturnType<typeof useMyDay>['summary'] }) {
+function DaySummary({ loading, s, clinica = false }: {
+  loading: boolean;
+  s: ReturnType<typeof useMyDay>['summary'];
+  /** Agenda da clínica: "Chegaram" no lugar de "A confirmar" (que é do dentista). */
+  clinica?: boolean;
+}) {
   const tiles = [
-    { label: 'Atendidos hoje', value: s.done, Icon: Users, tone: 'green' },
-    { label: 'A confirmar', value: s.toConfirm, Icon: Clock, tone: 'orange' },
-    { label: 'Na agenda hoje', value: s.scheduled, Icon: CalendarDays, tone: 'blue' },
-    { label: 'Faltas e desmarcações', value: s.missed, Icon: CalendarX2, tone: 'red' },
+    { label: 'Atendidos hoje', value: s.done, Icon: Users, tone: 'green', href: '' },
+    clinica
+      ? { label: 'Chegaram', value: s.arrived, Icon: DoorOpen, tone: 'orange', href: '' }
+      : { label: 'A confirmar', value: s.toConfirm, Icon: Clock, tone: 'orange', href: '/atendimento/minha-agenda?validar=1' },
+    { label: 'Na agenda hoje', value: s.scheduled, Icon: CalendarDays, tone: 'blue', href: '' },
+    { label: 'Faltas e desmarcações', value: s.missed, Icon: CalendarX2, tone: 'red', href: '' },
   ];
+  const agenda = clinica ? '/atendimento/agenda' : '/atendimento/minha-agenda';
   return (
     <section className="dh-panel">
-      <h2><span className="dh-panel-ico"><BarChart3 size={15} /></span> Resumo do dia</h2>
+      <h2>
+        <span className="dh-panel-ico"><BarChart3 size={15} /></span> Resumo do dia
+        {clinica && <small className="dh-panel-sub">da clínica</small>}
+      </h2>
       <div className="dh-sum">
-        {tiles.map(({ label, value, Icon, tone }) => (
+        {tiles.map(({ label, value, Icon, tone, href }) => (
           <Link
             key={label}
-            href={label === 'A confirmar' ? '/atendimento/minha-agenda?validar=1' : '/atendimento/minha-agenda'}
+            href={href || agenda}
             className="dh-sum-tile"
             data-tone={tone}
           >
@@ -588,6 +667,78 @@ function MonthProcedures() {
               <span className="dh-bar-label">{it.label}</span>
             </div>
           ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Próximos dias (agenda da clínica) — o painel do meio dos outros setores ──
+
+const DIAS_CURTO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function NextDays() {
+  const [dias, setDias] = useState<{ day: string; n: number }[] | null>(null);
+  const [amanha, setAmanha] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    const base = new Date(`${maceioToday()}T12:00:00.000Z`);
+    const keys = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() + i + 1);
+      return d.toISOString().slice(0, 10);
+    });
+    setAmanha(keys[0]);
+    api.get<AgendaEvent[]>('/calendar/events', {
+      params: { start: `${keys[0]}T00:00:00.000Z`, end: `${keys[keys.length - 1]}T23:59:59.999Z` },
+    })
+      .then(({ data }) => {
+        const cont = new Map<string, number>(keys.map((k) => [k, 0]));
+        for (const e of Array.isArray(data) ? data : []) {
+          if (!PATIENT_TYPES.includes(e.type) || e.status === 'CANCELADO') continue;
+          const k = e.start_at.slice(0, 10);
+          if (cont.has(k)) cont.set(k, (cont.get(k) ?? 0) + 1);
+        }
+        // Domingo sem agenda não entra; mostra os 5 próximos dias de trabalho.
+        const lista = keys
+          .map((k) => ({ day: k, n: cont.get(k) ?? 0 }))
+          .filter((x) => new Date(`${x.day}T12:00:00.000Z`).getUTCDay() !== 0 || x.n > 0)
+          .slice(0, 5);
+        if (alive) setDias(lista);
+      })
+      .catch(() => { if (alive) setDias([]); });
+    return () => { alive = false; };
+  }, []);
+
+  const max = Math.max(1, ...(dias ?? []).map((d) => d.n));
+  return (
+    <section className="dh-panel">
+      <div className="dh-panel-head">
+        <h2><span className="dh-panel-ico"><CalendarDays size={15} /></span> Próximos dias</h2>
+        <Link href="/atendimento/agenda" className="dh-panel-link">Abrir agenda <ArrowRight size={12} /></Link>
+      </div>
+      {!dias ? (
+        <div className="dh-empty"><Loader2 size={16} className="animate-spin" /> Carregando…</div>
+      ) : dias.every((d) => d.n === 0) ? (
+        <div className="dh-empty">Nada agendado nos próximos dias.</div>
+      ) : (
+        <div className="dh-bars">
+          {dias.map((d) => {
+            const dt = new Date(`${d.day}T12:00:00.000Z`);
+            const label = d.day === amanha ? 'Amanhã' : `${DIAS_CURTO[dt.getUTCDay()]} ${dt.getUTCDate()}`;
+            return (
+              <div
+                key={d.day}
+                className={`dh-bar ${d.n === max && d.n > 0 ? 'is-top' : ''}`}
+                title={`${label}: ${d.n} paciente${d.n === 1 ? '' : 's'}`}
+              >
+                <span className="dh-bar-val">{d.n}</span>
+                <span className="dh-bar-fill" style={{ height: `${Math.max(6, (d.n / max) * 100)}%` }} />
+                <span className="dh-bar-label">{label}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -682,19 +833,30 @@ function TodayTasks({ userId, toConfirm }: { userId: string | null; toConfirm: n
 
 // ─── Página ──────────────────────────────────────────────────────────────────
 
-export default function DentistHome({ userName, extraGrants = [], extraRevokes = [] }: Props) {
+export default function DentistHome(props: Props) {
+  return <PainelSetor {...props} sector="dentista" />;
+}
+
+export function PainelSetor({ sector, userName, extraGrants = [], extraRevokes = [], acima }: PainelProps) {
+  const dentista = sector === 'dentista';
   const role = useRole();
   const tenant = useTenant();
   const ponto = usePontoStatus();
-  const { data: badgesData } = useModuleBadges('dentista');
-  const { loading, summary, queue } = useMyDay(role.userId);
+  const { hasPermission } = useUserPermissions();
+  const { data: badgesData } = useModuleBadges(sector);
+  const { loading, summary, queue } = useMyDay(role.userId, !dentista);
   const [today, setToday] = useState<Date | null>(null);
   useEffect(() => { setToday(new Date()); }, []);
 
+  // Os cards do setor (com as permissões individuais) + o relógio de ponto:
+  // "Meu ponto" pra quem está na equipe; "Ponto da equipe" pra quem gerencia.
   const actions = [
-    ...resolveHomeActions('dentista', extraGrants, extraRevokes),
+    ...resolveHomeActions(sector, extraGrants, extraRevokes),
     ...(ponto.member ? [PONTO_BALAO] : []),
+    ...(!dentista && hasPermission('manage_users') ? [PONTO_ADM_BALAO] : []),
   ];
+  // Duas fileiras de cards: saudação, relógio e cards mais compactos (cabe numa tela).
+  const denso = actions.length > 6;
   // Nome COMPLETO como está no cadastro (ex.: "Dra. Rayane ..."). Vazio até o
   // /users/me chegar (evita piscar "Doutor(a)" antes do nome).
   const fullName = (userName || '').trim().replace(/\s+/g, ' ');
@@ -702,19 +864,29 @@ export default function DentistHome({ userName, extraGrants = [], extraRevokes =
   const accent = useMemo(() => tenantAccent(tenant?.theme_color), [tenant?.theme_color]);
 
   return (
-    <div className="dh" style={{ '--dh-accent': accent } as CSSProperties}>
-      <TopBar userName={userName} />
+    <div className={`dh ${denso ? 'is-dense' : ''}`} style={{ '--dh-accent': accent } as CSSProperties} data-sector={sector}>
+      {acima}
+      <TopBar userName={userName} sector={sector} />
       <div className="dh-row1">
         {today ? <Hero name={fullName} clinicName={tenant?.name} today={today} /> : <section className="dh-hero" />}
-        <ClockCard queue={queue} loading={loading} />
+        <ClockCard queue={queue} loading={loading} clinica={!dentista} denso={denso} />
       </div>
-      <ModuleCards actions={actions} badges={badgesData?.badges ?? {}} toValidate={loading ? null : summary.toConfirm} />
+      <ModuleCards
+        actions={actions}
+        badges={badgesData?.badges ?? {}}
+        toValidate={dentista ? (loading ? null : summary.toConfirm) : null}
+      />
       <div className="dh-row3">
-        <DaySummary loading={loading} s={summary} />
-        <MonthProcedures />
-        <TodayTasks userId={role.userId} toConfirm={summary.toConfirm} />
+        <DaySummary loading={loading} s={summary} clinica={!dentista} />
+        {dentista ? <MonthProcedures /> : <NextDays />}
+        <TodayTasks userId={role.userId} toConfirm={dentista ? summary.toConfirm : 0} />
       </div>
-      <p className="dh-foot"><UserRound size={12} /> Você vê só os seus pacientes e a sua agenda.</p>
+      <p className="dh-foot">
+        <UserRound size={12} />
+        {dentista
+          ? 'Você vê só os seus pacientes e a sua agenda.'
+          : `Painel de ${getSector(sector).name.replace(' (Atendimento)', '')} — a agenda é a da clínica toda.`}
+      </p>
     </div>
   );
 }

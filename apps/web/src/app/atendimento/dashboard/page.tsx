@@ -28,7 +28,7 @@ import api from '@/lib/api';
 import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
 import HomeBySector from '@/components/home/HomeBySector';
-import DentistHome from '@/components/home/DentistHome';
+import { PainelSetor } from '@/components/home/DentistHome';
 import { mapBackendRole, type Sector, type Permission } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
 // Onda 17.32.125 — Lembrete persistente do onboarding pendente
@@ -186,155 +186,28 @@ export default function VisaoGeralPage() {
   // Até montar, não desenha a home — `now` só é preenchido no navegador.
   if (!now || !meReady) return <div className="h-full overflow-y-auto bg-background" />;
 
-  // Out/2026 — Dentista tem painel próprio (topo com logo + busca nos pacientes
-  // DELE, boas-vindas, cards ilustrados, resumo do dia). Admin no "visualizar
-  // como" continua vendo a grade (DentistHome usa os dados do usuário logado).
-  if (resolvedSector === 'dentista' && !(role?.isAdmin || role?.isSuperAdmin)) {
+  // Out/2026 — todo mundo entra no painel que nasceu pro dentista (topo com logo
+  // + busca, boas-vindas, relógio com a fila, cards ilustrados, resumo do dia),
+  // cada setor com os cards e os números dele. O admin ganha o "visualizar como".
+  if (!(role?.isAdmin || role?.isSuperAdmin)) {
     return (
       <div className="h-full overflow-y-auto">
         <OnboardingPendingBanner />
-        <DentistHome userName={userName} extraGrants={userGrants} extraRevokes={userRevokes} />
+        <PainelSetor sector={resolvedSector} userName={userName} extraGrants={userGrants} extraRevokes={userRevokes} />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background relative">
-      {/* CSS local pras animacoes que Tailwind nao tem out-of-the-box */}
-      <style jsx>{`
-        @keyframes bob {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-9px); }
-        }
-        @keyframes blink {
-          0%, 94%, 100% { transform: scaleY(1); }
-          97% { transform: scaleY(0.1); }
-        }
-        @keyframes wave {
-          0%, 60%, 100% { transform: rotate(0); }
-          10% { transform: rotate(16deg); }
-          20% { transform: rotate(-8deg); }
-          30% { transform: rotate(16deg); }
-          40% { transform: rotate(-4deg); }
-          50% { transform: rotate(10deg); }
-        }
-        @keyframes flicker {
-          0%, 100% { transform: scale(1) rotate(-2deg); }
-          50% { transform: scale(1.12) rotate(3deg); }
-        }
-        @keyframes twinkle {
-          0%, 100% { opacity: 0.25; transform: scale(0.7); }
-          50% { opacity: 1; transform: scale(1.2); }
-        }
-        @keyframes pulse-soft {
-          0% { box-shadow: 0 0 0 0 rgba(43, 166, 74, 0.5); }
-          70% { box-shadow: 0 0 0 9px rgba(43, 166, 74, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(43, 166, 74, 0); }
-        }
-        .wave-hand { display: inline-block; transform-origin: 70% 70%; animation: wave 2.6s ease-in-out infinite; }
-        .pulse-dot { animation: pulse-soft 2.4s infinite; }
-        .flicker { animation: flicker 0.9s ease-in-out infinite; }
-        .twinkle { animation: twinkle 3s ease-in-out infinite; }
-      `}</style>
-
-      <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6 pb-28 md:pb-12 space-y-6">
-
-        {/* Onda 17.3 — botao "Dashboard completo" removido daqui.
-            Acesso a esse conteudo agora pelo sidebar (Financeiro >
-            Visao Geral). Mantem essa tela 100% focada em atalhos. */}
-
-        {/* Onda 17.32.125 — Lembrete persistente do onboarding (so
-          aparece pra tenant em TRIAL com etapas pendentes). Clique
-          reabre o OnboardingWizard via window event. */}
-        <OnboardingPendingBanner />
-
-        {/* ─── HERO por setor (Onda 17.32.119) ─────────────────────
-          Substitui a saudacao+mascote+versiculo pelo HomeBySector
-          (skill home-por-setor). Cada setor ve persona + actions +
-          afazeres especificos. Reaproveita SkyBackdrop ja em
-          producao via skySlot. Rollback: restaurar o bloco antigo
-          deste commit.
-        */}
-        <HomeBySector
-          sector={resolvedSector}
-          userName={userName ?? undefined}
-          extraGrants={userGrants}
-          extraRevokes={userRevokes}
-          skySlot={<SkyBackdrop />}
-          // Onda 17.32.121 — Admin pode trocar pra visualizar como cada setor ve
-          allowSwitch={role?.isAdmin || role?.isSuperAdmin}
-        />
-        {/* Mantem secao legada (saudacao + mascote + versiculo) renderizada
-          escondida pra rollback rapido se quiser voltar — basta substituir
-          a chamada acima por esta. Inicialmente comentada inline pra ficar
-          escondida sem renderizar nada. */}
-        <section
-          className="hidden"
-          style={{ minHeight: 180 }}
-        >
-          <SkyBackdrop />
-          <div className="relative z-[1]">
-          <ToothMascot />
-
-          {/* Eyebrow: data + hora atualizada */}
-          {/* Onda 17.15 — Texto usa variaveis do tema (foreground/
-              muted-foreground) que ja se adaptam light/dark. Antes
-              forcava text-white em night, ficava ilegivel em light.
-              Onda 17.32.108 — Agora sobre ceu colorido: texto ganha
-              text-shadow leve pra legibilidade independente da fase. */}
-          <div className="inline-flex items-center gap-2 text-xs font-semibold mb-2.5 text-white/95 drop-shadow">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
-            <span>{dateline}</span>
-          </div>
-
-          {/* Greeting */}
-          <h1 className="text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
-            {sal.text},{' '}
-            <span className="italic text-amber-200">
-              {/* Onda 17.13 — Mostra o nome EXATO do cadastro (primeiro
-                  nome), sem prefixo Dr./Dra. Antes acrescentava
-                  automaticamente, o que ficava errado pra perfis nao
-                  dentistas (Admin, Operador, Recepcao, etc).
-                  Onda 17.32.108 — Cor amber-200 pra contraste sobre
-                  qualquer fase do ceu (manha/tarde/noite). */}
-              {userName ? userName.split(' ')[0] : 'visitante'}
-            </span>{' '}
-            <span className="wave-hand">👋</span>
-          </h1>
-
-          <p className="mt-3 text-sm md:text-base max-w-lg text-white/95 drop-shadow">
-            {sal.period === 'morning'
-              ? <>Bom começo de dia. Aqui estão seus atalhos pra acelerar a rotina.</>
-              : sal.period === 'afternoon'
-                ? <>Continue firme. Use os atalhos abaixo pra fechar o dia bem.</>
-                : <>Boa noite! Hora de revisar pendências ou descansar — você escolhe.</>
-            }
-          </p>
-
-          {/* Onda 17.4 — Versiculo do dia, rotaciona por day-of-year.
-              Substituiu o badge mock "Bom trabalho — você está em ritmo".
-              Onda 17.32.108 — Glassmorphism (backdrop-blur) pra ficar
-              legivel sobre o ceu sem perder o efeito de profundidade. */}
-          {now && (() => {
-            const verse = getVerseOfDay(now);
-            return (
-              <div className="inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border max-w-xl bg-white/20 border-white/30 text-white backdrop-blur-md shadow-lg">
-                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-amber-300 to-amber-500 grid place-items-center flex-none shadow">
-                  <BookOpen size={14} className="text-white" />
-                </span>
-                <span className="leading-snug">
-                  <span className="italic">&ldquo;{verse.text}&rdquo;</span>
-                  <span className="block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic text-white/85">
-                    — {verse.ref}
-                  </span>
-                </span>
-              </div>
-            );
-          })()}
-          </div>
-        </section>
-
-      </div>
+    <div className="h-full overflow-y-auto">
+      <OnboardingPendingBanner />
+      <HomeBySector
+        sector={resolvedSector}
+        userName={userName ?? undefined}
+        extraGrants={userGrants}
+        extraRevokes={userRevokes}
+        allowSwitch
+      />
     </div>
   );
 }
