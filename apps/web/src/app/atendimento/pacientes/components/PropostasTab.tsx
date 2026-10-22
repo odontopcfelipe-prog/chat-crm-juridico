@@ -1174,14 +1174,25 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     const allOpts = [...opts.avista, ...opts.cartao, ...opts.parcelado];
     let activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
 
-    // PIX em conta / na maquininha (salvos como proposta): recebimento PRESENCIAL,
-    // sem Asaas. Encaminhar ao financeiro lança no caixa como PIX / PIX maquininha.
-    // Usa a forma PIX à vista (com desconto) como base de valor; o backend pula o
-    // Asaas quando recebe manual_payment_method.
+    // PIX em conta / na maquininha / espécie (salvos como proposta): recebimento
+    // PRESENCIAL, sem Asaas. Encaminhar ao financeiro lança no caixa como PIX /
+    // PIX maquininha / DINHEIRO. Usa a forma PIX à vista (com desconto) como base
+    // de valor; o backend pula o Asaas quando recebe manual_payment_method.
+    // Antes 'cash-avista' não estava aqui e caía no PIX do Asaas (espécie virava PIX).
     const manualPixMethod =
       selectedDetail.chosen_payment_key === 'pix-maquineta-avista' ? 'PIX_MAQUININHA'
       : selectedDetail.chosen_payment_key === 'pix-conta-avista' ? 'PIX'
+      : selectedDetail.chosen_payment_key === 'cash-avista' ? 'DINHEIRO'
       : null;
+    // Misto (PIX + espécie) não tem caminho de aprovação dividido: o ramo genérico
+    // emitiria um PIX Asaas do TOTAL, cobrando de novo a parte paga em espécie.
+    if (selectedDetail.chosen_payment_key === 'pix-mixed-cash') {
+      showError(
+        'Pagamento Misto (PIX + espécie) ainda não pode ser aprovado por aqui — ' +
+        'geraria um PIX do valor total. Salve a proposta como Espécie ou como PIX.',
+      );
+      return;
+    }
     if (manualPixMethod) {
       activeOpt = opts.avista[0]; // PIX à vista (variant 'avista', com desconto)
     }
@@ -1415,7 +1426,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       return;
     }
 
-    const manualLabel = manualPixMethod === 'PIX_MAQUININHA' ? 'PIX na maquininha' : 'PIX em conta';
+    const manualLabel =
+      manualPixMethod === 'PIX_MAQUININHA' ? 'PIX na maquininha'
+      : manualPixMethod === 'DINHEIRO' ? 'espécie (dinheiro)'
+      : 'PIX em conta';
     const confirmMsg = manualPixMethod
       ? `Encaminhar ao financeiro?\n\n` +
         `Forma: ${manualLabel} (recebido na clínica, sem Asaas)\n` +
