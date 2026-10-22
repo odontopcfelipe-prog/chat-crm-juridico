@@ -115,6 +115,26 @@ export function ValidateArt() {
   );
 }
 
+/** Nova consulta: ficha com um dente e o "+" na cor da clínica. */
+export function ConsultArt() {
+  return (
+    <svg viewBox="0 0 180 150" aria-hidden="true">
+      <ellipse cx="100" cy="140" rx="58" ry="6" fill="#000" opacity="0.07" />
+      <rect x="58" y="22" width="104" height="112" rx="15" fill="#E9E6E0" transform="rotate(7 110 78)" />
+      <rect x="44" y="20" width="106" height="114" rx="15" fill="#fff" stroke="#E4E0D8" strokeWidth="2" />
+      <g transform="translate(60 30) scale(3.1)">
+        <path d={TOOTH_PATH} fill="#F6F4F0" stroke="#D6D1C6" strokeWidth="0.55" strokeLinejoin="round" />
+        <path d={TOOTH_SHADE} fill="#ECE8E1" />
+      </g>
+      <rect x="62" y="104" width="54" height="7" rx="3.5" fill="#D6D1C6" />
+      <rect x="62" y="116" width="38" height="7" rx="3.5" fill="#E8E4DC" />
+      <circle className="dh-af" cx="146" cy="30" r="17" />
+      <path d="M146 22v16M138 30h16" stroke="#fff" strokeWidth="3.6" strokeLinecap="round" />
+      <path className="dh-af dh-tw" d={SPARK(30, 44, 8)} />
+    </svg>
+  );
+}
+
 export function ClockArt() {
   return (
     <svg viewBox="0 0 180 150" aria-hidden="true">

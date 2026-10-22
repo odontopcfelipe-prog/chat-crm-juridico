@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   Search, Calendar, Users, Activity, Trophy, Clock, ArrowRight, Sun, CloudSun, Moon,
   BarChart3, CheckSquare, Circle, CheckCircle2, CalendarDays, CalendarX2, Loader2, UserRound,
-  ChevronDown, TrendingUp, ClipboardCheck, type LucideIcon,
+  ChevronDown, TrendingUp, ClipboardCheck, Stethoscope, type LucideIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { resolveHomeActions, PONTO_BALAO, type HomeAction, type Permission } from '@crm/shared';
@@ -35,7 +35,7 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
 import {
-  CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt, ValidateArt,
+  CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt, ValidateArt, ConsultArt,
 } from './dentist-illustrations';
 import './dentist-home.css';
 
@@ -451,11 +451,12 @@ function QueueRow({ ev, hidden }: { ev: AgendaEvent; hidden: boolean }) {
 
 // ─── Cards dos módulos (mesmos do setor, com ilustração) ──────────────────────
 
-const ICONS: Record<string, LucideIcon> = { Calendar, Users, Activity, Trophy, Clock, ClipboardCheck };
+const ICONS: Record<string, LucideIcon> = { Calendar, Users, Activity, Trophy, Clock, ClipboardCheck, Stethoscope };
 
 function artFor(a: HomeAction) {
   // Antes do teste de href: "Validar atendimento" também leva à Minha agenda.
   if (a.badgeKey === 'my_to_validate') return <ValidateArt />;
+  if (a.href.startsWith('/atendimento/nova-consulta')) return <ConsultArt />;
   if (a.href.startsWith('/atendimento/minha-agenda')) return <CalendarArt />;
   if (a.href.includes('plano=ativo')) return <ToothRingArt />;
   if (a.href.startsWith('/atendimento/pacientes')) return <PatientCardsArt />;

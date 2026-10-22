@@ -48,6 +48,8 @@ describe('setor Dentista (regra do dono, out/2026)', () => {
     expect(hrefs).toContain('/atendimento/minha-agenda');
     expect(hrefs).toContain('/atendimento/pacientes');
     expect(hrefs).toContain('/atendimento/meu-jogo');
+    // Nova consulta = só a avaliação (sem valores nem proposta).
+    expect(hrefs).toContain('/atendimento/nova-consulta');
     expect(hrefs.some((h) => h.startsWith('/atendimento/orcamentos'))).toBe(false);
     // Com o profissional não se fala em comissão (decisão do dono, out/2026).
     expect(hrefs).not.toContain('/atendimento/minha-comissao');
@@ -75,7 +77,7 @@ describe('acesso por tela (ROUTE_ACCESS)', () => {
 
   it('dentista abre as telas dele', () => {
     for (const r of ['/atendimento/dashboard', '/atendimento/minha-agenda', '/atendimento/pacientes',
-      '/atendimento/pacientes/abc', '/atendimento/meu-jogo']) {
+      '/atendimento/pacientes/abc', '/atendimento/meu-jogo', '/atendimento/nova-consulta']) {
       expect([r, canAccessRoute(r, dentHas)]).toEqual([r, true]);
     }
   });

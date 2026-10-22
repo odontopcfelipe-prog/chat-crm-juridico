@@ -19,6 +19,7 @@ import {
 import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 
 interface Procedure {
   id: string;
@@ -87,6 +88,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   // Onda 6 — paleta dos cards se adapta ao tema (dark precisa de tint mais
   // forte pra cor ser visivel; light precisa ser mais sutil pra nao saturar).
   // Onda 15: dark = noturno (preto+dourado) ou cyber (roxo+ciano).
+  // Out/2026 — quem só monta a avaliação (Dentista) não fala em orçamento.
+  const { hasPermission } = useUserPermissions();
+  const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'noturno' || resolvedTheme === 'cyber';
   const tintIdle  = isDark ? '24' : '0d';  // ~14% dark / ~5% light
@@ -383,7 +387,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         titleChanged && titleDraft.trim() ? `nome: "${titleDraft.trim()}"` : null,
         priorityChanged ? `prioridade: ${priority}` : null,
       ].filter(Boolean).join(' · ');
-      showSuccess(summary || 'Orçamento atualizado');
+      showSuccess(summary || (canNegotiate ? 'Orçamento atualizado' : 'Avaliação atualizada'));
       await onAdded();
       if (keepOpen) {
         setBasket((prev) => prev.filter((it) => it.id));
@@ -425,7 +429,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Plus size={18} className="text-primary" />
-            <h2 className="text-base font-semibold">Adicionar procedimentos ao orçamento</h2>
+            <h2 className="text-base font-semibold">{canNegotiate ? 'Adicionar procedimentos ao orçamento' : 'Adicionar procedimentos à avaliação'}</h2>
           </div>
           <button
             onClick={onClose}
@@ -829,7 +833,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
               }
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Adicionar ao orçamento
+              {canNegotiate ? 'Adicionar ao orçamento' : 'Adicionar à avaliação'}
             </button>
           </div>
         </div>

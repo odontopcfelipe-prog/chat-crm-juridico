@@ -287,6 +287,10 @@ export const SECTORS: SectorMeta[] = [
       actions: [
         // Agenda + confirmação juntas (out/2026): o badge mostra hoje E os pendentes.
         { lucide: 'Calendar',       icon: '📅', label: 'Minha agenda',           desc: 'Seus pacientes do dia — confirme o atendimento e registre o que foi feito.', href: '/atendimento/minha-agenda', badgeKey: 'my_agenda_today', tone: 'violet'  },
+        // Out/2026 — "Nova consulta" (pedido do dono): escolhe o paciente e cai SÓ na
+        // avaliação (odontograma + plano clínico), sem valores e sem a etapa de
+        // proposta — essa fica com a recepção. Sem número no badge.
+        { lucide: 'Stethoscope',    icon: '🩺', label: 'Nova consulta',          desc: 'Escolha o paciente e monte a avaliação. Sem valores nem proposta.', href: '/atendimento/nova-consulta', badgeKey: 'my_new_consult', tone: 'emerald' },
         { lucide: 'Users',          icon: '👥', label: 'Meus pacientes',         desc: 'Prontuário, avaliação e plano de tratamento.',         href: '/atendimento/pacientes',           badgeKey: 'my_patients_total',        tone: 'sky'     },
         // Out/2026 — "Validar atendimento" no lugar de "Em tratamento" (pedido do dono):
         // reforça os atendimentos que já passaram e ainda falta confirmar/registrar no
@@ -568,6 +572,7 @@ const HREF_TO_PERMISSION: Record<string, Permission> = {
   '/atendimento/minha-agenda?validar=1':   'view_agenda',
   '/atendimento/minha-comissao':           'view_financial',
   '/atendimento/validacoes':               'view_agenda',
+  '/atendimento/nova-consulta':            'create_evaluation',
   '/atendimento/pacientes?plano=ativo':    'view_patients',
   '/atendimento/pacientes':                'view_patients',
   '/atendimento/venda-rapida':             'manage_proposals',
@@ -712,6 +717,7 @@ export const ROUTE_ACCESS: RouteAccessRule[] = [
   { path: '/atendimento/minha-agenda',            anyOf: ['view_agenda'] },
   { path: '/atendimento/agenda',                  anyOf: ['view_agenda'] },
   { path: '/atendimento/validacoes',              anyOf: ['view_agenda'] },
+  { path: '/atendimento/nova-consulta',           anyOf: ['create_evaluation'] },
   { path: '/atendimento/pacientes',               anyOf: ['view_patients'] },
 ];
 

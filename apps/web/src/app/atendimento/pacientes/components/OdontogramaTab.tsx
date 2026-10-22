@@ -7,6 +7,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import QuotePanel from './QuotePanel';
 import AddQuoteItemModal from './AddQuoteItemModal';
 
@@ -158,6 +159,9 @@ const FACES = ['M', 'D', 'O', 'V', 'L', 'INCISAL'] as const;
 const STATE_CLS: Record<string, string> = Object.fromEntries(STATES.map((s) => [s.v, s.cls]));
 
 export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDetail }: Props) {
+  // Out/2026 — quem só monta a avaliação (Dentista): sem cifrão nem "orçamento".
+  const { hasPermission } = useUserPermissions();
+  const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
   const [odonto, setOdonto] = useState<Odontogram | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
@@ -497,12 +501,14 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
         ) : quotesList.length === 0 ? (
           // Empty state: nenhum orcamento ainda
           <div className="bg-card border border-border rounded-xl p-10 text-center">
-            <DollarSign size={28} className="mx-auto text-muted-foreground/50 mb-3" />
+            {canNegotiate
+              ? <DollarSign size={28} className="mx-auto text-muted-foreground/50 mb-3" />
+              : <Activity size={28} className="mx-auto text-muted-foreground/50 mb-3" />}
             <p className="text-sm font-medium text-foreground mb-1">
               Comece adicionando procedimentos
             </p>
             <p className="text-xs text-muted-foreground mb-5 max-w-md mx-auto">
-              Clique em um dente para anotar · Ctrl+clique em varios para orcar em lote · Ou use o botao abaixo
+              Clique em um dente para anotar · Ctrl+clique em varios para {canNegotiate ? 'orcar' : 'planejar'} em lote · Ou use o botao abaixo
             </p>
             <button
               onClick={createNewQuote}
@@ -527,7 +533,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/70 disabled:cursor-not-allowed rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
             >
               {creatingQuote ? (
-                <><Loader2 size={18} className="animate-spin" /> Criando orçamento...</>
+                <><Loader2 size={18} className="animate-spin" /> {canNegotiate ? 'Criando orçamento...' : 'Criando avaliação...'}</>
               ) : (
                 <><Plus size={18} /> Adicionar procedimento</>
               )}
@@ -665,7 +671,10 @@ function QuoteCard({
   // Onda 14.18 — identificador unificado: #001 (quote_number) e nome (title
   // ou fallback "Orcamento"). Usado igual nas 4 abas.
   const quoteNumberBadge = getQuoteNumberBadge(quote);
-  const quoteDisplayName = getQuoteDisplayName(quote);
+  // Sem nome: o dentista (não negocia) vê "Avaliação", não "Orcamento".
+  const { hasPermission } = useUserPermissions();
+  const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
+  const quoteDisplayName = !canNegotiate && !quote.title ? 'Avaliação' : getQuoteDisplayName(quote);
 
   // Edicao inline do titulo: state local enquanto edita, commit no blur/Enter
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -752,7 +761,7 @@ function QuoteCard({
                 setTitleDraft(null);
               }
             }}
-            placeholder="Nome do orcamento (ex: Reabilitacao superior)"
+            placeholder={canNegotiate ? 'Nome do orcamento (ex: Reabilitacao superior)' : 'Nome da avaliação (ex: Reabilitação superior)'}
             // Onda 14.22 — largura fixa de 35ch igual ao span, pro layout
             // nao "saltar" quando entra/sai de edicao. Operador pode digitar
             // mais que 35 chars (input scrolla horizontalmente dentro).
