@@ -141,7 +141,7 @@ REGRAS DE AGENDAMENTO (técnicas — valem sobre qualquer instrução anterior):
    A consulta é com {{doctor_name}}, que avalia o sorriso e explica o tratamento. Mencione isso só na primeira vez que oferecer horário, com suas palavras.
 
 2. DIA PEDIDO SEM VAGA: diga que aquele dia não tem e, na mesma mensagem, ofereça o mais próximo da PROPOSTA SUGERIDA. Nunca pergunte só "quer escolher outro dia?".
-   Sábado: se aparecer em {{available_slots}}, a clínica atende. Se não aparecer, diga que naquele sábado não há vaga e ofereça o mais próximo.
+   SÁBADO / FIM DE SEMANA ("só posso final de semana", "tem sábado?", "durante a semana não consigo"): ofereça os horários de SÁBADOS COM VAGA de {{available_slots}}, com a data — o sábado mais próximo com vaga; se o desta semana não tiver, diga isso e ofereça o próximo sábado. Domingo não tem atendimento. Nunca responda com dia de semana pra quem disse que só pode no fim de semana, e nunca deixe a mensagem dele sem resposta. Sem sábado com vaga em {{available_slots}}: diga com franqueza e ofereça a lista de espera pro sábado.
 
 3. AGENDA VAZIA ("Sem horários disponíveis"): ofereça a lista de espera ("te aviso assim que abrir uma vaga").
 

@@ -92,14 +92,17 @@ import {
   lastOutTurnText,
   maceioNowNaive,
   maceioTodayStr,
+  mergeFreeDays,
   modelEmittedNoAction,
   normalizeSchedulingAction,
   pickAlternativeSlots,
   pickSuggestedSlots,
+  prefersWeekend,
   REMINDER_MIN_DELAY_MS,
   reminderDelayMs,
   sortSlots,
   stripCancellationClaims,
+  upcomingSaturdays,
   withoutRefused,
   type FreeSlotDay,
   type NormalizedSchedulingAction,
@@ -2379,6 +2382,9 @@ export class AiProcessor extends WorkerHost {
       // Mesma lista, ESTRUTURADA (todos os horários livres de cada dia): a rede de
       // segurança do "deixei agendado" e as alternativas de horário usam ela.
       let freeSlotDays: FreeSlotDay[] = [];
+      // Paciente pediu fim de semana: as alternativas (rede 13a) saem dos sábados livres.
+      let weekendOnly = false;
+      let saturdayPool: FreeSlotDay[] = [];
       // Onda 18.x — os horários da CONSULTA têm que vir da agenda do MESMO dentista que o
       // confirm_slot vai marcar (a Orçamentista, Dra. Suellen). Antes lia
       // convo.assigned_dentist_id CRU (podia ser o especialista de ÁREA, ex. Dr. Fellipe) e
@@ -2451,8 +2457,64 @@ export class AiProcessor extends WorkerHost {
             }
           }
 
-          freeSlotDays = daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times }));
-          if (daysWithSlots.length === 0) {
+          // SÁBADOS: a janela acima para nos 5 primeiros dias com vaga (seg–sex) e o
+          // sábado quase nunca entrava — "só posso final de semana" ficava sem oferta e
+          // sem agendamento. Busca os 2 sábados mais próximos COM vaga (até 8 semanas),
+          // mesmo fora da janela. Dentista sem turno de sábado = nenhuma consulta extra.
+          const saturdayDays: typeof daysWithSlots = [];
+          const atendeSabado =
+            (await (this.prisma as any).userSchedule.count({
+              where: { user_id: assignedDentistId, day_of_week: 6 },
+            })) > 0;
+          if (atendeSabado) {
+            for (const dateStr of upcomingSaturdays(startDate.toISOString().slice(0, 10), 8)) {
+              if (saturdayDays.length >= 2) break;
+              const anchor = new Date(`${dateStr}T12:00:00Z`);
+              const inWindow = daysWithSlots.find((d) => d.dateStr === dateStr);
+              const times = inWindow
+                ? inWindow.times
+                : (await this.getAvailability(assignedDentistId, dateStr, 60, profileTenantId)).map((s) => s.start);
+              if (times.length > 0) {
+                saturdayDays.push({ label: `${formatWeekday(anchor)} ${formatDateBR(anchor)} (${dateStr})`, dateStr, times });
+              }
+            }
+          }
+          const saturdayFree: FreeSlotDay[] = saturdayDays.map((d) => ({ date: d.dateStr, times: d.times }));
+          // O paciente pediu fim de semana ("só posso final de semana", "tem sábado?")?
+          weekendOnly = prefersWeekend(
+            (chronological as any[]).filter((m: any) => m.direction === 'in').map((m: any) => m.text),
+          );
+          if (weekendOnly) saturdayPool = saturdayFree;
+          const saturdayLine = !atendeSabado
+            ? 'SÁBADO: a consulta de avaliação não tem horário no sábado nem no domingo.'
+            : saturdayDays.length
+              ? `SÁBADOS COM VAGA (pra quem pede sábado/fim de semana — o mais próximo primeiro; domingo não tem atendimento): ${saturdayDays
+                  .map((d) => `${d.label}: ${compactDayTimes(d.times)}`)
+                  .join(' | ')}`
+              : 'SÁBADO: sem vaga de sábado nas próximas 8 semanas (domingo não tem atendimento).';
+
+          freeSlotDays = mergeFreeDays(
+            daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times })),
+            saturdayFree,
+          );
+          if (saturdayDays.length && (weekendOnly || daysWithSlots.length === 0)) {
+            // Fim de semana (ou só sábado com vaga): a PROPOSTA é do sábado mais próximo
+            // com vaga (se o desta semana estiver cheio, o seguinte) — nunca dia de semana
+            // pra quem disse que não pode.
+            const labelOf = new Map(saturdayDays.map((d) => [d.dateStr, d.label]));
+            const suggLines = pickSuggestedSlots(saturdayFree)
+              .map((s, idx) => `  • ${labelOf.get(s.date) || s.date} às ${s.time}${idx === 0 ? '  ← sábado mais próximo com vaga (ofereça como prioridade)' : ''}`)
+              .join('\n');
+            const fullLines = daysWithSlots.map((d) => `${d.label}: ${compactDayTimes(d.times)}`).join(' | ');
+            availableSlots =
+              (weekendOnly
+                ? `O PACIENTE SÓ PODE NO FIM DE SEMANA: ofereça SÁBADO, nunca dia de semana. Domingo não tem atendimento. ` +
+                  `Se o sábado desta semana não estiver na proposta, diga que ele está sem vaga e ofereça o próximo sábado.\n`
+                : '') +
+              `PROPOSTA SUGERIDA (ofereça SÓ estas, com a data):\n${suggLines}\n` +
+              `${saturdayLine}` +
+              (fullLines ? `\nAGENDA COMPLETA dos dias de semana (só se ele pedir dia de semana): ${fullLines}` : '');
+          } else if (daysWithSlots.length === 0) {
             availableSlots = 'Sem horários disponíveis nos próximos dias.';
           } else {
             // ── Curadoria da PROPOSTA (Onda 19 — regra de oferta do dono) ──
@@ -2467,7 +2529,7 @@ export class AiProcessor extends WorkerHost {
             //      tarde aparecem); sem tarde, o 2º horário do dia (MÁX 2 por dia).
             // Ordem CRONOLÓGICA (dia, depois hora): o 1º = ENCAIXE (o mais cedo).
             const labelOf = new Map(daysWithSlots.map((d) => [d.dateStr, d.label]));
-            const suggestion = pickSuggestedSlots(freeSlotDays);
+            const suggestion = pickSuggestedSlots(daysWithSlots.map((d) => ({ date: d.dateStr, times: d.times })));
             const suggLines = suggestion
               .map((s, idx) => `  • ${labelOf.get(s.date) || s.date} às ${s.time}${idx === 0 ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
               .join('\n');
@@ -2479,7 +2541,8 @@ export class AiProcessor extends WorkerHost {
               .join(' | ');
             availableSlots =
               `PROPOSTA SUGERIDA (ofereça SÓ estas — no máx 3, espalhados em até 2 dias, a mais cedo primeiro; NUNCA 3 do mesmo dia):\n${suggLines}\n` +
-              `AGENDA COMPLETA (use APENAS se o lead recusar as sugeridas ou pedir um dia/horário específico): ${fullLines}`;
+              `AGENDA COMPLETA (use APENAS se o lead recusar as sugeridas ou pedir um dia/horário específico): ${fullLines}\n` +
+              saturdayLine;
           }
         } catch (e: any) {
           this.logger.warn(`[AI] Falha ao buscar disponibilidade: ${e.message}`);
@@ -3613,7 +3676,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               }
               if (!alts.length) {
                 // Recusou: nenhuma alternativa cai no que ele recusou (horário, dia, hora, turno).
-                const pool = withoutRefused(freeSlotDays, decision.refused);
+                const pool = withoutRefused(saturdayPool.length ? saturdayPool : freeSlotDays, decision.refused);
                 alts = assignedDentistId
                   ? await this.pickVerifiedAlternatives(pool, requestedSlot, assignedDentistId, [])
                   : pickAlternativeSlots(pool, requestedSlot, 2);

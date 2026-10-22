@@ -2377,6 +2377,68 @@ export function pickSuggestedSlots(days: FreeSlotDay[]): SlotRef[] {
   return out.sort(bySlot);
 }
 
+// ─── Sábado / fim de semana ──────────────────────────────────────────────────
+
+const WEEKEND_TERM = String.raw`(?:sabados?|(?:fim|fins|final|finais)\s+de\s+semana|fds)`;
+const WEEKEND_TERM_RE = new RegExp(String.raw`\b${WEEKEND_TERM}\b`);
+// Sábado é o dia que ele NÃO pode/já passou: "sábado eu trabalho", "trabalho de segunda a
+// sábado", "fim de semana passado tive dor".
+const WEEKEND_OTHER_RE = new RegExp(
+  String.raw`\b(?:segunda|seg)\s+a\s+sabado\b|\btrabalh\w*\b[^.!?\n]{0,25}\b${WEEKEND_TERM}\b|\b${WEEKEND_TERM}\b[^.!?\n]{0,20}\btrabalh\w*|\b${WEEKEND_TERM}\s+(?:passad|retrasad)\w*|\bultimos?\s+${WEEKEND_TERM}\b`,
+);
+// "sábado não", "não posso no sábado", "menos sábado", "nem no fim de semana".
+const WEEKEND_NEG_RE = new RegExp(
+  String.raw`\b${WEEKEND_TERM}\s+(?:eu\s+)?(?:nao|nunca|jamais|nem)\b|\b(?:nao|nem|nunca|menos|exceto|tirando)\s+(?:(?:posso|consigo|da|rola|vou|tenho)\s+)?(?:(?:no|na|nos|nas|aos?|de|em|o|um)\s+)?${WEEKEND_TERM}\b`,
+);
+// "durante a semana não consigo", "dia de semana não dá", "não posso em dia útil".
+const WEEKDAYS_NO_RE =
+  /\b(?:durante\s+a\s+semana|dias?\s+(?:de\s+semana|uteis|util)|de\s+segunda\s+a\s+sexta)\b[^.!?\n]{0,15}\b(?:nao|nunca|impossivel|complicado|dificil)\b|\bnao\s+(?:posso|consigo|da)\s+(?:(?:em|nos?|de)\s+)?(?:durante\s+a\s+semana|dias?\s+(?:de\s+semana|uteis|util))/;
+const WEEKDAY_NAME_RE = /\b(?:segunda|terca|quarta|quinta|sexta|amanha)\b/;
+
+/**
+ * A mensagem pede SÁBADO/fim de semana ("só posso final de semana", "tem sábado?",
+ * "durante a semana não consigo") — e não o contrário ("sábado não posso", "sábado eu
+ * trabalho", "fim de semana passado").
+ */
+export function wantsWeekend(text: string | null | undefined): boolean {
+  const t = plain(String(text || ''));
+  if (!t.trim()) return false;
+  if (WEEKDAYS_NO_RE.test(t)) return true;
+  if (!WEEKEND_TERM_RE.test(t)) return false;
+  return !WEEKEND_OTHER_RE.test(t) && !WEEKEND_NEG_RE.test(t);
+}
+
+/**
+ * As últimas mensagens do paciente (ordem cronológica) pedem fim de semana? Olha as 2
+ * mais recentes, da última pra trás: "só posso final de semana" seguido de "ok" ainda
+ * vale; se depois ele citou dia de semana ("pode ser terça?") ou recusou o sábado, não.
+ */
+export function prefersWeekend(inboundTexts: (string | null | undefined)[]): boolean {
+  const recent = inboundTexts.filter((t) => String(t || '').trim()).slice(-2);
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const t = plain(String(recent[i]));
+    if (wantsWeekend(t)) return true;
+    if (WEEKEND_TERM_RE.test(t) || WEEKDAY_NAME_RE.test(t)) return false;
+  }
+  return false;
+}
+
+/** Os próximos `n` sábados (YYYY-MM-DD) a partir de `fromDate` (incluso). */
+export function upcomingSaturdays(fromDate: string, n: number): string[] {
+  let d = fromDate;
+  while (weekdayOf(d) !== 6) d = addDays(d, 1);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) out.push(addDays(d, 7 * i));
+  return out;
+}
+
+/** Junta dias livres (sem repetir data), em ordem cronológica. */
+export function mergeFreeDays(...lists: FreeSlotDay[][]): FreeSlotDay[] {
+  const byDate = new Map<string, FreeSlotDay>();
+  for (const list of lists) for (const d of list) if (!byDate.has(d.date)) byDate.set(d.date, d);
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /** Até k itens espalhados uniformemente pela lista (o 1º e o último entram), na ordem. */
 function evenly(list: string[], k: number): string[] {
   if (k <= 0) return [];
