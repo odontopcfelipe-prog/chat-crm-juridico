@@ -20,6 +20,7 @@ import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { DenteReal, LegendaMarcas, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
 
 interface Procedure {
   id: string;
@@ -275,6 +276,22 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     });
     return m;
   }, [basket, activeBasketIdx]);
+
+  // Out/2026 — os procedimentos da cesta aparecem desenhados NO dente
+  // (implante, faceta, canal...), inclusive os do procedimento ativo.
+  const marcasPorDente = useMemo(() => {
+    const m = new Map<string, MarcaDente[]>();
+    for (const it of basket) {
+      const proc = procedures.find((p) => p.id === it.procedure_id);
+      const tipos = classificarProcedimento(it.procedure_name, proc?.specialty?.name);
+      for (const fdi of it.tooth_fdis) {
+        const lista = m.get(fdi) ?? [];
+        for (const tipo of tipos) lista.push({ tipo, nome: it.procedure_name });
+        m.set(fdi, lista);
+      }
+    }
+    return m;
+  }, [basket, procedures]);
 
   // Resumo no footer: total dentes únicos + procedimentos efetivos + tempo
   const summaryStats = useMemo(() => {
@@ -534,6 +551,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             activeFdis={activeItem?.tooth_fdis || []}
             activeProcedureName={activeItem?.procedure_name}
             otherUsedFdis={otherUsedFdis}
+            marcas={marcasPorDente}
             onToggle={toggleToothInActive}
             hasActive={activeBasketIdx !== null}
             dentitionMode={dentitionMode}
@@ -895,6 +913,7 @@ function Odontograma({
   activeFdis,
   activeProcedureName,
   otherUsedFdis,
+  marcas,
   onToggle,
   hasActive,
   dentitionMode,
@@ -903,6 +922,7 @@ function Odontograma({
   activeFdis: string[];
   activeProcedureName?: string;
   otherUsedFdis: Map<string, string>;
+  marcas: Map<string, MarcaDente[]>;
   onToggle: (fdi: string) => void;
   hasActive: boolean;
   dentitionMode: 'adult' | 'child';
@@ -961,9 +981,9 @@ function Odontograma({
             de frente pra boca aberta). Separador central tipo LUMEN. */}
         <div className="flex flex-col items-center gap-2">
           <div className="flex justify-center gap-4">
-            <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
+            <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
             <div className="w-px bg-stone-300 dark:bg-stone-700 self-stretch" />
-            <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
+            <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={true} />
           </div>
           <div className="flex items-center w-full max-w-[560px] text-[10px] font-bold text-muted-foreground tracking-wider">
             <div className="flex-1 h-px bg-border" />
@@ -971,10 +991,11 @@ function Odontograma({
             <div className="flex-1 h-px bg-border" />
           </div>
           <div className="flex justify-center gap-4">
-            <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
+            <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
             <div className="w-px bg-stone-300 dark:bg-stone-700 self-stretch" />
-            <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
+            <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} marcas={marcas} onToggle={onToggle} hasActive={hasActive} isUpper={false} />
           </div>
+          <LegendaMarcas porDente={marcas} />
         </div>
       </div>
     </div>
@@ -982,120 +1003,46 @@ function Odontograma({
 }
 
 function ToothRow({
-  fdiList, activeSet, otherUsedFdis, onToggle, hasActive, isUpper,
+  fdiList, activeSet, otherUsedFdis, marcas, onToggle, hasActive, isUpper,
 }: {
   fdiList: string[];
   activeSet: Set<string>;
   otherUsedFdis: Map<string, string>;
+  marcas: Map<string, MarcaDente[]>;
   onToggle: (fdi: string) => void;
   hasActive: boolean;
   isUpper: boolean;
 }) {
+  // Out/2026 — dente realista (formato pelo tipo + raízes) com o procedimento
+  // desenhado nele. Coroas das duas arcadas se encontram no meio, como na boca.
   return (
-    <div className="flex gap-1.5 items-end">
+    <div className={`flex gap-1 ${isUpper ? 'items-end' : 'items-start'}`}>
       {fdiList.map((fdi) => {
         const isActive = activeSet.has(fdi);
         const otherProcName = otherUsedFdis.get(fdi);
         const isOtherUsed = !!otherProcName && !isActive;
+        const doDente = marcas.get(fdi) ?? [];
+        const nomes = [...new Set(doDente.map((m) => m.nome))].join(' · ');
         const title = isActive
-          ? `Click pra remover dente ${fdi}`
+          ? `Dente ${fdi}${nomes ? ` — ${nomes}` : ''} · clique pra remover`
           : isOtherUsed
-          ? `Dente ${fdi} ja em uso por: ${otherProcName}`
+          ? `Dente ${fdi} — ${nomes || otherProcName}`
           : hasActive
-          ? `Click pra adicionar dente ${fdi}`
-          : 'Selecione um procedimento da cesta primeiro';
+          ? `Clique pra adicionar o dente ${fdi}`
+          : nomes ? `Dente ${fdi} — ${nomes}` : 'Selecione um procedimento da cesta primeiro';
         return (
-          <Tooth3D
+          <DenteReal
             key={fdi}
             fdi={fdi}
-            isActive={isActive}
-            isOtherUsed={isOtherUsed}
+            superior={isUpper}
+            marcas={doDente}
+            selecionado={isActive}
             disabled={!hasActive}
-            isUpper={isUpper}
             onClick={() => onToggle(fdi)}
             title={title}
           />
         );
       })}
     </div>
-  );
-}
-
-// ─── Dente 3D (SVG inline) ────────────────────────────────────────────
-// Onda 16.1 — substituicao dos botoes quadrados por visual de dente real.
-// Cores via gradient + highlight elipse pra dar profundidade. Glow no
-// estado ativo pra reforcar selecao visual.
-function Tooth3D({
-  fdi, isActive, isOtherUsed, disabled, isUpper, onClick, title,
-}: {
-  fdi: string;
-  isActive: boolean;
-  isOtherUsed: boolean;
-  disabled: boolean;
-  isUpper: boolean;
-  onClick: () => void;
-  title: string;
-}) {
-  // Paleta por estado
-  const colors = isActive
-    ? { fill: '#fbbf24', highlight: '#fde68a', stroke: '#d97706', glow: 'rgba(251, 191, 36, 0.65)', textColor: 'text-amber-700' }
-    : isOtherUsed
-    ? { fill: '#fed7aa', highlight: '#ffedd5', stroke: '#fb923c', glow: 'transparent', textColor: 'text-amber-700' }
-    : disabled
-    ? { fill: '#e7e5e4', highlight: '#f5f5f4', stroke: '#d6d3d1', glow: 'transparent', textColor: 'text-muted-foreground/60' }
-    : { fill: '#f5f5f4', highlight: '#ffffff', stroke: '#a8a29e', glow: 'transparent', textColor: 'text-stone-600' };
-
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={title}
-      className={`group relative flex flex-col items-center gap-0.5 transition-all ${
-        disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:scale-110'
-      } ${isActive ? 'scale-110' : ''}`}
-    >
-      <div
-        className="relative w-7 h-9"
-        style={{
-          filter: isActive
-            ? `drop-shadow(0 0 6px ${colors.glow}) drop-shadow(0 2px 3px rgba(0,0,0,0.15))`
-            : 'drop-shadow(0 1px 2px rgba(0,0,0,0.10))',
-        }}
-      >
-        <svg
-          viewBox="0 0 32 36"
-          className={`w-full h-full ${isUpper ? 'rotate-180' : ''}`}
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id={`tooth-${fdi}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={colors.highlight} />
-              <stop offset="55%" stopColor={colors.fill} />
-              <stop offset="100%" stopColor={colors.fill} />
-            </linearGradient>
-          </defs>
-          {/* Path do dente: coroa arredondada larga + 2 raizes que se separam */}
-          <path
-            d="M16 2 C 9 2, 5 6, 5 13 C 5 17, 6 21, 7 25 C 7.5 29, 9 33, 11 33 C 12.5 33, 13 30, 13.5 27 C 14 25, 14.5 24, 16 24 C 17.5 24, 18 25, 18.5 27 C 19 30, 19.5 33, 21 33 C 23 33, 24.5 29, 25 25 C 26 21, 27 17, 27 13 C 27 6, 23 2, 16 2 Z"
-            fill={`url(#tooth-${fdi})`}
-            stroke={colors.stroke}
-            strokeWidth="1.2"
-            strokeLinejoin="round"
-          />
-          {/* Highlight elipse pra dar 3D */}
-          <ellipse cx="11" cy="9" rx="2.5" ry="4" fill="white" opacity="0.45" />
-        </svg>
-      </div>
-      <span className={`text-[9px] font-bold leading-none ${colors.textColor}`}>
-        {fdi}
-      </span>
-      {isOtherUsed && !isActive && (
-        <span
-          className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-amber-500 ring-1 ring-background"
-          aria-hidden="true"
-        />
-      )}
-    </button>
   );
 }

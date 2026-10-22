@@ -8,6 +8,7 @@ import { colorForSpecialty } from '@/lib/specialty-colors';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { DenteReal, LegendaMarcas, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
 import QuotePanel from './QuotePanel';
 import AddQuoteItemModal from './AddQuoteItemModal';
 
@@ -1057,20 +1058,25 @@ const FDI_MINI_INF_ESQ = ['31', '32', '33', '34', '35', '36', '37', '38'];
 const FDI_MINI_INF_DIR = ['48', '47', '46', '45', '44', '43', '42', '41'];
 
 function QuoteMiniOdontograma({ items }: { items: QuoteItemLite[] }) {
-  // Mapa fdi -> primeiro item daquele dente (pra cor da especialidade)
-  const itemsByFdi = new Map<string, QuoteItemLite>();
+  // Out/2026 — dentes realistas com o procedimento desenhado (implante, faceta,
+  // canal...), igual ao seletor do "Adicionar procedimentos".
+  const marcas = new Map<string, MarcaDente[]>();
   for (const it of items) {
-    if (!it.tooth_fdi) continue;
-    if (!itemsByFdi.has(it.tooth_fdi)) itemsByFdi.set(it.tooth_fdi, it);
+    if (!it.tooth_fdi || !it.procedure) continue;
+    const lista = marcas.get(it.tooth_fdi) ?? [];
+    for (const tipo of classificarProcedimento(it.procedure.name, it.procedure.specialty?.name)) {
+      lista.push({ tipo, nome: it.procedure.name });
+    }
+    marcas.set(it.tooth_fdi, lista);
   }
-  const totalLinked = itemsByFdi.size;
+  const totalLinked = marcas.size;
   const totalUnlinked = items.filter((it) => !it.tooth_fdi).length;
 
   return (
     <div className="px-4 py-3 border-b border-border bg-card/40">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-          Visão dos dentes deste orçamento
+          Visão dos dentes
         </p>
         <p className="text-[10px] text-muted-foreground">
           <strong className="text-foreground">{totalLinked}</strong> dente(s) com procedimento
@@ -1082,58 +1088,36 @@ function QuoteMiniOdontograma({ items }: { items: QuoteItemLite[] }) {
           )}
         </p>
       </div>
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-1.5">
         <div className="flex justify-center gap-3">
-          <QuoteMiniRow fdiList={FDI_MINI_SUP_DIR} itemsByFdi={itemsByFdi} />
+          <QuoteMiniRow fdiList={FDI_MINI_SUP_DIR} marcas={marcas} superior />
           <div className="w-px bg-border" />
-          <QuoteMiniRow fdiList={FDI_MINI_SUP_ESQ} itemsByFdi={itemsByFdi} />
+          <QuoteMiniRow fdiList={FDI_MINI_SUP_ESQ} marcas={marcas} superior />
         </div>
         <div className="h-px bg-border w-full max-w-[420px]" />
         <div className="flex justify-center gap-3">
-          <QuoteMiniRow fdiList={FDI_MINI_INF_DIR} itemsByFdi={itemsByFdi} />
+          <QuoteMiniRow fdiList={FDI_MINI_INF_DIR} marcas={marcas} superior={false} />
           <div className="w-px bg-border" />
-          <QuoteMiniRow fdiList={FDI_MINI_INF_ESQ} itemsByFdi={itemsByFdi} />
+          <QuoteMiniRow fdiList={FDI_MINI_INF_ESQ} marcas={marcas} superior={false} />
         </div>
+        <LegendaMarcas porDente={marcas} />
       </div>
     </div>
   );
 }
 
 function QuoteMiniRow({
-  fdiList, itemsByFdi,
+  fdiList, marcas, superior,
 }: {
   fdiList: string[];
-  itemsByFdi: Map<string, QuoteItemLite>;
+  marcas: Map<string, MarcaDente[]>;
+  superior: boolean;
 }) {
   return (
-    <div className="flex gap-0.5">
-      {fdiList.map((fdi) => {
-        const item = itemsByFdi.get(fdi);
-        const specKey = item
-          ? item.procedure?.specialty?.id || item.procedure?.specialty_id || '__none__'
-          : null;
-        const color = specKey ? colorForSpecialty(specKey) : null;
-        const procName = item?.procedure?.name;
-        const inlineStyle: React.CSSProperties | undefined = color
-          ? {
-              backgroundColor: color.tint,
-              borderColor: color.bar,
-              color: color.bar,
-            }
-          : undefined;
-        return (
-          <div
-            key={fdi}
-            className={`w-7 h-7 rounded text-[10px] font-bold border-2 flex items-center justify-center transition-all ${
-              color ? '' : 'bg-background border-border text-muted-foreground/60'
-            }`}
-            style={inlineStyle}
-            title={procName ? `${fdi} — ${procName}` : `${fdi} — sem procedimento`}
-          >
-            {fdi}
-          </div>
-        );
-      })}
+    <div className={`flex gap-0.5 ${superior ? 'items-end' : 'items-start'}`}>
+      {fdiList.map((fdi) => (
+        <DenteReal key={fdi} fdi={fdi} superior={superior} marcas={marcas.get(fdi) ?? []} altura={46} />
+      ))}
     </div>
   );
 }
