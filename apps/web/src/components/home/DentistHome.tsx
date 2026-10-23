@@ -39,7 +39,6 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
-import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 import {
   CalendarArt, PatientCardsArt, ToothRingArt, TrophyArt, ClockArt, HeroArt, LeavesArt, ValidateArt, ConsultArt,
   ChatArt, FunnelArt, DocArt, MoneyArt, BoletoArt, ChartArt, ZapArt, ReturnArt, CakeArt, MegaphoneArt, GearArt,
@@ -301,12 +300,8 @@ function TopBar({ userName, sector }: { userName?: string | null; sector: Sector
         {tenant?.name && <span className="dh-brand-name">{tenant.name}</span>}
       </Link>
       <PatientSearch meus={dentista} />
-      {/* O dentista não tem sino (regra do dono: não recebe as notificações da
-          clínica); os demais setores têm — o painel substitui o topo do layout. */}
+      {/* Sem sino de notificações (regra do dono, out/2026: avisava o que não devia). */}
       <div className="dh-top-right">
-        {!dentista && (
-          <span className="dh-bell"><NotificationCenter /></span>
-        )}
         <AccountMenu name={userName} subtitle={getSector(sector).home.persona || getSector(sector).name} />
       </div>
     </header>

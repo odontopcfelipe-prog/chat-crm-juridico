@@ -31,7 +31,6 @@ import { Lock } from 'lucide-react';
 import { SocketProvider } from '@/lib/SocketProvider';
 import { NotificationToggle } from '@/components/NotificationToggle';
 import { useVisualMode } from '@/components/VisualModeProvider';
-import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 import { ThemeMenuButton } from '@/components/ThemeMenuButton';
 // Onda 17.50 — Menu de conta (avatar + Sair) no header, pra quando a barra
 // lateral some pros papeis simples e o logout precisa ter outro lugar.
@@ -450,16 +449,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                 </button>
               )}
               <div className="flex-1" />
-              {/* Notificacoes + Aparencia + conta no canto direito — so pra quem
-                  NAO tem a barra lateral (la eles ficam no rodape). */}
+              {/* Aparencia + conta no canto direito — so pra quem NAO tem a barra
+                  lateral (la eles ficam no rodape). Out/2026 — sem sino de
+                  notificações pra ninguém (regra do dono: avisava o que não devia). */}
               {!showSidebar && (
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Out/2026 — regra do dono: o dentista não tem o sino de notificações. */}
-                  {permSector !== 'dentista' && (
-                    <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
-                      <NotificationCenter />
-                    </div>
-                  )}
                   <ThemeMenuButton variant="header" align="right" />
                   <AccountMenu />
                 </div>

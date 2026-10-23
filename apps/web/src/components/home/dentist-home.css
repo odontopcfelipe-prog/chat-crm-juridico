@@ -455,11 +455,6 @@
   font-size: 12px; font-weight: 700; color: var(--dh-muted); text-decoration: none;
 }
 .dh-panel-link:hover { color: var(--dh-ink); }
-.dh-bell {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border-radius: 12px; color: var(--dh-ink);
-}
-.dh-bell:hover { background: var(--dh-soft); }
 
 /* "Visualizando como" do admin — neutro, no mesmo padrão do painel. */
 .dh-switch {
