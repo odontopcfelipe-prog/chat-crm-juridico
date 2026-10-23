@@ -12,7 +12,11 @@ function montar(o: { auditFalha?: boolean } = {}) {
     auditLog: {
       create: o.auditFalha ? jest.fn().mockRejectedValue(new Error('db fora')) : jest.fn().mockResolvedValue({}),
     },
-    cashClosing: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUnique: jest.fn() },
+    // Fechado pela recepção (rec1) — o validador (adm1) é outra pessoa.
+    cashClosing: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'cl1', tenant_id: TENANT, closed_by_id: 'rec1' }),
+    },
     financialTransaction: { findUnique: jest.fn(), delete: jest.fn().mockResolvedValue({}) },
   };
   const svc = new CaixaService(prisma, {} as any);

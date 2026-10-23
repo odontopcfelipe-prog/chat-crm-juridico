@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  ForbiddenException,
   BadRequestException,
   ConflictException,
   Logger,
@@ -451,7 +452,16 @@ export class CaixaService {
     };
   }
 
-  async validateDay(id: string, tenantId: string, userId: string, dto: ValidateDayDto) {
+  async validateDay(id: string, tenantId: string, userId: string, dto: ValidateDayDto, roles: string[] = []) {
+    // Antifraude (out/2026) — quem fechou o caixa não valida o mesmo dia: a conferência
+    // é de OUTRA pessoa. O administrador pode (clínica pequena), e fica no rastro.
+    const atual = await this.prisma.cashClosing.findUnique({ where: { id }, select: { tenant_id: true, closed_by_id: true } });
+    if (!atual || atual.tenant_id !== tenantId) throw new NotFoundException('Fechamento nao encontrado');
+    const admin = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+    const proprio = !!atual.closed_by_id && atual.closed_by_id === userId;
+    if (proprio && !admin) {
+      throw new ForbiddenException('Quem fechou o caixa não pode validar o mesmo dia — peça a outra pessoa do Financeiro ou ao administrador.');
+    }
     const upd = await this.prisma.cashClosing.updateMany({
       where: { id, tenant_id: tenantId, status: 'FECHADO' },
       data: { status: 'VALIDADO', validated_by_id: userId, validated_at: new Date(), validation_notes: dto.validation_notes ?? null },
@@ -459,6 +469,7 @@ export class CaixaService {
     if (upd.count === 0) throw new BadRequestException('So da pra validar um caixa FECHADO (e ainda nao validado).');
     await this.logAction(userId, 'CAIXA_VALIDADO', id, tenantId, {
       obs: dto.validation_notes, status_antes: 'FECHADO', status_depois: 'VALIDADO',
+      ...(proprio ? { validou_o_proprio_fechamento: true } : {}),
     });
     return this.getClosing(id, tenantId);
   }

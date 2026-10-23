@@ -187,6 +187,11 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
   const [detailQuoteId, setDetailQuoteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<string | null>(null);
+  // Baixa manual de parcela é do Financeiro (a API exige manage_financial) — e
+  // precisa da forma de pagamento: abre a escolha na própria linha.
+  const { hasPermission } = useUserPermissions();
+  const podeBaixarParcela = hasPermission('manage_financial');
+  const [baixa, setBaixa] = useState<{ id: string; metodo: string } | null>(null);
   // Onda 18.12 — bump a cada refresh (polling/atualizar) pra os cards
   // reinvalidarem o cache das sub-parcelas (status vem do Asaas ao vivo) e a
   // parcela paga AUTOMATICAMENTE (webhook) virar "Pago" sozinha.
@@ -330,13 +335,16 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
     return { total, paid, pending, overdue, aGerar };
   }, [installments, charges, acceptedQuotes]);
 
-  const markPaid = async (id: string) => {
-    if (!confirm('Marcar parcela como PAGA hoje?')) return;
-    setPaying(id);
+  const markPaid = async (it: Installment, metodo: string) => {
+    const falta = Number(it.amount) - Number(it.discount_value || 0) + Number(it.fee_value || 0) - Number(it.amount_paid || 0);
+    if (!(falta > 0)) return;
+    setPaying(it.id);
     try {
-      await api.post(`/installments/${id}/pay`, {
-        paid_at: new Date().toISOString(),
+      await api.post(`/installments/${it.id}/pay`, {
+        amount_paid: Number(falta.toFixed(2)),
+        payment_method: metodo,
       });
+      setBaixa(null);
       showSuccess('Parcela marcada como paga');
       await load();
     } catch (err: unknown) {
@@ -528,17 +536,44 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  {it.status !== 'PAGA' && it.status !== 'CANCELADA' && it.status !== 'RENEGOCIADA' && (
-                    <button
-                      type="button"
-                      onClick={() => markPaid(it.id)}
-                      disabled={paying === it.id}
-                      className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                      title="Marcar como paga (data = hoje)"
-                    >
-                      {paying === it.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                      Baixar
-                    </button>
+                  {podeBaixarParcela && it.status !== 'PAGA' && it.status !== 'CANCELADA' && it.status !== 'RENEGOCIADA' && (
+                    baixa?.id === it.id ? (
+                      <span className="inline-flex items-center gap-1">
+                        <select
+                          value={baixa.metodo}
+                          onChange={(e) => setBaixa({ id: it.id, metodo: e.target.value })}
+                          className="text-xs rounded-lg border border-border bg-background px-1.5 py-1"
+                          aria-label="Forma de pagamento"
+                        >
+                          {['PIX', 'DINHEIRO', 'CARTAO', 'MAQUININHA', 'TRANSFERENCIA', 'BOLETO'].map((m) => (
+                            <option key={m} value={m}>{PAYMENT_METHOD_LABEL[m]}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => markPaid(it, baixa.metodo)}
+                          disabled={paying === it.id}
+                          className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                          title="Confirmar a baixa (data = hoje)"
+                        >
+                          {paying === it.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                          Confirmar
+                        </button>
+                        <button type="button" onClick={() => setBaixa(null)} className="text-xs px-1.5 py-1 text-muted-foreground hover:text-foreground">
+                          Cancelar
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setBaixa({ id: it.id, metodo: 'PIX' })}
+                        className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                        title="Dar baixa nesta parcela (data = hoje)"
+                      >
+                        <Check size={11} />
+                        Baixar
+                      </button>
+                    )
                   )}
                   <a
                     href={`/atendimento/financeiro/parcelas?id=${it.id}`}

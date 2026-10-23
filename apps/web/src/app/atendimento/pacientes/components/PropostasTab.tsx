@@ -5589,8 +5589,9 @@ function PropostaPainel({
           Enviar pro paciente
         </button>
         {/* Onda 18.x — MIGRACAO ASAAS: adiciona os procedimentos ao tratamento
-            SEM gerar cobranca. Pro paciente importado que ja tem os boletos. */}
-        {onAcceptNoCharge && (
+            SEM gerar cobranca. Pro paciente importado que ja tem os boletos.
+            Antifraude: só o administrador (a API recusa os outros). */}
+        {onAcceptNoCharge && (isAdmin || isSuperAdmin) && (
           <button
             type="button"
             onClick={onAcceptNoCharge}

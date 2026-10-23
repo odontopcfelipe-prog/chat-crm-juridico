@@ -2968,6 +2968,14 @@ export class QuotesService {
         data: { status: 'ACTIVE', start_date: new Date() },
       });
     }
+    // Antifraude — quem pôs sem cobrança e quanto valia a proposta antes de zerar.
+    await registrarAuditoria(this.prisma, {
+      tenantId, actorUserId: userId ?? null, entity: 'TREATMENT_PLAN', entityId: result.treatment_plan.id,
+      action: 'TRATAMENTO_SEM_COBRANCA',
+      before: { quote_status: quote.status, total: Number(quote.total_value ?? 0) },
+      after: { quote_status: 'ACCEPTED', total: 0, plano: result.treatment_plan.id },
+      meta: { descricao: `Orçamento ${id} adicionado ao tratamento sem cobrança (migração)`, valor: Number(quote.total_value ?? 0) },
+    }, this.logger);
     this.logger.log(
       `[ACCEPT-NO-CHARGE] Quote ${id} zerada + aceita SEM cobranca; plano ` +
       `${result.treatment_plan.id} ativado (fila do Financeiro). Nenhuma charge, valores zerados.`,

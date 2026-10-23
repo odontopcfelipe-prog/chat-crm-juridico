@@ -4,11 +4,20 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { Prisma } from '@crm/shared';
 import {
   CreateInstallmentDto, GenerateFromQuoteDto, PayInstallmentDto,
   UpdateInstallmentDto, RenegotiateDto,
 } from './dto/installment.dto';
+
+/** Retrato dos valores da parcela pro rastro (antes/depois). */
+function valoresParcela(i: { amount: unknown; discount_value: unknown; fee_value: unknown; due_date: Date | null; notes?: string | null }) {
+  return {
+    valor: Number(i.amount), desconto: Number(i.discount_value), juros: Number(i.fee_value),
+    vencimento: i.due_date, obs: i.notes ?? null,
+  };
+}
 
 @Injectable()
 export class InstallmentsService {
@@ -191,9 +200,9 @@ export class InstallmentsService {
     return inst;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateInstallmentDto) {
-    await this.findOne(tenantId, id);
-    return this.prisma.installment.update({
+  async update(tenantId: string, id: string, dto: UpdateInstallmentDto, actorId: string | null = null) {
+    const antes = await this.findOne(tenantId, id);
+    const depois = await this.prisma.installment.update({
       where: { id },
       data: {
         amount: dto.amount !== undefined ? new Prisma.Decimal(dto.amount) : undefined,
@@ -203,13 +212,25 @@ export class InstallmentsService {
         notes: dto.notes,
       },
     });
+    // Antifraude — mudar valor/desconto/vencimento fica no rastro (antes → depois).
+    await registrarAuditoria(this.prisma, {
+      tenantId, actorUserId: actorId, entity: 'PARCELA', entityId: id, action: 'PARCELA_ALTERADA',
+      before: valoresParcela(antes), after: valoresParcela(depois),
+      meta: { descricao: `Parcela ${antes.sequence}/${antes.total_count}`, valor: Number(depois.amount) },
+    }, this.logger);
+    return depois;
   }
 
   /** Registra pagamento (total ou parcial). */
-  async pay(tenantId: string, id: string, dto: PayInstallmentDto) {
+  async pay(tenantId: string, id: string, dto: PayInstallmentDto, actorId: string | null = null) {
     const inst = await this.findOne(tenantId, id);
     if (inst.status === 'PAGA') throw new BadRequestException('Parcela ja foi paga');
     if (inst.status === 'CANCELADA') throw new BadRequestException('Parcela cancelada');
+    // Antifraude — pagamento "no futuro" não existe; data passada vale, mas fica no rastro.
+    const pagoEm = dto.paid_at ? new Date(dto.paid_at) : new Date();
+    if (pagoEm.getTime() > Date.now() + 5 * 60_000) {
+      throw new BadRequestException('A data do pagamento está no futuro.');
+    }
 
     const newAmountPaid = Number(inst.amount_paid) + dto.amount_paid;
     const totalDue = Number(inst.amount) - Number(inst.discount_value) + Number(inst.fee_value);
@@ -220,11 +241,20 @@ export class InstallmentsService {
       data: {
         amount_paid: new Prisma.Decimal(newAmountPaid),
         payment_method: dto.payment_method,
-        paid_at: isFullPaid ? (dto.paid_at ? new Date(dto.paid_at) : new Date()) : undefined,
+        paid_at: isFullPaid ? pagoEm : undefined,
         status: isFullPaid ? 'PAGA' : 'PARCIAL',
         notes: dto.notes,
       },
     });
+    await registrarAuditoria(this.prisma, {
+      tenantId, actorUserId: actorId, entity: 'PARCELA', entityId: id, action: 'PARCELA_BAIXA_MANUAL',
+      before: { status: inst.status, amount_paid: Number(inst.amount_paid) },
+      after: { status: paid.status, amount_paid: Number(paid.amount_paid), paid_at: pagoEm, forma: dto.payment_method },
+      meta: {
+        descricao: `Parcela ${inst.sequence}/${inst.total_count}`, valor: dto.amount_paid,
+        data_informada: dto.paid_at ?? null, obs: dto.notes ?? null,
+      },
+    }, this.logger);
 
     // Regra da clínica: pagou (parcela, mesmo parcial) → o lead vira paciente.
     // Em segundo plano: a baixa já foi gravada — falha aqui nunca vira erro 500
@@ -236,29 +266,38 @@ export class InstallmentsService {
     return paid;
   }
 
-  async cancel(tenantId: string, id: string, reason?: string) {
+  async cancel(tenantId: string, id: string, reason?: string, actorId: string | null = null) {
     const inst = await this.findOne(tenantId, id);
     if (inst.status === 'PAGA') throw new BadRequestException('Parcela ja paga, nao cancelar');
-    return this.prisma.installment.update({
+    // Antifraude — cancelar sem motivo não serve de prova.
+    const motivo = (reason ?? '').trim();
+    if (motivo.length < 3) throw new BadRequestException('Informe o motivo do cancelamento (mínimo 3 letras).');
+    const cancelada = await this.prisma.installment.update({
       where: { id },
       data: {
         status: 'CANCELADA',
-        notes: reason ? `[CANCELADA: ${reason}]` : '[CANCELADA]',
+        notes: `[CANCELADA: ${motivo}]`,
       },
     });
+    await registrarAuditoria(this.prisma, {
+      tenantId, actorUserId: actorId, entity: 'PARCELA', entityId: id, action: 'PARCELA_CANCELADA',
+      before: { status: inst.status }, after: { status: 'CANCELADA' },
+      meta: { descricao: `Parcela ${inst.sequence}/${inst.total_count}`, valor: Number(inst.amount), motivo },
+    }, this.logger);
+    return cancelada;
   }
 
   /**
    * Renegocia: cancela parcelas pendentes do mesmo quote, soma o saldo
    * devedor + entry_value e gera N novas parcelas.
    */
-  async renegotiate(tenantId: string, id: string, dto: RenegotiateDto) {
+  async renegotiate(tenantId: string, id: string, dto: RenegotiateDto, actorId: string | null = null) {
     const original = await this.findOne(tenantId, id);
     if (!original.quote_id) {
       throw new BadRequestException('Parcela sem quote_id — nao pode renegociar');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Cancela todas as parcelas ABERTA/PARCIAL/ATRASADA do mesmo quote — só as
       // DESTA clínica (anti-IDOR: o quote_id sozinho alcançava parcelas de outra).
       const open = await tx.installment.findMany({
@@ -337,6 +376,15 @@ export class InstallmentsService {
 
       return { renegotiated: open.length, created: created.length, new_first_id: firstNew.id };
     });
+    await registrarAuditoria(this.prisma, {
+      tenantId, actorUserId: actorId, entity: 'PARCELA', entityId: id, action: 'PARCELA_RENEGOCIADA',
+      after: result,
+      meta: {
+        descricao: `Renegociação do orçamento ${original.quote_id}`,
+        entrada: Number(dto.entry_value || 0), novas_parcelas: dto.new_total_count,
+      },
+    }, this.logger);
+    return result;
   }
 
   /** Resumo de inadimplencia agrupado por aging bucket. */

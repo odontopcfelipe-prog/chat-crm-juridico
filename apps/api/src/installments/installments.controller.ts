@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Patch, Body, Param, Query, Request, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { InstallmentsService } from './installments.service';
 import {
   CreateInstallmentDto, GenerateFromQuoteDto, PayInstallmentDto,
@@ -13,11 +14,15 @@ function parseBool(v?: string): boolean | undefined {
   return v === 'true' || v === '1';
 }
 
+// Antifraude (out/2026) — toda escrita em parcela é do Financeiro (manage_financial;
+// o ADMIN passa). Antes qualquer logado dava baixa/cancelava/mudava valor sem passar
+// pelo caixa e sem rastro. Recebimento no balcão segue pelo caixa / "Receber no caixa".
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class InstallmentsController {
   constructor(private readonly service: InstallmentsService) {}
 
+  @RequiresPermission('manage_financial')
   @Post('installments')
   create(@Body() dto: CreateInstallmentDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -26,6 +31,7 @@ export class InstallmentsController {
   }
 
   /** Gera N parcelas a partir de uma Quote ACCEPTED — 1x por quote. */
+  @RequiresPermission('manage_financial')
   @Post('quotes/:quoteId/generate-installments')
   generate(
     @Param('quoteId') quoteId: string,
@@ -74,31 +80,35 @@ export class InstallmentsController {
     return this.service.findOne(tenantId, id);
   }
 
+  @RequiresPermission('manage_financial')
   @Patch('installments/:id')
   update(@Param('id') id: string, @Body() dto: UpdateInstallmentDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.service.update(tenantId, id, dto);
+    return this.service.update(tenantId, id, dto, req.user?.id ?? null);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('installments/:id/pay')
   pay(@Param('id') id: string, @Body() dto: PayInstallmentDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.service.pay(tenantId, id, dto);
+    return this.service.pay(tenantId, id, dto, req.user?.id ?? null);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('installments/:id/cancel')
   cancel(@Param('id') id: string, @Body() body: { reason?: string }, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.service.cancel(tenantId, id, body?.reason);
+    return this.service.cancel(tenantId, id, body?.reason, req.user?.id ?? null);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('installments/:id/renegotiate')
   renegotiate(@Param('id') id: string, @Body() dto: RenegotiateDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.service.renegotiate(tenantId, id, dto);
+    return this.service.renegotiate(tenantId, id, dto, req.user?.id ?? null);
   }
 }

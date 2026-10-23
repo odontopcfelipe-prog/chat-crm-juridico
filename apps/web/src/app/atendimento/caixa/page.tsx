@@ -11,6 +11,7 @@ import api from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { useRole } from '@/lib/useRole';
 
 /* ── helpers ─────────────────────────────────────────────── */
 const brl = (v: any) =>
@@ -67,7 +68,7 @@ interface Closing {
   closing_notes?: string | null; validation_notes?: string | null;
   counted_cash?: string | null; counted_card?: string | null; counted_pix?: string | null; counted_transfer?: string | null;
   expected_cash?: string | null; expected_card?: string | null; expected_pix?: string | null; expected_transfer?: string | null;
-  opened_by?: { name: string } | null; closed_by?: { name: string } | null; validated_by?: { name: string } | null;
+  opened_by?: { name: string } | null; closed_by?: { id?: string; name: string } | null; validated_by?: { name: string } | null;
   transactions?: Movement[];
   totals?: Totals;
   online_total?: string | number | null;
@@ -131,6 +132,9 @@ function DiaView() {
   const [addDir, setAddDir] = useState<'ENTRADA' | 'SAIDA' | null>(null);
   const [closing, setClosing] = useState(false);
   const [showContas, setShowContas] = useState(false);
+  // Contas do caixa: só o Financeiro/ADM cria e renomeia (a API exige manage_financial).
+  const { hasPermission } = useUserPermissions();
+  const podeEditarContas = hasPermission('manage_financial');
 
   const load = useCallback(async () => {
     setErr(null);
@@ -169,9 +173,11 @@ function DiaView() {
           <span className="text-sm text-slate-500">Hoje · {dayLabel(data.cash_date)}</span>
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${st.cls}`}>{st.label}</span>
         </div>
-        <button onClick={() => setShowContas(true)} className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5">
-          <Settings2 className="w-4 h-4" /> Contas
-        </button>
+        {podeEditarContas && (
+          <button onClick={() => setShowContas(true)} className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5">
+            <Settings2 className="w-4 h-4" /> Contas
+          </button>
+        )}
       </div>
 
       {/* totais por forma */}
@@ -511,6 +517,10 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
   const [busy, setBusy] = useState(false);
   const [reclose, setReclose] = useState(false);
   const st = STATUS_META[closing.status] ?? STATUS_META.ABERTO;
+  // Quem fechou não valida o próprio caixa (o administrador pode) — a API recusa.
+  const role = useRole();
+  const fechouEle = !!closing.closed_by?.id && closing.closed_by.id === role.userId;
+  const bloqueadoPorTerFechado = fechouEle && !role.isAdmin && !role.isSuperAdmin;
   const expectedTotals: Totals = {
     by: {
       cash: Number(closing.expected_cash) || 0, card: Number(closing.expected_card) || 0,
@@ -603,7 +613,12 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
         </details>
       )}
 
-      {canValidate && closing.status === 'FECHADO' && (
+      {canValidate && closing.status === 'FECHADO' && bloqueadoPorTerFechado && (
+        <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
+          Você fechou este caixa — a validação fica com outra pessoa do Financeiro ou com o administrador.
+        </p>
+      )}
+      {canValidate && closing.status === 'FECHADO' && !bloqueadoPorTerFechado && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
           <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observação (ex: divergência aceita)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           <div className="flex gap-2.5">

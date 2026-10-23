@@ -411,8 +411,10 @@ export class CommercialController {
    * Onda 18.x — MIGRACAO ASAAS: aceita a proposta e ativa o plano SEM gerar
    * cobranca (paciente ja tem os boletos importados). So registra os
    * procedimentos pro dentista validar. Nao conta como venda/afiliado.
+   * Antifraude (out/2026): SÓ o administrador — com manage_proposals a recepção/CRC
+   * punham tratamento sem cobrança e o dinheiro podia ser pego por fora.
    */
-  @RequiresPermission('manage_proposals')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('quotes/:id/accept-no-charge')
   acceptQuoteNoCharge(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

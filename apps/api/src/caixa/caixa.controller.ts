@@ -35,11 +35,15 @@ export class CaixaController {
     return this.service.listAccounts(req.user.tenant_id);
   }
 
+  // Antifraude (out/2026) — criar/renomear/desativar conta do caixa é do Financeiro
+  // (manage_financial; ADMIN passa). A recepção só lança nas contas que existem.
+  @RequiresPermission('manage_financial')
   @Post('accounts')
   createAccount(@Body() body: CreateAccountDto, @Request() req: any) {
     return this.service.createAccount(req.user.tenant_id, body);
   }
 
+  @RequiresPermission('manage_financial')
   @Patch('accounts/:id')
   updateAccount(@Param('id') id: string, @Body() body: UpdateAccountDto, @Request() req: any) {
     return this.service.updateAccount(id, req.user.tenant_id, body);
@@ -81,7 +85,7 @@ export class CaixaController {
   @RequiresPermission('manage_financial')
   @Post('closings/:id/validate')
   validate(@Param('id') id: string, @Body() body: ValidateDayDto, @Request() req: any) {
-    return this.service.validateDay(id, req.user.tenant_id, req.user.id, body);
+    return this.service.validateDay(id, req.user.tenant_id, req.user.id, body, req.user.roles ?? []);
   }
 
   @RequiresPermission('manage_financial')
