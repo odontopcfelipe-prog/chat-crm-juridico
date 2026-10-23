@@ -315,10 +315,59 @@ function TopBar({ userName, sector }: { userName?: string | null; sector: Sector
 
 // ─── Boas-vindas (grafite) + relógio com a fila ──────────────────────────────
 
-function Hero({ name, clinicName, today }: { name: string; clinicName?: string; today: Date }) {
+// Cor do balão de saudação — cada pessoa escolhe a sua (fica neste navegador).
+// Mesmo desenho (degradê + brilho), na paleta da cor; 'preto' é o grafite padrão.
+const HERO_CORES = [
+  { id: 'preto', nome: 'Preto', ponto: '#000000' },
+  { id: 'cinza', nome: 'Cinza', ponto: '#8a8a8a' },
+  { id: 'vinho', nome: 'Vinho', ponto: '#8b0d1a' },
+  { id: 'vermelho', nome: 'Vermelho', ponto: '#e8202a' },
+  { id: 'laranja', nome: 'Laranja', ponto: '#f47b20' },
+  { id: 'amarelo', nome: 'Amarelo', ponto: '#ffe500' },
+  { id: 'verde', nome: 'Verde', ponto: '#22b14c' },
+  { id: 'ciano', nome: 'Azul-claro', ponto: '#11a7e3' },
+  { id: 'azul', nome: 'Azul', ponto: '#3a4bcc' },
+  { id: 'roxo', nome: 'Roxo', ponto: '#9b4fc0' },
+] as const;
+type HeroCor = (typeof HERO_CORES)[number]['id'];
+
+function useHeroCor(userId: string | null | undefined): [HeroCor, (c: HeroCor) => void] {
+  const key = `dh_hero_cor:${userId || 'anon'}`;
+  const [cor, setCor] = useState<HeroCor>('preto');
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(key);
+      setCor(HERO_CORES.some((c) => c.id === v) ? (v as HeroCor) : 'preto');
+    } catch { /* aba privada: fica o padrão */ }
+  }, [key]);
+  const escolher = useCallback((c: HeroCor) => {
+    setCor(c);
+    try { localStorage.setItem(key, c); } catch { /* aba privada */ }
+  }, [key]);
+  return [cor, escolher];
+}
+
+function Hero({ name, clinicName, today, cor, onCor }: {
+  name: string; clinicName?: string; today: Date; cor: HeroCor; onCor: (c: HeroCor) => void;
+}) {
   const { text } = salutation(today.getHours());
   return (
-    <section className="dh-hero">
+    <section className="dh-hero" data-cor={cor}>
+      <div className="dh-hero-cores" role="radiogroup" aria-label="Cor do balão">
+        {HERO_CORES.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            role="radio"
+            aria-checked={cor === c.id}
+            aria-label={c.nome}
+            title={c.nome}
+            className={`dh-hero-cor ${cor === c.id ? 'is-on' : ''}`}
+            style={{ background: c.ponto }}
+            onClick={() => onCor(c.id)}
+          />
+        ))}
+      </div>
       <span className="dh-hero-glow" aria-hidden />
       <svg className="dh-hero-rings" viewBox="0 0 600 600" aria-hidden="true">
         <circle cx="300" cy="300" r="290" />
@@ -845,6 +894,7 @@ export function PainelSetor({ sector, userName, extraGrants = [], extraRevokes =
   const { hasPermission } = useUserPermissions();
   const { data: badgesData } = useModuleBadges(sector);
   const { loading, summary, queue } = useMyDay(role.userId, !dentista);
+  const [heroCor, setHeroCor] = useHeroCor(role.userId);
   const [today, setToday] = useState<Date | null>(null);
   useEffect(() => { setToday(new Date()); }, []);
 
@@ -868,7 +918,9 @@ export function PainelSetor({ sector, userName, extraGrants = [], extraRevokes =
       {acima}
       <TopBar userName={userName} sector={sector} />
       <div className="dh-row1">
-        {today ? <Hero name={fullName} clinicName={tenant?.name} today={today} /> : <section className="dh-hero" />}
+        {today
+          ? <Hero name={fullName} clinicName={tenant?.name} today={today} cor={heroCor} onCor={setHeroCor} />
+          : <section className="dh-hero" data-cor={heroCor} />}
         <ClockCard queue={queue} loading={loading} clinica={!dentista} denso={denso} />
       </div>
       <ModuleCards
