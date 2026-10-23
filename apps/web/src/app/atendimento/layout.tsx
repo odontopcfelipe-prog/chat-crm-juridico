@@ -17,7 +17,7 @@ import EquipeChat from '@/components/equipe/EquipeChat';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search, Clock, Trophy,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search, Clock, Trophy, ArrowLeft,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -77,6 +77,18 @@ function NoRouteAccess({ onHome }: { onHome: () => void }) {
       </div>
     </div>
   );
+}
+
+// Out/2026 — "Voltar" do topo: pilha das TELAS visitadas nesta aba (sessionStorage).
+// Só a rota conta — trocar de aba/semana dentro da mesma tela (?tab=…) não empilha,
+// só atualiza o endereço guardado. Voltar (pelo botão ou pelo navegador) desempilha.
+const PILHA_KEY = 'nav_pilha_telas';
+type TelaVisitada = { rota: string; url: string };
+function lerPilha(): TelaVisitada[] {
+  try { return JSON.parse(sessionStorage.getItem(PILHA_KEY) || '[]'); } catch { return []; }
+}
+function gravarPilha(p: TelaVisitada[]) {
+  try { sessionStorage.setItem(PILHA_KEY, JSON.stringify(p.slice(-30))); } catch { /* aba privada */ }
 }
 
 function rolesFromToken(token: string | null): string[] {
@@ -306,6 +318,25 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     return () => document.removeEventListener('keydown', h);
   }, []);
 
+  // Pilha de telas pro "Voltar" (ver lerPilha). Login zera: sessão nova, histórico novo.
+  const [temTelaAnterior, setTemTelaAnterior] = useState(false);
+  useEffect(() => {
+    if (!pathname) return;
+    if (pathname === '/atendimento/login') { gravarPilha([]); setTemTelaAnterior(false); return; }
+    const url = pathname + window.location.search;
+    const pilha = lerPilha();
+    const topo = pilha[pilha.length - 1];
+    if (topo?.rota === pathname) topo.url = url;
+    else if (pilha[pilha.length - 2]?.rota === pathname) { pilha.pop(); pilha[pilha.length - 1].url = url; }
+    else pilha.push({ rota: pathname, url });
+    gravarPilha(pilha);
+    setTemTelaAnterior(pilha.length > 1);
+  }, [pathname]);
+  const voltarTela = () => {
+    const pilha = lerPilha();
+    router.push(pilha.length > 1 ? pilha[pilha.length - 2].url : '/atendimento/dashboard');
+  };
+
   const isLoginPage = pathname === '/atendimento/login';
 
   if (isLoginPage) {
@@ -418,6 +449,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           if (pathname === '/atendimento/dashboard') return null;
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-1.5 border-b border-border bg-card shrink-0">
+              {/* Out/2026 — "Voltar" pra tela de onde a pessoa veio (pedido do dono:
+                  "não tem a opção de voltar para onde estava"). Sem tela anterior
+                  (aba nova / link direto) leva ao Início. */}
+              <button
+                type="button"
+                onClick={voltarTela}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all shrink-0"
+                title={temTelaAnterior ? 'Voltar para a tela anterior' : 'Voltar ao início'}
+              >
+                <ArrowLeft size={18} /> Voltar
+              </button>
               {/* Onda 17.50 — Botao "Inicio" aparece quando a barra lateral
                   esta escondida (papeis simples): e a unica volta pros baloes
                   da home. Admin nao precisa — ja tem o logo/Inicio na barra. */}
