@@ -101,6 +101,9 @@ jobs:
       - name: Grafo de injeção (DI) — worker
         run: node scripts/ci/di-smoke.cjs worker
 
+      - name: Deploy — vps-redeploy v2 e vps-backup (stubs de docker/curl/df)
+        run: bash scripts/ci/test-vps-redeploy.sh
+
       - name: Testes — API
         working-directory: apps/api
         run: npx jest --ci $(node ../../scripts/ci/quarentena.cjs api)

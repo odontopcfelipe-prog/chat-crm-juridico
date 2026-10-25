@@ -14,6 +14,7 @@ imagens em paralelo. Um CI vermelho é um aviso para não colar o
 | Tipos da API e do worker (`tsc --noEmit`) | erro de tipo, inclusive nos specs (o `nest build` não olha os specs e o `ts-jest` não confere tipos). |
 | Build (`nest build`) | o mesmo build da imagem. |
 | Grafo de injeção (`scripts/ci/di-smoke.cjs`) | ciclo de import entre módulos e provider sem dependência ("Nest can't resolve dependencies…"). Foi o que deixou a API em crash loop em out/2026; o `tsc` não vê. Constrói todos os providers com env falso, sem conectar em banco. |
+| Deploy — vps-redeploy v2 e vps-backup (`scripts/ci/test-vps-redeploy.sh`) | os scripts do servidor (portão do CI, disco, diff de schema, ordem dos updates, `--dry-run`, backup) rodando com stubs de docker/curl/df. Ver `docs/deploy.md`. |
 | Testes da API e do worker (jest) | as regras já cobertas por spec (dinheiro, antifraude, isolamento entre clínicas, ponto, agenda, IA…). |
 | Web (`next build`) | o mesmo build da imagem do front. |
 
@@ -35,6 +36,7 @@ npm run db:generate -w @crm/shared && npm run build -w @crm/shared
 bash scripts/ci/check-schema-expand-only.sh
 (cd apps/api && npx tsc -p tsconfig.json --noEmit && npx nest build && npx jest)
 node scripts/ci/di-smoke.cjs api
+bash scripts/ci/test-vps-redeploy.sh
 ```
 
 ## Decisão pendente do dono
