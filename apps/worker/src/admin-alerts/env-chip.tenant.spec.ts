@@ -77,6 +77,21 @@ describe('quem usa', () => {
     expect(post.mock.calls[0][0]).toBe('http://evo/message/sendText/chip-padrao');
   });
 
+  it('alerta de tarefa que não saiu fica FAILED na Central (nunca SENT); a trava de dedup é gravada igual', async () => {
+    const prisma = prismaCom({ tenant_id: 'instituto' });
+    const dispatch: any[] = [];
+    prisma.auditLog = { create: jest.fn(async () => ({})) };
+    prisma.dispatchLog = { create: jest.fn(async ({ data }: any) => dispatch.push(data)) };
+    const svc = new TaskAlertsCronService(prisma, settings);
+    await (svc as any).logAlert('t1', 'TASK_DUE_SOON', 'u1', 'pra-sorrir', 'Ana', '5582999990000', false);
+    await (svc as any).logAlert('t2', 'TASK_DUE_SOON', 'u1', 'instituto', 'Ana', '5582999990000', true);
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(dispatch.map((d) => [d.tenant_id, d.status, !!d.error])).toEqual([
+      ['pra-sorrir', 'FAILED', true],
+      ['instituto', 'SENT', false],
+    ]);
+  });
+
   it.each([
     ['da clínica dona → sai pelo chip', 'instituto', 1],
     ['de outra clínica → zero envio', 'pra-sorrir', 0],

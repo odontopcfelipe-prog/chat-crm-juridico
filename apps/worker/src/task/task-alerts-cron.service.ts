@@ -91,7 +91,7 @@ export class TaskAlertsCronService {
           `_Alerta automático do CRM_`;
 
         const enviou = await this.sendWhatsApp(task.user.phone, msg, task.tenantId);
-        await this.logAlert(task.id, 'TASK_DUE_SOON', task.user.id, task.tenantId, task.user.name, task.user.phone);
+        await this.logAlert(task.id, 'TASK_DUE_SOON', task.user.id, task.tenantId, task.user.name, task.user.phone, enviou);
         if (enviou) this.logger.log(`[TASK-ALERTS] Lembrete enviado para ${task.user.name} — tarefa: ${task.title}`);
       }
     } catch (e: any) {
@@ -184,7 +184,7 @@ export class TaskAlertsCronService {
           `_Alerta automático do CRM_`;
 
         const enviou = await this.sendWhatsApp(user.phone, msg, group.tenantId);
-        await this.logAlert(userId, 'TASK_OVERDUE_BATCH', userId, group.tenantId, user.name, user.phone);
+        await this.logAlert(userId, 'TASK_OVERDUE_BATCH', userId, group.tenantId, user.name, user.phone, enviou);
         if (enviou) this.logger.log(`[TASK-ALERTS] Alerta overdue enviado para ${user.name} (${count} tarefas)`);
       }
     } catch (e: any) {
@@ -243,13 +243,16 @@ export class TaskAlertsCronService {
     tenantId?: string | null,
     recipientName?: string | null,
     recipientPhone?: string | null,
+    enviou = true,
   ): Promise<void> {
+    // AuditLog sempre: é a trava de dedup (não reavisa a cada rodada do cron).
     try {
       await this.prisma.auditLog.create({
         data: { entity: 'TASK_ALERT', entity_id: referenceId, action: type, meta_json: { user_id: userId, sent_at: new Date().toISOString() } },
       });
     } catch {}
     // Central 2.0 — registro unificado (métrica + resumo do card "Alertas de tarefa").
+    // Não saiu (sem chip próprio da clínica ou falha no envio) → FAILED, nunca SENT.
     try {
       await this.prisma.dispatchLog.create({
         data: {
@@ -258,7 +261,8 @@ export class TaskAlertsCronService {
           channel: 'WHATSAPP',
           recipient_name: recipientName || null,
           recipient_phone: recipientPhone || null,
-          status: 'SENT',
+          status: enviou ? 'SENT' : 'FAILED',
+          ...(enviou ? {} : { error: 'Não enviado: clínica sem chip próprio (o chip padrão é de outra clínica) ou falha no envio' }),
           ref_user_id: userId,
           sent_at: new Date(),
         },
