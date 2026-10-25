@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import axios from 'axios';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 import { recebeDisparoEquipe } from '@crm/shared';
 
 /**
@@ -89,9 +90,9 @@ export class TaskAlertsCronService {
           `\nAcesse o sistema para atualizar o status.\n\n` +
           `_Alerta automático do CRM_`;
 
-        await this.sendWhatsApp(task.user.phone, msg);
+        const enviou = await this.sendWhatsApp(task.user.phone, msg, task.tenantId);
         await this.logAlert(task.id, 'TASK_DUE_SOON', task.user.id, task.tenantId, task.user.name, task.user.phone);
-        this.logger.log(`[TASK-ALERTS] Lembrete enviado para ${task.user.name} — tarefa: ${task.title}`);
+        if (enviou) this.logger.log(`[TASK-ALERTS] Lembrete enviado para ${task.user.name} — tarefa: ${task.title}`);
       }
     } catch (e: any) {
       this.logger.error(`[TASK-ALERTS] Erro no check due soon: ${e.message}`);
@@ -182,9 +183,9 @@ export class TaskAlertsCronService {
           `\n\nAcesse o sistema para atualizar.\n\n` +
           `_Alerta automático do CRM_`;
 
-        await this.sendWhatsApp(user.phone, msg);
+        const enviou = await this.sendWhatsApp(user.phone, msg, group.tenantId);
         await this.logAlert(userId, 'TASK_OVERDUE_BATCH', userId, group.tenantId, user.name, user.phone);
-        this.logger.log(`[TASK-ALERTS] Alerta overdue enviado para ${user.name} (${count} tarefas)`);
+        if (enviou) this.logger.log(`[TASK-ALERTS] Alerta overdue enviado para ${user.name} (${count} tarefas)`);
       }
     } catch (e: any) {
       this.logger.error(`[TASK-ALERTS] Erro no check overdue: ${e.message}`);
@@ -193,19 +194,23 @@ export class TaskAlertsCronService {
 
   // ─── Helpers ───────────────────────────────────────────────────────────
 
-  private async sendWhatsApp(phone: string, text: string): Promise<void> {
+  /** Sai pelo chip padrão SÓ se ele é da clínica do alerta (env-chip.ts). */
+  private async sendWhatsApp(phone: string, text: string, tenantId: string | null | undefined): Promise<boolean> {
     try {
       const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
-      if (!apiUrl) return;
-      const instance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+      if (!apiUrl) return false;
+      const instance = await resolveOwnedEnvChip(this.prisma, tenantId, 'task-alerts', 'whatsapp');
+      if (!instance) return false;
       const cleanPhone = phone.replace(/\D/g, '');
       await axios.post(
         `${apiUrl}/message/sendText/${instance}`,
         { number: cleanPhone, text },
         { headers: { apikey: apiKey }, timeout: 15000 },
       );
+      return true;
     } catch (e: any) {
       this.logger.warn(`[TASK-ALERTS] Falha WhatsApp para ${phone}: ${e.message}`);
+      return false;
     }
   }
 

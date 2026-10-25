@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
 /**
  * Processa jobs de notificação por WhatsApp.
@@ -43,7 +44,7 @@ export class NotificationWhatsappProcessor extends WorkerHost {
       // 2. Usuário tem telefone cadastrado?
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { phone: true, name: true },
+        select: { phone: true, name: true, tenant_id: true },
       });
 
       if (!user?.phone) {
@@ -93,11 +94,17 @@ export class NotificationWhatsappProcessor extends WorkerHost {
         return;
       }
 
-      const instanceName = process.env.EVOLUTION_INSTANCE_NAME || '';
-      if (!instanceName) {
+      // Chip padrão só para a clínica dona dele (env-chip.ts); outra clínica: não envia.
+      if (!process.env.EVOLUTION_INSTANCE_NAME) {
         this.logger.warn('[NotifWA] EVOLUTION_INSTANCE_NAME não configurado — skip');
         return;
       }
+      const instanceName = await resolveOwnedEnvChip(
+        this.prisma,
+        notification.tenant_id ?? user.tenant_id,
+        'notification-whatsapp',
+      );
+      if (!instanceName) return;
 
       const appUrl = process.env.APP_URL || 'https://crm.andrelustosaadvogados.com.br';
       const deepLink = notification.data?.conversationId

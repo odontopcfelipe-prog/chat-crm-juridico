@@ -7,6 +7,7 @@ import { SettingsService } from '../settings/settings.service';
 import { loadClinicAiContext } from '../ai/clinic-ai-context';
 import axios from 'axios';
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
 interface StaleConfig {
   stage: string; days: number; msg: string;
@@ -108,7 +109,9 @@ export class FollowupCronService {
   private async sendLegacyFollowup(lead: any, convo: any, template: string) {
     const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
     if (!apiUrl) return;
-    const instanceName = convo.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
+    // Sem chip na conversa: o padrão do servidor só se for da clínica do lead (env-chip.ts).
+    const instanceName = convo.instance_name || (await resolveOwnedEnvChip(this.prisma, lead?.tenant_id, 'followup-legacy'));
+    if (!instanceName) throw new Error('sem chip próprio da clínica'); // não conta como enviado
     const msg = template.replace(/\{\{name\}\}/g, lead.name || 'cliente');
     // Assinatura pelo perfil COMERCIAL da clínica DO LEAD (follow-up é de lead, não
     // de paciente). Sem tenant no lead → perfil padrão ("*Sophia:*", como antes).
