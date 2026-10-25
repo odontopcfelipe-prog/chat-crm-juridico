@@ -1,0 +1,9 @@
+# Specs que o CI pula, um por linha: caminho a partir da raiz do repo e o motivo
+# depois de #. Exemplo:
+#   apps/api/src/foo/foo.spec.ts  # depende de horário real; dono: fulano
+#
+# Linha de base de 24/10/2026 (master 17062080): lista vazia. Os 80 arquivos de
+# teste (60 da API, 20 do worker; 1.491 testes) passam.
+#
+# Spec das regras de dinheiro, antifraude, isolamento entre clínicas (IDOR) e
+# ponto NUNCA entra aqui: se quebrar, conserte o código ou o teste.

@@ -1,0 +1,146 @@
+name: CI — testes e checagens
+
+# Roda em todo push na master (o fluxo real da casa: commit direto + push),
+# em branches feat/** e em PR.
+#
+# Por enquanto NÃO trava o deploy: o deploy.yml continua builando as imagens
+# em paralelo. Fazer o build esperar este CI (needs) é decisão do dono — ver
+# docs/ci.md.
+on:
+  push:
+    branches: [master, 'feat/**']
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    name: API e worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      # Banco e Redis descartáveis do próprio job. Nenhum segredo de produção.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      JWT_SECRET: ci-only-not-a-secret
+      NODE_OPTIONS: --max-old-space-size=4096
+      PRISMA_HIDE_UPDATE_MESSAGE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências (mesmo comando do Dockerfile)
+        run: |
+          for i in 1 2 3; do
+            npm install --legacy-peer-deps --no-audit --no-fund && exit 0
+            echo "::warning::npm install falhou (tentativa $i de 3) — rede/registro; tentando de novo em 20s"
+            sleep 20
+          done
+          exit 1
+
+      - name: Prisma client + build do @crm/shared
+        run: |
+          npm run db:generate -w @crm/shared
+          npm run build -w @crm/shared
+
+      - name: Schema só-aditivo (nada de DROP / troca de tipo / NOT NULL)
+        run: bash scripts/ci/check-schema-expand-only.sh "${{ github.event.before || github.event.pull_request.base.sha || '' }}"
+
+      - name: Schema aplica num Postgres 15 + pgvector
+        working-directory: packages/shared
+        run: |
+          echo 'CREATE EXTENSION IF NOT EXISTS vector;' | npx prisma db execute --stdin --schema prisma/schema.prisma
+          npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Tipos — API (inclui os specs)
+        working-directory: apps/api
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Tipos — worker (inclui os specs)
+        working-directory: apps/worker
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Build — API
+        working-directory: apps/api
+        run: npx nest build
+
+      - name: Build — worker
+        working-directory: apps/worker
+        run: npx nest build
+
+      - name: Grafo de injeção (DI) — API
+        run: node scripts/ci/di-smoke.cjs api
+
+      - name: Grafo de injeção (DI) — worker
+        run: node scripts/ci/di-smoke.cjs worker
+
+      - name: Testes — API
+        working-directory: apps/api
+        run: npx jest --ci $(node ../../scripts/ci/quarentena.cjs api)
+
+      - name: Testes — worker
+        working-directory: apps/worker
+        run: npx jest --ci $(node ../../scripts/ci/quarentena.cjs worker)
+
+  web:
+    name: Web (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      # Os mesmos valores públicos que o deploy.yml passa no build da imagem.
+      NEXT_PUBLIC_API_URL: https://sistema.institutoodontopassos.com.br/api
+      NEXT_PUBLIC_WS_URL: wss://sistema.institutoodontopassos.com.br
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: |
+          for i in 1 2 3; do
+            npm install --legacy-peer-deps --no-audit --no-fund && exit 0
+            echo "::warning::npm install falhou (tentativa $i de 3); tentando de novo em 20s"
+            sleep 20
+          done
+          exit 1
+
+      - name: Prisma client + build do @crm/shared
+        run: |
+          npm run db:generate -w @crm/shared
+          npm run build -w @crm/shared
+
+      - name: next build
+        working-directory: apps/web
+        run: npx next build
