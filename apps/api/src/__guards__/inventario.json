@@ -1,10 +1,11 @@
 {
-  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize com: npm run guards:update",
+  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
     "automatismos": { "@Cron": 24, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
-    "socket": 6,
-    "globais": 7,
+    "socket": 7,
+    "globais": 11,
+    "produtores": 24,
     "controllers": 84,
     "handlers": 933,
     "@Public": 28
@@ -64,6 +65,7 @@
   ],
   "socket": [
     { "tipo": ".on('connection')", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "io" },
+    { "tipo": ".use (middleware de conexão)", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "io  (função)" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "disconnect" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_conversation" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_user" },
@@ -77,7 +79,37 @@
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "RolesGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PermissionsGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },
-    { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" }
+    { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" },
+    { "arquivo": "main.ts", "token": "app.use", "classe": "express.json({ limit: '50mb', verify: (função) })" },
+    { "arquivo": "main.ts", "token": "app.use", "classe": "express.urlencoded({ limit: '50mb', extended: true })" },
+    { "arquivo": "main.ts", "token": "app.useGlobalPipes", "classe": "new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true })" },
+    { "arquivo": "main.ts", "token": "app.useGlobalFilters", "classe": "new AllExceptionsFilter()" }
+  ],
+  "produtores": [
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.backfillReminders", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.create", "detalhe": "this.reminderQueue  'notify-hearing-scheduled'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.enqueueReminders", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.notifyEvent", "detalhe": "this.reminderQueue  'notify-hearing-scheduled'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.resendReminder", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.update", "detalhe": "this.reminderQueue  'notify-hearing-rescheduled'" },
+    { "tipo": "queue.add", "arquivo": "commercial/quotes.service.ts", "alvo": "QuotesService.applyFinancing", "detalhe": "this.fechamentoQueue  'deferido'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.approveMessage", "detalhe": "this.followupQueue  'send-message'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.createBroadcast", "detalhe": "this.followupQueue  'broadcast-send'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.enrollLead", "detalhe": "this.followupQueue  'process-step'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.resumeEnrollment", "detalhe": "this.followupQueue  'process-step'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.controller.ts", "alvo": "MemoriesController.extractNow", "detalhe": "this.memoryQueue  'manual-extract'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.controller.ts", "alvo": "MemoriesController.regenerateProfile", "detalhe": "this.memoryQueue  'consolidate-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.migrateLegacyLeadsToProfile", "detalhe": "this.memoryQueue  'consolidate-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.rebuildOrganizationProfile", "detalhe": "this.memoryQueue  'rebuild-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.regenerateOrganizationProfile", "detalhe": "this.memoryQueue  'consolidate-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.triggerOrgProfileRegen", "detalhe": "this.memoryQueue  'consolidate-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "messages/messages.service.ts", "alvo": "MessagesService.enqueueMemoryUpdate", "detalhe": "this.aiQueue  'process_ai_response'" },
+    { "tipo": "queue.add", "arquivo": "notifications/notifications.service.ts", "alvo": "NotificationsService.create", "detalhe": "this.whatsappQueue  'send-notification-whatsapp'" },
+    { "tipo": "queue.add", "arquivo": "settings/ai-test-chat.service.ts", "alvo": "AiTestChatService.run", "detalhe": "queue  'ai-test'" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response'" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response' #2" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response' #3" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.scheduleResyncAfterReconnect", "detalhe": "this.mediaQueue  'sync_missed_messages'" }
   ],
   "controllers": [
     {

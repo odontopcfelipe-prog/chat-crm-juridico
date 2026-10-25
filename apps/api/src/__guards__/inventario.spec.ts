@@ -6,11 +6,17 @@
  * apps/worker/src/__guards__:
  *
  *   - automatismos (@Cron, @Processor, onModuleInit, timer de boot, QueueEvents,
- *     fila registrada…), handlers de socket e ordem dos APP_GUARD: ESTRITO.
+ *     fila registrada, job repetível, item herdado de classe base…), handlers
+ *     e middleware de socket e globais (ordem dos APP_GUARD, app.useGlobal* e
+ *     app.use do main.ts): ESTRITO.
  *     Item novo ou removido FALHA — alguém precisa olhar se aquilo pode rodar
  *     para todos os tenants (base do "o laboratório nega por padrão o que não
  *     foi classificado").
- *   - controllers, rotas e decoradores de acesso: só console.warn.
+ *   - controllers, rotas, decoradores de acesso e produtores de fila
+ *     (queue.add): só console.warn.
+ *
+ * No GitHub Actions, o que mudou (falha e aviso) vai também para o resumo do
+ * job ($GITHUB_STEP_SUMMARY), para o aviso de rota não sumir no log do jest.
  *
  * Atualizar depois de conferir: npm run guards:update (na raiz).
  */
@@ -27,6 +33,7 @@ type ModuloInventario = {
     commitado: Inventario,
     gerado: Inventario,
   ): { estrito: string | null; avisos: string | null };
+  escreverResumoDoJob(app: string, resultado: { estrito: string | null; avisos: string | null }): boolean;
 };
 
 const RAIZ = path.resolve(__dirname, '..', '..', '..', '..');
@@ -44,6 +51,7 @@ describe.each(inv.APPS)('inventário — %s', (app) => {
     if (fs.existsSync(arquivo)) {
       commitado = JSON.parse(fs.readFileSync(arquivo, 'utf8')) as Inventario;
       resultado = inv.compararInventarios(app, commitado, gerado);
+      inv.escreverResumoDoJob(app, resultado);
     }
   }, 120_000);
 
@@ -64,12 +72,12 @@ describe.each(inv.APPS)('inventário — %s', (app) => {
     if (app === 'api') expect(gerado.resumo.controllers as number).toBeGreaterThan(0);
   });
 
-  it('automatismos, socket e ordem dos APP_GUARD iguais ao commitado (estrito)', () => {
+  it('automatismos, socket e globais (ordem dos APP_GUARD, app.useGlobal*, app.use) iguais ao commitado (estrito)', () => {
     if (!commitado) return; // o teste de existência já falhou
     if (resultado.estrito) throw new Error(resultado.estrito);
   });
 
-  it('controllers, rotas e decoradores de acesso (só avisa)', () => {
+  it('controllers, rotas, decoradores de acesso e produtores de fila (só avisa)', () => {
     if (!commitado) return;
     if (resultado.avisos) console.warn(resultado.avisos);
   });

@@ -1,10 +1,11 @@
 {
-  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize com: npm run guards:update",
+  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "worker",
   "resumo": {
     "automatismos": { "@Cron": 26, "@Processor": 5, "BullModule.registerQueue": 6, "onModuleInit": 3 },
     "socket": 0,
     "globais": 0,
+    "produtores": 6,
     "controllers": 1,
     "handlers": 1,
     "@Public": 0
@@ -53,6 +54,14 @@
   ],
   "socket": [],
   "globais": [],
+  "produtores": [
+    { "tipo": "queue.add", "arquivo": "ai/ai.processor.ts", "alvo": "AiProcessor.createCalendarEvent", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "ai/ai.processor.ts", "alvo": "AiProcessor.scheduleSchedulingRetry", "detalhe": "this.aiQueue  'ai-scheduling-retry'" },
+    { "tipo": "queue.add", "arquivo": "ai/tool-handlers/book-appointment.ts", "alvo": "BookAppointmentHandler.execute", "detalhe": "context.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup-cron.service.ts", "alvo": "FollowupCronService.processEnrollments", "detalhe": "this.followupQueue  'process-step'" },
+    { "tipo": "queue.add", "arquivo": "memory/daily-memory-batch.processor.ts", "alvo": "DailyMemoryBatchProcessor.processTenantBatch", "detalhe": "this.memoryQueue  'consolidate-profiles-after-batch'" },
+    { "tipo": "queue.add", "arquivo": "memory/daily-memory-batch.processor.ts", "alvo": "DailyMemoryBatchProcessor.scheduleDailyExtraction", "detalhe": "this.memoryQueue  'daily-batch-extract'" }
+  ],
   "controllers": [
     {
       "arquivo": "app.controller.ts",

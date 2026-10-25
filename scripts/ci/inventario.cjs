@@ -8,26 +8,37 @@
  *   - automatismos: @Cron, @Interval, @Timeout, @Processor (+ @OnWorkerEvent,
  *     @OnQueueEvent, @QueueEventsListener), onModuleInit, onApplicationBootstrap,
  *     setInterval/setTimeout de boot (construtor, onModuleInit,
- *     onApplicationBootstrap, inicializador de campo, topo do arquivo e main.ts),
- *     new QueueEvents, new Worker do bullmq e BullModule.registerQueue;
- *   - socket: @WebSocketGateway, @SubscribeMessage e os handlers registrados
- *     dentro de um `.on('connection', (socket) => …)` (é assim no main.ts);
- *   - globais: APP_GUARD / APP_INTERCEPTOR / APP_FILTER / APP_PIPE, na ordem
- *     em que aparecem (a ordem dos guards importa: o JwtAuthGuard popula o
- *     req.user antes do RolesGuard);
+ *     onApplicationBootstrap, inicializador de campo, topo do arquivo — também
+ *     dentro de IIFE — e main.ts), new QueueEvents, new Worker do bullmq,
+ *     BullModule.registerQueue e job repetível do BullMQ (queue.upsertJobScheduler
+ *     e queue.add/addBulk com { repeat }). Uma classe que estende outra do app
+ *     herda os itens da base (o Nest varre a cadeia de protótipos), menos o
+ *     método que ela sobrescreve;
+ *   - socket: @WebSocketGateway, @SubscribeMessage, o `.on('connection')` (ou
+ *     'connect', sinônimo no socket.io) com o handler inline, nomeado ou
+ *     this.metodo, os socket.on/once/onAny/use dentro dele e o middleware de
+ *     conexão `io.use(...)` (o JWT do socket, no main.ts);
+ *   - globais, na ordem do fonte: APP_GUARD / APP_INTERCEPTOR / APP_FILTER /
+ *     APP_PIPE em qualquer módulo e, no app do NestFactory.create, os
+ *     app.useGlobalGuards/Pipes/Interceptors/Filters, app.use (middleware de
+ *     toda requisição) e app.setGlobalPrefix (a ordem dos guards importa: o
+ *     JwtAuthGuard popula o req.user antes do RolesGuard);
+ *   - produtores (só aviso): queue.add / queue.addBulk em quem se chama *Queue;
  *   - controllers: path do @Controller, cada handler (verbo + path) e os
  *     decoradores de acesso da classe e do método.
  *
  * O spec apps/api/src/__guards__/inventario.spec.ts compara isso com os JSON
- * commitados: automatismos, socket e globais em modo ESTRITO (falha); rotas só
- * avisam. É a base da regra futura "o laboratório nega por padrão o que não foi
- * classificado": nada que roda sozinho entra sem alguém olhar.
+ * commitados: automatismos, socket e globais em modo ESTRITO (falha);
+ * produtores e rotas só avisam. No GitHub Actions, o que mudou vai também para
+ * o resumo do job ($GITHUB_STEP_SUMMARY). É a base da regra futura "o
+ * laboratório nega por padrão o que não foi classificado": nada que roda
+ * sozinho entra sem alguém olhar.
  *
  * Uso:
  *   node scripts/ci/inventario.cjs            # imprime o JSON dos dois apps
  *   node scripts/ci/inventario.cjs api        # só um app
  *   node scripts/ci/inventario.cjs --write    # grava apps/<app>/src/__guards__/inventario.json
- *                                             # (atalho: npm run guards:update)
+ *                                             # (atalho, na raiz: npm run guards:update)
  *   node scripts/ci/inventario.cjs --check    # compara com o commitado, sem jest (sai 1 se falhar)
  *
  * Contagem em 08714e89 (= 17062080 em api/worker; AST): 50 @Cron (24 api + 26 worker), 7 @Processor,
@@ -84,6 +95,18 @@ const REGISTRO_FILA = new Set([
   'registerFlowProducer',
   'registerFlowProducerAsync',
 ]);
+// Globais registrados no app (main.ts) em vez de provider APP_*.
+const USO_GLOBAL = new Set(['useGlobalGuards', 'useGlobalPipes', 'useGlobalInterceptors', 'useGlobalFilters']);
+// Só no app do NestFactory.create: middleware de toda requisição (roda antes
+// dos guards) e prefixo de todas as rotas.
+const USO_APP = new Set(['use', 'setGlobalPrefix']);
+// No socket.io, 'connect' é sinônimo de 'connection'.
+const EVENTOS_CONEXAO = new Set(['connection', 'connect']);
+// O que se registra no socket recebido na conexão.
+const METODOS_SOCKET = new Set(['on', 'once', 'onAny', 'prependAny', 'use']);
+// Receptor de queue.add que conta como produtor de fila (aviso).
+const NOME_FILA = /queue$/i;
+const COMO_ATUALIZAR = 'Na raiz do repo, rode "npm run guards:update" (ou node scripts/ci/inventario.cjs --write)';
 
 // Comparação por code unit: igual em qualquer SO e qualquer locale.
 function cmp(a, b) {
@@ -123,41 +146,47 @@ function decoradoresDe(node) {
 /**
  * Texto canônico de uma expressão: aspas simples, sem quebra de linha, sem
  * vírgula sobrando. Assim o prettier ou um reformat não mudam o inventário.
+ * Com `resumir`, função e classe inline viram '(função)' / 'class {…}' (o corpo
+ * de um middleware não é inventário; trocar o middleware é).
  */
-function texto(node, sf) {
+function texto(node, sf, resumir = false) {
+  const t = (n) => texto(n, sf, resumir);
   if (!node) return '';
+  if (resumir && (ts.isArrowFunction(node) || ts.isFunctionExpression(node))) return '(função)';
+  if (resumir && ts.isClassExpression(node)) return node.name ? `class ${node.name.text} {…}` : 'class {…}';
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return `'${node.text}'`;
   if (ts.isNumericLiteral(node) || ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
   if (node.kind === ts.SyntaxKind.TrueKeyword) return 'true';
   if (node.kind === ts.SyntaxKind.FalseKeyword) return 'false';
   if (node.kind === ts.SyntaxKind.NullKeyword) return 'null';
   if (node.kind === ts.SyntaxKind.ThisKeyword) return 'this';
-  if (ts.isPropertyAccessExpression(node)) return `${texto(node.expression, sf)}.${node.name.text}`;
-  if (ts.isElementAccessExpression(node)) return `${texto(node.expression, sf)}[${texto(node.argumentExpression, sf)}]`;
-  if (ts.isArrayLiteralExpression(node)) return `[${node.elements.map((e) => texto(e, sf)).join(', ')}]`;
+  if (ts.isPropertyAccessExpression(node)) return `${t(node.expression)}.${node.name.text}`;
+  if (ts.isElementAccessExpression(node)) return `${t(node.expression)}[${t(node.argumentExpression)}]`;
+  if (ts.isArrayLiteralExpression(node)) return `[${node.elements.map(t).join(', ')}]`;
   if (ts.isObjectLiteralExpression(node)) {
     if (!node.properties.length) return '{}';
     const props = node.properties.map((p) => {
-      if (ts.isPropertyAssignment(p)) return `${texto(p.name, sf)}: ${texto(p.initializer, sf)}`;
+      if (ts.isPropertyAssignment(p)) return `${t(p.name)}: ${t(p.initializer)}`;
       if (ts.isShorthandPropertyAssignment(p)) return p.name.text;
-      if (ts.isSpreadAssignment(p)) return `...${texto(p.expression, sf)}`;
+      if (ts.isSpreadAssignment(p)) return `...${t(p.expression)}`;
+      if (resumir && ts.isMethodDeclaration(p)) return `${t(p.name)}: (função)`;
       return achatar(p, sf);
     });
     return `{ ${props.join(', ')} }`;
   }
   if (ts.isCallExpression(node)) {
-    return `${texto(node.expression, sf)}(${node.arguments.map((a) => texto(a, sf)).join(', ')})`;
+    return `${t(node.expression)}(${node.arguments.map(t).join(', ')})`;
   }
   if (ts.isNewExpression(node)) {
-    return `new ${texto(node.expression, sf)}(${(node.arguments || []).map((a) => texto(a, sf)).join(', ')})`;
+    return `new ${t(node.expression)}(${(node.arguments || []).map(t).join(', ')})`;
   }
   if (ts.isBinaryExpression(node)) {
-    return `${texto(node.left, sf)} ${node.operatorToken.getText(sf)} ${texto(node.right, sf)}`;
+    return `${t(node.left)} ${node.operatorToken.getText(sf)} ${t(node.right)}`;
   }
-  if (ts.isPrefixUnaryExpression(node)) return `${ts.tokenToString(node.operator)}${texto(node.operand, sf)}`;
-  if (ts.isParenthesizedExpression(node)) return `(${texto(node.expression, sf)})`;
-  if (ts.isAsExpression(node)) return `${texto(node.expression, sf)} as ${achatar(node.type, sf)}`;
-  if (ts.isComputedPropertyName(node)) return `[${texto(node.expression, sf)}]`;
+  if (ts.isPrefixUnaryExpression(node)) return `${ts.tokenToString(node.operator)}${t(node.operand)}`;
+  if (ts.isParenthesizedExpression(node)) return `(${t(node.expression)})`;
+  if (ts.isAsExpression(node)) return `${t(node.expression)} as ${achatar(node.type, sf)}`;
+  if (ts.isComputedPropertyName(node)) return `[${t(node.expression)}]`;
   return achatar(node, sf);
 }
 
@@ -257,15 +286,28 @@ function nomeClasse(c) {
   return c.name ? c.name.text : '(classe anônima)';
 }
 
+/** `(() => …)()`, `void (async () => …)()`, `(function () {…})()`: roda na hora, onde está. */
+function ehIIFE(n) {
+  if (!ts.isArrowFunction(n) && !ts.isFunctionExpression(n)) return false;
+  let p = n;
+  while (p.parent && ts.isParenthesizedExpression(p.parent)) p = p.parent;
+  return !!p.parent && ts.isCallExpression(p.parent) && p.parent.expression === p;
+}
+
 /**
  * Onde o nó está: membro de classe (Classe.metodo), classe (decorador, ex.
- * @Module), função nomeada (bootstrap()) ou o topo do arquivo.
+ * @Module), função nomeada (bootstrap()) ou o topo do arquivo. IIFE não conta
+ * como função: o que está dentro roda onde a IIFE está.
  */
 function contexto(node, sf) {
   let n = node.parent;
   let atravessouFuncao = false;
   let funcaoNomeada = null;
   while (n) {
+    if (ehIIFE(n)) {
+      n = n.parent;
+      continue;
+    }
     if (ehMembroDeClasse(n)) {
       const membro = ts.isConstructorDeclaration(n)
         ? 'constructor'
@@ -313,10 +355,156 @@ function analisarArquivo(arquivoAbs, srcDir, acc) {
 
   const auto = (tipo, alvo, detalhe) => acc.automatismos.push({ tipo, arquivo: rel, alvo, detalhe });
   const socket = (tipo, alvo, detalhe) => acc.socket.push({ tipo, arquivo: rel, alvo, detalhe });
+  const produtor = (tipo, alvo, detalhe) => acc.produtores.push({ tipo, arquivo: rel, alvo, detalhe });
+
+  // Pré-passada: funções nomeadas do arquivo (handler de conexão passado por
+  // nome) e variáveis com o app do Nest (`const app = await NestFactory.create(…)`).
+  const funcoes = new Map();
+  const appsNest = new Set();
+  const prepassar = (n) => {
+    if (ts.isFunctionDeclaration(n) && n.name && n.body && !funcoes.has(n.name.text)) funcoes.set(n.name.text, n);
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      const ini = ts.isAwaitExpression(n.initializer) ? n.initializer.expression : n.initializer;
+      if ((ts.isArrowFunction(ini) || ts.isFunctionExpression(ini)) && !funcoes.has(n.name.text)) funcoes.set(n.name.text, ini);
+      if (
+        ts.isCallExpression(ini) &&
+        ts.isPropertyAccessExpression(ini.expression) &&
+        ts.isIdentifier(ini.expression.expression) &&
+        ini.expression.expression.text === 'NestFactory'
+      ) {
+        appsNest.add(n.name.text);
+      }
+    }
+    ts.forEachChild(n, prepassar);
+  };
+  prepassar(sf);
+  // `io.use(…)` só conta como middleware de conexão se o mesmo receptor recebe
+  // `.on('connection')` neste arquivo (resolvido depois da varredura).
+  const usosCandidatos = [];
+  const receptoresConexao = new Set();
+
+  /** Valor de `chave` num objeto literal (`{ chave: x }` ou `{ chave }`). */
+  const valorProp = (obj, chave) => {
+    if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
+    for (const p of obj.properties) {
+      if (ts.isPropertyAssignment(p) && nomeMembro(p.name, sf) === chave) return p.initializer;
+      if (ts.isShorthandPropertyAssignment(p) && p.name.text === chave) return p.name;
+    }
+    return null;
+  };
+
+  /** Método (ou campo com arrow) `nome` da classe que envolve `node`. */
+  const metodoDaClasse = (node, nome) => {
+    let c = node.parent;
+    while (c && !ts.isClassLike(c)) c = c.parent;
+    if (!c) return null;
+    for (const m of c.members) {
+      if (!m.name || nomeMembro(m.name, sf) !== nome) continue;
+      if (ts.isMethodDeclaration(m) && m.body) return m;
+      if (ts.isPropertyDeclaration(m) && m.initializer && (ts.isArrowFunction(m.initializer) || ts.isFunctionExpression(m.initializer))) {
+        return m.initializer;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * X.on('connection' | 'connect', handler). O handler pode ser inline, uma
+   * função nomeada do arquivo ou this.metodo; os socket.on/once/onAny/use de
+   * dentro dele entram também.
+   */
+  const conexao = (node, metodo, receptor) => {
+    const ev = node.arguments[0].text;
+    let cb = node.arguments[1];
+    if (ts.isCallExpression(cb) && ts.isPropertyAccessExpression(cb.expression) && cb.expression.name.text === 'bind') {
+      cb = cb.expression.expression;
+    }
+    let fn = null;
+    let nomeHandler = null;
+    if (ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) fn = cb;
+    else if (ts.isIdentifier(cb)) {
+      nomeHandler = cb.text;
+      fn = funcoes.get(cb.text) || null;
+    } else if (ts.isPropertyAccessExpression(cb) && cb.expression.kind === ts.SyntaxKind.ThisKeyword) {
+      nomeHandler = `this.${cb.name.text}`;
+      fn = metodoDaClasse(node, cb.name.text);
+    } else nomeHandler = texto(cb, sf, true);
+    // 'connect' com handler sem parâmetro é de outro emissor (ex.: cliente Redis).
+    if (ev === 'connect' && fn && !fn.parameters.length) return;
+
+    const ctx = contexto(node, sf);
+    receptoresConexao.add(receptor);
+    const det = nomeHandler ? `${receptor}  handler ${nomeHandler}${fn ? '' : ' (fora do arquivo)'}` : receptor;
+    socket(`.${metodo}('${ev}')`, ctx.alvo, det);
+
+    const p0 = fn && fn.parameters[0];
+    if (!p0 || !ts.isIdentifier(p0.name) || !fn.body) return;
+    const param = p0.name.text;
+    const eventos = (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        METODOS_SOCKET.has(n.expression.name.text) &&
+        ts.isIdentifier(n.expression.expression) &&
+        n.expression.expression.text === param
+      ) {
+        const m = n.expression.name.text;
+        const ev0 = n.arguments[0];
+        let d = '';
+        if (m === 'use') d = '(middleware)';
+        else if (m === 'onAny' || m === 'prependAny') d = '(qualquer evento)';
+        else if (ev0) d = ts.isStringLiteral(ev0) ? ev0.text : texto(ev0, sf);
+        socket(`${param}.${m}`, ctx.alvo, d);
+      }
+      ts.forEachChild(n, eventos);
+    };
+    eventos(fn.body);
+  };
+
+  /** `{ repeat }` literal nas opções do queue.add ou de cada job do queue.addBulk. */
+  const repetiveis = (metodo, node) => {
+    const saida = [];
+    const um = (nomeJob, opts) => {
+      const r = valorProp(opts, 'repeat');
+      if (r) saida.push(`${texto(nomeJob, sf, true)}  repeat: ${texto(r, sf, true)}`);
+    };
+    if (metodo === 'add') um(node.arguments[0], node.arguments[2]);
+    else if (node.arguments[0] && ts.isArrayLiteralExpression(node.arguments[0])) {
+      for (const el of node.arguments[0].elements) um(valorProp(el, 'name'), valorProp(el, 'opts'));
+    }
+    return saida;
+  };
 
   const visitarClasse = (c) => {
     const classe = nomeClasse(c);
     const decsClasse = decoradoresDe(c).map((d) => infoDecorador(d, sf, imports));
+
+    // Para a herança (2ª passada em gerarInventario): de quem estende e o que
+    // declara. Base por mixin (AuthGuard('jwt')) não tem item no app.
+    if (c.name) {
+      const ext = (c.heritageClauses || []).find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
+      const e = ext && ext.types[0] ? ext.types[0].expression : null;
+      let base = null;
+      if (e && ts.isIdentifier(e)) {
+        const imp = imports.get(e.text);
+        base = { nome: imp ? imp.nome : e.text, modulo: imp ? imp.modulo : null };
+      } else if (e && ts.isPropertyAccessExpression(e)) {
+        base = { nome: e.name.text, modulo: '' };
+      }
+      const membros = new Set();
+      const campos = new Set();
+      const estaticos = new Set(['static {}']);
+      for (const m of c.members) {
+        if (ts.isConstructorDeclaration(m) || !m.name) continue;
+        const nm = nomeMembro(m.name, sf);
+        if ((m.modifiers || []).some((k) => k.kind === ts.SyntaxKind.StaticKeyword)) estaticos.add(nm);
+        else {
+          membros.add(nm);
+          if (ts.isPropertyDeclaration(m)) campos.add(nm);
+        }
+      }
+      acc.classes.push({ arquivo: rel, nome: classe, base, membros, campos, estaticos });
+    }
 
     for (const d of decsClasse) {
       if (DECORADORES_FILA.has(d.nome)) {
@@ -418,37 +606,45 @@ function analisarArquivo(arquivoAbs, srcDir, acc) {
         }
       }
 
-      // X.on('connection', (socket) => { socket.on('evento', …) })
-      if (
-        ts.isPropertyAccessExpression(node.expression) &&
-        (node.expression.name.text === 'on' || node.expression.name.text === 'once') &&
-        node.arguments.length >= 2 &&
-        ts.isStringLiteral(node.arguments[0]) &&
-        node.arguments[0].text === 'connection' &&
-        (ts.isArrowFunction(node.arguments[1]) || ts.isFunctionExpression(node.arguments[1]))
-      ) {
-        const ctx = contexto(node, sf);
-        const receptor = texto(node.expression.expression, sf);
-        socket(".on('connection')", ctx.alvo, receptor);
-        const cb = node.arguments[1];
-        const p0 = cb.parameters[0];
-        if (p0 && ts.isIdentifier(p0.name)) {
-          const param = p0.name.text;
-          const eventos = (n) => {
-            if (
-              ts.isCallExpression(n) &&
-              ts.isPropertyAccessExpression(n.expression) &&
-              (n.expression.name.text === 'on' || n.expression.name.text === 'once') &&
-              ts.isIdentifier(n.expression.expression) &&
-              n.expression.expression.text === param &&
-              n.arguments.length >= 1
-            ) {
-              const ev = n.arguments[0];
-              socket(`${param}.${n.expression.name.text}`, ctx.alvo, ts.isStringLiteral(ev) ? ev.text : texto(ev, sf));
-            }
-            ts.forEachChild(n, eventos);
-          };
-          ts.forEachChild(cb.body, eventos);
+      if (ts.isPropertyAccessExpression(node.expression)) {
+        const metodo = node.expression.name.text;
+        const receptorNo = node.expression.expression;
+        const receptor = texto(receptorNo, sf);
+        const ehApp = ts.isIdentifier(receptorNo) && appsNest.has(receptorNo.text);
+
+        // app.useGlobalGuards/Pipes/Interceptors/Filters(…) e, no app do
+        // NestFactory.create, app.use(…) / app.setGlobalPrefix(…). O texto dos
+        // argumentos entra: mudar as opções do ValidationPipe também falha.
+        if (USO_GLOBAL.has(metodo) || (ehApp && USO_APP.has(metodo))) {
+          acc.globais.push({ arquivo: rel, token: `app.${metodo}`, classe: node.arguments.map((a) => texto(a, sf, true)).join(', ') });
+        }
+
+        // Socket: X.on('connection' | 'connect', handler) e o io.use(…) do mesmo X.
+        if (
+          (metodo === 'on' || metodo === 'once') &&
+          node.arguments.length >= 2 &&
+          ts.isStringLiteralLike(node.arguments[0]) &&
+          EVENTOS_CONEXAO.has(node.arguments[0].text)
+        ) {
+          conexao(node, metodo, receptor);
+        }
+        if (metodo === 'use' && !ehApp) usosCandidatos.push({ node, receptor });
+
+        // Job repetível do BullMQ agenda sozinho, como um @Cron (estrito). O
+        // queue.add comum é só produtor (aviso).
+        if (metodo === 'upsertJobScheduler') {
+          const det = [receptor, ...node.arguments.slice(0, 2).map((a) => texto(a, sf, true))].join('  ');
+          auto('queue.upsertJobScheduler', contexto(node, sf).alvo, det);
+        } else if (metodo === 'add' || metodo === 'addBulk') {
+          const reps = repetiveis(metodo, node);
+          const ultimo = ts.isIdentifier(receptorNo) ? receptorNo.text : ts.isPropertyAccessExpression(receptorNo) ? receptorNo.name.text : '';
+          if (reps.length) {
+            const alvo = contexto(node, sf).alvo;
+            for (const r of reps) auto(`queue.${metodo} (repeat)`, alvo, `${receptor}  ${r}`);
+          } else if (NOME_FILA.test(ultimo) && node.arguments.length) {
+            const job = metodo === 'add' ? texto(node.arguments[0], sf, true) : '(lote)';
+            produtor(`queue.${metodo}`, contexto(node, sf).alvo, `${receptor}  ${job}`);
+          }
         }
       }
     }
@@ -481,6 +677,87 @@ function analisarArquivo(arquivoAbs, srcDir, acc) {
   };
 
   visitar(sf);
+
+  // Middleware de conexão (o JWT do socket): io.use(…) no receptor de um .on('connection').
+  for (const { node, receptor } of usosCandidatos) {
+    if (!receptoresConexao.has(receptor)) continue;
+    const det = [receptor, ...node.arguments.map((a) => texto(a, sf, true))].join('  ');
+    socket('.use (middleware de conexão)', contexto(node, sf).alvo, det);
+  }
+}
+
+/**
+ * Herança: o Nest varre a cadeia de protótipos (MetadataScanner, hooks), então
+ * `class X extends BaseComCron {}` também roda o @Cron / onModuleInit da base.
+ * Cada classe do app que estende outra do app ganha os itens da base, com alvo
+ * "X.metodo (herdado de Base)", menos o método que ela sobrescreve (construtor,
+ * inicializador de campo e classe toda sempre valem; static não é herdado).
+ */
+function itensHerdados(classes, automatismos) {
+  const chave = (arquivo, nome) => `${arquivo}\u0000${nome}`;
+  const porArquivo = new Map(classes.map((c) => [chave(c.arquivo, c.nome), c]));
+  const porNome = new Map();
+  for (const c of classes) porNome.set(c.nome, [...(porNome.get(c.nome) || []), c]);
+  const proprios = new Map();
+  for (const i of automatismos) {
+    const ponto = i.alvo.indexOf('.');
+    const classe = ponto >= 0 ? i.alvo.slice(0, ponto) : i.alvo;
+    const k = chave(i.arquivo, classe);
+    if (!porArquivo.has(k)) continue;
+    proprios.set(k, [...(proprios.get(k) || []), { ...i, membro: ponto >= 0 ? i.alvo.slice(ponto + 1) : null }]);
+  }
+
+  const basesDe = (c) => {
+    if (!c.base) return [];
+    const { nome, modulo } = c.base;
+    if (modulo === null) {
+      const b = porArquivo.get(chave(c.arquivo, nome));
+      if (b) return [b];
+    } else if (modulo.startsWith('.')) {
+      const alvo = path.posix.normalize(path.posix.join(path.posix.dirname(c.arquivo), modulo)).replace(/\.js$/, '');
+      for (const cand of [`${alvo}.ts`, `${alvo}/index.ts`]) {
+        const b = porArquivo.get(chave(cand, nome));
+        if (b) return [b];
+      }
+    }
+    // Barrel, alias de path ou namespace: pelo nome (no pior caso, item a mais).
+    return (porNome.get(nome) || []).filter((b) => b !== c);
+  };
+
+  const memo = new Map();
+  const efetivos = (c, pilha) => {
+    if (memo.has(c)) return memo.get(c);
+    if (pilha.has(c)) return [];
+    pilha.add(c);
+    const lista = (proprios.get(chave(c.arquivo, c.nome)) || []).map((i) => ({ ...i, origem: c }));
+    for (const b of basesDe(c)) {
+      for (const i of efetivos(b, pilha)) {
+        if (i.membro && i.origem.estaticos.has(i.membro)) continue;
+        const sobrescrito =
+          i.membro && i.membro !== 'constructor' && c.membros.has(i.membro) && !i.origem.campos.has(i.membro);
+        if (!sobrescrito) lista.push(i);
+      }
+    }
+    pilha.delete(c);
+    memo.set(c, lista);
+    return lista;
+  };
+
+  const saida = [];
+  for (const c of classes) {
+    if (!c.base) continue;
+    for (const i of efetivos(c, new Set())) {
+      if (i.origem === c) continue;
+      const herdado = ` (herdado de ${i.origem.nome})`;
+      saida.push({
+        tipo: i.tipo,
+        arquivo: c.arquivo,
+        alvo: i.membro ? `${c.nome}.${i.membro}${herdado}` : `${c.nome}${herdado}`,
+        detalhe: i.detalhe,
+      });
+    }
+  }
+  return saida;
 }
 
 function chaveItem(i) {
@@ -508,11 +785,13 @@ function ordenarItens(itens) {
 function gerarInventario(app) {
   if (!APPS.includes(app)) throw new Error(`app desconhecido: ${app}`);
   const srcDir = path.join(RAIZ, 'apps', app, 'src');
-  const acc = { automatismos: [], socket: [], globais: [], controllers: [] };
+  const acc = { automatismos: [], socket: [], globais: [], controllers: [], produtores: [], classes: [] };
   for (const f of listarArquivos(srcDir)) analisarArquivo(f, srcDir, acc);
+  acc.automatismos.push(...itensHerdados(acc.classes, acc.automatismos));
 
   const automatismos = ordenarItens(numerarRepetidos(acc.automatismos));
   const socket = ordenarItens(numerarRepetidos(acc.socket));
+  const produtores = ordenarItens(numerarRepetidos(acc.produtores));
   // Globais: arquivos em ordem; dentro do arquivo, a ordem do fonte (importa).
   const globais = acc.globais
     .map((g, i) => ({ g, i }))
@@ -532,12 +811,13 @@ function gerarInventario(app) {
   );
 
   return {
-    _aviso: 'Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize com: npm run guards:update',
+    _aviso: 'Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update',
     app,
     resumo: {
       automatismos: Object.fromEntries(Object.keys(contagem).sort(cmp).map((k) => [k, contagem[k]])),
       socket: socket.length,
       globais: globais.length,
+      produtores: produtores.length,
       controllers: controllers.length,
       handlers,
       '@Public': publicos,
@@ -545,6 +825,7 @@ function gerarInventario(app) {
     automatismos,
     socket,
     globais,
+    produtores,
     controllers,
   };
 }
@@ -669,7 +950,7 @@ function compararInventarios(app, commitado, gerado) {
   }
   const glob = diffGlobais(commitado.globais, gerado.globais);
   if (glob) {
-    partes.push('  Ordem/lista dos APP_GUARD (e APP_INTERCEPTOR/APP_FILTER/APP_PIPE) mudou:');
+    partes.push('  Ordem/lista dos globais mudou (APP_GUARD/APP_INTERCEPTOR/APP_FILTER/APP_PIPE e app.useGlobal*/app.use do main.ts):');
     partes.push(...lista('antes', glob.antes, '').map((l) => `  ${l}`));
     partes.push(...lista('agora', glob.depois, '').map((l) => `  ${l}`));
   }
@@ -682,12 +963,13 @@ function compararInventarios(app, commitado, gerado) {
         `[inventário ${app}] mudou o que roda sem requisição:`,
         ...partes,
         '',
-        `Rode "npm run guards:update", confira se esse automatismo pode rodar para todos os tenants`,
+        `${COMO_ATUALIZAR}, confira se esse automatismo pode rodar para todos os tenants`,
         `(as clínicas de hoje e o laboratório que vem) e commite o inventário junto (${json}).`,
       ].join('\n')
     : null;
 
   const r = diffRotas(commitado.controllers, gerado.controllers);
+  const prod = diffItens(commitado.produtores, gerado.produtores);
   const av = [
     ...lista('controller novo', r.controllersNovos, '+'),
     ...lista('controller removido', r.controllersRemovidos, '-'),
@@ -695,17 +977,38 @@ function compararInventarios(app, commitado, gerado) {
     ...lista('rota removida', r.removidos, '-'),
     ...lista('acesso mudou', r.acessoMudou, '~'),
     ...lista('ordem das rotas mudou (a ordem decide qual rota casa primeiro)', r.ordemMudou, '~'),
+    ...lista('produtor de fila novo (queue.add)', prod.novos, '+'),
+    ...lista('produtor de fila removido (queue.add)', prod.removidos, '-'),
   ];
-  if (!av.length && !igual('controllers')) av.push('  inventário de rotas desatualizado (só forma).');
+  if (!av.length && !(igual('controllers') && igual('produtores'))) av.push('  inventário de rotas/produtores desatualizado (só forma).');
   const avisos = av.length
     ? [
-        `[inventário ${app}] rotas/controllers mudaram (só aviso, não falha):`,
+        `[inventário ${app}] rotas, controllers ou produtores de fila mudaram (só aviso, não falha):`,
         ...av,
-        `Confira o acesso de cada rota nova e rode "npm run guards:update" para atualizar ${json}.`,
+        `${r.novos.length || r.controllersNovos.length ? 'Confira o acesso de cada rota nova. ' : ''}${COMO_ATUALIZAR} para atualizar ${json}.`,
       ].join('\n')
     : null;
 
   return { estrito, avisos };
+}
+
+/**
+ * No GitHub Actions, põe o que mudou no resumo do job ($GITHUB_STEP_SUMMARY):
+ * o aviso de rota/acesso não fica perdido no meio do log do jest. Fora do CI
+ * não faz nada. Nunca derruba quem chamou.
+ */
+function escreverResumoDoJob(app, { estrito, avisos }) {
+  const destino = process.env.GITHUB_STEP_SUMMARY;
+  if (!destino || (!estrito && !avisos)) return false;
+  const blocos = [`### Inventário (${app})`, ''];
+  if (estrito) blocos.push('**Falha (estrito):**', '', '````text', estrito, '````', '');
+  if (avisos) blocos.push('**Aviso (rotas, acesso, produtores de fila):**', '', '````text', avisos, '````', '');
+  try {
+    fs.appendFileSync(destino, `${blocos.join('\n')}\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 module.exports = {
@@ -718,6 +1021,7 @@ module.exports = {
   diffGlobais,
   diffRotas,
   compararInventarios,
+  escreverResumoDoJob,
 };
 
 if (require.main === module) {
@@ -738,11 +1042,13 @@ if (require.main === module) {
     for (const app of apps) {
       const destino = caminhoInventario(app);
       if (!fs.existsSync(destino)) {
-        console.error(`[inventário ${app}] ${destino} não existe — rode "npm run guards:update".`);
+        console.error(`[inventário ${app}] ${destino} não existe. ${COMO_ATUALIZAR} e commite o arquivo.`);
         falhou = true;
         continue;
       }
-      const { estrito, avisos } = compararInventarios(app, JSON.parse(fs.readFileSync(destino, 'utf8')), gerarInventario(app));
+      const resultado = compararInventarios(app, JSON.parse(fs.readFileSync(destino, 'utf8')), gerarInventario(app));
+      const { estrito, avisos } = resultado;
+      escreverResumoDoJob(app, resultado);
       if (avisos) console.warn(avisos);
       if (estrito) {
         console.error(estrito);
@@ -761,7 +1067,8 @@ if (require.main === module) {
       const autos = Object.entries(r.automatismos).map(([k, v]) => `${v} ${k}`).join(', ');
       console.log(
         `[inventario] ${app}: ${path.relative(RAIZ, destino).split(path.sep).join('/')} — ${autos}; ` +
-          `${r.socket} socket; ${r.globais} globais; ${r.controllers} controllers, ${r.handlers} rotas, ${r['@Public']} @Public`,
+          `${r.socket} socket; ${r.globais} globais; ${r.produtores} produtores; ` +
+          `${r.controllers} controllers, ${r.handlers} rotas, ${r['@Public']} @Public`,
       );
     }
   } else {
