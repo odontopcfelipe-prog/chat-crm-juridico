@@ -49,8 +49,24 @@ export class AutomationsService {
 
   // ─── Execution helpers ─────────────────────────────────────────
 
+  /** Clínica do lead/conversa da automação (a tarefa nasce nela); senão, a da regra. */
+  private async clinicaDoContexto(
+    rule: { tenant_id?: string | null },
+    context: { leadId?: string; conversationId?: string },
+  ): Promise<string | null> {
+    if (context.leadId) {
+      const l = await this.prisma.lead.findUnique({ where: { id: context.leadId }, select: { tenant_id: true } });
+      if (l?.tenant_id) return l.tenant_id;
+    }
+    if (context.conversationId) {
+      const c = await this.prisma.conversation.findUnique({ where: { id: context.conversationId }, select: { tenant_id: true } });
+      if (c?.tenant_id) return c.tenant_id;
+    }
+    return rule.tenant_id ?? null;
+  }
+
   private async executeAction(
-    rule: { action: string; action_value: string },
+    rule: { action: string; action_value: string; tenant_id?: string | null },
     context: { leadId?: string; conversationId?: string },
   ) {
     try {
@@ -111,8 +127,11 @@ export class AutomationsService {
           const dueAt = cfg.due_hours
             ? new Date(Date.now() + cfg.due_hours * 3_600_000)
             : null;
+          // Sem tenant_id a tarefa aparecia na lista de tarefas de TODAS as clínicas.
+          const tenantId = await this.clinicaDoContexto(rule, context);
           await this.prisma.task.create({
             data: {
+              ...(tenantId ? { tenant_id: tenantId } : {}),
               title: cfg.title,
               description: cfg.description,
               lead_id: context.leadId ?? null,

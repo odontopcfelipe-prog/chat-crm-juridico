@@ -107,3 +107,39 @@ describe('FollowupService — tenant', () => {
     await expect(svc.enrollLead('l1', 's-b')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+describe('AutomationsService — CREATE_TASK nasce na clínica', () => {
+  function montarTarefa(lead: { tenant_id: string | null } | null, conv: { tenant_id: string | null } | null) {
+    const criadas: any[] = [];
+    const prisma: any = {
+      lead: { findUnique: jest.fn(async () => lead) },
+      conversation: { findUnique: jest.fn(async () => conv) },
+      task: { create: jest.fn(async ({ data }: any) => criadas.push(data)) },
+    };
+    const svc = new AutomationsService(prisma, {} as any);
+    const rodar = (rule: any, ctx: any) => (svc as any).executeAction(rule, ctx);
+    return { rodar, criadas };
+  }
+  const regra = (tenant_id: string | null) => ({ action: 'CREATE_TASK', action_value: '{"title":"Ligar"}', tenant_id });
+
+  it('pega a clínica do lead (antes: tarefa sem clínica, visível para todas)', async () => {
+    const { rodar, criadas } = montarTarefa({ tenant_id: 'a' }, null);
+    await rodar(regra(null), { leadId: 'l1' });
+    expect(criadas[0]).toMatchObject({ tenant_id: 'a', title: 'Ligar', lead_id: 'l1' });
+  });
+
+  it('sem lead, pega a da conversa; sem as duas, a da regra', async () => {
+    const c = montarTarefa(null, { tenant_id: 'b' });
+    await c.rodar(regra('a'), { conversationId: 'c1' });
+    expect(c.criadas[0].tenant_id).toBe('b');
+    const r = montarTarefa(null, null);
+    await r.rodar(regra('a'), {});
+    expect(r.criadas[0].tenant_id).toBe('a');
+  });
+
+  it('nada conhecido (regra global, contexto legado) → como antes, sem clínica', async () => {
+    const { rodar, criadas } = montarTarefa({ tenant_id: null }, null);
+    await rodar(regra(null), { leadId: 'l0' });
+    expect(criadas[0]).not.toHaveProperty('tenant_id');
+  });
+});
