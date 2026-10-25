@@ -41,7 +41,10 @@ function montar(instancias: Record<string, { name: string; tenant_id: string | n
         escritas.push(`instance.upsert:${where.name}`);
         return {};
       }),
-      update: jest.fn(),
+      update: jest.fn(async ({ where }: any) => {
+        escritas.push(`instance.update:${where.name}`);
+        return {};
+      }),
       updateMany: jest.fn(async () => ({ count: 0 })),
     },
     user: {
@@ -63,7 +66,8 @@ const req = (tenant_id: string | null, roles = ['ADMIN']) => ({ user: { id: 'x',
 
 describe('Inboxes — tenant do chamador', () => {
   it('editar/apagar setor de OUTRA clínica → não encontrada, nada é escrito', async () => {
-    const { ctrl, escritas } = montar();
+    // chip-b está mesmo no setor da B: sem a checagem de clínica, removeInstance o soltaria
+    const { ctrl, escritas } = montar({ 'chip-b': { name: 'chip-b', tenant_id: 'b', inbox_id: 'in-b' } });
     await expect(ctrl.update('in-b', { name: 'X' }, req('a'))).rejects.toBeInstanceOf(NotFoundException);
     await expect(ctrl.remove('in-b', req('a'))).rejects.toBeInstanceOf(NotFoundException);
     await expect(ctrl.findOne('in-b', req('a'))).rejects.toBeInstanceOf(NotFoundException);

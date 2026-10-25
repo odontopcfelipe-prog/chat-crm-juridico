@@ -18,7 +18,10 @@ function montar() {
     globalSetting: {
       updateMany: jest.fn(async ({ where, data }: any) => {
         const atual = settings.get(where.key);
-        if (atual !== undefined && atual !== where.value.not) {
+        const casa =
+          atual !== undefined &&
+          (typeof where.value === 'string' ? atual === where.value : atual !== where.value.not);
+        if (casa) {
           settings.set(where.key, data.value);
           return { count: 1 };
         }
@@ -39,7 +42,7 @@ function montar() {
       return true;
     }),
   };
-  return { svc: new DiskSentinelService(prisma, mail), settings, enviados, prisma };
+  return { svc: new DiskSentinelService(prisma, mail), settings, enviados, prisma, mail };
 }
 
 describe('faixas', () => {
@@ -86,6 +89,31 @@ describe('DiskSentinelService.verificar', () => {
     await svc.verificar();
     await svc.verificar();
     expect(enviados).toEqual(['⚠️ Disco do servidor em 85%', '⚠️ Disco do servidor em 92%']);
+  });
+
+  it.each([
+    ['SMTP falha (lança)', (mail: any) => mail.send.mockRejectedValueOnce(new Error('ETIMEDOUT'))],
+    ['SMTP não configurado (false)', (mail: any) => mail.send.mockResolvedValueOnce(false)],
+  ])('%s na 1ª rodada → a trava volta e a rodada seguinte manda', async (_n, falhar) => {
+    const { svc, enviados, mail, settings } = montar();
+    jest.spyOn(fs, 'statfs').mockResolvedValue(statfs(85));
+    falhar(mail);
+    await svc.verificar();
+    expect(enviados).toEqual([]);
+    expect(settings.get('DISK_SENTINEL_80')).toBe('');
+    await svc.verificar();
+    await svc.verificar();
+    expect(enviados).toEqual(['⚠️ Disco do servidor em 85%']);
+  });
+
+  it('sem SUPER_ADMIN com e-mail → não gasta a trava do dia', async () => {
+    const { svc, prisma, settings, enviados } = montar();
+    prisma.user.findMany.mockResolvedValueOnce([]);
+    jest.spyOn(fs, 'statfs').mockResolvedValue(statfs(85));
+    await svc.verificar();
+    expect(settings.get('DISK_SENTINEL_80')).toBe('');
+    await svc.verificar();
+    expect(enviados).toHaveLength(1);
   });
 
   it('aviso de ontem não segura o de hoje', async () => {

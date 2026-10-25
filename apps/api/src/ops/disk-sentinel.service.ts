@@ -34,8 +34,16 @@ export class DiskSentinelService {
       const faixa = faixaAtingida(uso.pct, limites());
       if (faixa === null) return;
       this.logger.warn(`[DISK] ${caminho}: ${uso.pct.toFixed(1)}% usado (${gb(uso.livre)} livres) — faixa ${faixa}%`);
-      if (!(await this.reivindicarAvisoDoDia(faixa))) return;
-      await this.avisar(caminho, uso, faixa);
+      const hoje = hojeMaceio();
+      if (!(await this.reivindicarAvisoDoDia(faixa, hoje))) return;
+      // Nenhum e-mail saiu (SMTP fora, sem destinatário, erro): devolve a trava para a
+      // próxima rodada tentar de novo — senão o aviso da faixa some pelo resto do dia.
+      let enviados = 0;
+      try {
+        enviados = await this.avisar(caminho, uso, faixa);
+      } finally {
+        if (enviados === 0) await this.liberarAvisoDoDia(faixa, hoje).catch(() => undefined);
+      }
     } catch (e: any) {
       this.logger.warn(`[DISK] vigia falhou: ${e?.message}`);
     }
@@ -45,9 +53,8 @@ export class DiskSentinelService {
    * 1 e-mail por faixa por dia, mesmo com mais de uma réplica da API: trava
    * atômica numa GlobalSetting (DISK_SENTINEL_<faixa> = data de hoje em Maceió).
    */
-  private async reivindicarAvisoDoDia(faixa: number): Promise<boolean> {
+  private async reivindicarAvisoDoDia(faixa: number, hoje: string): Promise<boolean> {
     const key = `DISK_SENTINEL_${faixa}`;
-    const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
     const r = await this.prisma.globalSetting.updateMany({
       where: { key, value: { not: hoje } },
       data: { value: hoje },
@@ -61,7 +68,16 @@ export class DiskSentinelService {
     }
   }
 
-  private async avisar(caminho: string, uso: UsoDisco, faixa: number) {
+  /** Só desfaz a trava que ainda é de hoje (não apaga a de outra rodada). */
+  private async liberarAvisoDoDia(faixa: number, hoje: string): Promise<void> {
+    await this.prisma.globalSetting.updateMany({
+      where: { key: `DISK_SENTINEL_${faixa}`, value: hoje },
+      data: { value: '' },
+    });
+  }
+
+  /** Devolve quantos e-mails saíram de fato. */
+  private async avisar(caminho: string, uso: UsoDisco, faixa: number): Promise<number> {
     const [banco, anexos] = await Promise.all([
       this.tamanho(`SELECT pg_database_size(current_database())::bigint AS n`),
       this.tamanho(`SELECT pg_total_relation_size('"DisparoAnexo"')::bigint AS n`),
@@ -73,7 +89,7 @@ export class DiskSentinelService {
     const emails = [...new Set(destinos.map((d) => d.email).filter((e): e is string => !!e))];
     if (!emails.length) {
       this.logger.warn('[DISK] nenhum SUPER_ADMIN com e-mail para avisar');
-      return;
+      return 0;
     }
     const linhas = [
       `Disco do servidor em <b>${uso.pct.toFixed(1)}%</b> (faixa de ${faixa}%).`,
@@ -87,13 +103,15 @@ export class DiskSentinelService {
       bodyHtml: linhas.join('<br>'),
       footerNote: 'Aviso automático do vigia de disco — no máximo 1 por faixa por dia.',
     });
+    let enviados = 0;
     for (const to of emails) {
       try {
-        await this.mail.send({ to, subject: `⚠️ Disco do servidor em ${uso.pct.toFixed(0)}%`, html });
+        if (await this.mail.send({ to, subject: `⚠️ Disco do servidor em ${uso.pct.toFixed(0)}%`, html })) enviados++;
       } catch (e: any) {
         this.logger.warn(`[DISK] e-mail para ${to} falhou: ${e?.message}`);
       }
     }
+    return enviados;
   }
 
   private async tamanho(sql: string): Promise<number | null> {
@@ -130,6 +148,11 @@ export function faixaAtingida(pct: number, faixas: number[]): number | null {
   let achou: number | null = null;
   for (const f of faixas) if (pct >= f) achou = f;
   return achou;
+}
+
+/** Data de hoje em Maceió (UTC-3), AAAA-MM-DD. */
+function hojeMaceio(): string {
+  return new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 }
 
 function gb(bytes: number): string {
