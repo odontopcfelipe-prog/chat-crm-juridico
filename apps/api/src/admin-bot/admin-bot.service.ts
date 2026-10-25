@@ -82,15 +82,20 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   // ─── Public API ───────────────────────────────────────────────────────────
 
   /**
-   * Verifica se o telefone pertence a um usuário ADMIN ou DENTIST do sistema.
-   * Retorna o user se encontrado, null caso contrário.
+   * Verifica se o telefone pertence a um usuário ADMIN ou DENTIST da clínica
+   * DONA do chip. Retorna o user se encontrado, null caso contrário.
+   *
+   * Equipe de outra clínica que escreve neste chip é um contato comum dele (segue
+   * o fluxo de mensagem normal): o robô nunca roda comando com os dados de uma
+   * clínica pelo chip de outra. Chip sem clínica (legado): como antes.
    */
-  async findAdminByPhone(phone: string): Promise<any | null> {
+  async findAdminByPhone(phone: string, chipTenantId?: string | null): Promise<any | null> {
     const normalized = phone.replace(/\D/g, '');
     return this.prisma.user.findFirst({
       where: {
         phone: { in: [normalized, phone] },
         roles: { hasSome: ['ADMIN', 'DENTIST'] },
+        ...(chipTenantId ? { tenant_id: chipTenantId } : {}),
       },
       select: { id: true, name: true, roles: true, tenant_id: true },
     });

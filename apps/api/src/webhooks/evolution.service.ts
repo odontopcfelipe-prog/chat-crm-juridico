@@ -230,7 +230,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       if (!isFromMe && messageContentCheck && await this.adminBotService.isEnabled()) {
         const sessionKey = `${instanceName}:${phone}`;
         if (this.adminBotService.isAdminCommand(sessionKey, messageContentCheck)) {
-          const adminUser = await this.adminBotService.findAdminByPhone(phone);
+          const adminUser = await this.adminBotService.findAdminByPhone(phone, effectiveTenantId);
           if (adminUser && instanceName) {
             this.logger.log(`[ADMIN-BOT] Comando do admin ${phone} interceptado: "${messageContentCheck.substring(0, 60)}"`);
             await this.adminBotService.handle(
