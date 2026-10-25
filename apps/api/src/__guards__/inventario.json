@@ -1,0 +1,1721 @@
+{
+  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
+  "app": "api",
+  "resumo": {
+    "automatismos": { "@Cron": 24, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "socket": 7,
+    "globais": 11,
+    "produtores": 24,
+    "controllers": 84,
+    "handlers": 933,
+    "@Public": 28
+  },
+  "automatismos": [
+    { "tipo": "@Cron", "arquivo": "agenda-extended/retorno-disparos.service.ts", "alvo": "RetornoDisparosService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkNoResponse", "detalhe": "CronExpression.EVERY_HOUR" },
+    { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkPaymentOverdue", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
+    { "tipo": "@Cron", "arquivo": "billing/billing.service.ts", "alvo": "BillingService.dailyBillingCheck", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
+    { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkBirthdayGreetings", "detalhe": "'0 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkDentistDailySummary", "detalhe": "'0 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkPushReminders", "detalhe": "'*/1 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "campanhas/campanhas-envio.service.ts", "alvo": "CampanhasEnvioService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "commercial/quotes.service.ts", "alvo": "QuotesService.cronDailyExpiry", "detalhe": "CronExpression.EVERY_DAY_AT_3AM" },
+    { "tipo": "@Cron", "arquivo": "commercial/quotes.service.ts", "alvo": "QuotesService.cronDailySummary", "detalhe": "'* * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "commercial/quotes.service.ts", "alvo": "QuotesService.cronPacientesSemAgendamento", "detalhe": "'0 8 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "commercial/treatment-plans.service.ts", "alvo": "TreatmentPlansService.cronEnsurePostTreatmentReturns", "detalhe": "CronExpression.EVERY_DAY_AT_4AM" },
+    { "tipo": "@Cron", "arquivo": "email-automation/email-automation.service.ts", "alvo": "EmailAutomationService.sendDueTomorrowReminders", "detalhe": "'0 9 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "google-drive/google-drive-cleanup.cron.ts", "alvo": "GoogleDriveCleanupCron.cleanupStaleLeadFolders", "detalhe": "'0 3 1 * *'" },
+    { "tipo": "@Cron", "arquivo": "notifications/notifications.service.ts", "alvo": "NotificationsService.handleCleanupCron", "detalhe": "CronExpression.EVERY_DAY_AT_3AM" },
+    { "tipo": "@Cron", "arquivo": "patients/patient-avatar-backfill.cron.ts", "alvo": "PatientAvatarBackfillCron.drip", "detalhe": "'*/5 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "payment-gateway/boleto-delivery.service.ts", "alvo": "BoletoDeliveryService.tick", "detalhe": "'*/1 8-17 * * 1-5', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "payment-gateway/payment-gateway.service.ts", "alvo": "PaymentGatewayService.ensureReceitaBackfillCron", "detalhe": "'*/15 8-20 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "payment-gateway/payment-gateway.service.ts", "alvo": "PaymentGatewayService.reconcileOverdueCron", "detalhe": "'*/10 8-20 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "tasks/task-alert-cron.service.ts", "alvo": "TaskAlertCronService.emitDueSoonAlerts", "detalhe": "'*/5 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "tasks/task-alert-cron.service.ts", "alvo": "TaskAlertCronService.emitOverdueAlerts", "detalhe": "'*/30 * * * *'" },
+    { "tipo": "@Cron", "arquivo": "tasks/tasks.service.ts", "alvo": "TasksService.checkOverdueTasks", "detalhe": "CronExpression.EVERY_HOUR" },
+    { "tipo": "@Cron", "arquivo": "transfer-audio/transfer-audio.service.ts", "alvo": "TransferAudioService.cleanupExpired", "detalhe": "CronExpression.EVERY_HOUR" },
+    { "tipo": "@Cron", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.resyncPeriodicSafetyNet", "detalhe": "'*/15 * * * *', { name: 'evolution-resync-safety-net' }" },
+    { "tipo": "@Processor", "arquivo": "calendar/calendar-reminder.worker.ts", "alvo": "CalendarReminderWorker", "detalhe": "'calendar-reminders'" },
+    { "tipo": "@Processor", "arquivo": "commercial/fechamento.processor.ts", "alvo": "FechamentoProcessor", "detalhe": "'fechamento-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "calendar/calendar.module.ts", "alvo": "CalendarModule", "detalhe": "'calendar-reminders'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "commercial/commercial.module.ts", "alvo": "CommercialModule", "detalhe": "'fechamento-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "followup/followup.module.ts", "alvo": "FollowupModule", "detalhe": "'followup-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "media/media.module.ts", "alvo": "MediaModule", "detalhe": "'media-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "memories/memories.module.ts", "alvo": "MemoriesModule", "detalhe": "'memory-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "messages/messages.module.ts", "alvo": "MessagesModule", "detalhe": "'ai-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "notifications/notifications.module.ts", "alvo": "NotificationsModule", "detalhe": "'notification-whatsapp'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "webhooks/webhooks.module.ts", "alvo": "WebhooksModule", "detalhe": "'ai-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "webhooks/webhooks.module.ts", "alvo": "WebhooksModule", "detalhe": "'media-jobs'" },
+    { "tipo": "new QueueEvents", "arquivo": "media/ai-events.service.ts", "alvo": "AiEventsService.onModuleInit", "detalhe": "'ai-jobs'" },
+    { "tipo": "new QueueEvents", "arquivo": "settings/ai-test-chat.service.ts", "alvo": "AiTestChatService.ensure", "detalhe": "'ai-jobs'" },
+    { "tipo": "onApplicationBootstrap", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.onApplicationBootstrap", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "admin-bot/admin-bot.service.ts", "alvo": "AdminBotService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "commercial/treatment-plans.service.ts", "alvo": "TreatmentPlansService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "media/ai-events.service.ts", "alvo": "AiEventsService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "media/filesystem.service.ts", "alvo": "FileStorageService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "media/s3.service.ts", "alvo": "MediaS3Service.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "prisma/prisma.service.ts", "alvo": "PrismaService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "push/push.service.ts", "alvo": "PushService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "s3/s3.service.ts", "alvo": "S3Service.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "sectors/sectors.service.ts", "alvo": "SectorsService.onModuleInit", "detalhe": "" },
+    { "tipo": "setInterval (boot)", "arquivo": "admin-bot/admin-bot.service.ts", "alvo": "AdminBotService.onModuleInit", "detalhe": "" },
+    { "tipo": "setInterval (boot)", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "" },
+    { "tipo": "setTimeout (boot)", "arquivo": "commercial/treatment-plans.service.ts", "alvo": "TreatmentPlansService.onModuleInit", "detalhe": "" },
+    { "tipo": "setTimeout (boot)", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.onApplicationBootstrap", "detalhe": "" }
+  ],
+  "socket": [
+    { "tipo": ".on('connection')", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "io" },
+    { "tipo": ".use (middleware de conexão)", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "io  (função)" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "disconnect" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_conversation" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_user" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "leave_conversation" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "typing" }
+  ],
+  "globais": [
+    { "arquivo": "app.module.ts", "token": "APP_FILTER", "classe": "PrismaExceptionFilter" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "ThrottlerGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "JwtAuthGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "RolesGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PermissionsGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" },
+    { "arquivo": "main.ts", "token": "app.use", "classe": "express.json({ limit: '50mb', verify: (função) })" },
+    { "arquivo": "main.ts", "token": "app.use", "classe": "express.urlencoded({ limit: '50mb', extended: true })" },
+    { "arquivo": "main.ts", "token": "app.useGlobalPipes", "classe": "new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true })" },
+    { "arquivo": "main.ts", "token": "app.useGlobalFilters", "classe": "new AllExceptionsFilter()" }
+  ],
+  "produtores": [
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.backfillReminders", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.create", "detalhe": "this.reminderQueue  'notify-hearing-scheduled'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.enqueueReminders", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.notifyEvent", "detalhe": "this.reminderQueue  'notify-hearing-scheduled'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.resendReminder", "detalhe": "this.reminderQueue  'send-reminder'" },
+    { "tipo": "queue.add", "arquivo": "calendar/calendar.service.ts", "alvo": "CalendarService.update", "detalhe": "this.reminderQueue  'notify-hearing-rescheduled'" },
+    { "tipo": "queue.add", "arquivo": "commercial/quotes.service.ts", "alvo": "QuotesService.applyFinancing", "detalhe": "this.fechamentoQueue  'deferido'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.approveMessage", "detalhe": "this.followupQueue  'send-message'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.createBroadcast", "detalhe": "this.followupQueue  'broadcast-send'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.enrollLead", "detalhe": "this.followupQueue  'process-step'" },
+    { "tipo": "queue.add", "arquivo": "followup/followup.service.ts", "alvo": "FollowupService.resumeEnrollment", "detalhe": "this.followupQueue  'process-step'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.controller.ts", "alvo": "MemoriesController.extractNow", "detalhe": "this.memoryQueue  'manual-extract'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.controller.ts", "alvo": "MemoriesController.regenerateProfile", "detalhe": "this.memoryQueue  'consolidate-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.migrateLegacyLeadsToProfile", "detalhe": "this.memoryQueue  'consolidate-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.rebuildOrganizationProfile", "detalhe": "this.memoryQueue  'rebuild-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.regenerateOrganizationProfile", "detalhe": "this.memoryQueue  'consolidate-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "memories/memories.service.ts", "alvo": "MemoriesService.triggerOrgProfileRegen", "detalhe": "this.memoryQueue  'consolidate-org-profile'" },
+    { "tipo": "queue.add", "arquivo": "messages/messages.service.ts", "alvo": "MessagesService.enqueueMemoryUpdate", "detalhe": "this.aiQueue  'process_ai_response'" },
+    { "tipo": "queue.add", "arquivo": "notifications/notifications.service.ts", "alvo": "NotificationsService.create", "detalhe": "this.whatsappQueue  'send-notification-whatsapp'" },
+    { "tipo": "queue.add", "arquivo": "settings/ai-test-chat.service.ts", "alvo": "AiTestChatService.run", "detalhe": "queue  'ai-test'" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response'" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response' #2" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.handleMessagesUpsert", "detalhe": "this.aiQueue  'process_ai_response' #3" },
+    { "tipo": "queue.add", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.scheduleResyncAfterReconnect", "detalhe": "this.mediaQueue  'sync_missed_messages'" }
+  ],
+  "controllers": [
+    {
+      "arquivo": "adverse-reactions/adverse-reactions.controller.ts",
+      "classe": "AdverseReactionsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "AdverseReactionsController.create", "verbo": "POST", "path": "patients/:patientId/adverse-reactions", "rota": "POST /patients/:patientId/adverse-reactions", "acesso": [] },
+        { "metodo": "AdverseReactionsController.listByPatient", "verbo": "GET", "path": "patients/:patientId/adverse-reactions", "rota": "GET /patients/:patientId/adverse-reactions", "acesso": [] },
+        { "metodo": "AdverseReactionsController.listAll", "verbo": "GET", "path": "adverse-reactions", "rota": "GET /adverse-reactions", "acesso": [] },
+        { "metodo": "AdverseReactionsController.findOne", "verbo": "GET", "path": "adverse-reactions/:id", "rota": "GET /adverse-reactions/:id", "acesso": [] },
+        { "metodo": "AdverseReactionsController.update", "verbo": "PATCH", "path": "adverse-reactions/:id", "rota": "PATCH /adverse-reactions/:id", "acesso": [] },
+        { "metodo": "AdverseReactionsController.reportNotivisa", "verbo": "POST", "path": "adverse-reactions/:id/report-notivisa", "rota": "POST /adverse-reactions/:id/report-notivisa", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "agenda-extended/agenda-extended.controller.ts",
+      "classe": "AgendaExtendedController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "AgendaExtendedController.createRoom", "verbo": "POST", "path": "rooms", "rota": "POST /rooms", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listRooms", "verbo": "GET", "path": "rooms", "rota": "GET /rooms", "acesso": [] },
+        { "metodo": "AgendaExtendedController.getRoom", "verbo": "GET", "path": "rooms/:id", "rota": "GET /rooms/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.updateRoom", "verbo": "PATCH", "path": "rooms/:id", "rota": "PATCH /rooms/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.archiveRoom", "verbo": "DELETE", "path": "rooms/:id", "rota": "DELETE /rooms/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.createMarker", "verbo": "POST", "path": "appointment-markers", "rota": "POST /appointment-markers", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listMarkers", "verbo": "GET", "path": "appointment-markers", "rota": "GET /appointment-markers", "acesso": [] },
+        { "metodo": "AgendaExtendedController.updateMarker", "verbo": "PATCH", "path": "appointment-markers/:id", "rota": "PATCH /appointment-markers/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.archiveMarker", "verbo": "DELETE", "path": "appointment-markers/:id", "rota": "DELETE /appointment-markers/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.attachMarker", "verbo": "POST", "path": "appointments/:appointmentId/markers/:markerId", "rota": "POST /appointments/:appointmentId/markers/:markerId", "acesso": [] },
+        { "metodo": "AgendaExtendedController.detachMarker", "verbo": "DELETE", "path": "appointments/:appointmentId/markers/:markerId", "rota": "DELETE /appointments/:appointmentId/markers/:markerId", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listAppointmentMarkers", "verbo": "GET", "path": "appointments/:appointmentId/markers", "rota": "GET /appointments/:appointmentId/markers", "acesso": [] },
+        { "metodo": "AgendaExtendedController.createConfirmation", "verbo": "POST", "path": "appointments/:appointmentId/confirmations", "rota": "POST /appointments/:appointmentId/confirmations", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listConfirmations", "verbo": "GET", "path": "appointments/:appointmentId/confirmations", "rota": "GET /appointments/:appointmentId/confirmations", "acesso": [] },
+        { "metodo": "AgendaExtendedController.respondConfirmation", "verbo": "POST", "path": "appointment-confirmations/:id/respond", "rota": "POST /appointment-confirmations/:id/respond", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listPendingConfirmations", "verbo": "GET", "path": "appointment-confirmations/pending", "rota": "GET /appointment-confirmations/pending", "acesso": [] },
+        { "metodo": "AgendaExtendedController.createReturnAlert", "verbo": "POST", "path": "return-alerts", "rota": "POST /return-alerts", "acesso": [] },
+        { "metodo": "AgendaExtendedController.listReturnAlerts", "verbo": "GET", "path": "return-alerts", "rota": "GET /return-alerts", "acesso": [] },
+        { "metodo": "AgendaExtendedController.pendingNow", "verbo": "GET", "path": "return-alerts/pending-now", "rota": "GET /return-alerts/pending-now", "acesso": [] },
+        { "metodo": "AgendaExtendedController.maintenanceBoard", "verbo": "GET", "path": "return-alerts/maintenance-board", "rota": "GET /return-alerts/maintenance-board", "acesso": [] },
+        { "metodo": "AgendaExtendedController.getRecallConfig", "verbo": "GET", "path": "return-alerts/config", "rota": "GET /return-alerts/config", "acesso": [] },
+        { "metodo": "AgendaExtendedController.getRetornoTemplate", "verbo": "GET", "path": "return-alerts/disparos/:disparo/template", "rota": "GET /return-alerts/disparos/:disparo/template", "acesso": [] },
+        { "metodo": "AgendaExtendedController.setRetornoTemplate", "verbo": "PUT", "path": "return-alerts/disparos/:disparo/template", "rota": "PUT /return-alerts/disparos/:disparo/template", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AgendaExtendedController.getRetornoPrevistos", "verbo": "GET", "path": "return-alerts/disparos/:disparo/previstos", "rota": "GET /return-alerts/disparos/:disparo/previstos", "acesso": [] },
+        { "metodo": "AgendaExtendedController.setRecallConfig", "verbo": "PATCH", "path": "return-alerts/config", "rota": "PATCH /return-alerts/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AgendaExtendedController.getReturnAlert", "verbo": "GET", "path": "return-alerts/:id", "rota": "GET /return-alerts/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.updateReturnAlert", "verbo": "PATCH", "path": "return-alerts/:id", "rota": "PATCH /return-alerts/:id", "acesso": [] },
+        { "metodo": "AgendaExtendedController.contactReturnAlert", "verbo": "POST", "path": "return-alerts/:id/contact", "rota": "POST /return-alerts/:id/contact", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "analytics/analytics.controller.ts",
+      "classe": "AnalyticsController",
+      "path": "analytics",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "AnalyticsController.track", "verbo": "POST", "path": "track", "rota": "POST /analytics/track", "acesso": [] },
+        { "metodo": "AnalyticsController.getPages", "verbo": "GET", "path": "pages", "rota": "GET /analytics/pages", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "AnalyticsController.getDetail", "verbo": "GET", "path": "detail", "rota": "GET /analytics/detail", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "AnalyticsController.getGa4", "verbo": "GET", "path": "ga4", "rota": "GET /analytics/ga4", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "AnalyticsController.getGa4Config", "verbo": "GET", "path": "ga4-config", "rota": "GET /analytics/ga4-config", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "AnalyticsController.saveGa4Config", "verbo": "POST", "path": "ga4-config", "rota": "POST /analytics/ga4-config", "acesso": ["@UseGuards(JwtAuthGuard)"] }
+      ]
+    },
+    {
+      "arquivo": "anamnesis/anamnesis.controller.ts",
+      "classe": "AnamnesisController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "AnamnesisController.findAllTemplates", "verbo": "GET", "path": "anamnesis-templates", "rota": "GET /anamnesis-templates", "acesso": [] },
+        { "metodo": "AnamnesisController.findActiveTemplate", "verbo": "GET", "path": "anamnesis-templates/active", "rota": "GET /anamnesis-templates/active", "acesso": [] },
+        { "metodo": "AnamnesisController.findOneTemplate", "verbo": "GET", "path": "anamnesis-templates/:id", "rota": "GET /anamnesis-templates/:id", "acesso": [] },
+        { "metodo": "AnamnesisController.createTemplate", "verbo": "POST", "path": "anamnesis-templates", "rota": "POST /anamnesis-templates", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AnamnesisController.updateTemplate", "verbo": "PATCH", "path": "anamnesis-templates/:id", "rota": "PATCH /anamnesis-templates/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AnamnesisController.findActive", "verbo": "GET", "path": "patients/:patientId/anamnesis", "rota": "GET /patients/:patientId/anamnesis", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "AnamnesisController.upsert", "verbo": "PATCH", "path": "patients/:patientId/anamnesis", "rota": "PATCH /patients/:patientId/anamnesis", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "AnamnesisController.create", "verbo": "POST", "path": "patients/:patientId/anamneses", "rota": "POST /patients/:patientId/anamneses", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "AnamnesisController.findByPatient", "verbo": "GET", "path": "patients/:patientId/anamneses", "rota": "GET /patients/:patientId/anamneses", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "AnamnesisController.findOne", "verbo": "GET", "path": "anamneses/:id", "rota": "GET /anamneses/:id", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "AnamnesisController.update", "verbo": "PATCH", "path": "anamneses/:id", "rota": "PATCH /anamneses/:id", "acesso": ["@RequiresPermission('edit_clinical')"] }
+      ]
+    },
+    {
+      "arquivo": "app.controller.ts",
+      "classe": "AppController",
+      "path": "",
+      "acesso": ["@Public()"],
+      "handlers": [
+        { "metodo": "AppController.getHello", "verbo": "GET", "path": "", "rota": "GET /", "acesso": [] },
+        { "metodo": "AppController.health", "verbo": "GET", "path": "health", "rota": "GET /health", "acesso": [] },
+        { "metodo": "AppController.debugSocket", "verbo": "GET", "path": "debug/socket", "rota": "GET /debug/socket", "acesso": [] },
+        { "metodo": "AppController.socketLogoutDiagnostic", "verbo": "POST", "path": "diagnostics/socket-logout", "rota": "POST /diagnostics/socket-logout", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "audio-disparo/audio-disparo.controller.ts",
+      "classe": "AudioDisparoController",
+      "path": "disparos/audio-teste",
+      "acesso": ["@Roles('ADMIN')"],
+      "handlers": [
+        { "metodo": "AudioDisparoController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /disparos/audio-teste/config", "acesso": [] },
+        { "metodo": "AudioDisparoController.setConfig", "verbo": "PUT", "path": "config", "rota": "PUT /disparos/audio-teste/config", "acesso": [] },
+        { "metodo": "AudioDisparoController.ouvir", "verbo": "POST", "path": "ouvir", "rota": "POST /disparos/audio-teste/ouvir", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 20 } })"] },
+        { "metodo": "AudioDisparoController.enviar", "verbo": "POST", "path": "enviar", "rota": "POST /disparos/audio-teste/enviar", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 10 } })"] }
+      ]
+    },
+    {
+      "arquivo": "auth/auth.controller.ts",
+      "classe": "AuthController",
+      "path": "auth",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "AuthController.login", "verbo": "POST", "path": "login", "rota": "POST /auth/login", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 10 } })"] },
+        { "metodo": "AuthController.mcpToken", "verbo": "POST", "path": "mcp-token", "rota": "POST /auth/mcp-token", "acesso": [] },
+        { "metodo": "AuthController.forgotPassword", "verbo": "POST", "path": "forgot-password", "rota": "POST /auth/forgot-password", "acesso": ["@Public()"] },
+        { "metodo": "AuthController.resetPassword", "verbo": "POST", "path": "reset-password", "rota": "POST /auth/reset-password", "acesso": ["@Public()"] }
+      ]
+    },
+    {
+      "arquivo": "automations/automations.controller.ts",
+      "classe": "AutomationsController",
+      "path": "automations",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "AutomationsController.findAll", "verbo": "GET", "path": "", "rota": "GET /automations", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AutomationsController.create", "verbo": "POST", "path": "", "rota": "POST /automations", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AutomationsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /automations/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "AutomationsController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /automations/:id", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "billing/billing.controller.ts",
+      "classe": "BillingController",
+      "path": "billing",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "BillingController.listPlans", "verbo": "GET", "path": "plans", "rota": "GET /billing/plans", "acesso": ["@Public()"] },
+        { "metodo": "BillingController.getMine", "verbo": "GET", "path": "me", "rota": "GET /billing/me", "acesso": [] },
+        { "metodo": "BillingController.checkout", "verbo": "POST", "path": "checkout", "rota": "POST /billing/checkout", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "BillingController.webhook", "verbo": "POST", "path": "webhook/asaas", "rota": "POST /billing/webhook/asaas", "acesso": ["@Public()"] }
+      ]
+    },
+    {
+      "arquivo": "caixa/caixa.controller.ts",
+      "classe": "CaixaController",
+      "path": "caixa",
+      "acesso": ["@RequiresPermission('operate_cash')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "CaixaController.listAccounts", "verbo": "GET", "path": "accounts", "rota": "GET /caixa/accounts", "acesso": [] },
+        { "metodo": "CaixaController.createAccount", "verbo": "POST", "path": "accounts", "rota": "POST /caixa/accounts", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CaixaController.updateAccount", "verbo": "PATCH", "path": "accounts/:id", "rota": "PATCH /caixa/accounts/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CaixaController.today", "verbo": "GET", "path": "today", "rota": "GET /caixa/today", "acesso": [] },
+        { "metodo": "CaixaController.addMovement", "verbo": "POST", "path": "movements", "rota": "POST /caixa/movements", "acesso": [] },
+        { "metodo": "CaixaController.deleteMovement", "verbo": "DELETE", "path": "movements/:id", "rota": "DELETE /caixa/movements/:id", "acesso": [] },
+        { "metodo": "CaixaController.closeDay", "verbo": "POST", "path": "close", "rota": "POST /caixa/close", "acesso": [] },
+        { "metodo": "CaixaController.listClosings", "verbo": "GET", "path": "closings", "rota": "GET /caixa/closings", "acesso": [] },
+        { "metodo": "CaixaController.getClosing", "verbo": "GET", "path": "closings/:id", "rota": "GET /caixa/closings/:id", "acesso": [] },
+        { "metodo": "CaixaController.validate", "verbo": "POST", "path": "closings/:id/validate", "rota": "POST /caixa/closings/:id/validate", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CaixaController.returnDay", "verbo": "POST", "path": "closings/:id/return", "rota": "POST /caixa/closings/:id/return", "acesso": ["@RequiresPermission('manage_financial')"] }
+      ]
+    },
+    {
+      "arquivo": "calendar/calendar.controller.ts",
+      "classe": "CalendarController",
+      "path": "calendar",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "CalendarController.findAll", "verbo": "GET", "path": "events", "rota": "GET /calendar/events", "acesso": ["@RequiresPermission('view_agenda')"] },
+        { "metodo": "CalendarController.pendingValidation", "verbo": "GET", "path": "events/pending-validation", "rota": "GET /calendar/events/pending-validation", "acesso": [] },
+        { "metodo": "CalendarController.findOne", "verbo": "GET", "path": "events/:id", "rota": "GET /calendar/events/:id", "acesso": ["@RequiresPermission('view_agenda')"] },
+        { "metodo": "CalendarController.create", "verbo": "POST", "path": "events", "rota": "POST /calendar/events", "acesso": ["@RequiresPermission('manage_agenda')"] },
+        { "metodo": "CalendarController.patientBlockStatus", "verbo": "GET", "path": "patients/:patientId/block-status", "rota": "GET /calendar/patients/:patientId/block-status", "acesso": [] },
+        { "metodo": "CalendarController.update", "verbo": "PATCH", "path": "events/:id", "rota": "PATCH /calendar/events/:id", "acesso": [] },
+        { "metodo": "CalendarController.updateStatus", "verbo": "PATCH", "path": "events/:id/status", "rota": "PATCH /calendar/events/:id/status", "acesso": ["@RequiresPermission('view_agenda')"] },
+        { "metodo": "CalendarController.notifyEvent", "verbo": "POST", "path": "events/:id/notify", "rota": "POST /calendar/events/:id/notify", "acesso": [] },
+        { "metodo": "CalendarController.validate", "verbo": "POST", "path": "events/:id/validate", "rota": "POST /calendar/events/:id/validate", "acesso": [] },
+        { "metodo": "CalendarController.unvalidate", "verbo": "POST", "path": "events/:id/unvalidate", "rota": "POST /calendar/events/:id/unvalidate", "acesso": [] },
+        { "metodo": "CalendarController.remove", "verbo": "DELETE", "path": "events/:id", "rota": "DELETE /calendar/events/:id", "acesso": [] },
+        { "metodo": "CalendarController.findComments", "verbo": "GET", "path": "events/:id/comments", "rota": "GET /calendar/events/:id/comments", "acesso": [] },
+        { "metodo": "CalendarController.addComment", "verbo": "POST", "path": "events/:id/comments", "rota": "POST /calendar/events/:id/comments", "acesso": [] },
+        { "metodo": "CalendarController.checkConflicts", "verbo": "GET", "path": "conflicts", "rota": "GET /calendar/conflicts", "acesso": [] },
+        { "metodo": "CalendarController.getAvailability", "verbo": "GET", "path": "availability/:userId", "rota": "GET /calendar/availability/:userId", "acesso": ["@RequiresPermission('view_agenda')"] },
+        { "metodo": "CalendarController.getSchedule", "verbo": "GET", "path": "schedule/:userId", "rota": "GET /calendar/schedule/:userId", "acesso": ["@RequiresPermission('view_agenda')"] },
+        { "metodo": "CalendarController.setSchedule", "verbo": "PUT", "path": "schedule/:userId", "rota": "PUT /calendar/schedule/:userId", "acesso": [] },
+        { "metodo": "CalendarController.findAppointmentTypes", "verbo": "GET", "path": "appointment-types", "rota": "GET /calendar/appointment-types", "acesso": [] },
+        { "metodo": "CalendarController.createAppointmentType", "verbo": "POST", "path": "appointment-types", "rota": "POST /calendar/appointment-types", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.updateAppointmentType", "verbo": "PATCH", "path": "appointment-types/:id", "rota": "PATCH /calendar/appointment-types/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.deleteAppointmentType", "verbo": "DELETE", "path": "appointment-types/:id", "rota": "DELETE /calendar/appointment-types/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAgendaMetrics", "verbo": "GET", "path": "metrics", "rota": "GET /calendar/metrics", "acesso": [] },
+        { "metodo": "CalendarController.backfillReminders", "verbo": "POST", "path": "reminders/backfill", "rota": "POST /calendar/reminders/backfill", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.listReminders", "verbo": "GET", "path": "reminders", "rota": "GET /calendar/reminders", "acesso": [] },
+        { "metodo": "CalendarController.getRemindersSummary", "verbo": "GET", "path": "reminders/summary", "rota": "GET /calendar/reminders/summary", "acesso": [] },
+        { "metodo": "CalendarController.resendReminder", "verbo": "POST", "path": "reminders/:id/resend", "rota": "POST /calendar/reminders/:id/resend", "acesso": [] },
+        { "metodo": "CalendarController.cancelReminder", "verbo": "POST", "path": "reminders/:id/cancel", "rota": "POST /calendar/reminders/:id/cancel", "acesso": [] },
+        { "metodo": "CalendarController.getReminderPreview", "verbo": "GET", "path": "reminders/:id/preview", "rota": "GET /calendar/reminders/:id/preview", "acesso": [] },
+        { "metodo": "CalendarController.getReminderConfig", "verbo": "GET", "path": "reminders/config", "rota": "GET /calendar/reminders/config", "acesso": [] },
+        { "metodo": "CalendarController.setReminderConfig", "verbo": "PUT", "path": "reminders/config", "rota": "PUT /calendar/reminders/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getDentistDailySummaryConfig", "verbo": "GET", "path": "dentist-daily-summary/config", "rota": "GET /calendar/dentist-daily-summary/config", "acesso": [] },
+        { "metodo": "CalendarController.setDentistDailySummaryConfig", "verbo": "PUT", "path": "dentist-daily-summary/config", "rota": "PUT /calendar/dentist-daily-summary/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAppointmentConfirmationConfig", "verbo": "GET", "path": "appointment-confirmation/config", "rota": "GET /calendar/appointment-confirmation/config", "acesso": [] },
+        { "metodo": "CalendarController.setAppointmentConfirmationConfig", "verbo": "PUT", "path": "appointment-confirmation/config", "rota": "PUT /calendar/appointment-confirmation/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getComercialAgendaTemplate", "verbo": "GET", "path": "comercial-agenda-template/:id", "rota": "GET /calendar/comercial-agenda-template/:id", "acesso": [] },
+        { "metodo": "CalendarController.setComercialAgendaTemplate", "verbo": "PUT", "path": "comercial-agenda-template/:id", "rota": "PUT /calendar/comercial-agenda-template/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAppointmentConfirmationOrtoConfig", "verbo": "GET", "path": "appointment-confirmation-orto/config", "rota": "GET /calendar/appointment-confirmation-orto/config", "acesso": [] },
+        { "metodo": "CalendarController.setAppointmentConfirmationOrtoConfig", "verbo": "PUT", "path": "appointment-confirmation-orto/config", "rota": "PUT /calendar/appointment-confirmation-orto/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAppointmentOrtoReminderConfig", "verbo": "GET", "path": "appointment-orto-reminder/config", "rota": "GET /calendar/appointment-orto-reminder/config", "acesso": [] },
+        { "metodo": "CalendarController.setAppointmentOrtoReminderConfig", "verbo": "PUT", "path": "appointment-orto-reminder/config", "rota": "PUT /calendar/appointment-orto-reminder/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAppointmentOrtoImmediateConfig", "verbo": "GET", "path": "appointment-orto-immediate/config", "rota": "GET /calendar/appointment-orto-immediate/config", "acesso": [] },
+        { "metodo": "CalendarController.setAppointmentOrtoImmediateConfig", "verbo": "PUT", "path": "appointment-orto-immediate/config", "rota": "PUT /calendar/appointment-orto-immediate/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getAppointmentRescheduledConfig", "verbo": "GET", "path": "appointment-rescheduled/config", "rota": "GET /calendar/appointment-rescheduled/config", "acesso": [] },
+        { "metodo": "CalendarController.setAppointmentRescheduledConfig", "verbo": "PUT", "path": "appointment-rescheduled/config", "rota": "PUT /calendar/appointment-rescheduled/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getBirthdayGreetingConfig", "verbo": "GET", "path": "birthday-greeting/config", "rota": "GET /calendar/birthday-greeting/config", "acesso": [] },
+        { "metodo": "CalendarController.setBirthdayGreetingConfig", "verbo": "PUT", "path": "birthday-greeting/config", "rota": "PUT /calendar/birthday-greeting/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getUpcomingBirthdays", "verbo": "GET", "path": "birthday-greeting/upcoming", "rota": "GET /calendar/birthday-greeting/upcoming", "acesso": [] },
+        { "metodo": "CalendarController.openConversation", "verbo": "GET", "path": "birthday-greeting/open-conversation", "rota": "GET /calendar/birthday-greeting/open-conversation", "acesso": [] },
+        { "metodo": "CalendarController.sendTestConfirmation", "verbo": "POST", "path": "appointment-confirmation/send-test", "rota": "POST /calendar/appointment-confirmation/send-test", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.sendTestDisparo", "verbo": "POST", "path": "disparo/send-test", "rota": "POST /calendar/disparo/send-test", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.sendDentistDailySummaryNow", "verbo": "POST", "path": "dentist-daily-summary/send-now", "rota": "POST /calendar/dentist-daily-summary/send-now", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.getRemindersHealth", "verbo": "GET", "path": "reminders/health", "rota": "GET /calendar/reminders/health", "acesso": [] },
+        { "metodo": "CalendarController.exportRemindersCSV", "verbo": "GET", "path": "reminders/export.csv", "rota": "GET /calendar/reminders/export.csv", "acesso": [] },
+        { "metodo": "CalendarController.findHolidays", "verbo": "GET", "path": "holidays", "rota": "GET /calendar/holidays", "acesso": [] },
+        { "metodo": "CalendarController.createHoliday", "verbo": "POST", "path": "holidays", "rota": "POST /calendar/holidays", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.updateHoliday", "verbo": "PATCH", "path": "holidays/:id", "rota": "PATCH /calendar/holidays/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.deleteHoliday", "verbo": "DELETE", "path": "holidays/:id", "rota": "DELETE /calendar/holidays/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.findScheduleBlocks", "verbo": "GET", "path": "blocks", "rota": "GET /calendar/blocks", "acesso": [] },
+        { "metodo": "CalendarController.createScheduleBlock", "verbo": "POST", "path": "blocks", "rota": "POST /calendar/blocks", "acesso": [] },
+        { "metodo": "CalendarController.updateScheduleBlock", "verbo": "PATCH", "path": "blocks/:id", "rota": "PATCH /calendar/blocks/:id", "acesso": [] },
+        { "metodo": "CalendarController.deleteScheduleBlock", "verbo": "DELETE", "path": "blocks/:id", "rota": "DELETE /calendar/blocks/:id", "acesso": [] },
+        { "metodo": "CalendarController.search", "verbo": "GET", "path": "search", "rota": "GET /calendar/search", "acesso": [] },
+        { "metodo": "CalendarController.exportEventIcs", "verbo": "GET", "path": "export/ics/:id", "rota": "GET /calendar/export/ics/:id", "acesso": [] },
+        { "metodo": "CalendarController.exportRangeIcs", "verbo": "GET", "path": "export/ics", "rota": "GET /calendar/export/ics", "acesso": [] },
+        { "metodo": "CalendarController.migrateTasks", "verbo": "POST", "path": "migrate-tasks", "rota": "POST /calendar/migrate-tasks", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "campanhas/campanhas.controller.ts",
+      "classe": "CampanhasController",
+      "path": "campanhas",
+      "acesso": ["@Roles('ADMIN')"],
+      "handlers": [
+        { "metodo": "CampanhasController.listar", "verbo": "GET", "path": "", "rota": "GET /campanhas", "acesso": [] },
+        { "metodo": "CampanhasController.previa", "verbo": "POST", "path": "publico/previa", "rota": "POST /campanhas/publico/previa", "acesso": [] },
+        { "metodo": "CampanhasController.criar", "verbo": "POST", "path": "", "rota": "POST /campanhas", "acesso": [] },
+        { "metodo": "CampanhasController.detalhe", "verbo": "GET", "path": ":id", "rota": "GET /campanhas/:id", "acesso": [] },
+        { "metodo": "CampanhasController.atualizar", "verbo": "PATCH", "path": ":id", "rota": "PATCH /campanhas/:id", "acesso": [] },
+        { "metodo": "CampanhasController.excluir", "verbo": "DELETE", "path": ":id", "rota": "DELETE /campanhas/:id", "acesso": [] },
+        { "metodo": "CampanhasController.anexar", "verbo": "POST", "path": ":id/midias", "rota": "POST /campanhas/:id/midias", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 30 } })"] },
+        { "metodo": "CampanhasController.removerAnexo", "verbo": "DELETE", "path": ":id/midias/:mid", "rota": "DELETE /campanhas/:id/midias/:mid", "acesso": [] },
+        { "metodo": "CampanhasController.arquivo", "verbo": "GET", "path": ":id/midias/:mid/arquivo", "rota": "GET /campanhas/:id/midias/:mid/arquivo", "acesso": [] },
+        { "metodo": "CampanhasController.testar", "verbo": "POST", "path": ":id/teste", "rota": "POST /campanhas/:id/teste", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 10 } })"] },
+        { "metodo": "CampanhasController.iniciar", "verbo": "POST", "path": ":id/iniciar", "rota": "POST /campanhas/:id/iniciar", "acesso": [] },
+        { "metodo": "CampanhasController.pausar", "verbo": "POST", "path": ":id/pausar", "rota": "POST /campanhas/:id/pausar", "acesso": [] },
+        { "metodo": "CampanhasController.retomar", "verbo": "POST", "path": ":id/retomar", "rota": "POST /campanhas/:id/retomar", "acesso": [] },
+        { "metodo": "CampanhasController.cancelar", "verbo": "POST", "path": ":id/cancelar", "rota": "POST /campanhas/:id/cancelar", "acesso": [] },
+        { "metodo": "CampanhasController.itens", "verbo": "GET", "path": ":id/itens", "rota": "GET /campanhas/:id/itens", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "clicksign/clicksign.controller.ts",
+      "classe": "ClicksignController",
+      "path": "contracts/clicksign",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ClicksignController.requestSignature", "verbo": "POST", "path": "request", "rota": "POST /contracts/clicksign/request", "acesso": [] },
+        { "metodo": "ClicksignController.getStatus", "verbo": "GET", "path": "status/:conversationId", "rota": "GET /contracts/clicksign/status/:conversationId", "acesso": [] },
+        { "metodo": "ClicksignController.serveSignedPdf", "verbo": "GET", "path": "signed-pdf/:signatureId", "rota": "GET /contracts/clicksign/signed-pdf/:signatureId", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "clicksign/clicksign.controller.ts",
+      "classe": "ClicksignWebhookController",
+      "path": "webhooks/clicksign",
+      "acesso": ["@Public()", "@SkipThrottle()"],
+      "handlers": [
+        { "metodo": "ClicksignWebhookController.handleWebhook", "verbo": "POST", "path": "", "rota": "POST /webhooks/clicksign", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "clinical-records/clinical-records.controller.ts",
+      "classe": "ClinicalRecordsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ClinicalRecordsController.getMedicalRecord", "verbo": "GET", "path": "patients/:patientId/medical-record", "rota": "GET /patients/:patientId/medical-record", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "ClinicalRecordsController.updateMedicalRecord", "verbo": "PATCH", "path": "patients/:patientId/medical-record", "rota": "PATCH /patients/:patientId/medical-record", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "ClinicalRecordsController.closeMedicalRecord", "verbo": "POST", "path": "patients/:patientId/medical-record/close", "rota": "POST /patients/:patientId/medical-record/close", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "ClinicalRecordsController.createNote", "verbo": "POST", "path": "patients/:patientId/clinical-notes", "rota": "POST /patients/:patientId/clinical-notes", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "ClinicalRecordsController.listNotes", "verbo": "GET", "path": "patients/:patientId/clinical-notes", "rota": "GET /patients/:patientId/clinical-notes", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "ClinicalRecordsController.findNote", "verbo": "GET", "path": "clinical-notes/:id", "rota": "GET /clinical-notes/:id", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "ClinicalRecordsController.updateNote", "verbo": "PATCH", "path": "clinical-notes/:id", "rota": "PATCH /clinical-notes/:id", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "ClinicalRecordsController.finalizeNote", "verbo": "POST", "path": "clinical-notes/:id/finalize", "rota": "POST /clinical-notes/:id/finalize", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "ClinicalRecordsController.addAddendum", "verbo": "POST", "path": "clinical-notes/:id/addendum", "rota": "POST /clinical-notes/:id/addendum", "acesso": ["@RequiresPermission('edit_clinical')"] }
+      ]
+    },
+    {
+      "arquivo": "clinics/clinics.controller.ts",
+      "classe": "ClinicsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ClinicsController.create", "verbo": "POST", "path": "clinics", "rota": "POST /clinics", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "ClinicsController.findAll", "verbo": "GET", "path": "clinics", "rota": "GET /clinics", "acesso": [] },
+        { "metodo": "ClinicsController.ranking", "verbo": "GET", "path": "clinics/ranking", "rota": "GET /clinics/ranking", "acesso": [] },
+        { "metodo": "ClinicsController.findOne", "verbo": "GET", "path": "clinics/:id", "rota": "GET /clinics/:id", "acesso": [] },
+        { "metodo": "ClinicsController.update", "verbo": "PATCH", "path": "clinics/:id", "rota": "PATCH /clinics/:id", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "ClinicsController.archive", "verbo": "DELETE", "path": "clinics/:id", "rota": "DELETE /clinics/:id", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "ClinicsController.assignUser", "verbo": "POST", "path": "clinics/:id/users", "rota": "POST /clinics/:id/users", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "ClinicsController.unassignUser", "verbo": "DELETE", "path": "clinics/:id/users/:userId", "rota": "DELETE /clinics/:id/users/:userId", "acesso": ["@RequiresPermission('manage_users')"] }
+      ]
+    },
+    {
+      "arquivo": "commercial/commercial.controller.ts",
+      "classe": "CommercialController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "CommercialController.createQuote", "verbo": "POST", "path": "patients/:patientId/quotes", "rota": "POST /patients/:patientId/quotes", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.getOrCreateDraft", "verbo": "POST", "path": "patients/:patientId/quotes/draft-or-create", "rota": "POST /patients/:patientId/quotes/draft-or-create", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.listQuotes", "verbo": "GET", "path": "patients/:patientId/quotes", "rota": "GET /patients/:patientId/quotes", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.quotesClosingBoard", "verbo": "GET", "path": "quotes/closing-board", "rota": "GET /quotes/closing-board", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.quotesDashboard", "verbo": "GET", "path": "quotes/dashboard", "rota": "GET /quotes/dashboard", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.listDeletedQuotes", "verbo": "GET", "path": "quotes/deleted", "rota": "GET /quotes/deleted", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listArchivedQuotes", "verbo": "GET", "path": "quotes/archived", "rota": "GET /quotes/archived", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.quotesJourneyBoard", "verbo": "GET", "path": "quotes/journey-board", "rota": "GET /quotes/journey-board", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.quotesOrthoBoard", "verbo": "GET", "path": "quotes/ortho-board", "rota": "GET /quotes/ortho-board", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.orthoAlta", "verbo": "POST", "path": "quotes/ortho-board/alta", "rota": "POST /quotes/ortho-board/alta", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.orthoPausa", "verbo": "POST", "path": "quotes/ortho-board/pausa", "rota": "POST /quotes/ortho-board/pausa", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.semAgendamentoPreview", "verbo": "GET", "path": "pacientes-sem-agendamento/preview", "rota": "GET /pacientes-sem-agendamento/preview", "acesso": ["@RequiresPermission('view_marketing', 'manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.semAgendamentoTest", "verbo": "POST", "path": "pacientes-sem-agendamento/test", "rota": "POST /pacientes-sem-agendamento/test", "acesso": ["@RequiresPermission('view_marketing')"] },
+        { "metodo": "CommercialController.semAgendamentoAdmins", "verbo": "GET", "path": "pacientes-sem-agendamento/admins", "rota": "GET /pacientes-sem-agendamento/admins", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals', 'view_marketing')"] },
+        { "metodo": "CommercialController.semAgendamentoSend", "verbo": "POST", "path": "pacientes-sem-agendamento/send", "rota": "POST /pacientes-sem-agendamento/send", "acesso": ["@RequiresPermission('manage_proposals', 'view_marketing')", "@Throttle({ default: { ttl: 60000, limit: 5 } })"] },
+        { "metodo": "CommercialController.findQuote", "verbo": "GET", "path": "quotes/:id", "rota": "GET /quotes/:id", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.updateQuote", "verbo": "PATCH", "path": "quotes/:id", "rota": "PATCH /quotes/:id", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.removeQuote", "verbo": "DELETE", "path": "quotes/:id", "rota": "DELETE /quotes/:id", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.restoreQuote", "verbo": "POST", "path": "quotes/:id/restore", "rota": "POST /quotes/:id/restore", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.sendQuote", "verbo": "POST", "path": "quotes/:id/send", "rota": "POST /quotes/:id/send", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.acceptQuote", "verbo": "POST", "path": "quotes/:id/accept", "rota": "POST /quotes/:id/accept", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.acceptQuoteNoCharge", "verbo": "POST", "path": "quotes/:id/accept-no-charge", "rota": "POST /quotes/:id/accept-no-charge", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "CommercialController.trackQuoteView", "verbo": "POST", "path": "quotes/:id/track-view", "rota": "POST /quotes/:id/track-view", "acesso": ["@Public()"] },
+        { "metodo": "CommercialController.acceptPartialQuote", "verbo": "POST", "path": "quotes/:id/accept-partial", "rota": "POST /quotes/:id/accept-partial", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.approveItems", "verbo": "POST", "path": "quotes/:id/approve-items", "rota": "POST /quotes/:id/approve-items", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.saveCounterProposal", "verbo": "POST", "path": "quotes/:id/counter-proposal", "rota": "POST /quotes/:id/counter-proposal", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.simulateCreditCheck", "verbo": "POST", "path": "credit-check/simulate", "rota": "POST /credit-check/simulate", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.addBonus", "verbo": "POST", "path": "quotes/:id/bonus", "rota": "POST /quotes/:id/bonus", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.approveAndBill", "verbo": "POST", "path": "quotes/:id/approve-and-bill", "rota": "POST /quotes/:id/approve-and-bill", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.vendaBalcao", "verbo": "POST", "path": "venda-rapida/balcao", "rota": "POST /venda-rapida/balcao", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.applyFinancing", "verbo": "POST", "path": "quotes/:id/apply-financing", "rota": "POST /quotes/:id/apply-financing", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.rejectQuote", "verbo": "POST", "path": "quotes/:id/reject", "rota": "POST /quotes/:id/reject", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.chooseQuoteAsProposal", "verbo": "POST", "path": "quotes/:id/choose-as-proposal", "rota": "POST /quotes/:id/choose-as-proposal", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.getAvistaDiscountConfig", "verbo": "GET", "path": "quotes/config/avista-discount", "rota": "GET /quotes/config/avista-discount", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals')"] },
+        { "metodo": "CommercialController.setAvistaDiscountConfig", "verbo": "PATCH", "path": "quotes/config/avista-discount", "rota": "PATCH /quotes/config/avista-discount", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.unchooseQuoteAsProposal", "verbo": "POST", "path": "quotes/:id/unchoose-as-proposal", "rota": "POST /quotes/:id/unchoose-as-proposal", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.archiveQuote", "verbo": "POST", "path": "quotes/:id/archive", "rota": "POST /quotes/:id/archive", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.unarchiveQuote", "verbo": "POST", "path": "quotes/:id/unarchive", "rota": "POST /quotes/:id/unarchive", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listAllQuotes", "verbo": "GET", "path": "quotes", "rota": "GET /quotes", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.sendQuoteByWhatsapp", "verbo": "POST", "path": "quotes/:id/send-whatsapp", "rota": "POST /quotes/:id/send-whatsapp", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.expireOldQuotes", "verbo": "POST", "path": "quotes/expire-old", "rota": "POST /quotes/expire-old", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.quotePdf", "verbo": "GET", "path": "quotes/:id/pdf", "rota": "GET /quotes/:id/pdf", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listTemplates", "verbo": "GET", "path": "quote-templates", "rota": "GET /quote-templates", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.findTemplate", "verbo": "GET", "path": "quote-templates/:id", "rota": "GET /quote-templates/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.createTemplate", "verbo": "POST", "path": "quote-templates", "rota": "POST /quote-templates", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.updateTemplate", "verbo": "PATCH", "path": "quote-templates/:id", "rota": "PATCH /quote-templates/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.removeTemplate", "verbo": "DELETE", "path": "quote-templates/:id", "rota": "DELETE /quote-templates/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.applyTemplate", "verbo": "POST", "path": "quotes/:id/apply-template", "rota": "POST /quotes/:id/apply-template", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listCoupons", "verbo": "GET", "path": "quote-coupons", "rota": "GET /quote-coupons", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.findCoupon", "verbo": "GET", "path": "quote-coupons/:id", "rota": "GET /quote-coupons/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.createCoupon", "verbo": "POST", "path": "quote-coupons", "rota": "POST /quote-coupons", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.updateCoupon", "verbo": "PATCH", "path": "quote-coupons/:id", "rota": "PATCH /quote-coupons/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.removeCoupon", "verbo": "DELETE", "path": "quote-coupons/:id", "rota": "DELETE /quote-coupons/:id", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.applyCoupon", "verbo": "POST", "path": "quotes/:id/apply-coupon", "rota": "POST /quotes/:id/apply-coupon", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.removeCouponFromQuote", "verbo": "DELETE", "path": "quotes/:id/coupon", "rota": "DELETE /quotes/:id/coupon", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listAttachments", "verbo": "GET", "path": "quotes/:id/attachments", "rota": "GET /quotes/:id/attachments", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.uploadAttachment", "verbo": "POST", "path": "quotes/:id/attachments", "rota": "POST /quotes/:id/attachments", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.getAttachmentFile", "verbo": "GET", "path": "quote-attachments/:attachmentId/file", "rota": "GET /quote-attachments/:attachmentId/file", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.removeAttachment", "verbo": "DELETE", "path": "quote-attachments/:attachmentId", "rota": "DELETE /quote-attachments/:attachmentId", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listVersions", "verbo": "GET", "path": "quotes/:id/versions", "rota": "GET /quotes/:id/versions", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.findVersion", "verbo": "GET", "path": "quote-versions/:versionId", "rota": "GET /quote-versions/:versionId", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.renegotiateQuote", "verbo": "POST", "path": "quotes/:id/renegotiate", "rota": "POST /quotes/:id/renegotiate", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.duplicateAsOption", "verbo": "POST", "path": "quotes/:id/duplicate-as-option", "rota": "POST /quotes/:id/duplicate-as-option", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.addQuoteItem", "verbo": "POST", "path": "quotes/:id/items", "rota": "POST /quotes/:id/items", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.updateQuoteItem", "verbo": "PATCH", "path": "quote-items/:id", "rota": "PATCH /quote-items/:id", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.overrideItemPrice", "verbo": "PATCH", "path": "quote-items/:id/override-price", "rota": "PATCH /quote-items/:id/override-price", "acesso": [] },
+        { "metodo": "CommercialController.removeQuoteItem", "verbo": "DELETE", "path": "quote-items/:id", "rota": "DELETE /quote-items/:id", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] },
+        { "metodo": "CommercialController.listPlans", "verbo": "GET", "path": "patients/:patientId/treatment-plans", "rota": "GET /patients/:patientId/treatment-plans", "acesso": [] },
+        { "metodo": "CommercialController.listPatientTreatmentItems", "verbo": "GET", "path": "patients/:patientId/treatment-items", "rota": "GET /patients/:patientId/treatment-items", "acesso": [] },
+        { "metodo": "CommercialController.pendingValidation", "verbo": "GET", "path": "treatment-plans/pending-validation", "rota": "GET /treatment-plans/pending-validation", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CommercialController.findPlan", "verbo": "GET", "path": "treatment-plans/:id", "rota": "GET /treatment-plans/:id", "acesso": [] },
+        { "metodo": "CommercialController.updatePlan", "verbo": "PATCH", "path": "treatment-plans/:id", "rota": "PATCH /treatment-plans/:id", "acesso": [] },
+        { "metodo": "CommercialController.sendPlanForSignature", "verbo": "POST", "path": "treatment-plans/:id/send-for-signature", "rota": "POST /treatment-plans/:id/send-for-signature", "acesso": [] },
+        { "metodo": "CommercialController.createInstallmentCharges", "verbo": "POST", "path": "treatment-plans/:id/create-charges", "rota": "POST /treatment-plans/:id/create-charges", "acesso": [] },
+        { "metodo": "CommercialController.listPlanCharges", "verbo": "GET", "path": "treatment-plans/:id/charges", "rota": "GET /treatment-plans/:id/charges", "acesso": [] },
+        { "metodo": "CommercialController.emitDownPayment", "verbo": "POST", "path": "treatment-plans/:id/emit-down-payment", "rota": "POST /treatment-plans/:id/emit-down-payment", "acesso": [] },
+        { "metodo": "CommercialController.emitDownPaymentByQuote", "verbo": "POST", "path": "quotes/:id/emit-down-payment", "rota": "POST /quotes/:id/emit-down-payment", "acesso": [] },
+        { "metodo": "CommercialController.emitInstallmentsByQuote", "verbo": "POST", "path": "quotes/:id/emit-installments", "rota": "POST /quotes/:id/emit-installments", "acesso": [] },
+        { "metodo": "CommercialController.markCashReceived", "verbo": "POST", "path": "charges/:id/mark-cash-received", "rota": "POST /charges/:id/mark-cash-received", "acesso": [] },
+        { "metodo": "CommercialController.activatePlan", "verbo": "POST", "path": "treatment-plans/:id/activate", "rota": "POST /treatment-plans/:id/activate", "acesso": [] },
+        { "metodo": "CommercialController.pausePlan", "verbo": "POST", "path": "treatment-plans/:id/pause", "rota": "POST /treatment-plans/:id/pause", "acesso": [] },
+        { "metodo": "CommercialController.validatePlan", "verbo": "POST", "path": "treatment-plans/:id/validate", "rota": "POST /treatment-plans/:id/validate", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CommercialController.completePlan", "verbo": "POST", "path": "treatment-plans/:id/complete", "rota": "POST /treatment-plans/:id/complete", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "CommercialController.finalizePlans", "verbo": "POST", "path": "treatment-plans/finalize", "rota": "POST /treatment-plans/finalize", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "CommercialController.updatePlanItem", "verbo": "PATCH", "path": "treatment-plan-items/:id", "rota": "PATCH /treatment-plan-items/:id", "acesso": [] },
+        { "metodo": "CommercialController.executePlanItem", "verbo": "POST", "path": "treatment-plan-items/:id/execute", "rota": "POST /treatment-plan-items/:id/execute", "acesso": [] },
+        { "metodo": "CommercialController.getQuoteContract", "verbo": "GET", "path": "quotes/:id/contract", "rota": "GET /quotes/:id/contract", "acesso": [] },
+        { "metodo": "CommercialController.createQuoteContract", "verbo": "POST", "path": "quotes/:id/contract", "rota": "POST /quotes/:id/contract", "acesso": [] },
+        { "metodo": "CommercialController.getContractCompleteness", "verbo": "GET", "path": "quotes/:id/contract-completeness", "rota": "GET /quotes/:id/contract-completeness", "acesso": [] },
+        { "metodo": "CommercialController.previewQuoteContractPdf", "verbo": "GET", "path": "quotes/:id/contract-preview-pdf", "rota": "GET /quotes/:id/contract-preview-pdf", "acesso": [] },
+        { "metodo": "CommercialController.getContract", "verbo": "GET", "path": "contracts/:id", "rota": "GET /contracts/:id", "acesso": [] },
+        { "metodo": "CommercialController.updateContractDocuments", "verbo": "PATCH", "path": "contracts/:id/documents", "rota": "PATCH /contracts/:id/documents", "acesso": [] },
+        { "metodo": "CommercialController.setContractDentist", "verbo": "PATCH", "path": "contracts/:id/dentist", "rota": "PATCH /contracts/:id/dentist", "acesso": [] },
+        { "metodo": "CommercialController.sendContract", "verbo": "POST", "path": "contracts/:id/send", "rota": "POST /contracts/:id/send", "acesso": [] },
+        { "metodo": "CommercialController.sendContractViaClickSign", "verbo": "POST", "path": "contracts/:id/send-clicksign", "rota": "POST /contracts/:id/send-clicksign", "acesso": [] },
+        { "metodo": "CommercialController.markContractOpened", "verbo": "POST", "path": "contracts/:id/mark-opened", "rota": "POST /contracts/:id/mark-opened", "acesso": [] },
+        { "metodo": "CommercialController.signContractPatient", "verbo": "POST", "path": "contracts/:id/sign-patient", "rota": "POST /contracts/:id/sign-patient", "acesso": [] },
+        { "metodo": "CommercialController.signContractClinic", "verbo": "POST", "path": "contracts/:id/sign-clinic", "rota": "POST /contracts/:id/sign-clinic", "acesso": [] },
+        { "metodo": "CommercialController.cancelContract", "verbo": "POST", "path": "contracts/:id/cancel", "rota": "POST /contracts/:id/cancel", "acesso": [] },
+        { "metodo": "CommercialController.skipContract", "verbo": "POST", "path": "contracts/:id/skip", "rota": "POST /contracts/:id/skip", "acesso": [] },
+        { "metodo": "CommercialController.previewContractWhatsapp", "verbo": "GET", "path": "contracts/:id/whatsapp-preview", "rota": "GET /contracts/:id/whatsapp-preview", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.sendContractWhatsapp", "verbo": "POST", "path": "contracts/:id/send-whatsapp", "rota": "POST /contracts/:id/send-whatsapp", "acesso": ["@RequiresPermission('manage_proposals')", "@Throttle({ default: { ttl: 60000, limit: 10 } })"] },
+        { "metodo": "CommercialController.previewContractPdf", "verbo": "GET", "path": "contracts/:id/preview-pdf", "rota": "GET /contracts/:id/preview-pdf", "acesso": [] },
+        { "metodo": "CommercialController.previewContractTemplate", "verbo": "GET", "path": "contract-templates/:docId/pdf", "rota": "GET /contract-templates/:docId/pdf", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "commissions/commissions.controller.ts",
+      "classe": "CommissionsController",
+      "path": "",
+      "acesso": ["@RequiresPermission('view_financial')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "CommissionsController.createRule", "verbo": "POST", "path": "commission-rules", "rota": "POST /commission-rules", "acesso": [] },
+        { "metodo": "CommissionsController.listRules", "verbo": "GET", "path": "commission-rules", "rota": "GET /commission-rules", "acesso": [] },
+        { "metodo": "CommissionsController.updateRule", "verbo": "PATCH", "path": "commission-rules/:id", "rota": "PATCH /commission-rules/:id", "acesso": [] },
+        { "metodo": "CommissionsController.archiveRule", "verbo": "DELETE", "path": "commission-rules/:id", "rota": "DELETE /commission-rules/:id", "acesso": [] },
+        { "metodo": "CommissionsController.createCommission", "verbo": "POST", "path": "commissions", "rota": "POST /commissions", "acesso": [] },
+        { "metodo": "CommissionsController.listCommissions", "verbo": "GET", "path": "commissions", "rota": "GET /commissions", "acesso": [] },
+        { "metodo": "CommissionsController.summary", "verbo": "GET", "path": "commissions/summary", "rota": "GET /commissions/summary", "acesso": [] },
+        { "metodo": "CommissionsController.payable", "verbo": "GET", "path": "commissions/payable", "rota": "GET /commissions/payable", "acesso": [] },
+        { "metodo": "CommissionsController.gameView", "verbo": "GET", "path": "commissions/game", "rota": "GET /commissions/game", "acesso": [] },
+        { "metodo": "CommissionsController.getTiers", "verbo": "GET", "path": "commissions/tiers", "rota": "GET /commissions/tiers", "acesso": [] },
+        { "metodo": "CommissionsController.setTiers", "verbo": "POST", "path": "commissions/tiers", "rota": "POST /commissions/tiers", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CommissionsController.getCommission", "verbo": "GET", "path": "commissions/:id", "rota": "GET /commissions/:id", "acesso": [] },
+        { "metodo": "CommissionsController.updateCommission", "verbo": "PATCH", "path": "commissions/:id", "rota": "PATCH /commissions/:id", "acesso": [] },
+        { "metodo": "CommissionsController.releaseCommission", "verbo": "POST", "path": "commissions/:id/release", "rota": "POST /commissions/:id/release", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CommissionsController.payCommission", "verbo": "POST", "path": "commissions/:id/pay", "rota": "POST /commissions/:id/pay", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "CommissionsController.createGoal", "verbo": "POST", "path": "goals", "rota": "POST /goals", "acesso": [] },
+        { "metodo": "CommissionsController.listGoals", "verbo": "GET", "path": "goals", "rota": "GET /goals", "acesso": [] },
+        { "metodo": "CommissionsController.activeGoals", "verbo": "GET", "path": "goals/active", "rota": "GET /goals/active", "acesso": [] },
+        { "metodo": "CommissionsController.getGoal", "verbo": "GET", "path": "goals/:id", "rota": "GET /goals/:id", "acesso": [] },
+        { "metodo": "CommissionsController.updateGoal", "verbo": "PATCH", "path": "goals/:id", "rota": "PATCH /goals/:id", "acesso": [] },
+        { "metodo": "CommissionsController.deleteGoal", "verbo": "DELETE", "path": "goals/:id", "rota": "DELETE /goals/:id", "acesso": [] },
+        { "metodo": "CommissionsController.recalculateGoal", "verbo": "POST", "path": "goals/:id/recalculate", "rota": "POST /goals/:id/recalculate", "acesso": [] },
+        { "metodo": "CommissionsController.recalculateAll", "verbo": "POST", "path": "goals/recalculate-all", "rota": "POST /goals/recalculate-all", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "commissions/game-scoring.controller.ts",
+      "classe": "GameScoringController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "GameScoringController.get", "verbo": "GET", "path": "users/:id/game-scoring", "rota": "GET /users/:id/game-scoring", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GameScoringController.put", "verbo": "PUT", "path": "users/:id/game-scoring", "rota": "PUT /users/:id/game-scoring", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GameScoringController.reset", "verbo": "DELETE", "path": "users/:id/game-scoring", "rota": "DELETE /users/:id/game-scoring", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "commissions/my-commissions.controller.ts",
+      "classe": "MyCommissionsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "MyCommissionsController.mineSummary", "verbo": "GET", "path": "commissions/mine/summary", "rota": "GET /commissions/mine/summary", "acesso": [] },
+        { "metodo": "MyCommissionsController.minePayable", "verbo": "GET", "path": "commissions/mine/payable", "rota": "GET /commissions/mine/payable", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "commissions/my-game.controller.ts",
+      "classe": "MyGameController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "MyGameController.myGame", "verbo": "GET", "path": "my-game", "rota": "GET /my-game", "acesso": [] },
+        { "metodo": "MyGameController.myProcedures", "verbo": "GET", "path": "my-procedures", "rota": "GET /my-procedures", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "common/controllers/health.controller.ts",
+      "classe": "HealthController",
+      "path": "health",
+      "acesso": ["@Public()", "@SkipThrottle()"],
+      "handlers": [
+        { "metodo": "HealthController.check", "verbo": "GET", "path": "", "rota": "GET /health", "acesso": [] },
+        { "metodo": "HealthController.checkDatabase", "verbo": "GET", "path": "db", "rota": "GET /health/db", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "contracts/contracts.controller.ts",
+      "classe": "ContractsController",
+      "path": "contracts",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ContractsController.preview", "verbo": "GET", "path": "trabalhista/preview", "rota": "GET /contracts/trabalhista/preview", "acesso": [] },
+        { "metodo": "ContractsController.send", "verbo": "POST", "path": "trabalhista/send", "rota": "POST /contracts/trabalhista/send", "acesso": [] },
+        { "metodo": "ContractsController.download", "verbo": "POST", "path": "trabalhista/download", "rota": "POST /contracts/trabalhista/download", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "conversations/conversations.controller.ts",
+      "classe": "ConversationsController",
+      "path": "conversations",
+      "acesso": ["@RequiresPermission('view_chat')", "@UseGuards(JwtAuthGuard, ConversationOwnershipGuard)"],
+      "handlers": [
+        { "metodo": "ConversationsController.findAll", "verbo": "GET", "path": "", "rota": "GET /conversations", "acesso": [] },
+        { "metodo": "ConversationsController.getPendingTransfers", "verbo": "GET", "path": "pending-transfers", "rota": "GET /conversations/pending-transfers", "acesso": [] },
+        { "metodo": "ConversationsController.getUnreadCounts", "verbo": "GET", "path": "unread-counts", "rota": "GET /conversations/unread-counts", "acesso": [] },
+        { "metodo": "ConversationsController.getUnreadSummary", "verbo": "GET", "path": "unread-summary", "rota": "GET /conversations/unread-summary", "acesso": [] },
+        { "metodo": "ConversationsController.getOpenCount", "verbo": "GET", "path": "open-count", "rota": "GET /conversations/open-count", "acesso": [] },
+        { "metodo": "ConversationsController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /conversations/:id", "acesso": [] },
+        { "metodo": "ConversationsController.findAllByLead", "verbo": "GET", "path": "lead/:leadId", "rota": "GET /conversations/lead/:leadId", "acesso": [] },
+        { "metodo": "ConversationsController.findOrCreatePatient", "verbo": "GET", "path": "lead/:leadId/patient", "rota": "GET /conversations/lead/:leadId/patient", "acesso": [] },
+        { "metodo": "ConversationsController.create", "verbo": "POST", "path": "", "rota": "POST /conversations", "acesso": [] },
+        { "metodo": "ConversationsController.setAiMode", "verbo": "PATCH", "path": ":id/ai-mode", "rota": "PATCH /conversations/:id/ai-mode", "acesso": [] },
+        { "metodo": "ConversationsController.assign", "verbo": "PATCH", "path": ":id/assign", "rota": "PATCH /conversations/:id/assign", "acesso": [] },
+        { "metodo": "ConversationsController.transfer", "verbo": "PATCH", "path": ":id/transfer", "rota": "PATCH /conversations/:id/transfer", "acesso": [] },
+        { "metodo": "ConversationsController.moveToSector", "verbo": "PATCH", "path": ":id/sector", "rota": "PATCH /conversations/:id/sector", "acesso": [] },
+        { "metodo": "ConversationsController.transferRequest", "verbo": "POST", "path": ":id/transfer-request", "rota": "POST /conversations/:id/transfer-request", "acesso": [] },
+        { "metodo": "ConversationsController.transferAccept", "verbo": "PATCH", "path": ":id/transfer-accept", "rota": "PATCH /conversations/:id/transfer-accept", "acesso": [] },
+        { "metodo": "ConversationsController.transferDecline", "verbo": "PATCH", "path": ":id/transfer-decline", "rota": "PATCH /conversations/:id/transfer-decline", "acesso": [] },
+        { "metodo": "ConversationsController.transferCancel", "verbo": "PATCH", "path": ":id/transfer-cancel", "rota": "PATCH /conversations/:id/transfer-cancel", "acesso": [] },
+        { "metodo": "ConversationsController.close", "verbo": "PATCH", "path": ":id/close", "rota": "PATCH /conversations/:id/close", "acesso": [] },
+        { "metodo": "ConversationsController.defer", "verbo": "PATCH", "path": ":id/defer", "rota": "PATCH /conversations/:id/defer", "acesso": [] },
+        { "metodo": "ConversationsController.transferToLawyer", "verbo": "POST", "path": ":id/transfer-to-lawyer", "rota": "POST /conversations/:id/transfer-to-lawyer", "acesso": [] },
+        { "metodo": "ConversationsController.returnToOrigin", "verbo": "PATCH", "path": ":id/return-to-origin", "rota": "PATCH /conversations/:id/return-to-origin", "acesso": [] },
+        { "metodo": "ConversationsController.keepInInbox", "verbo": "PATCH", "path": ":id/keep-in-inbox", "rota": "PATCH /conversations/:id/keep-in-inbox", "acesso": [] },
+        { "metodo": "ConversationsController.markAsRead", "verbo": "POST", "path": ":id/mark-read", "rota": "POST /conversations/:id/mark-read", "acesso": [] },
+        { "metodo": "ConversationsController.sendPresence", "verbo": "POST", "path": ":id/presence", "rota": "POST /conversations/:id/presence", "acesso": [] },
+        { "metodo": "ConversationsController.assignLawyer", "verbo": "PATCH", "path": ":id/assign-lawyer", "rota": "PATCH /conversations/:id/assign-lawyer", "acesso": [] },
+        { "metodo": "ConversationsController.setSpecialty", "verbo": "PATCH", "path": ":id/specialty", "rota": "PATCH /conversations/:id/specialty", "acesso": [] },
+        { "metodo": "ConversationsController.listNotes", "verbo": "GET", "path": ":id/notes", "rota": "GET /conversations/:id/notes", "acesso": [] },
+        { "metodo": "ConversationsController.createNote", "verbo": "POST", "path": ":id/notes", "rota": "POST /conversations/:id/notes", "acesso": [] },
+        { "metodo": "ConversationsController.updateNote", "verbo": "PATCH", "path": ":id/notes/:noteId", "rota": "PATCH /conversations/:id/notes/:noteId", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "dashboard/dashboard.controller.ts",
+      "classe": "DashboardController",
+      "path": "dashboard",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "DashboardController.getDashboard", "verbo": "GET", "path": "", "rota": "GET /dashboard", "acesso": [] },
+        { "metodo": "DashboardController.comparisons", "verbo": "GET", "path": "comparisons", "rota": "GET /dashboard/comparisons", "acesso": [] },
+        { "metodo": "DashboardController.revenueTrend", "verbo": "GET", "path": "revenue-trend", "rota": "GET /dashboard/revenue-trend", "acesso": [] },
+        { "metodo": "DashboardController.leadFunnel", "verbo": "GET", "path": "lead-funnel", "rota": "GET /dashboard/lead-funnel", "acesso": [] },
+        { "metodo": "DashboardController.conversionVelocity", "verbo": "GET", "path": "conversion-velocity", "rota": "GET /dashboard/conversion-velocity", "acesso": [] },
+        { "metodo": "DashboardController.taskCompletion", "verbo": "GET", "path": "task-completion", "rota": "GET /dashboard/task-completion", "acesso": [] },
+        { "metodo": "DashboardController.caseDuration", "verbo": "GET", "path": "case-duration", "rota": "GET /dashboard/case-duration", "acesso": [] },
+        { "metodo": "DashboardController.casesByArea", "verbo": "GET", "path": "cases-by-area", "rota": "GET /dashboard/cases-by-area", "acesso": [] },
+        { "metodo": "DashboardController.financialAging", "verbo": "GET", "path": "financial-aging", "rota": "GET /dashboard/financial-aging", "acesso": [] },
+        { "metodo": "DashboardController.aiUsage", "verbo": "GET", "path": "ai-usage", "rota": "GET /dashboard/ai-usage", "acesso": [] },
+        { "metodo": "DashboardController.leadSources", "verbo": "GET", "path": "lead-sources", "rota": "GET /dashboard/lead-sources", "acesso": [] },
+        { "metodo": "DashboardController.responseTime", "verbo": "GET", "path": "response-time", "rota": "GET /dashboard/response-time", "acesso": [] },
+        { "metodo": "DashboardController.getTeamPerformance", "verbo": "GET", "path": "team-performance", "rota": "GET /dashboard/team-performance", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "disparo-anexos/disparo-anexos.controller.ts",
+      "classe": "DisparoAnexosController",
+      "path": "disparos",
+      "acesso": ["@Roles('ADMIN')"],
+      "handlers": [
+        { "metodo": "DisparoAnexosController.listar", "verbo": "GET", "path": ":disparo/anexos", "rota": "GET /disparos/:disparo/anexos", "acesso": [] },
+        { "metodo": "DisparoAnexosController.anexar", "verbo": "POST", "path": ":disparo/anexos", "rota": "POST /disparos/:disparo/anexos", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 30 } })"] },
+        { "metodo": "DisparoAnexosController.remover", "verbo": "DELETE", "path": ":disparo/anexos/:aid", "rota": "DELETE /disparos/:disparo/anexos/:aid", "acesso": [] },
+        { "metodo": "DisparoAnexosController.arquivo", "verbo": "GET", "path": ":disparo/anexos/:aid/arquivo", "rota": "GET /disparos/:disparo/anexos/:aid/arquivo", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "email-automation/email-automation.controller.ts",
+      "classe": "EmailAutomationController",
+      "path": "email-automation",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "EmailAutomationController.list", "verbo": "GET", "path": "", "rota": "GET /email-automation", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "EmailAutomationController.update", "verbo": "PATCH", "path": ":key", "rota": "PATCH /email-automation/:key", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "EmailAutomationController.reset", "verbo": "POST", "path": ":key/reset", "rota": "POST /email-automation/:key/reset", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "EmailAutomationController.test", "verbo": "POST", "path": ":key/test", "rota": "POST /email-automation/:key/test", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "esthetic/esthetic-applications.controller.ts",
+      "classe": "EstheticApplicationsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "EstheticApplicationsController.create", "verbo": "POST", "path": "patients/:patientId/esthetic-applications", "rota": "POST /patients/:patientId/esthetic-applications", "acesso": [] },
+        { "metodo": "EstheticApplicationsController.listByPatient", "verbo": "GET", "path": "patients/:patientId/esthetic-applications", "rota": "GET /patients/:patientId/esthetic-applications", "acesso": [] },
+        { "metodo": "EstheticApplicationsController.upcoming", "verbo": "GET", "path": "esthetic-applications/upcoming-revisits", "rota": "GET /esthetic-applications/upcoming-revisits", "acesso": [] },
+        { "metodo": "EstheticApplicationsController.findOne", "verbo": "GET", "path": "esthetic-applications/:id", "rota": "GET /esthetic-applications/:id", "acesso": [] },
+        { "metodo": "EstheticApplicationsController.update", "verbo": "PATCH", "path": "esthetic-applications/:id", "rota": "PATCH /esthetic-applications/:id", "acesso": [] },
+        { "metodo": "EstheticApplicationsController.cancel", "verbo": "DELETE", "path": "esthetic-applications/:id", "rota": "DELETE /esthetic-applications/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "financeiro/financeiro.controller.ts",
+      "classe": "FinanceiroController",
+      "path": "financeiro",
+      "acesso": ["@RequiresPermission('view_financial', 'manage_payables')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "FinanceiroController.findAllTransactions", "verbo": "GET", "path": "transactions", "rota": "GET /financeiro/transactions", "acesso": [] },
+        { "metodo": "FinanceiroController.createTransaction", "verbo": "POST", "path": "transactions", "rota": "POST /financeiro/transactions", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.updateTransaction", "verbo": "PATCH", "path": "transactions/:id", "rota": "PATCH /financeiro/transactions/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.deleteTransaction", "verbo": "DELETE", "path": "transactions/:id", "rota": "DELETE /financeiro/transactions/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.createDailyRate", "verbo": "POST", "path": "daily-rate", "rota": "POST /financeiro/daily-rate", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.professionalsWithRate", "verbo": "GET", "path": "professionals-with-rate", "rota": "GET /financeiro/professionals-with-rate", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.partialPayment", "verbo": "POST", "path": "transactions/:id/partial-payment", "rota": "POST /financeiro/transactions/:id/partial-payment", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.getAuditLog", "verbo": "GET", "path": "audit-log", "rota": "GET /financeiro/audit-log", "acesso": [] },
+        { "metodo": "FinanceiroController.getSummary", "verbo": "GET", "path": "summary", "rota": "GET /financeiro/summary", "acesso": [] },
+        { "metodo": "FinanceiroController.getCashFlow", "verbo": "GET", "path": "cash-flow", "rota": "GET /financeiro/cash-flow", "acesso": [] },
+        { "metodo": "FinanceiroController.findAllCategories", "verbo": "GET", "path": "categories", "rota": "GET /financeiro/categories", "acesso": [] },
+        { "metodo": "FinanceiroController.createCategory", "verbo": "POST", "path": "categories", "rota": "POST /financeiro/categories", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.updateCategory", "verbo": "PATCH", "path": "categories/:id", "rota": "PATCH /financeiro/categories/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.deleteCategory", "verbo": "DELETE", "path": "categories/:id", "rota": "DELETE /financeiro/categories/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "FinanceiroController.getDashboard", "verbo": "GET", "path": "dashboard", "rota": "GET /financeiro/dashboard", "acesso": [] },
+        { "metodo": "FinanceiroController.chargesKpis", "verbo": "GET", "path": "charges/kpis", "rota": "GET /financeiro/charges/kpis", "acesso": [] },
+        { "metodo": "FinanceiroController.monthCharges", "verbo": "GET", "path": "charges/month", "rota": "GET /financeiro/charges/month", "acesso": [] },
+        { "metodo": "FinanceiroController.findCharges", "verbo": "GET", "path": "charges", "rota": "GET /financeiro/charges", "acesso": [] },
+        { "metodo": "FinanceiroController.getPatientsSummary", "verbo": "GET", "path": "patients-summary", "rota": "GET /financeiro/patients-summary", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "followup/followup.controller.ts",
+      "classe": "FollowupController",
+      "path": "followup",
+      "acesso": ["@RequiresPermission('view_marketing')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "FollowupController.getStats", "verbo": "GET", "path": "stats", "rota": "GET /followup/stats", "acesso": [] },
+        { "metodo": "FollowupController.getOperacional", "verbo": "GET", "path": "operacional", "rota": "GET /followup/operacional", "acesso": [] },
+        { "metodo": "FollowupController.getDisparoHistory", "verbo": "GET", "path": "disparos", "rota": "GET /followup/disparos", "acesso": [] },
+        { "metodo": "FollowupController.getRecallTemplate", "verbo": "GET", "path": "recall-template", "rota": "GET /followup/recall-template", "acesso": [] },
+        { "metodo": "FollowupController.setRecallTemplate", "verbo": "PUT", "path": "recall-template", "rota": "PUT /followup/recall-template", "acesso": [] },
+        { "metodo": "FollowupController.getDailySummaryConfig", "verbo": "GET", "path": "daily-summary-config", "rota": "GET /followup/daily-summary-config", "acesso": [] },
+        { "metodo": "FollowupController.setDailySummaryConfig", "verbo": "PUT", "path": "daily-summary-config", "rota": "PUT /followup/daily-summary-config", "acesso": [] },
+        { "metodo": "FollowupController.getVendaFeitaConfig", "verbo": "GET", "path": "venda-feita-config", "rota": "GET /followup/venda-feita-config", "acesso": [] },
+        { "metodo": "FollowupController.setVendaFeitaConfig", "verbo": "PUT", "path": "venda-feita-config", "rota": "PUT /followup/venda-feita-config", "acesso": [] },
+        { "metodo": "FollowupController.getDisparoDetail", "verbo": "GET", "path": "disparo-detail", "rota": "GET /followup/disparo-detail", "acesso": [] },
+        { "metodo": "FollowupController.setOperacionalToggle", "verbo": "PATCH", "path": "operacional/toggle", "rota": "PATCH /followup/operacional/toggle", "acesso": [] },
+        { "metodo": "FollowupController.getCobrancaTemplate", "verbo": "GET", "path": "cobranca-template/:stage", "rota": "GET /followup/cobranca-template/:stage", "acesso": [] },
+        { "metodo": "FollowupController.setCobrancaTemplate", "verbo": "PUT", "path": "cobranca-template/:stage", "rota": "PUT /followup/cobranca-template/:stage", "acesso": [] },
+        { "metodo": "FollowupController.listSequences", "verbo": "GET", "path": "sequences", "rota": "GET /followup/sequences", "acesso": [] },
+        { "metodo": "FollowupController.createSequence", "verbo": "POST", "path": "sequences", "rota": "POST /followup/sequences", "acesso": [] },
+        { "metodo": "FollowupController.updateSequence", "verbo": "PATCH", "path": "sequences/:id", "rota": "PATCH /followup/sequences/:id", "acesso": [] },
+        { "metodo": "FollowupController.deleteSequence", "verbo": "DELETE", "path": "sequences/:id", "rota": "DELETE /followup/sequences/:id", "acesso": [] },
+        { "metodo": "FollowupController.addStep", "verbo": "POST", "path": "sequences/:id/steps", "rota": "POST /followup/sequences/:id/steps", "acesso": [] },
+        { "metodo": "FollowupController.updateStep", "verbo": "PATCH", "path": "steps/:id", "rota": "PATCH /followup/steps/:id", "acesso": [] },
+        { "metodo": "FollowupController.deleteStep", "verbo": "DELETE", "path": "steps/:id", "rota": "DELETE /followup/steps/:id", "acesso": [] },
+        { "metodo": "FollowupController.listEnrollments", "verbo": "GET", "path": "enrollments", "rota": "GET /followup/enrollments", "acesso": [] },
+        { "metodo": "FollowupController.enrollLead", "verbo": "POST", "path": "enrollments", "rota": "POST /followup/enrollments", "acesso": [] },
+        { "metodo": "FollowupController.pauseEnrollment", "verbo": "PATCH", "path": "enrollments/:id/pause", "rota": "PATCH /followup/enrollments/:id/pause", "acesso": [] },
+        { "metodo": "FollowupController.resumeEnrollment", "verbo": "PATCH", "path": "enrollments/:id/resume", "rota": "PATCH /followup/enrollments/:id/resume", "acesso": [] },
+        { "metodo": "FollowupController.cancelEnrollment", "verbo": "PATCH", "path": "enrollments/:id/cancel", "rota": "PATCH /followup/enrollments/:id/cancel", "acesso": [] },
+        { "metodo": "FollowupController.markConverted", "verbo": "PATCH", "path": "enrollments/:id/converted", "rota": "PATCH /followup/enrollments/:id/converted", "acesso": [] },
+        { "metodo": "FollowupController.listPendingApprovals", "verbo": "GET", "path": "approvals", "rota": "GET /followup/approvals", "acesso": [] },
+        { "metodo": "FollowupController.approveMessage", "verbo": "PATCH", "path": "messages/:id/approve", "rota": "PATCH /followup/messages/:id/approve", "acesso": [] },
+        { "metodo": "FollowupController.rejectMessage", "verbo": "PATCH", "path": "messages/:id/reject", "rota": "PATCH /followup/messages/:id/reject", "acesso": [] },
+        { "metodo": "FollowupController.regenerateMessage", "verbo": "POST", "path": "messages/:id/regenerate", "rota": "POST /followup/messages/:id/regenerate", "acesso": [] },
+        { "metodo": "FollowupController.previewBroadcast", "verbo": "GET", "path": "broadcasts/preview", "rota": "GET /followup/broadcasts/preview", "acesso": [] },
+        { "metodo": "FollowupController.listBroadcasts", "verbo": "GET", "path": "broadcasts", "rota": "GET /followup/broadcasts", "acesso": [] },
+        { "metodo": "FollowupController.getBroadcast", "verbo": "GET", "path": "broadcasts/:id", "rota": "GET /followup/broadcasts/:id", "acesso": [] },
+        { "metodo": "FollowupController.createBroadcast", "verbo": "POST", "path": "broadcasts", "rota": "POST /followup/broadcasts", "acesso": [] },
+        { "metodo": "FollowupController.cancelBroadcast", "verbo": "PATCH", "path": "broadcasts/:id/cancel", "rota": "PATCH /followup/broadcasts/:id/cancel", "acesso": [] },
+        { "metodo": "FollowupController.seedDefaultSequences", "verbo": "POST", "path": "seed-defaults", "rota": "POST /followup/seed-defaults", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "global-anamnesis/global-anamnesis.controller.ts",
+      "classe": "GlobalAnamnesisController",
+      "path": "global-anamnesis",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "GlobalAnamnesisController.get", "verbo": "GET", "path": "", "rota": "GET /global-anamnesis", "acesso": [] },
+        { "metodo": "GlobalAnamnesisController.update", "verbo": "PUT", "path": "", "rota": "PUT /global-anamnesis", "acesso": ["@SuperAdmin()"] }
+      ]
+    },
+    {
+      "arquivo": "google-drive/google-drive.controller.ts",
+      "classe": "GoogleDriveController",
+      "path": "google-drive",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "GoogleDriveController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /google-drive/config", "acesso": [] },
+        { "metodo": "GoogleDriveController.saveConfig", "verbo": "POST", "path": "config", "rota": "POST /google-drive/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.testConnection", "verbo": "POST", "path": "test", "rota": "POST /google-drive/test", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.saveOAuthConfig", "verbo": "POST", "path": "oauth/config", "rota": "POST /google-drive/oauth/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.getOAuthUrl", "verbo": "GET", "path": "oauth/url", "rota": "GET /google-drive/oauth/url", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.handleOAuthCallback", "verbo": "GET", "path": "oauth/callback", "rota": "GET /google-drive/oauth/callback", "acesso": ["@Public()"] },
+        { "metodo": "GoogleDriveController.disconnectOAuth", "verbo": "POST", "path": "oauth/disconnect", "rota": "POST /google-drive/oauth/disconnect", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.listLeadFiles", "verbo": "GET", "path": "leads/:leadId/files", "rota": "GET /google-drive/leads/:leadId/files", "acesso": [] },
+        { "metodo": "GoogleDriveController.getLetterhead", "verbo": "GET", "path": "letterhead", "rota": "GET /google-drive/letterhead", "acesso": [] },
+        { "metodo": "GoogleDriveController.searchFiles", "verbo": "POST", "path": "letterhead/search", "rota": "POST /google-drive/letterhead/search", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.setLetterhead", "verbo": "POST", "path": "letterhead", "rota": "POST /google-drive/letterhead", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.removeLetterhead", "verbo": "DELETE", "path": "letterhead", "rota": "DELETE /google-drive/letterhead", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "GoogleDriveController.createLeadFolder", "verbo": "POST", "path": "leads/:leadId/folder", "rota": "POST /google-drive/leads/:leadId/folder", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "home/home-highlights.controller.ts",
+      "classe": "HomeHighlightsController",
+      "path": "home",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "HomeHighlightsController.highlights", "verbo": "GET", "path": "highlights", "rota": "GET /home/highlights", "acesso": [] },
+        { "metodo": "HomeHighlightsController.moduleBadges", "verbo": "GET", "path": "module-badges", "rota": "GET /home/module-badges", "acesso": [] },
+        { "metodo": "HomeHighlightsController.previewBalao", "verbo": "GET", "path": "preview", "rota": "GET /home/preview", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "inboxes/inboxes.controller.ts",
+      "classe": "InboxesController",
+      "path": "inboxes",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "InboxesController.findAll", "verbo": "GET", "path": "", "rota": "GET /inboxes", "acesso": [] },
+        { "metodo": "InboxesController.getAllOperators", "verbo": "GET", "path": "operators", "rota": "GET /inboxes/operators", "acesso": [] },
+        { "metodo": "InboxesController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /inboxes/:id", "acesso": [] },
+        { "metodo": "InboxesController.create", "verbo": "POST", "path": "", "rota": "POST /inboxes", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.createFull", "verbo": "POST", "path": "full", "rota": "POST /inboxes/full", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.update", "verbo": "PUT", "path": ":id", "rota": "PUT /inboxes/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /inboxes/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.addUser", "verbo": "POST", "path": ":id/users", "rota": "POST /inboxes/:id/users", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.removeUser", "verbo": "DELETE", "path": ":id/users/:userId", "rota": "DELETE /inboxes/:id/users/:userId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.addInstance", "verbo": "POST", "path": ":id/instances", "rota": "POST /inboxes/:id/instances", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InboxesController.removeInstance", "verbo": "DELETE", "path": ":id/instances/:name", "rota": "DELETE /inboxes/:id/instances/:name", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "influencers/influencer-messages.controller.ts",
+      "classe": "InfluencerMessagesController",
+      "path": "influencers/messages",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "InfluencerMessagesController.list", "verbo": "GET", "path": "", "rota": "GET /influencers/messages", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "influencers/influencer-schedules.controller.ts",
+      "classe": "InfluencerSchedulesController",
+      "path": "influencers/schedules",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "InfluencerSchedulesController.list", "verbo": "GET", "path": "", "rota": "GET /influencers/schedules", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerSchedulesController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /influencers/schedules/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerSchedulesController.create", "verbo": "POST", "path": "", "rota": "POST /influencers/schedules", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerSchedulesController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /influencers/schedules/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerSchedulesController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /influencers/schedules/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerSchedulesController.runNow", "verbo": "POST", "path": ":id/run-now", "rota": "POST /influencers/schedules/:id/run-now", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "influencers/influencer-templates.controller.ts",
+      "classe": "InfluencerTemplatesController",
+      "path": "influencers/templates",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "InfluencerTemplatesController.list", "verbo": "GET", "path": "", "rota": "GET /influencers/templates", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerTemplatesController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /influencers/templates/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerTemplatesController.create", "verbo": "POST", "path": "", "rota": "POST /influencers/templates", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerTemplatesController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /influencers/templates/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencerTemplatesController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /influencers/templates/:id", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "influencers/influencers.controller.ts",
+      "classe": "InfluencersController",
+      "path": "influencers",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "InfluencersController.list", "verbo": "GET", "path": "", "rota": "GET /influencers", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencersController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /influencers/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencersController.create", "verbo": "POST", "path": "", "rota": "POST /influencers", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencersController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /influencers/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "InfluencersController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /influencers/:id", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "installments/installments.controller.ts",
+      "classe": "InstallmentsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "InstallmentsController.create", "verbo": "POST", "path": "installments", "rota": "POST /installments", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "InstallmentsController.generate", "verbo": "POST", "path": "quotes/:quoteId/generate-installments", "rota": "POST /quotes/:quoteId/generate-installments", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "InstallmentsController.findAll", "verbo": "GET", "path": "installments", "rota": "GET /installments", "acesso": [] },
+        { "metodo": "InstallmentsController.overdueSummary", "verbo": "GET", "path": "installments/overdue-summary", "rota": "GET /installments/overdue-summary", "acesso": [] },
+        { "metodo": "InstallmentsController.findOne", "verbo": "GET", "path": "installments/:id", "rota": "GET /installments/:id", "acesso": [] },
+        { "metodo": "InstallmentsController.update", "verbo": "PATCH", "path": "installments/:id", "rota": "PATCH /installments/:id", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "InstallmentsController.pay", "verbo": "POST", "path": "installments/:id/pay", "rota": "POST /installments/:id/pay", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "InstallmentsController.cancel", "verbo": "POST", "path": "installments/:id/cancel", "rota": "POST /installments/:id/cancel", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "InstallmentsController.renegotiate", "verbo": "POST", "path": "installments/:id/renegotiate", "rota": "POST /installments/:id/renegotiate", "acesso": ["@RequiresPermission('manage_financial')"] }
+      ]
+    },
+    {
+      "arquivo": "intern/intern.controller.ts",
+      "classe": "InternController",
+      "path": "intern",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "InternController.getDashboard", "verbo": "GET", "path": "dashboard", "rota": "GET /intern/dashboard", "acesso": [] },
+        { "metodo": "InternController.getKanban", "verbo": "GET", "path": "kanban", "rota": "GET /intern/kanban", "acesso": [] },
+        { "metodo": "InternController.getBadgeCount", "verbo": "GET", "path": "badge-count", "rota": "GET /intern/badge-count", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "inventory/inventory.controller.ts",
+      "classe": "InventoryController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "InventoryController.getPolicy", "verbo": "GET", "path": "inventory/policy", "rota": "GET /inventory/policy", "acesso": [] },
+        { "metodo": "InventoryController.setPolicy", "verbo": "PATCH", "path": "inventory/policy", "rota": "PATCH /inventory/policy", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.previewConsumption", "verbo": "POST", "path": "inventory/consumption/preview", "rota": "POST /inventory/consumption/preview", "acesso": [] },
+        { "metodo": "InventoryController.commitConsumption", "verbo": "POST", "path": "inventory/consumption/commit", "rota": "POST /inventory/consumption/commit", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "InventoryController.createSupplier", "verbo": "POST", "path": "suppliers", "rota": "POST /suppliers", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.listSuppliers", "verbo": "GET", "path": "suppliers", "rota": "GET /suppliers", "acesso": [] },
+        { "metodo": "InventoryController.getSupplier", "verbo": "GET", "path": "suppliers/:id", "rota": "GET /suppliers/:id", "acesso": [] },
+        { "metodo": "InventoryController.updateSupplier", "verbo": "PATCH", "path": "suppliers/:id", "rota": "PATCH /suppliers/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.archiveSupplier", "verbo": "DELETE", "path": "suppliers/:id", "rota": "DELETE /suppliers/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.createProduct", "verbo": "POST", "path": "products", "rota": "POST /products", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.listProducts", "verbo": "GET", "path": "products", "rota": "GET /products", "acesso": [] },
+        { "metodo": "InventoryController.listLowStock", "verbo": "GET", "path": "products/low-stock", "rota": "GET /products/low-stock", "acesso": [] },
+        { "metodo": "InventoryController.getProduct", "verbo": "GET", "path": "products/:id", "rota": "GET /products/:id", "acesso": [] },
+        { "metodo": "InventoryController.updateProduct", "verbo": "PATCH", "path": "products/:id", "rota": "PATCH /products/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.archiveProduct", "verbo": "DELETE", "path": "products/:id", "rota": "DELETE /products/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.productStockHistory", "verbo": "GET", "path": "products/:id/stock-history", "rota": "GET /products/:id/stock-history", "acesso": [] },
+        { "metodo": "InventoryController.createMovement", "verbo": "POST", "path": "stock-movements", "rota": "POST /stock-movements", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.listMovements", "verbo": "GET", "path": "stock-movements", "rota": "GET /stock-movements", "acesso": [] },
+        { "metodo": "InventoryController.getByBatch", "verbo": "GET", "path": "stock-movements/by-batch/:batch", "rota": "GET /stock-movements/by-batch/:batch", "acesso": [] },
+        { "metodo": "InventoryController.getExpiring", "verbo": "GET", "path": "stock-movements/expiring", "rota": "GET /stock-movements/expiring", "acesso": [] },
+        { "metodo": "InventoryController.linkConsumable", "verbo": "POST", "path": "procedures/:procedureId/consumables", "rota": "POST /procedures/:procedureId/consumables", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.listConsumables", "verbo": "GET", "path": "procedures/:procedureId/consumables", "rota": "GET /procedures/:procedureId/consumables", "acesso": [] },
+        { "metodo": "InventoryController.unlinkConsumable", "verbo": "DELETE", "path": "procedure-consumables/:id", "rota": "DELETE /procedure-consumables/:id", "acesso": ["@RequiresPermission('manage_inventory')"] }
+      ]
+    },
+    {
+      "arquivo": "leads/lead-honorarios.controller.ts",
+      "classe": "LeadHonorariosController",
+      "path": "leads",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "LeadHonorariosController.findPendingPayments", "verbo": "GET", "path": "honorarios-negociados/pending-payments", "rota": "GET /leads/honorarios-negociados/pending-payments", "acesso": [] },
+        { "metodo": "LeadHonorariosController.getSummary", "verbo": "GET", "path": "honorarios-negociados/summary", "rota": "GET /leads/honorarios-negociados/summary", "acesso": [] },
+        { "metodo": "LeadHonorariosController.findAll", "verbo": "GET", "path": ":leadId/honorarios-negociados", "rota": "GET /leads/:leadId/honorarios-negociados", "acesso": [] },
+        { "metodo": "LeadHonorariosController.create", "verbo": "POST", "path": ":leadId/honorarios-negociados", "rota": "POST /leads/:leadId/honorarios-negociados", "acesso": [] },
+        { "metodo": "LeadHonorariosController.update", "verbo": "PATCH", "path": ":leadId/honorarios-negociados/:id", "rota": "PATCH /leads/:leadId/honorarios-negociados/:id", "acesso": [] },
+        { "metodo": "LeadHonorariosController.delete", "verbo": "DELETE", "path": ":leadId/honorarios-negociados/:id", "rota": "DELETE /leads/:leadId/honorarios-negociados/:id", "acesso": [] },
+        { "metodo": "LeadHonorariosController.addPayment", "verbo": "POST", "path": "honorarios-negociados/:honorarioId/payments", "rota": "POST /leads/honorarios-negociados/:honorarioId/payments", "acesso": [] },
+        { "metodo": "LeadHonorariosController.deletePayment", "verbo": "DELETE", "path": "honorarios-negociados/payments/:paymentId", "rota": "DELETE /leads/honorarios-negociados/payments/:paymentId", "acesso": [] },
+        { "metodo": "LeadHonorariosController.markPaid", "verbo": "PATCH", "path": "honorarios-negociados/payments/:paymentId/mark-paid", "rota": "PATCH /leads/honorarios-negociados/payments/:paymentId/mark-paid", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "leads/lead-notes.controller.ts",
+      "classe": "LeadNotesController",
+      "path": "leads/:leadId/notes",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "LeadNotesController.findAll", "verbo": "GET", "path": "", "rota": "GET /leads/:leadId/notes", "acesso": [] },
+        { "metodo": "LeadNotesController.create", "verbo": "POST", "path": "", "rota": "POST /leads/:leadId/notes", "acesso": [] },
+        { "metodo": "LeadNotesController.delete", "verbo": "DELETE", "path": ":noteId", "rota": "DELETE /leads/:leadId/notes/:noteId", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "leads/leads.controller.ts",
+      "classe": "LeadsController",
+      "path": "leads",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "LeadsController.create", "verbo": "POST", "path": "", "rota": "POST /leads", "acesso": [] },
+        { "metodo": "LeadsController.findAll", "verbo": "GET", "path": "", "rota": "GET /leads", "acesso": [] },
+        { "metodo": "LeadsController.checkPhone", "verbo": "GET", "path": "check-phone", "rota": "GET /leads/check-phone", "acesso": [] },
+        { "metodo": "LeadsController.findPostAvaliacao", "verbo": "GET", "path": "post-avaliacao", "rota": "GET /leads/post-avaliacao", "acesso": [] },
+        { "metodo": "LeadsController.exportCsv", "verbo": "GET", "path": "export", "rota": "GET /leads/export", "acesso": [] },
+        { "metodo": "LeadsController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /leads/:id", "acesso": [] },
+        { "metodo": "LeadsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /leads/:id", "acesso": [] },
+        { "metodo": "LeadsController.updateStage", "verbo": "PATCH", "path": ":id/stage", "rota": "PATCH /leads/:id/stage", "acesso": [] },
+        { "metodo": "LeadsController.getTimeline", "verbo": "GET", "path": ":id/timeline", "rota": "GET /leads/:id/timeline", "acesso": [] },
+        { "metodo": "LeadsController.summarize", "verbo": "POST", "path": ":id/summary", "rota": "POST /leads/:id/summary", "acesso": [] },
+        { "metodo": "LeadsController.ensurePatient", "verbo": "POST", "path": ":id/ensure-patient", "rota": "POST /leads/:id/ensure-patient", "acesso": [] },
+        { "metodo": "LeadsController.promoteToClient", "verbo": "POST", "path": ":id/promote-to-client", "rota": "POST /leads/:id/promote-to-client", "acesso": [] },
+        { "metodo": "LeadsController.demoteToLead", "verbo": "POST", "path": ":id/demote-to-lead", "rota": "POST /leads/:id/demote-to-lead", "acesso": [] },
+        { "metodo": "LeadsController.resetMemory", "verbo": "DELETE", "path": ":id/memory", "rota": "DELETE /leads/:id/memory", "acesso": [] },
+        { "metodo": "LeadsController.deleteContact", "verbo": "DELETE", "path": ":id", "rota": "DELETE /leads/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "LeadsController.deduplicatePhones", "verbo": "POST", "path": "cleanup/deduplicate", "rota": "POST /leads/cleanup/deduplicate", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "maintenance/maintenance.controller.ts",
+      "classe": "MaintenanceController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "MaintenanceController.listByPatient", "verbo": "GET", "path": "patients/:id/maintenance-tasks", "rota": "GET /patients/:id/maintenance-tasks", "acesso": [] },
+        { "metodo": "MaintenanceController.listAll", "verbo": "GET", "path": "maintenance-tasks", "rota": "GET /maintenance-tasks", "acesso": [] },
+        { "metodo": "MaintenanceController.create", "verbo": "POST", "path": "maintenance-tasks", "rota": "POST /maintenance-tasks", "acesso": [] },
+        { "metodo": "MaintenanceController.update", "verbo": "PATCH", "path": "maintenance-tasks/:id", "rota": "PATCH /maintenance-tasks/:id", "acesso": [] },
+        { "metodo": "MaintenanceController.remove", "verbo": "DELETE", "path": "maintenance-tasks/:id", "rota": "DELETE /maintenance-tasks/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "mcp/mcp.controller.ts",
+      "classe": "McpController",
+      "path": "mcp",
+      "acesso": ["@Public()"],
+      "handlers": [
+        { "metodo": "McpController.handle", "verbo": "POST", "path": "", "rota": "POST /mcp", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "media/media.controller.ts",
+      "classe": "MediaController",
+      "path": "media",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "MediaController.retryMediaDownload", "verbo": "POST", "path": ":messageId/retry", "rota": "POST /media/:messageId/retry", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "MediaController.getMedia", "verbo": "GET", "path": ":messageId", "rota": "GET /media/:messageId", "acesso": ["@Public()"] }
+      ]
+    },
+    {
+      "arquivo": "memories/memories.controller.ts",
+      "classe": "MemoriesController",
+      "path": "memories",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "MemoriesController.listOrganization", "verbo": "GET", "path": "organization", "rota": "GET /memories/organization", "acesso": [] },
+        { "metodo": "MemoriesController.getOrgStats", "verbo": "GET", "path": "organization/stats", "rota": "GET /memories/organization/stats", "acesso": [] },
+        { "metodo": "MemoriesController.getOrgProfile", "verbo": "GET", "path": "organization/profile", "rota": "GET /memories/organization/profile", "acesso": [] },
+        { "metodo": "MemoriesController.regenerateOrgProfile", "verbo": "POST", "path": "organization/regenerate-profile", "rota": "POST /memories/organization/regenerate-profile", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.rebuildOrgProfile", "verbo": "POST", "path": "organization/rebuild-profile", "rota": "POST /memories/organization/rebuild-profile", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.getOrgSettings", "verbo": "GET", "path": "organization/settings", "rota": "GET /memories/organization/settings", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.migrateSkills", "verbo": "POST", "path": "migrate-skills-to-memory-vars", "rota": "POST /memories/migrate-skills-to-memory-vars", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.migrateLegacyLeads", "verbo": "POST", "path": "migrate-legacy-leads-to-profile", "rota": "POST /memories/migrate-legacy-leads-to-profile", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.previewCleanSkillsHardcoded", "verbo": "GET", "path": "skills/clean-hardcoded-org-info", "rota": "GET /memories/skills/clean-hardcoded-org-info", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.applyCleanSkillsHardcoded", "verbo": "POST", "path": "skills/clean-hardcoded-org-info", "rota": "POST /memories/skills/clean-hardcoded-org-info", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.updateOrgSettings", "verbo": "PUT", "path": "organization/settings", "rota": "PUT /memories/organization/settings", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.updateOrgProfile", "verbo": "PUT", "path": "organization/profile", "rota": "PUT /memories/organization/profile", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.reviewOrg", "verbo": "POST", "path": "organization/review", "rota": "POST /memories/organization/review", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.archiveOrg", "verbo": "POST", "path": "organization/archive", "rota": "POST /memories/organization/archive", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.restoreOrg", "verbo": "POST", "path": "organization/restore", "rota": "POST /memories/organization/restore", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.createOrg", "verbo": "POST", "path": "organization", "rota": "POST /memories/organization", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.updateMemory", "verbo": "PUT", "path": ":id", "rota": "PUT /memories/:id", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.deleteMemory", "verbo": "DELETE", "path": ":id", "rota": "DELETE /memories/:id", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.extractNow", "verbo": "POST", "path": "extract-now", "rota": "POST /memories/extract-now", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "MemoriesController.listLead", "verbo": "GET", "path": "lead/:leadId", "rota": "GET /memories/lead/:leadId", "acesso": [] },
+        { "metodo": "MemoriesController.getLeadProfile", "verbo": "GET", "path": "lead/:leadId/profile", "rota": "GET /memories/lead/:leadId/profile", "acesso": [] },
+        { "metodo": "MemoriesController.createLeadMemory", "verbo": "POST", "path": "lead/:leadId", "rota": "POST /memories/lead/:leadId", "acesso": ["@Roles('ADMIN', 'DENTIST', 'OPERADOR')"] },
+        { "metodo": "MemoriesController.regenerateProfile", "verbo": "POST", "path": "lead/:leadId/regenerate", "rota": "POST /memories/lead/:leadId/regenerate", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "MemoriesController.deleteAllLeadMemories", "verbo": "DELETE", "path": "lead/:leadId/all", "rota": "DELETE /memories/lead/:leadId/all", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "messages/messages.controller.ts",
+      "classe": "MessagesController",
+      "path": "messages",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "MessagesController.getMessages", "verbo": "GET", "path": "conversation/:id", "rota": "GET /messages/conversation/:id", "acesso": [] },
+        { "metodo": "MessagesController.getLinkPreview", "verbo": "GET", "path": "link-preview", "rota": "GET /messages/link-preview", "acesso": [] },
+        { "metodo": "MessagesController.syncHistory", "verbo": "POST", "path": "conversation/:id/sync-history", "rota": "POST /messages/conversation/:id/sync-history", "acesso": [] },
+        { "metodo": "MessagesController.sendMessage", "verbo": "POST", "path": "send", "rota": "POST /messages/send", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 30 } })"] },
+        { "metodo": "MessagesController.sendAudio", "verbo": "POST", "path": "send-audio", "rota": "POST /messages/send-audio", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 60 } })"] },
+        { "metodo": "MessagesController.sendFile", "verbo": "POST", "path": "send-file", "rota": "POST /messages/send-file", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 60 } })"] },
+        { "metodo": "MessagesController.correctText", "verbo": "POST", "path": "ai-correct", "rota": "POST /messages/ai-correct", "acesso": [] },
+        { "metodo": "MessagesController.transcribeAudio", "verbo": "POST", "path": ":id/transcribe", "rota": "POST /messages/:id/transcribe", "acesso": [] },
+        { "metodo": "MessagesController.reactToMessage", "verbo": "POST", "path": ":id/react", "rota": "POST /messages/:id/react", "acesso": [] },
+        { "metodo": "MessagesController.editMessage", "verbo": "PATCH", "path": ":id", "rota": "PATCH /messages/:id", "acesso": [] },
+        { "metodo": "MessagesController.deleteMessage", "verbo": "DELETE", "path": ":id", "rota": "DELETE /messages/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "nota-fiscal/nota-fiscal.controller.ts",
+      "classe": "NotaFiscalController",
+      "path": "nota-fiscal",
+      "acesso": ["@RequiresPermission('view_financial')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "NotaFiscalController.findAll", "verbo": "GET", "path": "", "rota": "GET /nota-fiscal", "acesso": [] },
+        { "metodo": "NotaFiscalController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /nota-fiscal/config", "acesso": [] },
+        { "metodo": "NotaFiscalController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /nota-fiscal/:id", "acesso": [] },
+        { "metodo": "NotaFiscalController.emit", "verbo": "POST", "path": "emit", "rota": "POST /nota-fiscal/emit", "acesso": ["@RequiresPermission('manage_financial')"] },
+        { "metodo": "NotaFiscalController.cancel", "verbo": "POST", "path": ":id/cancel", "rota": "POST /nota-fiscal/:id/cancel", "acesso": ["@RequiresPermission('manage_financial')"] }
+      ]
+    },
+    {
+      "arquivo": "notification-settings/notification-settings.controller.ts",
+      "classe": "NotificationSettingsController",
+      "path": "users/me/notification-settings",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "NotificationSettingsController.get", "verbo": "GET", "path": "", "rota": "GET /users/me/notification-settings", "acesso": [] },
+        { "metodo": "NotificationSettingsController.update", "verbo": "PATCH", "path": "", "rota": "PATCH /users/me/notification-settings", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "notifications/notifications.controller.ts",
+      "classe": "NotificationsController",
+      "path": "notifications",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "NotificationsController.list", "verbo": "GET", "path": "", "rota": "GET /notifications", "acesso": [] },
+        { "metodo": "NotificationsController.unreadCount", "verbo": "GET", "path": "unread-count", "rota": "GET /notifications/unread-count", "acesso": [] },
+        { "metodo": "NotificationsController.markRead", "verbo": "PATCH", "path": ":id/read", "rota": "PATCH /notifications/:id/read", "acesso": [] },
+        { "metodo": "NotificationsController.markAllRead", "verbo": "POST", "path": "mark-all-read", "rota": "POST /notifications/mark-all-read", "acesso": [] },
+        { "metodo": "NotificationsController.mute", "verbo": "POST", "path": "conversations/:id/mute", "rota": "POST /notifications/conversations/:id/mute", "acesso": [] },
+        { "metodo": "NotificationsController.unmute", "verbo": "DELETE", "path": "conversations/:id/mute", "rota": "DELETE /notifications/conversations/:id/mute", "acesso": [] },
+        { "metodo": "NotificationsController.mutedConversations", "verbo": "GET", "path": "muted-conversations", "rota": "GET /notifications/muted-conversations", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "odontogram/odontogram.controller.ts",
+      "classe": "OdontogramController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "OdontogramController.get", "verbo": "GET", "path": "patients/:patientId/odontogram", "rota": "GET /patients/:patientId/odontogram", "acesso": ["@RequiresPermission('view_clinical')"] },
+        { "metodo": "OdontogramController.updateMeta", "verbo": "PATCH", "path": "patients/:patientId/odontogram", "rota": "PATCH /patients/:patientId/odontogram", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "OdontogramController.addTooth", "verbo": "POST", "path": "patients/:patientId/odontogram/teeth", "rota": "POST /patients/:patientId/odontogram/teeth", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "OdontogramController.updateTooth", "verbo": "PATCH", "path": "tooth-records/:id", "rota": "PATCH /tooth-records/:id", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "OdontogramController.removeTooth", "verbo": "DELETE", "path": "tooth-records/:id", "rota": "DELETE /tooth-records/:id", "acesso": ["@RequiresPermission('edit_clinical')"] },
+        { "metodo": "OdontogramController.listSuggestions", "verbo": "GET", "path": "state-suggestions", "rota": "GET /state-suggestions", "acesso": [] },
+        { "metodo": "OdontogramController.createSuggestion", "verbo": "POST", "path": "state-suggestions", "rota": "POST /state-suggestions", "acesso": [] },
+        { "metodo": "OdontogramController.updateSuggestion", "verbo": "PATCH", "path": "state-suggestions/:id", "rota": "PATCH /state-suggestions/:id", "acesso": [] },
+        { "metodo": "OdontogramController.removeSuggestion", "verbo": "DELETE", "path": "state-suggestions/:id", "rota": "DELETE /state-suggestions/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "patient-tags/patient-tags.controller.ts",
+      "classe": "PatientTagsController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PatientTagsController.list", "verbo": "GET", "path": "patient-tags", "rota": "GET /patient-tags", "acesso": [] },
+        { "metodo": "PatientTagsController.create", "verbo": "POST", "path": "patient-tags", "rota": "POST /patient-tags", "acesso": [] },
+        { "metodo": "PatientTagsController.update", "verbo": "PATCH", "path": "patient-tags/:id", "rota": "PATCH /patient-tags/:id", "acesso": [] },
+        { "metodo": "PatientTagsController.remove", "verbo": "DELETE", "path": "patient-tags/:id", "rota": "DELETE /patient-tags/:id", "acesso": [] },
+        { "metodo": "PatientTagsController.getForPatient", "verbo": "GET", "path": "patients/:id/tags", "rota": "GET /patients/:id/tags", "acesso": [] },
+        { "metodo": "PatientTagsController.setForPatient", "verbo": "PUT", "path": "patients/:id/tags", "rota": "PUT /patients/:id/tags", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "patients/dentist-links.controller.ts",
+      "classe": "DentistLinksController",
+      "path": "dentist-links",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "DentistLinksController.preview", "verbo": "GET", "path": "backfill", "rota": "GET /dentist-links/backfill", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "DentistLinksController.apply", "verbo": "POST", "path": "backfill", "rota": "POST /dentist-links/backfill", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "patients/patients.controller.ts",
+      "classe": "PatientsController",
+      "path": "patients",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PatientsController.create", "verbo": "POST", "path": "", "rota": "POST /patients", "acesso": ["@RequiresPermission('edit_patients')"] },
+        { "metodo": "PatientsController.backfillAvatars", "verbo": "POST", "path": "backfill-whatsapp-avatars", "rota": "POST /patients/backfill-whatsapp-avatars", "acesso": ["@RequiresPermission('edit_patients')"] },
+        { "metodo": "PatientsController.findAll", "verbo": "GET", "path": "", "rota": "GET /patients", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.firstVisits", "verbo": "GET", "path": "first-visits", "rota": "GET /patients/first-visits", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.getStats", "verbo": "GET", "path": "stats", "rota": "GET /patients/stats", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.findFunilClinica", "verbo": "GET", "path": "funil-clinica", "rota": "GET /patients/funil-clinica", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.backfillVisitDates", "verbo": "POST", "path": "backfill-visit-dates", "rota": "POST /patients/backfill-visit-dates", "acesso": [] },
+        { "metodo": "PatientsController.getBirthdays", "verbo": "GET", "path": "birthdays", "rota": "GET /patients/birthdays", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.findByLead", "verbo": "GET", "path": "by-lead/:leadId", "rota": "GET /patients/by-lead/:leadId", "acesso": [] },
+        { "metodo": "PatientsController.startAttending", "verbo": "POST", "path": ":id/start-attending", "rota": "POST /patients/:id/start-attending", "acesso": [] },
+        { "metodo": "PatientsController.listAffiliatesDashboard", "verbo": "GET", "path": "affiliates", "rota": "GET /patients/affiliates", "acesso": [] },
+        { "metodo": "PatientsController.listAffiliateOptions", "verbo": "GET", "path": "affiliates/options", "rota": "GET /patients/affiliates/options", "acesso": [] },
+        { "metodo": "PatientsController.listPendingWithdrawals", "verbo": "GET", "path": "affiliates/pending-withdrawals", "rota": "GET /patients/affiliates/pending-withdrawals", "acesso": [] },
+        { "metodo": "PatientsController.getAffiliateTiers", "verbo": "GET", "path": "affiliates/tiers", "rota": "GET /patients/affiliates/tiers", "acesso": [] },
+        { "metodo": "PatientsController.setAffiliateTiers", "verbo": "PATCH", "path": "affiliates/tiers", "rota": "PATCH /patients/affiliates/tiers", "acesso": [] },
+        { "metodo": "PatientsController.affiliateGame", "verbo": "GET", "path": "affiliates/game", "rota": "GET /patients/affiliates/game", "acesso": [] },
+        { "metodo": "PatientsController.setAffiliateSeasonGoal", "verbo": "PATCH", "path": "affiliates/season-goal", "rota": "PATCH /patients/affiliates/season-goal", "acesso": [] },
+        { "metodo": "PatientsController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /patients/:id", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.getTimeline", "verbo": "GET", "path": ":id/timeline", "rota": "GET /patients/:id/timeline", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.getWelcome", "verbo": "GET", "path": ":id/welcome", "rota": "GET /patients/:id/welcome", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "PatientsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /patients/:id", "acesso": ["@RequiresPermission('edit_patients')"] },
+        { "metodo": "PatientsController.updateCreditCheckData", "verbo": "PATCH", "path": ":id/credit-check-data", "rota": "PATCH /patients/:id/credit-check-data", "acesso": [] },
+        { "metodo": "PatientsController.archive", "verbo": "DELETE", "path": ":id", "rota": "DELETE /patients/:id", "acesso": [] },
+        { "metodo": "PatientsController.permanentlyDelete", "verbo": "DELETE", "path": ":id/permanent", "rota": "DELETE /patients/:id/permanent", "acesso": [] },
+        { "metodo": "PatientsController.getDeletionPreview", "verbo": "GET", "path": ":id/deletion-preview", "rota": "GET /patients/:id/deletion-preview", "acesso": [] },
+        { "metodo": "PatientsController.forceDelete", "verbo": "DELETE", "path": ":id/permanent/force", "rota": "DELETE /patients/:id/permanent/force", "acesso": [] },
+        { "metodo": "PatientsController.convertFromLead", "verbo": "POST", "path": "convert/:leadId", "rota": "POST /patients/convert/:leadId", "acesso": [] },
+        { "metodo": "PatientsController.ensureConversation", "verbo": "POST", "path": ":id/ensure-conversation", "rota": "POST /patients/:id/ensure-conversation", "acesso": [] },
+        { "metodo": "PatientsController.addAllergy", "verbo": "POST", "path": ":id/allergies", "rota": "POST /patients/:id/allergies", "acesso": [] },
+        { "metodo": "PatientsController.removeAllergy", "verbo": "DELETE", "path": "allergies/:allergyId", "rota": "DELETE /patients/allergies/:allergyId", "acesso": [] },
+        { "metodo": "PatientsController.addMedication", "verbo": "POST", "path": ":id/medications", "rota": "POST /patients/:id/medications", "acesso": [] },
+        { "metodo": "PatientsController.removeMedication", "verbo": "DELETE", "path": "medications/:medicationId", "rota": "DELETE /patients/medications/:medicationId", "acesso": [] },
+        { "metodo": "PatientsController.syncWhatsappAvatar", "verbo": "POST", "path": ":id/sync-whatsapp-avatar", "rota": "POST /patients/:id/sync-whatsapp-avatar", "acesso": [] },
+        { "metodo": "PatientsController.uploadAvatar", "verbo": "POST", "path": ":id/avatar", "rota": "POST /patients/:id/avatar", "acesso": [] },
+        { "metodo": "PatientsController.getAvatar", "verbo": "GET", "path": ":id/avatar", "rota": "GET /patients/:id/avatar", "acesso": ["@SkipThrottle()"] },
+        { "metodo": "PatientsController.removeAvatar", "verbo": "DELETE", "path": ":id/avatar", "rota": "DELETE /patients/:id/avatar", "acesso": [] },
+        { "metodo": "PatientsController.getAffiliateDashboard", "verbo": "GET", "path": ":id/affiliate", "rota": "GET /patients/:id/affiliate", "acesso": [] },
+        { "metodo": "PatientsController.createManualReferral", "verbo": "POST", "path": ":id/affiliate/referrals", "rota": "POST /patients/:id/affiliate/referrals", "acesso": [] },
+        { "metodo": "PatientsController.cancelReferral", "verbo": "POST", "path": ":id/affiliate/referrals/:referralId/cancel", "rota": "POST /patients/:id/affiliate/referrals/:referralId/cancel", "acesso": [] },
+        { "metodo": "PatientsController.requestAffiliateWithdrawal", "verbo": "POST", "path": ":id/affiliate/withdraw", "rota": "POST /patients/:id/affiliate/withdraw", "acesso": [] },
+        { "metodo": "PatientsController.confirmAffiliateWithdrawalPaid", "verbo": "POST", "path": ":id/affiliate/withdraw/:withdrawalId/pay", "rota": "POST /patients/:id/affiliate/withdraw/:withdrawalId/pay", "acesso": [] },
+        { "metodo": "PatientsController.refuseAffiliateWithdrawal", "verbo": "POST", "path": ":id/affiliate/withdraw/:withdrawalId/refuse", "rota": "POST /patients/:id/affiliate/withdraw/:withdrawalId/refuse", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "payables/payables.controller.ts",
+      "classe": "PayablesController",
+      "path": "payables",
+      "acesso": ["@RequiresPermission('manage_payables')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PayablesController.list", "verbo": "GET", "path": "transactions", "rota": "GET /payables/transactions", "acesso": [] },
+        { "metodo": "PayablesController.gastos", "verbo": "GET", "path": "gastos", "rota": "GET /payables/gastos", "acesso": [] },
+        { "metodo": "PayablesController.categories", "verbo": "GET", "path": "categories", "rota": "GET /payables/categories", "acesso": [] },
+        { "metodo": "PayablesController.companies", "verbo": "GET", "path": "companies", "rota": "GET /payables/companies", "acesso": [] },
+        { "metodo": "PayablesController.createCompany", "verbo": "POST", "path": "companies", "rota": "POST /payables/companies", "acesso": [] },
+        { "metodo": "PayablesController.updateCompany", "verbo": "PATCH", "path": "companies/:id", "rota": "PATCH /payables/companies/:id", "acesso": [] },
+        { "metodo": "PayablesController.accounts", "verbo": "GET", "path": "accounts", "rota": "GET /payables/accounts", "acesso": [] },
+        { "metodo": "PayablesController.create", "verbo": "POST", "path": "transactions", "rota": "POST /payables/transactions", "acesso": [] },
+        { "metodo": "PayablesController.installmentPlan", "verbo": "POST", "path": "installment-plan", "rota": "POST /payables/installment-plan", "acesso": [] },
+        { "metodo": "PayablesController.pay", "verbo": "POST", "path": "transactions/:id/pay", "rota": "POST /payables/transactions/:id/pay", "acesso": [] },
+        { "metodo": "PayablesController.update", "verbo": "PATCH", "path": "transactions/:id", "rota": "PATCH /payables/transactions/:id", "acesso": [] },
+        { "metodo": "PayablesController.remove", "verbo": "DELETE", "path": "transactions/:id", "rota": "DELETE /payables/transactions/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "payment-gateway/payment-gateway-webhook.controller.ts",
+      "classe": "PaymentGatewayWebhookController",
+      "path": "webhooks",
+      "acesso": ["@Public()", "@SkipThrottle()"],
+      "handlers": [
+        { "metodo": "PaymentGatewayWebhookController.handleAsaasWebhook", "verbo": "POST", "path": "asaas", "rota": "POST /webhooks/asaas", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "payment-gateway/payment-gateway.controller.ts",
+      "classe": "PaymentGatewayController",
+      "path": "payment-gateway",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "PaymentGatewayController.proxyAsaas", "verbo": "GET", "path": "proxy-asaas", "rota": "GET /payment-gateway/proxy-asaas", "acesso": ["@Public()"] },
+        { "metodo": "PaymentGatewayController.getBalance", "verbo": "GET", "path": "balance", "rota": "GET /payment-gateway/balance", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getSettings", "verbo": "GET", "path": "settings", "rota": "GET /payment-gateway/settings", "acesso": [] },
+        { "metodo": "PaymentGatewayController.setup", "verbo": "POST", "path": "setup", "rota": "POST /payment-gateway/setup", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "PaymentGatewayController.listAsaasCharges", "verbo": "GET", "path": "charges/asaas", "rota": "GET /payment-gateway/charges/asaas", "acesso": [] },
+        { "metodo": "PaymentGatewayController.listLocalCharges", "verbo": "GET", "path": "charges", "rota": "GET /payment-gateway/charges", "acesso": [] },
+        { "metodo": "PaymentGatewayController.createOdontoInstallmentCharge", "verbo": "POST", "path": "installments/:id/charge", "rota": "POST /payment-gateway/installments/:id/charge", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getOdontoInstallmentCharge", "verbo": "GET", "path": "installments/:id/charge", "rota": "GET /payment-gateway/installments/:id/charge", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getPatientCharges", "verbo": "GET", "path": "patients/:patientId/charges", "rota": "GET /payment-gateway/patients/:patientId/charges", "acesso": [] },
+        { "metodo": "PaymentGatewayController.resendChargeWhatsapp", "verbo": "POST", "path": "charges/:chargeId/resend-whatsapp", "rota": "POST /payment-gateway/charges/:chargeId/resend-whatsapp", "acesso": [] },
+        { "metodo": "PaymentGatewayController.testBoletoDelivery", "verbo": "POST", "path": "boleto-delivery/test", "rota": "POST /payment-gateway/boleto-delivery/test", "acesso": [] },
+        { "metodo": "PaymentGatewayController.sendCurrentBoleto", "verbo": "POST", "path": "boleto-delivery/send-current", "rota": "POST /payment-gateway/boleto-delivery/send-current", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getChargeSubInstallments", "verbo": "GET", "path": "charges/:chargeId/sub-installments", "rota": "GET /payment-gateway/charges/:chargeId/sub-installments", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getAsaasChargeStatus", "verbo": "GET", "path": "charges/asaas/status/:chargeId", "rota": "GET /payment-gateway/charges/asaas/status/:chargeId", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getAsaasChargeDetail", "verbo": "GET", "path": "charges/asaas/detail/:chargeId", "rota": "GET /payment-gateway/charges/asaas/detail/:chargeId", "acesso": [] },
+        { "metodo": "PaymentGatewayController.updateAsaasCharge", "verbo": "PUT", "path": "charges/asaas/:chargeId", "rota": "PUT /payment-gateway/charges/asaas/:chargeId", "acesso": [] },
+        { "metodo": "PaymentGatewayController.receiveInCash", "verbo": "POST", "path": "charges/asaas/:chargeId/receive-in-cash", "rota": "POST /payment-gateway/charges/asaas/:chargeId/receive-in-cash", "acesso": [] },
+        { "metodo": "PaymentGatewayController.confirmCartao", "verbo": "POST", "path": "charges/:id/confirm-cartao", "rota": "POST /payment-gateway/charges/:id/confirm-cartao", "acesso": [] },
+        { "metodo": "PaymentGatewayController.deleteAsaasCharge", "verbo": "DELETE", "path": "charges/asaas/:chargeId", "rota": "DELETE /payment-gateway/charges/asaas/:chargeId", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "PaymentGatewayController.getChargeDetails", "verbo": "GET", "path": "charges/:honorarioPaymentId", "rota": "GET /payment-gateway/charges/:honorarioPaymentId", "acesso": [] },
+        { "metodo": "PaymentGatewayController.getFinanceiroConversation", "verbo": "GET", "path": "leads/:leadId/financeiro-conversation", "rota": "GET /payment-gateway/leads/:leadId/financeiro-conversation", "acesso": ["@RequiresPermission('view_financial')"] },
+        { "metodo": "PaymentGatewayController.createCharge", "verbo": "POST", "path": "charges", "rota": "POST /payment-gateway/charges", "acesso": [] },
+        { "metodo": "PaymentGatewayController.createBatchCharges", "verbo": "POST", "path": "charges/batch", "rota": "POST /payment-gateway/charges/batch", "acesso": [] },
+        { "metodo": "PaymentGatewayController.createInstallmentCharge", "verbo": "POST", "path": "charges/installment", "rota": "POST /payment-gateway/charges/installment", "acesso": [] },
+        { "metodo": "PaymentGatewayController.syncCharges", "verbo": "POST", "path": "charges/sync", "rota": "POST /payment-gateway/charges/sync", "acesso": [] },
+        { "metodo": "PaymentGatewayController.listLinkedCustomers", "verbo": "GET", "path": "customers/linked", "rota": "GET /payment-gateway/customers/linked", "acesso": [] },
+        { "metodo": "PaymentGatewayController.listAsaasCustomers", "verbo": "GET", "path": "customers/asaas", "rota": "GET /payment-gateway/customers/asaas", "acesso": [] },
+        { "metodo": "PaymentGatewayController.importCustomers", "verbo": "POST", "path": "customers/import", "rota": "POST /payment-gateway/customers/import", "acesso": [] },
+        { "metodo": "PaymentGatewayController.linkCustomer", "verbo": "POST", "path": "customers/link", "rota": "POST /payment-gateway/customers/link", "acesso": [] },
+        { "metodo": "PaymentGatewayController.unlinkCustomer", "verbo": "DELETE", "path": "customers/:id", "rota": "DELETE /payment-gateway/customers/:id", "acesso": [] },
+        { "metodo": "PaymentGatewayController.ensureCustomer", "verbo": "POST", "path": "customers/sync/:leadId", "rota": "POST /payment-gateway/customers/sync/:leadId", "acesso": [] },
+        { "metodo": "PaymentGatewayController.reconcilePatient", "verbo": "POST", "path": "patients/:patientId/reconcile", "rota": "POST /payment-gateway/patients/:patientId/reconcile", "acesso": ["@RequiresPermission('view_financial')"] },
+        { "metodo": "PaymentGatewayController.reconcile", "verbo": "POST", "path": "reconcile", "rota": "POST /payment-gateway/reconcile", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "pipelines/pipelines.controller.ts",
+      "classe": "PipelinesController",
+      "path": "pipelines",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PipelinesController.findAll", "verbo": "GET", "path": "", "rota": "GET /pipelines", "acesso": [] },
+        { "metodo": "PipelinesController.listTemplates", "verbo": "GET", "path": "templates", "rota": "GET /pipelines/templates", "acesso": [] },
+        { "metodo": "PipelinesController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /pipelines/:id", "acesso": [] },
+        { "metodo": "PipelinesController.create", "verbo": "POST", "path": "", "rota": "POST /pipelines", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.createFull", "verbo": "POST", "path": "full", "rota": "POST /pipelines/full", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.seedDefaults", "verbo": "POST", "path": "seed-defaults", "rota": "POST /pipelines/seed-defaults", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.createFromTemplate", "verbo": "POST", "path": "from-template/:key", "rota": "POST /pipelines/from-template/:key", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.backfillLegacyStages", "verbo": "POST", "path": "backfill-legacy-stages", "rota": "POST /pipelines/backfill-legacy-stages", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /pipelines/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /pipelines/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.createStage", "verbo": "POST", "path": ":id/stages", "rota": "POST /pipelines/:id/stages", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.reorderStages", "verbo": "PATCH", "path": ":id/stages/reorder", "rota": "PATCH /pipelines/:id/stages/reorder", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.updateStage", "verbo": "PATCH", "path": ":id/stages/:stageId", "rota": "PATCH /pipelines/:id/stages/:stageId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PipelinesController.removeStage", "verbo": "DELETE", "path": ":id/stages/:stageId", "rota": "DELETE /pipelines/:id/stages/:stageId", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "ponto/ponto.controller.ts",
+      "classe": "PontoController",
+      "path": "ponto",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PontoController.me", "verbo": "GET", "path": "me", "rota": "GET /ponto/me", "acesso": [] },
+        { "metodo": "PontoController.status", "verbo": "GET", "path": "status", "rota": "GET /ponto/status", "acesso": [] },
+        { "metodo": "PontoController.punch", "verbo": "POST", "path": "punch", "rota": "POST /ponto/punch", "acesso": [] },
+        { "metodo": "PontoController.team", "verbo": "GET", "path": "team", "rota": "GET /ponto/team", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.report", "verbo": "GET", "path": "report", "rota": "GET /ponto/report", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.espelho", "verbo": "GET", "path": "users/:userId", "rota": "GET /ponto/users/:userId", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.addManual", "verbo": "POST", "path": "users/:userId/punches", "rota": "POST /ponto/users/:userId/punches", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.voidPunch", "verbo": "POST", "path": "punches/:id/void", "rota": "POST /ponto/punches/:id/void", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.config", "verbo": "GET", "path": "config", "rota": "GET /ponto/config", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.saveLocal", "verbo": "PUT", "path": "config/local", "rota": "PUT /ponto/config/local", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.resolveMap", "verbo": "GET", "path": "config/resolve-map", "rota": "GET /ponto/config/resolve-map", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.createMember", "verbo": "POST", "path": "members", "rota": "POST /ponto/members", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.updateMember", "verbo": "PATCH", "path": "members/:userId", "rota": "PATCH /ponto/members/:userId", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.saveSchedule", "verbo": "PUT", "path": "members/:userId/schedule", "rota": "PUT /ponto/members/:userId/schedule", "acesso": ["@RequiresPermission('manage_users')"] },
+        { "metodo": "PontoController.deleteSchedule", "verbo": "DELETE", "path": "members/:userId/schedules/:validFrom", "rota": "DELETE /ponto/members/:userId/schedules/:validFrom", "acesso": ["@RequiresPermission('manage_users')"] }
+      ]
+    },
+    {
+      "arquivo": "portal/portal.controller.ts",
+      "classe": "PortalController",
+      "path": "",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "PortalController.createMagicLink", "verbo": "POST", "path": "portal/magic-link", "rota": "POST /portal/magic-link", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "PortalController.exchangeToken", "verbo": "POST", "path": "portal/auth/exchange", "rota": "POST /portal/auth/exchange", "acesso": ["@Public()"] },
+        { "metodo": "PortalController.getMe", "verbo": "GET", "path": "portal/me", "rota": "GET /portal/me", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.getAppointments", "verbo": "GET", "path": "portal/appointments", "rota": "GET /portal/appointments", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.confirmAppointment", "verbo": "POST", "path": "portal/appointments/:id/confirm", "rota": "POST /portal/appointments/:id/confirm", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.cancelAppointment", "verbo": "POST", "path": "portal/appointments/:id/cancel", "rota": "POST /portal/appointments/:id/cancel", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.getInstallments", "verbo": "GET", "path": "portal/installments", "rota": "GET /portal/installments", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.getAnamneses", "verbo": "GET", "path": "portal/anamneses", "rota": "GET /portal/anamneses", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.getTimeline", "verbo": "GET", "path": "portal/timeline", "rota": "GET /portal/timeline", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.getActiveAnamnese", "verbo": "GET", "path": "portal/anamnesis", "rota": "GET /portal/anamnesis", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] },
+        { "metodo": "PortalController.submitAnamnese", "verbo": "POST", "path": "portal/anamnesis/submit", "rota": "POST /portal/anamnesis/submit", "acesso": ["@Public()", "@UseGuards(PortalJwtGuard)"] }
+      ]
+    },
+    {
+      "arquivo": "post-care/post-care.controller.ts",
+      "classe": "PostCareController",
+      "path": "post-care",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PostCareController.list", "verbo": "GET", "path": "surveys", "rota": "GET /post-care/surveys", "acesso": [] },
+        { "metodo": "PostCareController.stats", "verbo": "GET", "path": "stats", "rota": "GET /post-care/stats", "acesso": [] },
+        { "metodo": "PostCareController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /post-care/config", "acesso": [] },
+        { "metodo": "PostCareController.updateConfig", "verbo": "PATCH", "path": "config", "rota": "PATCH /post-care/config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "PostCareController.testSend", "verbo": "POST", "path": "test-send", "rota": "POST /post-care/test-send", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "procedures/procedures.controller.ts",
+      "classe": "ProceduresController",
+      "path": "procedures",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ProceduresController.create", "verbo": "POST", "path": "", "rota": "POST /procedures", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "ProceduresController.findAll", "verbo": "GET", "path": "", "rota": "GET /procedures", "acesso": [] },
+        { "metodo": "ProceduresController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /procedures/:id", "acesso": [] },
+        { "metodo": "ProceduresController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /procedures/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "ProceduresController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /procedures/:id", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "push/push.controller.ts",
+      "classe": "PushController",
+      "path": "push",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PushController.getVapidKey", "verbo": "GET", "path": "vapid-key", "rota": "GET /push/vapid-key", "acesso": [] },
+        { "metodo": "PushController.subscribe", "verbo": "POST", "path": "subscribe", "rota": "POST /push/subscribe", "acesso": [] },
+        { "metodo": "PushController.unsubscribe", "verbo": "DELETE", "path": "subscribe", "rota": "DELETE /push/subscribe", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "radiography/radiography.controller.ts",
+      "classe": "RadiographyController",
+      "path": "",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "RadiographyController.webhook", "verbo": "POST", "path": "webhooks/radiography", "rota": "POST /webhooks/radiography", "acesso": ["@Public()"] },
+        { "metodo": "RadiographyController.createProvider", "verbo": "POST", "path": "radiography-providers", "rota": "POST /radiography-providers", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.listProviders", "verbo": "GET", "path": "radiography-providers", "rota": "GET /radiography-providers", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.toggleProvider", "verbo": "POST", "path": "radiography-providers/:id/toggle", "rota": "POST /radiography-providers/:id/toggle", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.findByPatient", "verbo": "GET", "path": "patients/:patientId/radiography-exams", "rota": "GET /patients/:patientId/radiography-exams", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.backlog", "verbo": "GET", "path": "radiography-exams/backlog", "rota": "GET /radiography-exams/backlog", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.findOne", "verbo": "GET", "path": "radiography-exams/:id", "rota": "GET /radiography-exams/:id", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.getImage", "verbo": "GET", "path": "radiography-exams/:id/image", "rota": "GET /radiography-exams/:id/image", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.link", "verbo": "POST", "path": "radiography-exams/:id/link", "rota": "POST /radiography-exams/:id/link", "acesso": ["@UseGuards(JwtAuthGuard)"] },
+        { "metodo": "RadiographyController.discard", "verbo": "POST", "path": "radiography-exams/:id/discard", "rota": "POST /radiography-exams/:id/discard", "acesso": ["@UseGuards(JwtAuthGuard)"] }
+      ]
+    },
+    {
+      "arquivo": "reactivation/reactivation.controller.ts",
+      "classe": "ReactivationController",
+      "path": "reactivation",
+      "acesso": ["@RequiresPermission('view_marketing')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ReactivationController.getSummary", "verbo": "GET", "path": "summary", "rota": "GET /reactivation/summary", "acesso": [] },
+        { "metodo": "ReactivationController.getScheduled", "verbo": "GET", "path": "scheduled", "rota": "GET /reactivation/scheduled", "acesso": [] },
+        { "metodo": "ReactivationController.getSent", "verbo": "GET", "path": "sent", "rota": "GET /reactivation/sent", "acesso": [] },
+        { "metodo": "ReactivationController.skipDispatch", "verbo": "POST", "path": "dispatches/:id/skip", "rota": "POST /reactivation/dispatches/:id/skip", "acesso": [] },
+        { "metodo": "ReactivationController.stopLead", "verbo": "POST", "path": "leads/:leadId/stop", "rota": "POST /reactivation/leads/:leadId/stop", "acesso": [] },
+        { "metodo": "ReactivationController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /reactivation/config", "acesso": [] },
+        { "metodo": "ReactivationController.setConfig", "verbo": "PUT", "path": "config", "rota": "PUT /reactivation/config", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "ReactivationController.getTemplate", "verbo": "GET", "path": "template/:coluna/:toque", "rota": "GET /reactivation/template/:coluna/:toque", "acesso": [] },
+        { "metodo": "ReactivationController.setTemplate", "verbo": "PUT", "path": "template/:coluna/:toque", "rota": "PUT /reactivation/template/:coluna/:toque", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "referrals/referrals.controller.ts",
+      "classe": "ReferralsController",
+      "path": "referrals",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ReferralsController.list", "verbo": "GET", "path": "", "rota": "GET /referrals", "acesso": [] },
+        { "metodo": "ReferralsController.stats", "verbo": "GET", "path": "stats", "rota": "GET /referrals/stats", "acesso": [] },
+        { "metodo": "ReferralsController.getRule", "verbo": "GET", "path": "rule", "rota": "GET /referrals/rule", "acesso": [] },
+        { "metodo": "ReferralsController.updateRule", "verbo": "PATCH", "path": "rule", "rota": "PATCH /referrals/rule", "acesso": [] },
+        { "metodo": "ReferralsController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /referrals/:id", "acesso": [] },
+        { "metodo": "ReferralsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /referrals/:id", "acesso": [] },
+        { "metodo": "ReferralsController.markPaid", "verbo": "POST", "path": ":id/mark-paid", "rota": "POST /referrals/:id/mark-paid", "acesso": [] },
+        { "metodo": "ReferralsController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /referrals/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "reports/reports.controller.ts",
+      "classe": "ReportsController",
+      "path": "reports",
+      "acesso": ["@RequiresPermission('view_reports')", "@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "ReportsController.dashboard", "verbo": "GET", "path": "dashboard", "rota": "GET /reports/dashboard", "acesso": [] },
+        { "metodo": "ReportsController.catalog", "verbo": "GET", "path": "catalog", "rota": "GET /reports/catalog", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "sectors/sectors.controller.ts",
+      "classe": "SectorsController",
+      "path": "sectors",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "SectorsController.list", "verbo": "GET", "path": "", "rota": "GET /sectors", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "settings/settings.controller.ts",
+      "classe": "SettingsController",
+      "path": "settings",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "SettingsController.getAll", "verbo": "GET", "path": "", "rota": "GET /settings", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "SettingsController.upsert", "verbo": "PUT", "path": "", "rota": "PUT /settings", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "SettingsController.getSmtp", "verbo": "GET", "path": "smtp", "rota": "GET /settings/smtp", "acesso": ["@Roles('SUPER_ADMIN')"] },
+        { "metodo": "SettingsController.saveSmtp", "verbo": "PUT", "path": "smtp", "rota": "PUT /settings/smtp", "acesso": ["@Roles('SUPER_ADMIN')"] },
+        { "metodo": "SettingsController.getDjenLawyers", "verbo": "GET", "path": "djen-lawyers", "rota": "GET /settings/djen-lawyers", "acesso": ["@Roles('ADMIN', 'DENTIST')"] },
+        { "metodo": "SettingsController.saveDjenLawyers", "verbo": "PATCH", "path": "djen-lawyers", "rota": "PATCH /settings/djen-lawyers", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getOfficeHours", "verbo": "GET", "path": "office-hours", "rota": "GET /settings/office-hours", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.saveOfficeHours", "verbo": "PUT", "path": "office-hours", "rota": "PUT /settings/office-hours", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getVariablePreview", "verbo": "GET", "path": "variable-preview", "rota": "GET /settings/variable-preview", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.checkHealth", "verbo": "GET", "path": "whatsapp-config/health", "rota": "GET /settings/whatsapp-config/health", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getWhatsAppConfig", "verbo": "GET", "path": "whatsapp-config", "rota": "GET /settings/whatsapp-config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setWhatsAppConfig", "verbo": "POST", "path": "whatsapp-config", "rota": "POST /settings/whatsapp-config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getAiConfig", "verbo": "GET", "path": "ai-config", "rota": "GET /settings/ai-config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setAiConfig", "verbo": "POST", "path": "ai-config", "rota": "POST /settings/ai-config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getAiPriceTable", "verbo": "GET", "path": "ai-price-table", "rota": "GET /settings/ai-price-table", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setAiPriceTable", "verbo": "PUT", "path": "ai-price-table", "rota": "PUT /settings/ai-price-table", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.aiTestChat", "verbo": "POST", "path": "ai-test-chat", "rota": "POST /settings/ai-test-chat", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setAiChipToggle", "verbo": "POST", "path": "ai-chip-toggle", "rota": "POST /settings/ai-chip-toggle", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getAiProfile", "verbo": "GET", "path": "ai-profile", "rota": "GET /settings/ai-profile", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.saveAiProfileClinic", "verbo": "PUT", "path": "ai-profile/clinic", "rota": "PUT /settings/ai-profile/clinic", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.saveAiProfileChip", "verbo": "PUT", "path": "ai-profile/chip/:purpose", "rota": "PUT /settings/ai-profile/chip/:purpose", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getSkills", "verbo": "GET", "path": "skills", "rota": "GET /settings/skills", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.toggleSkill", "verbo": "PATCH", "path": "skills/:id/toggle", "rota": "PATCH /settings/skills/:id/toggle", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.resetSkillsToDefaults", "verbo": "POST", "path": "skills/reset-defaults", "rota": "POST /settings/skills/reset-defaults", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.migrateSdrToOdonto", "verbo": "POST", "path": "skills/migrate-sdr-to-odonto", "rota": "POST /settings/skills/migrate-sdr-to-odonto", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.createSkill", "verbo": "POST", "path": "skills", "rota": "POST /settings/skills", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.updateSkill", "verbo": "PATCH", "path": "skills/:id", "rota": "PATCH /settings/skills/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.deleteSkill", "verbo": "DELETE", "path": "skills/:id", "rota": "DELETE /settings/skills/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getSkillTools", "verbo": "GET", "path": "skills/:skillId/tools", "rota": "GET /settings/skills/:skillId/tools", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.createSkillTool", "verbo": "POST", "path": "skills/:skillId/tools", "rota": "POST /settings/skills/:skillId/tools", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.updateSkillTool", "verbo": "PATCH", "path": "skills/tools/:toolId", "rota": "PATCH /settings/skills/tools/:toolId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.deleteSkillTool", "verbo": "DELETE", "path": "skills/tools/:toolId", "rota": "DELETE /settings/skills/tools/:toolId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getSkillAssets", "verbo": "GET", "path": "skills/:skillId/assets", "rota": "GET /settings/skills/:skillId/assets", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.uploadSkillAsset", "verbo": "POST", "path": "skills/:skillId/assets", "rota": "POST /settings/skills/:skillId/assets", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.updateSkillAsset", "verbo": "PATCH", "path": "skills/assets/:assetId", "rota": "PATCH /settings/skills/assets/:assetId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.deleteSkillAsset", "verbo": "DELETE", "path": "skills/assets/:assetId", "rota": "DELETE /settings/skills/assets/:assetId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.downloadSkillAsset", "verbo": "GET", "path": "skills/assets/:assetId/download", "rota": "GET /settings/skills/assets/:assetId/download", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getAiCosts", "verbo": "GET", "path": "ai-costs", "rota": "GET /settings/ai-costs", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getClicksign", "verbo": "GET", "path": "clicksign", "rota": "GET /settings/clicksign", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setClicksign", "verbo": "PATCH", "path": "clicksign", "rota": "PATCH /settings/clicksign", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getContract", "verbo": "GET", "path": "contract", "rota": "GET /settings/contract", "acesso": [] },
+        { "metodo": "SettingsController.setContract", "verbo": "PATCH", "path": "contract", "rota": "PATCH /settings/contract", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getCrmConfig", "verbo": "GET", "path": "crm-config", "rota": "GET /settings/crm-config", "acesso": [] },
+        { "metodo": "SettingsController.setCrmConfig", "verbo": "PATCH", "path": "crm-config", "rota": "PATCH /settings/crm-config", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getCannedResponses", "verbo": "GET", "path": "canned-responses", "rota": "GET /settings/canned-responses", "acesso": [] },
+        { "metodo": "SettingsController.setCannedResponses", "verbo": "PATCH", "path": "canned-responses", "rota": "PATCH /settings/canned-responses", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.getTtsConfig", "verbo": "GET", "path": "tts", "rota": "GET /settings/tts", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SettingsController.setTtsConfig", "verbo": "PATCH", "path": "tts", "rota": "PATCH /settings/tts", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "smile-design/smile-design.controller.ts",
+      "classe": "SmileDesignController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "SmileDesignController.status", "verbo": "GET", "path": "smile-design/status", "rota": "GET /smile-design/status", "acesso": [] },
+        { "metodo": "SmileDesignController.create", "verbo": "POST", "path": "patients/:patientId/smile-simulations", "rota": "POST /patients/:patientId/smile-simulations", "acesso": [] },
+        { "metodo": "SmileDesignController.list", "verbo": "GET", "path": "patients/:patientId/smile-simulations", "rota": "GET /patients/:patientId/smile-simulations", "acesso": [] },
+        { "metodo": "SmileDesignController.findOne", "verbo": "GET", "path": "smile-simulations/:id", "rota": "GET /smile-simulations/:id", "acesso": [] },
+        { "metodo": "SmileDesignController.regenerate", "verbo": "POST", "path": "smile-simulations/:id/regenerate", "rota": "POST /smile-simulations/:id/regenerate", "acesso": [] },
+        { "metodo": "SmileDesignController.getImage", "verbo": "GET", "path": "smile-simulations/:id/image/:kind", "rota": "GET /smile-simulations/:id/image/:kind", "acesso": [] },
+        { "metodo": "SmileDesignController.remove", "verbo": "DELETE", "path": "smile-simulations/:id", "rota": "DELETE /smile-simulations/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "specialties/specialties.controller.ts",
+      "classe": "SpecialtiesController",
+      "path": "specialties",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "SpecialtiesController.create", "verbo": "POST", "path": "", "rota": "POST /specialties", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SpecialtiesController.findAll", "verbo": "GET", "path": "", "rota": "GET /specialties", "acesso": [] },
+        { "metodo": "SpecialtiesController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /specialties/:id", "acesso": [] },
+        { "metodo": "SpecialtiesController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /specialties/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SpecialtiesController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /specialties/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SpecialtiesController.addDentist", "verbo": "POST", "path": ":id/dentists/:userId", "rota": "POST /specialties/:id/dentists/:userId", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "SpecialtiesController.removeDentist", "verbo": "DELETE", "path": ":id/dentists/:userId", "rota": "DELETE /specialties/:id/dentists/:userId", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "tasks/tasks.controller.ts",
+      "classe": "TasksController",
+      "path": "tasks",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "TasksController.getWorkload", "verbo": "GET", "path": "workload", "rota": "GET /tasks/workload", "acesso": [] },
+        { "metodo": "TasksController.suggestNextAction", "verbo": "POST", "path": "next-action", "rota": "POST /tasks/next-action", "acesso": [] },
+        { "metodo": "TasksController.findAll", "verbo": "GET", "path": "", "rota": "GET /tasks", "acesso": [] },
+        { "metodo": "TasksController.findActiveByConversation", "verbo": "GET", "path": "conversation/:conversationId/active", "rota": "GET /tasks/conversation/:conversationId/active", "acesso": [] },
+        { "metodo": "TasksController.create", "verbo": "POST", "path": "", "rota": "POST /tasks", "acesso": [] },
+        { "metodo": "TasksController.completeAndReopen", "verbo": "POST", "path": ":id/complete-reopen", "rota": "POST /tasks/:id/complete-reopen", "acesso": [] },
+        { "metodo": "TasksController.complete", "verbo": "POST", "path": ":id/complete", "rota": "POST /tasks/:id/complete", "acesso": [] },
+        { "metodo": "TasksController.postpone", "verbo": "POST", "path": ":id/postpone", "rota": "POST /tasks/:id/postpone", "acesso": [] },
+        { "metodo": "TasksController.updateStatus", "verbo": "PATCH", "path": ":id/status", "rota": "PATCH /tasks/:id/status", "acesso": [] },
+        { "metodo": "TasksController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /tasks/:id", "acesso": [] },
+        { "metodo": "TasksController.addComment", "verbo": "POST", "path": ":id/comments", "rota": "POST /tasks/:id/comments", "acesso": [] },
+        { "metodo": "TasksController.findComments", "verbo": "GET", "path": ":id/comments", "rota": "GET /tasks/:id/comments", "acesso": [] },
+        { "metodo": "TasksController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /tasks/:id", "acesso": [] },
+        { "metodo": "TasksController.addChecklistItem", "verbo": "POST", "path": ":id/checklist", "rota": "POST /tasks/:id/checklist", "acesso": [] },
+        { "metodo": "TasksController.toggleChecklistItem", "verbo": "PATCH", "path": ":id/checklist/:itemId", "rota": "PATCH /tasks/:id/checklist/:itemId", "acesso": [] },
+        { "metodo": "TasksController.deleteChecklistItem", "verbo": "DELETE", "path": ":id/checklist/:itemId", "rota": "DELETE /tasks/:id/checklist/:itemId", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "team-chat/team-chat.controller.ts",
+      "classe": "TeamChatController",
+      "path": "team-chat",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "TeamChatController.overview", "verbo": "GET", "path": "overview", "rota": "GET /team-chat/overview", "acesso": [] },
+        { "metodo": "TeamChatController.messages", "verbo": "GET", "path": "messages", "rota": "GET /team-chat/messages", "acesso": [] },
+        { "metodo": "TeamChatController.send", "verbo": "POST", "path": "messages", "rota": "POST /team-chat/messages", "acesso": [] },
+        { "metodo": "TeamChatController.read", "verbo": "POST", "path": "read", "rota": "POST /team-chat/read", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "tenants/tenants.controller.ts",
+      "classe": "SignupController",
+      "path": "signup",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "SignupController.signup", "verbo": "POST", "path": "", "rota": "POST /signup", "acesso": ["@Public()"] }
+      ]
+    },
+    {
+      "arquivo": "tenants/tenants.controller.ts",
+      "classe": "TenantsController",
+      "path": "tenants",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "TenantsController.list", "verbo": "GET", "path": "", "rota": "GET /tenants", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /tenants/:id", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.create", "verbo": "POST", "path": "", "rota": "POST /tenants", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /tenants/:id", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.suspend", "verbo": "POST", "path": ":id/suspend", "rota": "POST /tenants/:id/suspend", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.activate", "verbo": "POST", "path": ":id/activate", "rota": "POST /tenants/:id/activate", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.listSettings", "verbo": "GET", "path": ":id/settings", "rota": "GET /tenants/:id/settings", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.upsertSetting", "verbo": "POST", "path": ":id/settings", "rota": "POST /tenants/:id/settings", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.deleteSetting", "verbo": "POST", "path": ":id/settings/:key/delete", "rota": "POST /tenants/:id/settings/:key/delete", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.seedAll", "verbo": "POST", "path": "seed-defaults-all", "rota": "POST /tenants/seed-defaults-all", "acesso": ["@SuperAdmin()"] }
+      ]
+    },
+    {
+      "arquivo": "tenants/tenants.controller.ts",
+      "classe": "TenantsMeController",
+      "path": "tenants",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "TenantsMeController.getMyTenant", "verbo": "GET", "path": "me", "rota": "GET /tenants/me", "acesso": [] },
+        { "metodo": "TenantsMeController.getMyUsage", "verbo": "GET", "path": "me/usage", "rota": "GET /tenants/me/usage", "acesso": [] },
+        { "metodo": "TenantsMeController.updateMyTenant", "verbo": "PATCH", "path": "me", "rota": "PATCH /tenants/me", "acesso": [] },
+        { "metodo": "TenantsMeController.getMyOnboarding", "verbo": "GET", "path": "me/onboarding", "rota": "GET /tenants/me/onboarding", "acesso": [] },
+        { "metodo": "TenantsMeController.patchMyOnboardingStep", "verbo": "PATCH", "path": "me/onboarding/step", "rota": "PATCH /tenants/me/onboarding/step", "acesso": [] },
+        { "metodo": "TenantsMeController.completeMyOnboarding", "verbo": "POST", "path": "me/onboarding/complete", "rota": "POST /tenants/me/onboarding/complete", "acesso": [] },
+        { "metodo": "TenantsMeController.dismissMyOnboarding", "verbo": "POST", "path": "me/onboarding/dismiss", "rota": "POST /tenants/me/onboarding/dismiss", "acesso": [] },
+        { "metodo": "TenantsMeController.seedMyDefaults", "verbo": "POST", "path": "me/seed-defaults", "rota": "POST /tenants/me/seed-defaults", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "transfer-audio/transfer-audio.controller.ts",
+      "classe": "TransferAudioController",
+      "path": "transfer-audios",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "TransferAudioController.upload", "verbo": "POST", "path": "upload/:conversationId", "rota": "POST /transfer-audios/upload/:conversationId", "acesso": [] },
+        { "metodo": "TransferAudioController.findByConversation", "verbo": "GET", "path": "by-conversation/:conversationId", "rota": "GET /transfer-audios/by-conversation/:conversationId", "acesso": [] },
+        { "metodo": "TransferAudioController.stream", "verbo": "GET", "path": ":id/stream", "rota": "GET /transfer-audios/:id/stream", "acesso": [] },
+        { "metodo": "TransferAudioController.delete", "verbo": "DELETE", "path": ":id", "rota": "DELETE /transfer-audios/:id", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "users/users.controller.ts",
+      "classe": "UsersController",
+      "path": "users",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "UsersController.getMe", "verbo": "GET", "path": "me", "rota": "GET /users/me", "acesso": [] },
+        { "metodo": "UsersController.uploadAvatar", "verbo": "POST", "path": ":id/avatar", "rota": "POST /users/:id/avatar", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.removeAvatar", "verbo": "DELETE", "path": ":id/avatar", "rota": "DELETE /users/:id/avatar", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.getAvatar", "verbo": "GET", "path": ":id/avatar", "rota": "GET /users/:id/avatar", "acesso": [] },
+        { "metodo": "UsersController.getOnlineUsers", "verbo": "GET", "path": "online", "rota": "GET /users/online", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.verifyEmail", "verbo": "GET", "path": "verify-email", "rota": "GET /users/verify-email", "acesso": ["@Public()"] },
+        { "metodo": "UsersController.resendVerification", "verbo": "POST", "path": ":id/resend-verification", "rota": "POST /users/:id/resend-verification", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.findAgents", "verbo": "GET", "path": "agents", "rota": "GET /users/agents", "acesso": [] },
+        { "metodo": "UsersController.findLawyers", "verbo": "GET", "path": "lawyers", "rota": "GET /users/lawyers", "acesso": [] },
+        { "metodo": "UsersController.findAll", "verbo": "GET", "path": "", "rota": "GET /users", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /users/:id", "acesso": [] },
+        { "metodo": "UsersController.create", "verbo": "POST", "path": "", "rota": "POST /users", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /users/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.updateSector", "verbo": "PATCH", "path": ":id/sector", "rota": "PATCH /users/:id/sector", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.findInterns", "verbo": "GET", "path": ":id/interns", "rota": "GET /users/:id/interns", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.linkSupervisors", "verbo": "PATCH", "path": ":id/supervisors", "rota": "PATCH /users/:id/supervisors", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.transferSummary", "verbo": "GET", "path": ":id/transfer-summary", "rota": "GET /users/:id/transfer-summary", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "UsersController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /users/:id", "acesso": ["@Roles('ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "waitlist/waitlist.controller.ts",
+      "classe": "WaitlistController",
+      "path": "waitlist",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "WaitlistController.list", "verbo": "GET", "path": "", "rota": "GET /waitlist", "acesso": [] },
+        { "metodo": "WaitlistController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /waitlist/:id", "acesso": [] },
+        { "metodo": "WaitlistController.create", "verbo": "POST", "path": "", "rota": "POST /waitlist", "acesso": [] },
+        { "metodo": "WaitlistController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /waitlist/:id", "acesso": [] },
+        { "metodo": "WaitlistController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /waitlist/:id", "acesso": [] },
+        { "metodo": "WaitlistController.markNotified", "verbo": "POST", "path": ":id/notified", "rota": "POST /waitlist/:id/notified", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "webhooks/evolution-admin.controller.ts",
+      "classe": "EvolutionAdminController",
+      "path": "whatsapp/instances",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "EvolutionAdminController.resync", "verbo": "POST", "path": ":name/resync", "rota": "POST /whatsapp/instances/:name/resync", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] }
+      ]
+    },
+    {
+      "arquivo": "webhooks/evolution.controller.ts",
+      "classe": "EvolutionController",
+      "path": "webhooks/evolution",
+      "acesso": ["@Public()", "@SkipThrottle()", "@UseGuards(HmacGuard)"],
+      "handlers": [
+        { "metodo": "EvolutionController.handleWebhook", "verbo": "POST", "path": "", "rota": "POST /webhooks/evolution", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "whatsapp/whatsapp.controller.ts",
+      "classe": "WhatsappController",
+      "path": "whatsapp",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "WhatsappController.myNumbers", "verbo": "GET", "path": "my-numbers", "rota": "GET /whatsapp/my-numbers", "acesso": [] },
+        { "metodo": "WhatsappController.connectMyNumber", "verbo": "POST", "path": "my-numbers/connect", "rota": "POST /whatsapp/my-numbers/connect", "acesso": [] },
+        { "metodo": "WhatsappController.setMyNumberPurpose", "verbo": "PATCH", "path": "my-numbers/:name/purpose", "rota": "PATCH /whatsapp/my-numbers/:name/purpose", "acesso": [] },
+        { "metodo": "WhatsappController.reconnectMyNumber", "verbo": "POST", "path": "my-numbers/:name/reconnect", "rota": "POST /whatsapp/my-numbers/:name/reconnect", "acesso": [] },
+        { "metodo": "WhatsappController.deleteMyNumber", "verbo": "DELETE", "path": "my-numbers/:name", "rota": "DELETE /whatsapp/my-numbers/:name", "acesso": [] },
+        { "metodo": "WhatsappController.renameMyNumber", "verbo": "PATCH", "path": "my-numbers/:name", "rota": "PATCH /whatsapp/my-numbers/:name", "acesso": [] },
+        { "metodo": "WhatsappController.listInstances", "verbo": "GET", "path": "instances", "rota": "GET /whatsapp/instances", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.createInstance", "verbo": "POST", "path": "instances", "rota": "POST /whatsapp/instances", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.deleteInstance", "verbo": "DELETE", "path": "instances/:name", "rota": "DELETE /whatsapp/instances/:name", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.logoutInstance", "verbo": "POST", "path": "instances/:name/logout", "rota": "POST /whatsapp/instances/:name/logout", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.getConnectCode", "verbo": "GET", "path": "instances/:name/connect", "rota": "GET /whatsapp/instances/:name/connect", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.getConnectionStatus", "verbo": "GET", "path": "instances/:name/status", "rota": "GET /whatsapp/instances/:name/status", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.fetchContacts", "verbo": "GET", "path": "instances/:name/contacts", "rota": "GET /whatsapp/instances/:name/contacts", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.syncContacts", "verbo": "POST", "path": "instances/:name/sync", "rota": "POST /whatsapp/instances/:name/sync", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "WhatsappController.setInstanceSettings", "verbo": "POST", "path": "instances/:name/settings", "rota": "POST /whatsapp/instances/:name/settings", "acesso": ["@SuperAdmin()"] }
+      ]
+    }
+  ]
+}

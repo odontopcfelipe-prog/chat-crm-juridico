@@ -11,7 +11,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "start": "npm run start --workspaces --if-present"
+    "start": "npm run start --workspaces --if-present",
+    "guards:update": "node scripts/ci/inventario.cjs --write"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0"
