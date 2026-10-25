@@ -81,8 +81,10 @@ clínica ou descrição de falha de segurança em código, commit ou documento.
 ## Automatismos (crons, filas, disparos)
 
 - Todo `@Cron`, `@Processor`, gatilho de boot (`onModuleInit`, `onApplicationBootstrap`,
-  `setInterval`) e handler de socket novo entra no inventário (`npm run guards:update`,
-  regenera `apps/*/src/__guards__`), e o commit diz se vale para todos os tenants.
+  `setInterval`) e handler de socket novo entra no inventário de automatismos, e o commit
+  diz se vale para todos os tenants. Se o `package.json` da raiz tem o script `guards:update`,
+  rode `npm run guards:update` (regenera `apps/*/src/__guards__`); se ainda não tem, liste
+  o automatismo novo na mensagem do commit.
   Porquê: cron roda para todos os tenants do banco, inclusive os que não pediram.
 - Disparo novo nasce desligado por clínica: opt-in na Central de Disparos
   (`/atendimento/settings/disparos`; catálogo global, toggle por tenant).
@@ -103,9 +105,10 @@ O cadastro vai ganhar um segundo tipo de tenant (laboratório de prótese). Isto
   da equipe). Confira que as rotas que ele chama servem a qualquer tenant.
   Porquê: o layout envolve todas as telas; rota só de clínica chamada dali quebra ou mostra dado errado em outro tipo de tenant.
 - Model novo com `tenant_id` e sem `@relation` para `Tenant` (como `DisparoAnexo`,
-  `TeamMessage`, `TeamChannelRead`) precisa entrar na rotina de exclusão de tenant; se ela
-  ainda não o cobre, avise no resumo do trabalho.
-  Porquê: só o `onDelete: Cascade` da relação apaga junto; sem ela sobra dado de tenant excluído.
+  `TeamMessage`, `TeamChannelRead`) não é apagado junto com o tenant. Ainda não existe
+  rotina de exclusão de tenant no código (hoje só há a suspensão); não crie uma por conta
+  própria: diga no commit e no resumo do trabalho que o model tem `tenant_id` sem `@relation`.
+  Porquê: só o `onDelete: Cascade` da relação apaga junto; a exclusão de tenant, quando vier, precisa da lista desses models.
 - `/lab` do web (`apps/web/src/app/lab/*`) é sandbox de teste visual, pública e sem dado.
   Porquê: não é o produto laboratório; nada do produto nem dado real vai ali.
 

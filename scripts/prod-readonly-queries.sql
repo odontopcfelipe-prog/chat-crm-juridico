@@ -2,16 +2,20 @@
 -- prod-readonly-queries.sql — linha de base de produção, SÓ LEITURA
 -- ============================================================================
 -- Mede, sem alterar nada, o que as próximas fases vão mexer: registros com
--- tenant_id NULL, automatismos e flags ligados, chips por clínica, tamanho das
--- tabelas novas e o volume diário de mensagens, IA e disparos (28 dias).
+-- tenant_id NULL, automatismos e flags ligados, chips por clínica (e o chip do
+-- env), equipe escrevendo em chip de outra clínica, alertas de tarefa, tamanho
+-- das tabelas novas e o volume diário de mensagens, IA e disparos (28 dias).
 --
 -- Cada seção roda numa transação READ ONLY que termina em ROLLBACK, com
 -- statement_timeout. Um erro numa seção (ex.: tabela que ainda não subiu) não
 -- impede as outras.
 --
 -- Nunca imprime valor de configuração sensível: das flags sai só a CHAVE e se o
--- valor é true/false/vazio; da chave Asaas da clínica, só se existe. A coluna
--- "data" do DisparoAnexo (o arquivo) não é lida.
+-- valor é true/false/vazio; da chave Asaas da clínica, só se existe. Chave que
+-- guarda id de tenant ou nome de chip (ASAAS_GLOBAL_OWNER_TENANT,
+-- EVOLUTION_INSTANCE_NAME) sai como o tenant/chip a que aponta; valor que não
+-- aponta para nada sai só com o tamanho. Telefone nunca sai (só contagens). A
+-- coluna "data" do DisparoAnexo (o arquivo) não é lida.
 --
 -- Nomes conferidos contra packages/shared/prisma/schema.prisma: tabela = nome do
 -- model entre aspas (o schema só tem um @@map, que não é usado aqui), coluna =
@@ -31,13 +35,19 @@
 --   PG=$(docker ps -q -f name=chatcrm_postgres | head -1)
 --   docker exec "$PG" printenv POSTGRES_USER POSTGRES_DB
 --
---   # 3) rodar, trocando <usuario> e <banco> pelo que saiu acima, e guardar a saída
---   docker exec -i $(docker ps -q -f name=chatcrm_postgres | head -1) psql -U <usuario> -d <banco> -f - < ~/prod-readonly-queries.sql > ~/linha-de-base.txt 2>&1
+--   # 3) nome do chip do env EVOLUTION_INSTANCE_NAME do worker (é só um nome de
+--   #    chip; vazio = o código usa 'whatsapp'). Vai para a seção 6 por -v evo.
+--   EVO=$(docker exec $(docker ps -q -f name=chatcrm_worker | head -1) printenv EVOLUTION_INSTANCE_NAME)
+--
+--   # 4) rodar, trocando <usuario> e <banco> pelo que saiu no passo 2, e guardar a saída
+--   docker exec -i "$PG" psql -U <usuario> -d <banco> -v evo="$EVO" -f - < ~/prod-readonly-queries.sql > ~/linha-de-base.txt 2>&1
 --
 --   #    (o mesmo sem copiar usuário/banco: o psql lê as variáveis dentro do container)
---   docker exec -i "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f -' < ~/prod-readonly-queries.sql > ~/linha-de-base.txt 2>&1
+--   docker exec -i -e EVO="$EVO" "$PG" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v evo="$EVO" -f -' < ~/prod-readonly-queries.sql > ~/linha-de-base.txt 2>&1
 --
---   # 4) conferir se houve erro de alguma seção
+--   #    Sem o -v evo, a seção 6 só pula o chip do env; o resto roda igual.
+--
+--   # 5) conferir se houve erro de alguma seção
 --   grep -n 'ERROR' ~/linha-de-base.txt
 --
 -- Fora do banco, na mesma sessão (também só leitura):
@@ -162,15 +172,24 @@ WHERE key LIKE 'DENTIST\_DAILY\_SUMMARY%'
 ORDER BY key, origem, tenant_id NULLS FIRST;
 
 -- Só se existe: POST_CARE_CONFIG, ASAAS_GLOBAL_OWNER_TENANT e GDRIVE_ROOT_FOLDER_ID.
--- O dono da chave Asaas global sai só como "aponta para um tenant que existe".
 SELECT k.key,
        EXISTS (SELECT 1 FROM "GlobalSetting" g WHERE g.key = k.key AND btrim(g.value) <> '') AS em_global,
-       (SELECT count(*) FROM "TenantSetting" t WHERE t.key = k.key AND btrim(t.value) <> '') AS tenants_com_a_chave,
-       CASE WHEN k.key = 'ASAAS_GLOBAL_OWNER_TENANT' THEN
-         EXISTS (SELECT 1 FROM "GlobalSetting" g JOIN "Tenant" tn ON tn.id = btrim(g.value) WHERE g.key = k.key)
-       END AS aponta_para_tenant_existente
+       (SELECT count(*) FROM "TenantSetting" t WHERE t.key = k.key AND btrim(t.value) <> '') AS tenants_com_a_chave
 FROM (VALUES ('POST_CARE_CONFIG'), ('ASAAS_GLOBAL_OWNER_TENANT'), ('GDRIVE_ROOT_FOLDER_ID')) AS k(key)
 ORDER BY k.key;
+
+-- Confirmação do dono da chave Asaas global: o valor é um id de tenant, e sai a
+-- clínica para onde ele aponta (comparação exata, como no asaas-client.ts).
+SELECT CASE
+         WHEN g.key IS NULL THEN '(ausente)'
+         WHEN tn.id IS NOT NULL THEN 'aponta para o tenant ao lado'
+         WHEN btrim(g.value) = '' THEN '(vazio)'
+         ELSE '(não é id de tenant, ' || length(g.value) || ' caracteres)'
+       END AS asaas_global_owner_tenant,
+       tn.id AS tenant_id, tn.name AS tenant, tn.status
+FROM (VALUES ('ASAAS_GLOBAL_OWNER_TENANT')) AS k(key)
+LEFT JOIN "GlobalSetting" g ON g.key = k.key
+LEFT JOIN "Tenant" tn ON tn.id = g.value;
 ROLLBACK;
 
 -- ----------------------------------------------------------------------------
@@ -193,7 +212,7 @@ ROLLBACK;
 
 -- ----------------------------------------------------------------------------
 \echo ''
-\echo '== 5. Usuários ADMIN / DENTIST por tenant'
+\echo '== 5. Usuários ADMIN / DENTIST por tenant e mensagens deles em chip de outro tenant'
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '120s';
 SELECT u.tenant_id, t.name AS tenant,
@@ -207,9 +226,69 @@ GROUP BY u.tenant_id, t.name
 ORDER BY t.name NULLS FIRST;
 ROLLBACK;
 
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Mensagens recebidas (60 dias) do telefone de um ADMIN/DENTIST num chip de OUTRO
+-- tenant. Tenant do chip = Instance de Message.instance_name (ou da conversa);
+-- sem Instance, vale o tenant da conversa. O telefone casa por DDD + 8 dígitos
+-- finais, com ou sem 55 e o 9 (a mesma equivalência do brazilPhoneMatchVariants).
+-- tambem_e_equipe_no_chip = o mesmo número também é ADMIN/DENTIST no tenant do chip.
+WITH equipe AS (
+  SELECT u.id AS user_id, u.tenant_id,
+         CASE WHEN 'ADMIN' = ANY (u.roles) THEN 'ADMIN' ELSE 'DENTIST' END AS papel,
+         regexp_replace(u.phone, '\D', '', 'g') AS d
+  FROM "User" u
+  WHERE u.tenant_id IS NOT NULL AND u.phone IS NOT NULL
+    AND ('ADMIN' = ANY (u.roles) OR 'DENTIST' = ANY (u.roles))
+),
+equipe_tel AS (
+  SELECT user_id, tenant_id, papel,
+         CASE WHEN length(d) IN (12, 13) AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS n
+  FROM equipe
+),
+equipe_chave AS (
+  SELECT user_id, tenant_id, papel, left(n, 2) || right(n, 8) AS chave
+  FROM equipe_tel
+  WHERE length(n) IN (10, 11)
+),
+lead_tel AS (
+  SELECT l.id AS lead_id, regexp_replace(l.phone, '\D', '', 'g') AS d
+  FROM "Lead" l
+),
+lead_chave AS (
+  SELECT lead_id, left(n, 2) || right(n, 8) AS chave
+  FROM (SELECT lead_id,
+               CASE WHEN length(d) IN (12, 13) AND left(d, 2) = '55' THEN substr(d, 3) ELSE d END AS n
+        FROM lead_tel) x
+  WHERE length(n) IN (10, 11)
+    AND left(n, 2) || right(n, 8) IN (SELECT chave FROM equipe_chave)
+),
+recebidas AS (
+  SELECT e.user_id, e.tenant_id AS tenant_do_usuario, e.papel,
+         coalesce(i.tenant_id, c.tenant_id) AS tenant_do_chip,
+         EXISTS (SELECT 1 FROM equipe_chave e2
+                 WHERE e2.chave = e.chave AND e2.tenant_id = coalesce(i.tenant_id, c.tenant_id)) AS tambem_e_equipe_no_chip,
+         c.id AS conversation_id, m.created_at
+  FROM equipe_chave e
+  JOIN lead_chave lc ON lc.chave = e.chave
+  JOIN "Conversation" c ON c.lead_id = lc.lead_id
+  JOIN "Message" m ON m.conversation_id = c.id
+  LEFT JOIN "Instance" i ON i.name = coalesce(m.instance_name, c.instance_name)
+  WHERE m.direction = 'in'
+    AND m.created_at >= (now() AT TIME ZONE 'UTC') - interval '60 days'
+    AND coalesce(i.tenant_id, c.tenant_id) IS DISTINCT FROM e.tenant_id
+)
+SELECT tenant_do_usuario, papel, tenant_do_chip, tambem_e_equipe_no_chip,
+       count(DISTINCT user_id) AS usuarios, count(DISTINCT conversation_id) AS conversas,
+       count(*) AS mensagens, max(created_at) AS ultima
+FROM recebidas
+GROUP BY tenant_do_usuario, papel, tenant_do_chip, tambem_e_equipe_no_chip
+ORDER BY tenant_do_usuario, tenant_do_chip NULLS FIRST, papel, tambem_e_equipe_no_chip;
+ROLLBACK;
+
 -- ----------------------------------------------------------------------------
 \echo ''
-\echo '== 6. Chips (Instance) por tenant e função; chips sem inbox'
+\echo '== 6. Chips (Instance) por tenant e função; chips sem inbox; chip do env'
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '120s';
 -- purpose NULL = chip legado "geral"
@@ -232,6 +311,52 @@ JOIN "Inbox" b ON b.id = i.inbox_id
 WHERE b.tenant_id IS DISTINCT FROM i.tenant_id
 ORDER BY i.name;
 ROLLBACK;
+
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Override legado do chip por clínica (TenantSetting EVOLUTION_INSTANCE_NAME) e o
+-- global: o valor é nome de chip; sai o chip a que aponta e o tenant dono dele.
+WITH s AS (
+  SELECT 'GlobalSetting' AS origem, NULL::text AS tenant_id, key, value FROM "GlobalSetting"
+  UNION ALL
+  SELECT 'TenantSetting', tenant_id, key, value FROM "TenantSetting"
+)
+SELECT s.origem, s.tenant_id AS tenant_da_config,
+       CASE
+         WHEN i.id IS NOT NULL THEN i.name
+         WHEN btrim(s.value) = '' THEN '(vazio)'
+         ELSE '(não é Instance, ' || length(s.value) || ' caracteres)'
+       END AS chip,
+       i.tenant_id AS tenant_do_chip, i.purpose, i.inbox_id,
+       CASE WHEN s.origem = 'TenantSetting' AND i.id IS NOT NULL
+            THEN i.tenant_id IS DISTINCT FROM s.tenant_id END AS chip_de_outro_tenant
+FROM s
+LEFT JOIN "Instance" i ON i.name = s.value
+WHERE s.key = 'EVOLUTION_INSTANCE_NAME'
+ORDER BY s.origem, s.tenant_id NULLS FIRST;
+ROLLBACK;
+
+-- Chip do env EVOLUTION_INSTANCE_NAME (alertas de tarefa e fallbacks do worker/API).
+-- O valor vem de fora do banco, pelo -v evo do topo; vazio = o código usa 'whatsapp'.
+\if :{?evo}
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Comparação exata, como o process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp' do código.
+SELECT CASE
+         WHEN i.id IS NOT NULL THEN i.name
+         ELSE '(não é Instance, ' || length(v.nome) || ' caracteres)'
+       END AS chip_do_env,
+       CASE WHEN :'evo' = '' THEN 'env vazio: padrão do código' ELSE 'do env' END AS origem,
+       (i.id IS NOT NULL) AS existe, i.tenant_id, t.name AS tenant, i.purpose,
+       i.inbox_id, b.tenant_id AS tenant_do_inbox, i.connection, i.created_at
+FROM (VALUES (coalesce(nullif(:'evo', ''), 'whatsapp'))) AS v(nome)
+LEFT JOIN "Instance" i ON i.name = v.nome
+LEFT JOIN "Tenant" t ON t.id = i.tenant_id
+LEFT JOIN "Inbox" b ON b.id = i.inbox_id;
+ROLLBACK;
+\else
+\echo '   (sem -v evo: pulei o chip do env EVOLUTION_INSTANCE_NAME; ver o passo 3 do topo)'
+\endif
 
 -- ----------------------------------------------------------------------------
 \echo ''
@@ -400,6 +525,58 @@ FROM "DispatchLog"
 WHERE sent_at >= (now() AT TIME ZONE 'UTC') - interval '28 days'
 GROUP BY tenant_id, type, dia
 ORDER BY tenant_id NULLS FIRST, type, dia;
+ROLLBACK;
+
+-- ----------------------------------------------------------------------------
+\echo ''
+\echo '== 13. Alertas de tarefa (TASK_ALERT): enviados em 28 dias e vencidos à espera do cron'
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Enviados: o task-alerts-cron grava AuditLog entity='TASK_ALERT' sem tenant_id;
+-- o tenant vem do usuário em meta_json.user_id. Saem pelo chip do env (seção 6).
+SELECT u.tenant_id, a.action, count(*) AS alertas, max(a.created_at) AS ultimo
+FROM "AuditLog" a
+LEFT JOIN "User" u ON u.id = a.meta_json ->> 'user_id'
+WHERE a.entity = 'TASK_ALERT'
+  AND a.created_at >= (now() AT TIME ZONE 'UTC') - interval '28 days'
+GROUP BY u.tenant_id, a.action
+ORDER BY u.tenant_id NULLS FIRST, a.action;
+ROLLBACK;
+
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Pendentes: o que o resumo de vencidas (8h e 14h) pegaria agora. Mesmo filtro do
+-- cron: Task A_FAZER/EM_PROGRESSO e CalendarEvent TAREFA/PRAZO AGENDADO/CONFIRMADO
+-- vencidos; recebe quem tem telefone e não desligou 'task_alerts'. O toggle da
+-- Central (TASK_ALERTS_ENABLED_<tenant>) só desliga com 'false'; sem a chave, ligado.
+-- O cron pega no máximo 30 de cada tipo por rodada.
+WITH vencidos AS (
+  SELECT k.tenant_id, k.assigned_user_id AS user_id, 'Task' AS origem
+  FROM "Task" k
+  WHERE k.status IN ('A_FAZER', 'EM_PROGRESSO')
+    AND k.due_at < (now() AT TIME ZONE 'UTC')
+  UNION ALL
+  SELECT e.tenant_id, e.assigned_user_id, 'CalendarEvent'
+  FROM "CalendarEvent" e
+  WHERE e.type IN ('TAREFA', 'PRAZO') AND e.status IN ('AGENDADO', 'CONFIRMADO')
+    AND e.start_at < (now() AT TIME ZONE 'UTC')
+)
+SELECT v.tenant_id, t.name AS tenant,
+       CASE WHEN g.key IS NULL THEN 'ligado (sem a chave)'
+            WHEN g.value = 'false' THEN 'desligado'
+            ELSE 'ligado' END AS toggle_da_central,
+       count(*) FILTER (WHERE v.origem = 'Task') AS tarefas_vencidas,
+       count(*) FILTER (WHERE v.origem = 'CalendarEvent') AS eventos_vencidos,
+       count(*) FILTER (WHERE btrim(coalesce(u.phone, '')) <> ''
+                          AND NOT ('task_alerts' = ANY (u.disparos_off))) AS com_destinatario,
+       count(DISTINCT u.id) FILTER (WHERE btrim(coalesce(u.phone, '')) <> ''
+                                      AND NOT ('task_alerts' = ANY (u.disparos_off))) AS destinatarios
+FROM vencidos v
+LEFT JOIN "User" u ON u.id = v.user_id
+LEFT JOIN "Tenant" t ON t.id = v.tenant_id
+LEFT JOIN "GlobalSetting" g ON g.key = 'TASK_ALERTS_ENABLED_' || v.tenant_id
+GROUP BY v.tenant_id, t.name, g.key, g.value
+ORDER BY t.name NULLS FIRST;
 ROLLBACK;
 
 \echo ''
