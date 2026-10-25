@@ -82,9 +82,8 @@ clínica ou descrição de falha de segurança em código, commit ou documento.
 
 - Todo `@Cron`, `@Processor`, gatilho de boot (`onModuleInit`, `onApplicationBootstrap`,
   `setInterval`) e handler de socket novo entra no inventário de automatismos, e o commit
-  diz se vale para todos os tenants. Se o `package.json` da raiz tem o script `guards:update`,
-  rode `npm run guards:update` (regenera `apps/*/src/__guards__`); se ainda não tem, liste
-  o automatismo novo na mensagem do commit.
+  diz se vale para todos os tenants: rode `npm run guards:update` na raiz (regenera
+  `apps/*/src/__guards__/inventario.json`) e commite junto. O CI falha sem isso.
   Porquê: cron roda para todos os tenants do banco, inclusive os que não pediram.
 - Disparo novo nasce desligado por clínica: opt-in na Central de Disparos
   (`/atendimento/settings/disparos`; catálogo global, toggle por tenant).
