@@ -249,6 +249,8 @@ async function bootstrap() {
       if (!checkSocketRateLimit(socket.id, 'typing', 30)) return;
       const user = socket.data.user;
       if (!user?.sub || !data?.conversationId) return;
+      // "Digitando" só de quem entrou na sala (o join_conversation já checou a clínica)
+      if (!socket.rooms.has(data.conversationId)) return;
       chatGateway.emitTypingIndicator(data.conversationId, {
         userId: user.sub,
         userName: user.name || 'Operador',

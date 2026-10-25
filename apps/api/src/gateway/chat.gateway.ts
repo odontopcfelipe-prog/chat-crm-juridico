@@ -54,7 +54,7 @@ export class ChatGateway {
     });
     const socketUser = client.data.user;
     if (socketUser?.sub) {
-      this.trackUserOnline(socketUser.sub, client.id);
+      this.trackUserOnline(socketUser.sub, client.id, socketUser.tenant_id);
     }
   }
 
@@ -63,19 +63,35 @@ export class ChatGateway {
     this.logger.log(`[SOCKET] Client disconnected: ${client.id} reason="${reason ?? 'unknown'}" transport=${transport}`);
     const socketUser = client.data.user;
     if (socketUser?.sub) {
-      this.trackUserOffline(socketUser.sub, client.id);
+      this.trackUserOffline(socketUser.sub, client.id, socketUser.tenant_id);
     }
   }
 
-  private trackUserOnline(userId: string, socketId: string) {
+  /** Presença só para a clínica da pessoa (antes ia para todas as clínicas). */
+  private emitPresence(tenantId: string | null | undefined, userId: string, online: boolean) {
+    if (!tenantId) return;
+    this.server?.to(`tenant:${tenantId}`).emit('user_presence', { userId, online });
+  }
+
+  /**
+   * Clínica padrão para evento sem tenant (legado): a mais antiga — sempre a
+   * mesma. Antes era findFirst() sem ordem: o aviso podia cair em outra clínica.
+   */
+  private defaultTenantId(): Promise<string | null> {
+    return this.prisma.tenant
+      .findFirst({ orderBy: { created_at: 'asc' }, select: { id: true } })
+      .then((t) => t?.id ?? null);
+  }
+
+  private trackUserOnline(userId: string, socketId: string, tenantId?: string | null) {
     if (!this.onlineUsers.has(userId)) {
       this.onlineUsers.set(userId, new Set());
     }
     const wasOffline = this.onlineUsers.get(userId)!.size === 0;
     this.onlineUsers.get(userId)!.add(socketId);
     if (wasOffline) {
-      // Broadcast: usuário ficou online
-      this.server?.emit('user_presence', { userId, online: true });
+      // Usuário ficou online — avisa a clínica dele
+      this.emitPresence(tenantId, userId, true);
       this.logger.log(`[PRESENCE] User ${userId} ONLINE (${this.onlineUsers.get(userId)!.size} tab(s))`);
       // Atribuir conversas pendentes que a IA estava atendendo (fire-and-forget)
       this.assignPendingConversations(userId).catch(e =>
@@ -136,14 +152,14 @@ export class ChatGateway {
     }
   }
 
-  private trackUserOffline(userId: string, socketId: string) {
+  private trackUserOffline(userId: string, socketId: string, tenantId?: string | null) {
     const sockets = this.onlineUsers.get(userId);
     if (sockets) {
       sockets.delete(socketId);
       if (sockets.size === 0) {
         this.onlineUsers.delete(userId);
-        // Broadcast: usuário ficou offline
-        this.server?.emit('user_presence', { userId, online: false });
+        // Usuário ficou offline — avisa a clínica dele
+        this.emitPresence(tenantId, userId, false);
         this.logger.log(`[PRESENCE] User ${userId} OFFLINE`);
       }
     }
@@ -249,23 +265,32 @@ export class ChatGateway {
       return;
     }
 
-    // Admin pode entrar em qualquer sala
+    // SUPER_ADMIN entra em qualquer sala
     const userRoles = Array.isArray(socketUser.roles) ? socketUser.roles : (socketUser.role ? [socketUser.role] : []);
-    if (userRoles.includes('ADMIN')) {
+    if (userRoles.includes('SUPER_ADMIN')) {
       client.join(conversationId);
-      this.logger.log(`[SOCKET] Client ${client.id} (ADMIN) joined room: ${conversationId}`);
+      this.logger.log(`[SOCKET] Client ${client.id} (SUPER_ADMIN) joined room: ${conversationId}`);
       this.server.to(client.id).emit('joined_room', { room: conversationId });
       return;
     }
 
-    // Verificar se a conversa existe
+    // Verificar se a conversa existe (também barra nome de sala que não é
+    // conversa, ex. "tenant:<outra clínica>")
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { inbox_id: true, assigned_user_id: true, assigned_dentist_id: true },
+      select: { inbox_id: true, assigned_user_id: true, assigned_dentist_id: true, tenant_id: true },
     });
 
     if (!conversation) {
       this.logger.warn(`[SOCKET] BLOQUEADO: conversa ${conversationId} nao encontrada`);
+      return;
+    }
+
+    // Admin entra em qualquer sala DA CLÍNICA DELE
+    if (userRoles.includes('ADMIN') && conversation.tenant_id && conversation.tenant_id === socketUser.tenant_id) {
+      client.join(conversationId);
+      this.logger.log(`[SOCKET] Client ${client.id} (ADMIN) joined room: ${conversationId}`);
+      this.server.to(client.id).emit('joined_room', { room: conversationId });
       return;
     }
 
@@ -399,8 +424,8 @@ export class ChatGateway {
     } else {
       // SEGURANCA: sem tenantId, busca o tenant padrao em vez de broadcast global.
       this.logger.warn(`[SOCKET] inboxUpdate sem tenantId — resolvendo tenant padrao`);
-      this.prisma.tenant.findFirst().then((t) => {
-        if (t) resolveAndEmit(t.id);
+      this.defaultTenantId().then((id) => {
+        if (id) resolveAndEmit(id);
       }).catch(() => {});
     }
   }
@@ -488,9 +513,9 @@ export class ChatGateway {
       this.logger.log(`[SOCKET] incoming_message_notification → tenant:${tenantId} (sem inbox, fallback)`);
       this.server.to(`tenant:${tenantId}`).emit('incoming_message_notification', basePayload);
     } else {
-      this.prisma.tenant.findFirst().then((t) => {
-        if (t) {
-          this.server.to(`tenant:${t.id}`).emit('incoming_message_notification', basePayload);
+      this.defaultTenantId().then((id) => {
+        if (id) {
+          this.server.to(`tenant:${id}`).emit('incoming_message_notification', basePayload);
         }
       }).catch(() => {});
     }
@@ -559,8 +584,8 @@ export class ChatGateway {
     } else if (tenantId) {
       emitTo(`operators:${tenantId}`);
     } else {
-      this.prisma.tenant.findFirst().then((t) => {
-        if (t) emitTo(`operators:${t.id}`);
+      this.defaultTenantId().then((id) => {
+        if (id) emitTo(`operators:${id}`);
       }).catch(() => {});
     }
   }
