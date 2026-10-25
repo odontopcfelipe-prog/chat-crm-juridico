@@ -70,6 +70,21 @@ export class UsersService {
     }
   }
 
+  /**
+   * Setores (inboxes) de um usuário só da clínica DELE — antes o POST/PATCH
+   * com inboxIds ligava a pessoa ao setor de outra clínica (e ela passava a
+   * receber os avisos e a sala daquele setor). Setor inexistente ou de outra
+   * clínica: 400, nada é gravado.
+   */
+  private async assertInboxesDaClinica(inboxIds: string[] | undefined, tenantId: string | null | undefined) {
+    const ids = [...new Set((inboxIds ?? []).filter(Boolean))];
+    if (!ids.length) return;
+    const daClinica = await this.prisma.inbox.count({ where: { id: { in: ids }, tenant_id: tenantId ?? null } });
+    if (daClinica !== ids.length) {
+      throw new BadRequestException('Setor não encontrado nesta clínica. Recarregue a página e tente de novo.');
+    }
+  }
+
   async findAgents(tenantId?: string): Promise<{ id: string; name: string; specialties: string[] }[]> {
     return (this.prisma as any).user.findMany({
       where: this.tenantWhere(tenantId),
@@ -129,6 +144,7 @@ export class UsersService {
         // Outros erros nao bloqueiam — best-effort
       }
     }
+    await this.assertInboxesDaClinica(data.inboxIds, data.tenant_id);
     const password_hash = await argon2.hash(data.password);
     // Normaliza para o enum canônico. Aceita tanto `roles[]` (forma nova) quanto `role` (legado).
     const normalizedRoles = normalizeRoles(data.roles, data.role);
@@ -333,6 +349,8 @@ export class UsersService {
     if (data.extra_revokes !== undefined) (updateData as any).extra_revokes = { set: data.extra_revokes };
 
     if (data.inboxIds) {
+      const alvo = await this.prisma.user.findUnique({ where: { id }, select: { tenant_id: true } });
+      await this.assertInboxesDaClinica(data.inboxIds, alvo?.tenant_id);
       updateData.inboxes = {
         set: data.inboxIds.map(id => ({ id }))
       };
