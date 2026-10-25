@@ -8,13 +8,16 @@
  * "contém".
  *
  * Usa as classes reais (AuthController, AuthService, UsersService, JwtStrategy)
- * e o JwtService real com segredo de teste. O Prisma é mockado — sem banco.
+ * e o JwtService real, montado com as opções que o próprio AuthModule entrega ao
+ * JwtModule (o useFactory do registerAsync, lido da metadata do módulo, com
+ * segredo de teste). O Prisma é mockado — sem banco.
  * Se a mudança for de propósito, atualize este spec no mesmo commit e diga no
  * commit o porquê (o web e o worker precisam acompanhar).
  */
-import { JwtService } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { AuthController } from '../auth/auth.controller';
+import { AuthModule } from '../auth/auth.module';
 import { AuthService } from '../auth/auth.service';
 import { JwtStrategy } from '../auth/jwt.strategy';
 import { UsersService } from '../users/users.service';
@@ -36,6 +39,20 @@ function chaves(o: object): string[] {
   return Object.keys(o).sort();
 }
 
+/**
+ * As opções do JwtModule como o AuthModule as monta em runtime: acha o
+ * JwtModule.registerAsync nos imports do módulo e roda o useFactory dele. Só
+ * lê a metadata da classe — não instancia UsersModule, Mail nem Settings.
+ */
+async function opcoesDoAuthModule(): Promise<any> {
+  const imports: any[] = Reflect.getMetadata('imports', AuthModule) ?? [];
+  const jwtDinamico = imports.find((i) => i && i.module === JwtModule);
+  if (!jwtDinamico) throw new Error('AuthModule não importa mais o JwtModule.registerAsync');
+  const fabrica = (jwtDinamico.providers ?? []).find((p: any) => p && typeof p.useFactory === 'function');
+  if (!fabrica) throw new Error('JwtModule do AuthModule não tem useFactory');
+  return fabrica.useFactory();
+}
+
 /** Roda a estratégia do passport de verdade (Bearer → verifica → validate). */
 function autenticar(strategy: JwtStrategy, token: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -50,21 +67,37 @@ function autenticar(strategy: JwtStrategy, token: string): Promise<any> {
 describe('retrato: payload do login de usuário de clínica (F0a)', () => {
   let hash: string;
   let segredoAntes: string | undefined;
+  let validadeAntes: string | undefined;
+  let opcoesJwt: any;
   let jwt: JwtService;
   let strategy: JwtStrategy;
 
   beforeAll(async () => {
     hash = await argon2.hash(SENHA_TESTE);
     segredoAntes = process.env.JWT_SECRET;
+    validadeAntes = process.env.JWT_EXPIRES_IN;
     process.env.JWT_SECRET = SEGREDO_TESTE;
-    // Mesmas opções que o AuthModule passa ao JwtModule (JWT_EXPIRES_IN padrão = 30d).
-    jwt = new JwtService({ secret: SEGREDO_TESTE, signOptions: { expiresIn: '30d' } });
+    // Sem JWT_EXPIRES_IN: retrata o padrão do código (o que vale quando o env não define).
+    delete process.env.JWT_EXPIRES_IN;
+    opcoesJwt = await opcoesDoAuthModule();
+    jwt = new JwtService(opcoesJwt);
     strategy = new JwtStrategy();
   });
 
   afterAll(() => {
     if (segredoAntes === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = segredoAntes;
+    if (validadeAntes === undefined) delete process.env.JWT_EXPIRES_IN;
+    else process.env.JWT_EXPIRES_IN = validadeAntes;
+  });
+
+  it('AuthModule assina com o segredo do env, 30 dias por padrão e HS256 (o único que o JwtStrategy aceita)', () => {
+    expect(opcoesJwt.secret).toBe(SEGREDO_TESTE);
+    expect(opcoesJwt.signOptions.expiresIn).toBe('30d');
+    // Algoritmo não informado = padrão do jsonwebtoken para segredo string (HS256).
+    expect(opcoesJwt.signOptions.algorithm ?? 'HS256').toBe('HS256');
+    expect(chaves(opcoesJwt.signOptions).filter((k) => k !== 'algorithm')).toEqual(['expiresIn']);
+    expect(opcoesJwt.verifyOptions?.algorithms ?? ['HS256']).toEqual(['HS256']);
   });
 
   function montar(usuario: Record<string, any>) {

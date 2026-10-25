@@ -31,42 +31,50 @@ interface Chamada {
 
 /**
  * Prisma falso: grava toda chamada `prisma.<model>.<método>(args)` e responde
- * pelo mapa `respostas` (padrão: null). `$transaction(cb)` roda o callback com o
- * mesmo gravador, como o tx do Prisma.
+ * pelo mapa `respostas` (padrão: null). `$transaction(cb)` roda o callback com
+ * um gravador-FILHO, cujas chamadas saem com o prefixo `tx.` (a resposta é a
+ * mesma do mapa), e grava `$transaction:fim` quando o callback termina. Assim o
+ * retrato vê o que foi feito dentro da transação e o que escapou dela.
  */
 function gravador(respostas: Record<string, (args: any) => any> = {}) {
   const chamadas: Chamada[] = [];
-  const modelos: Record<string, any> = {};
-  const prisma: any = new Proxy(
-    {},
-    {
-      get(_alvo, modelo: string | symbol) {
-        // Não é Promise nem tem símbolos (inspect/toPrimitive).
-        if (typeof modelo !== 'string' || modelo === 'then') return undefined;
-        if (modelo === '$transaction') {
-          return async (cb: any) => {
-            chamadas.push({ op: '$transaction', args: null });
-            return cb(prisma);
-          };
-        }
-        modelos[modelo] ??= new Proxy(
-          {},
-          {
-            get(_m, metodo: string | symbol) {
-              if (typeof metodo !== 'string' || metodo === 'then') return undefined;
-              return async (args: any) => {
-                const op = `${modelo}.${metodo}`;
-                chamadas.push({ op, args });
-                const r = respostas[op];
-                return r ? r(args) : null;
-              };
+  const cliente = (prefixo: string): any => {
+    const modelos: Record<string, any> = {};
+    const db: any = new Proxy(
+      {},
+      {
+        get(_alvo, modelo: string | symbol) {
+          // Não é Promise nem tem símbolos (inspect/toPrimitive).
+          if (typeof modelo !== 'string' || modelo === 'then') return undefined;
+          if (modelo === '$transaction') {
+            return async (cb: any) => {
+              chamadas.push({ op: `${prefixo}$transaction`, args: null });
+              const r = await cb(cliente(`${prefixo}tx.`));
+              chamadas.push({ op: `${prefixo}$transaction:fim`, args: null });
+              return r;
+            };
+          }
+          modelos[modelo] ??= new Proxy(
+            {},
+            {
+              get(_m, metodo: string | symbol) {
+                if (typeof metodo !== 'string' || metodo === 'then') return undefined;
+                return async (args: any) => {
+                  const op = `${modelo}.${metodo}`;
+                  chamadas.push({ op: `${prefixo}${op}`, args });
+                  const r = respostas[op];
+                  return r ? r(args) : null;
+                };
+              },
             },
-          },
-        );
-        return modelos[modelo];
+          );
+          return modelos[modelo];
+        },
       },
-    },
-  );
+    );
+    return db;
+  };
+  const prisma = cliente('');
   const contagem = () =>
     chamadas.reduce<Record<string, number>>((acc, c) => {
       acc[c.op] = (acc[c.op] ?? 0) + 1;
@@ -242,24 +250,38 @@ describe('retrato: POST /signup de clínica (F0a)', () => {
     // Ordem: checa slug e e-mail, abre a transação, cria tenant → admin → owner → defaults.
     const ops = g.chamadas.map((c) => c.op);
     expect(ops.slice(0, 6)).toEqual([
-      'tenant.findUnique', 'user.findUnique', '$transaction', 'tenant.create', 'user.create', 'tenant.update',
+      'tenant.findUnique', 'user.findUnique', '$transaction', 'tx.tenant.create', 'tx.user.create', 'tx.tenant.update',
     ]);
-    expect(ops[6]).toBe('specialty.upsert');
+    expect(ops[6]).toBe('tx.specialty.upsert');
+
+    // Tudo entre a abertura e o fim da transação passa pelo tx (nada pelo prisma de
+    // fora): se o seed falhar, o tenant é revertido e não fica meio criado. Depois do
+    // fim, só as boas-vindas (user.update), que são de propósito fora da transação.
+    expect(ops.filter((op) => op === '$transaction:fim')).toHaveLength(1);
+    const fim = ops.indexOf('$transaction:fim');
+    expect(ops.slice(3, fim).filter((op) => !op.startsWith('tx.'))).toEqual([]);
+    expect(ops.slice(fim + 1)).toEqual(['user.update']);
+
+    // Os defaults gravados pelo signup são EXATAMENTE os do seed direto (mesmas
+    // chamadas, mesma ordem, mesmos argumentos), só que dentro do tx.
+    const direto = gravador(bancoVazio());
+    await seedTenantDefaults(direto.prisma, TENANT);
+    const seedNoSignup = g.chamadas.slice(6, fim).map((c) => ({ op: c.op.replace(/^tx\./, ''), args: c.args }));
+    expect(seedNoSignup).toEqual(direto.chamadas);
 
     expect(g.de('tenant.findUnique')).toMatchSnapshot('tenant.findUnique (slug)');
     expect(g.de('user.findUnique')).toMatchSnapshot('user.findUnique (e-mail)');
-    expect(g.de('tenant.create')).toMatchSnapshot('tenant.create');
-    expect(g.de('tenant.create')[0].data.trial_ends_at.getTime() - AGORA.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(g.de('tx.tenant.create')).toMatchSnapshot('tenant.create');
+    expect(g.de('tx.tenant.create')[0].data.trial_ends_at.getTime() - AGORA.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
 
-    const [userCreate] = g.de('user.create');
+    const [userCreate] = g.de('tx.user.create');
     expect(await argon2.verify(userCreate.data.password_hash, 'senha-de-teste-123')).toBe(true);
     expect({ ...userCreate, data: { ...userCreate.data, password_hash: '<argon2>' } }).toMatchSnapshot('user.create');
-    expect(g.de('tenant.update')).toMatchSnapshot('tenant.update');
+    expect(g.de('tx.tenant.update')).toMatchSnapshot('tenant.update');
 
-    // Os defaults gravados pelo signup são os mesmos do seed direto.
-    expect(g.de('procedure.create')).toHaveLength(30);
-    expect(g.de('specialty.upsert')).toHaveLength(9);
-    expect(g.de('anamnesisTemplate.upsert').map(semSchema)).toMatchSnapshot('anamnesisTemplate.upsert');
+    expect(g.de('tx.procedure.create')).toHaveLength(30);
+    expect(g.de('tx.specialty.upsert')).toHaveLength(9);
+    expect(g.de('tx.anamnesisTemplate.upsert').map(semSchema)).toMatchSnapshot('anamnesisTemplate.upsert');
 
     // Boas-vindas: grava o token de confirmação e manda o e-mail.
     const [userUpdate] = g.de('user.update');

@@ -7,3 +7,7 @@
 #
 # Spec das regras de dinheiro, antifraude, isolamento entre clínicas (IDOR) e
 # ponto NUNCA entra aqui: se quebrar, conserte o código ou o teste.
+#
+# Retratos e inventários de apps/*/src/__guards__/ também NUNCA entram: o
+# quarentena.cjs recusa a lista inteira (sai com erro e não pula nada) se uma
+# linha citar __guards__. Ver "Retratos de comportamento" em docs/ci.md.
