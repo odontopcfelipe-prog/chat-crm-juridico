@@ -47,6 +47,20 @@ export interface DisparoRow {
 /** Clínica de quem chama uma rota de follow-up (ver followup.controller). */
 export type EscopoFollowup = { tenantId: string | null; superAdmin: boolean };
 
+// Campos que as rotas de sequência/passo gravam. O resto do corpo (tenant_id,
+// sequence_id, id, relações como enrollments/steps.connect) nunca chega ao
+// Prisma: senão a clínica mudava o dono da sequência ou movia um passo para a
+// sequência de outra clínica DEPOIS da checagem do escopo.
+const CAMPOS_SEQUENCIA = ['name', 'description', 'category', 'active', 'auto_enroll_stages', 'max_attempts'] as const;
+const CAMPOS_PASSO = ['position', 'delay_hours', 'channel', 'tone', 'objective', 'custom_prompt', 'auto_send'] as const;
+
+function soCampos(obj: unknown, campos: readonly string[]): Record<string, unknown> {
+  const fonte = (obj ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of campos) if (fonte[k] !== undefined) out[k] = fonte[k];
+  return out;
+}
+
 @Injectable()
 export class FollowupService {
   private readonly logger = new Logger(FollowupService.name);
@@ -1230,11 +1244,12 @@ export class FollowupService {
     auto_enroll_stages?: string[]; max_attempts?: number; tenant_id?: string;
     steps?: Array<{ position: number; delay_hours: number; channel: string; tone: string; objective: string; custom_prompt?: string; auto_send?: boolean }>;
   }) {
-    const { steps, ...seqData } = data;
+    const steps = Array.isArray(data.steps) ? data.steps.map((p) => soCampos(p, CAMPOS_PASSO)) : undefined;
     return this.prisma.followupSequence.create({
       data: {
-        ...seqData,
-        steps: steps ? { create: steps } : undefined,
+        ...(soCampos(data, CAMPOS_SEQUENCIA) as { name: string }),
+        ...(data.tenant_id ? { tenant_id: data.tenant_id } : {}),
+        steps: steps ? { create: steps as any } : undefined,
       },
       include: { steps: { orderBy: { position: 'asc' } } },
     });
@@ -1245,7 +1260,7 @@ export class FollowupService {
     auto_enroll_stages: string[]; max_attempts: number;
   }>, escopo?: EscopoFollowup) {
     await this.assertSequencia(id, escopo);
-    return this.prisma.followupSequence.update({ where: { id }, data,
+    return this.prisma.followupSequence.update({ where: { id }, data: soCampos(data, CAMPOS_SEQUENCIA),
       include: { steps: { orderBy: { position: 'asc' } } },
     });
   }
@@ -1266,7 +1281,7 @@ export class FollowupService {
     objective: string; custom_prompt?: string; auto_send?: boolean;
   }, escopo?: EscopoFollowup) {
     await this.assertSequencia(sequenceId, escopo);
-    return this.prisma.followupStep.create({ data: { sequence_id: sequenceId, ...data } });
+    return this.prisma.followupStep.create({ data: { ...(soCampos(data, CAMPOS_PASSO) as any), sequence_id: sequenceId } });
   }
 
   async updateStep(stepId: string, data: Partial<{
@@ -1274,7 +1289,7 @@ export class FollowupService {
     objective: string; custom_prompt: string; auto_send: boolean;
   }>, escopo?: EscopoFollowup) {
     await this.assertPasso(stepId, escopo);
-    return this.prisma.followupStep.update({ where: { id: stepId }, data });
+    return this.prisma.followupStep.update({ where: { id: stepId }, data: soCampos(data, CAMPOS_PASSO) });
   }
 
   async deleteStep(stepId: string, escopo?: EscopoFollowup) {

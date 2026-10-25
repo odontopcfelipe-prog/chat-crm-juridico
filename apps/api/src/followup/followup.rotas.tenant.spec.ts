@@ -158,3 +158,39 @@ describe('Follow-up — rotas na clínica de quem chama', () => {
     await expect(svc.updateSequence('s-b', { name: 'X' })).resolves.toEqual({});
   });
 });
+
+describe('Follow-up — o corpo da requisição não muda dono nem vínculo (revisão)', () => {
+  it('PATCH da sequência com tenant_id no corpo (null ou outra clínica) não muda o dono', async () => {
+    const { ctrl, prisma } = montar();
+    await ctrl.updateSequence('s-a', { name: 'X', tenant_id: null }, req('a'));
+    await ctrl.updateSequence('s-a', { tenant_id: 'b', enrollments: { connect: [{ id: 'e-b' }] } }, req('a'));
+    const datas = prisma.followupSequence.update.mock.calls.map((c: any[]) => c[0].data);
+    expect(datas).toEqual([{ name: 'X' }, {}]);
+  });
+
+  it('POST de passo com sequence_id no corpo grava na sequência da URL (a checada)', async () => {
+    const { ctrl, prisma } = montar();
+    await ctrl.addStep('s-a', { sequence_id: 's-g', position: 9, delay_hours: 0, channel: 'whatsapp', tone: 'x', objective: 'y', auto_send: true }, req('a'));
+    expect(prisma.followupStep.create.mock.calls[0][0].data).toEqual({
+      position: 9, delay_hours: 0, channel: 'whatsapp', tone: 'x', objective: 'y', auto_send: true, sequence_id: 's-a',
+    });
+  });
+
+  it('PATCH de passo com sequence_id no corpo não move o passo', async () => {
+    const { ctrl, prisma } = montar();
+    await ctrl.updateStep('p-a', { sequence_id: 's-g', objective: 'novo' }, req('a'));
+    expect(prisma.followupStep.update.mock.calls[0][0].data).toEqual({ objective: 'novo' });
+  });
+
+  it('criar sequência: só os campos da sequência e dos passos (sem relações vindas do corpo)', async () => {
+    const { ctrl, prisma } = montar();
+    await ctrl.createSequence(
+      { name: 'X', category: 'LEADS', enrollments: { connect: [{ id: 'e-b' }] }, steps: [{ position: 1, delay_hours: 1, channel: 'whatsapp', tone: 't', objective: 'o', sequence_id: 's-b' }] },
+      req('a'),
+    );
+    expect(prisma.followupSequence.create.mock.calls[0][0].data).toEqual({
+      name: 'X', category: 'LEADS', tenant_id: 'a',
+      steps: { create: [{ position: 1, delay_hours: 1, channel: 'whatsapp', tone: 't', objective: 'o' }] },
+    });
+  });
+});
