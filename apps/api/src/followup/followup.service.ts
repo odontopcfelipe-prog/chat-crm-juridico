@@ -1257,6 +1257,11 @@ export class FollowupService {
     ]);
     if (!lead) throw new NotFoundException('Lead não encontrado');
     if (!sequence) throw new NotFoundException('Sequência não encontrada');
+    // Sequência de uma clínica nunca pega lead de outra (regra de automação,
+    // auto-enroll ou inscrição manual). Sequência global ou lead legado: livre.
+    if (sequence.tenant_id && lead.tenant_id && sequence.tenant_id !== lead.tenant_id) {
+      throw new NotFoundException('Sequência não encontrada');
+    }
     if (!sequence.active) throw new BadRequestException('Sequência inativa');
 
     // Verificar se já existe enrollment concluído — não re-enrolar automaticamente
@@ -1690,16 +1695,22 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
   // ─── Auto-enroll por stage ───────────────────────────────────────────────
 
   async autoEnrollByStage(leadId: string, stage: string) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { is_client: true, tenant_id: true },
+    });
+    // Só as sequências da clínica DO LEAD (+ as globais, sem tenant). Lead sem
+    // clínica (legado): como antes, todas.
     const sequences = await this.prisma.followupSequence.findMany({
-      where: { active: true, auto_enroll_stages: { has: stage } },
+      where: {
+        active: true,
+        auto_enroll_stages: { has: stage },
+        ...(lead?.tenant_id ? { OR: [{ tenant_id: lead.tenant_id }, { tenant_id: null }] } : {}),
+      },
     });
     if (sequences.length === 0) return;
     // Onda 17.64 — PACIENTE (is_client) não entra em sequência de LEAD. Crítico: contato
     // novo da Clínica nasce em stage NOVO e o auto-enroll de "Novo Lead" pegaria um paciente.
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
-      select: { is_client: true },
-    });
     const isClient = !!lead?.is_client;
     for (const seq of sequences) {
       const cat = (seq as any).category;

@@ -4,6 +4,18 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { FollowupService } from '../followup/followup.service';
 
+/**
+ * Regra de uma clínica só age nas conversas dela; regra global (sem tenant) vale
+ * para todas. Conversa sem clínica (legado): como antes — mesmo critério do
+ * onNewLead/onStageChange sem tenantId.
+ */
+export function regraValeParaConversa(
+  rule: { tenant_id?: string | null },
+  conv: { tenant_id?: string | null },
+): boolean {
+  return !rule.tenant_id || !conv.tenant_id || rule.tenant_id === conv.tenant_id;
+}
+
 @Injectable()
 export class AutomationsService {
   private readonly logger = new Logger(AutomationsService.name);
@@ -176,10 +188,11 @@ export class AutomationsService {
           status: { not: 'FECHADO' },
           last_message_at: { gte: h25, lte: h24 },
         },
-        select: { id: true, lead_id: true },
+        select: { id: true, lead_id: true, tenant_id: true },
       });
       for (const conv of convs) {
         for (const rule of rules24) {
+          if (!regraValeParaConversa(rule, conv)) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }
@@ -192,10 +205,11 @@ export class AutomationsService {
           status: { not: 'FECHADO' },
           last_message_at: { gte: h49, lte: h48 },
         },
-        select: { id: true, lead_id: true },
+        select: { id: true, lead_id: true, tenant_id: true },
       });
       for (const conv of convs) {
         for (const rule of rules48) {
+          if (!regraValeParaConversa(rule, conv)) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }
