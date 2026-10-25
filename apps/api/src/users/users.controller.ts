@@ -65,11 +65,12 @@ export class UsersController {
     res.end(result.buffer);
   }
 
-  /** Retorna lista de usuários online (para admin ver quem está no sistema) */
+  /** Usuários online DA CLÍNICA de quem pergunta (antes: de todas as clínicas). */
   @Get('online')
   @Roles('ADMIN')
-  getOnlineUsers() {
-    return { onlineUserIds: this.chatGateway.getOnlineUserIds() };
+  async getOnlineUsers(@Request() req: any) {
+    const ids = this.chatGateway.getOnlineUserIds();
+    return { onlineUserIds: await this.usersService.filtrarDaClinica(ids, req.user?.tenant_id) };
   }
 
   /**

@@ -6,6 +6,7 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { UsersController } from './users.controller';
 
 const INBOXES: Record<string, string | null> = { 'in-a': 'a', 'in-a2': 'a', 'in-b': 'b' };
 
@@ -61,5 +62,32 @@ describe('Usuários — setores só da clínica do usuário', () => {
     await svc.update('u-a', { inboxIds: ['in-a'] }, 'a');
     await svc.update('u-a', { inboxIds: [] }, 'a');
     expect(gravado).toEqual([['update', { set: [{ id: 'in-a' }] }], ['update', { set: [] }]]);
+  });
+});
+
+describe('GET /users/online — só a clínica de quem pergunta', () => {
+  it('ADMIN da clínica A vê só os online da A; sem clínica (SUPER_ADMIN) vê todos', async () => {
+    const DONO: Record<string, string> = { 'u-a1': 'a', 'u-a2': 'a', 'u-b1': 'b' };
+    const prisma: any = {
+      user: {
+        findMany: jest.fn(async ({ where }: any) =>
+          where.id.in.filter((id: string) => DONO[id] === where.tenant_id).map((id: string) => ({ id })),
+        ),
+      },
+    };
+    const svc = new UsersService(prisma, {} as any, {} as any);
+    const online = ['u-a1', 'u-b1', 'u-a2'];
+    await expect(svc.filtrarDaClinica(online, 'a')).resolves.toEqual(['u-a1', 'u-a2']);
+    await expect(svc.filtrarDaClinica(online, 'b')).resolves.toEqual(['u-b1']);
+    await expect(svc.filtrarDaClinica(online, undefined)).resolves.toEqual(online);
+  });
+
+  it('a rota passa a clínica do login', async () => {
+    const usersService: any = { filtrarDaClinica: jest.fn(async (ids: string[]) => ids.slice(0, 1)) };
+    const gateway: any = { getOnlineUserIds: () => ['u-a1', 'u-b1'] };
+    const ctrl = Object.create(UsersController.prototype);
+    Object.assign(ctrl, { usersService, chatGateway: gateway });
+    await expect(ctrl.getOnlineUsers({ user: { tenant_id: 'a' } })).resolves.toEqual({ onlineUserIds: ['u-a1'] });
+    expect(usersService.filtrarDaClinica).toHaveBeenCalledWith(['u-a1', 'u-b1'], 'a');
   });
 });

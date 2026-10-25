@@ -85,6 +85,16 @@ export class UsersService {
     }
   }
 
+  /** Dos ids informados, só os da clínica de quem pergunta (sem clínica: todos). */
+  async filtrarDaClinica(ids: string[], tenantId?: string): Promise<string[]> {
+    if (!ids.length || !tenantId) return ids;
+    const rows = await this.prisma.user.findMany({
+      where: { id: { in: ids }, tenant_id: tenantId },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
   async findAgents(tenantId?: string): Promise<{ id: string; name: string; specialties: string[] }[]> {
     return (this.prisma as any).user.findMany({
       where: this.tenantWhere(tenantId),
