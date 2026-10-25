@@ -1,0 +1,1571 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: anamnesisTemplate.upsert 1`] = `
+[
+  {
+    "create": {
+      "active": true,
+      "notes": "Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.",
+      "schema": "<DEFAULT_ANAMNESIS_TEMPLATE>",
+      "tenant_id": "tenant-clinica-nova",
+      "version": 3,
+    },
+    "update": {
+      "active": true,
+      "notes": "Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.",
+      "schema": "<DEFAULT_ANAMNESIS_TEMPLATE>",
+    },
+    "where": {
+      "tenant_id_version": {
+        "tenant_id": "tenant-clinica-nova",
+        "version": 3,
+      },
+    },
+  },
+]
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: chamadas por model 1`] = `
+{
+  "$transaction": 1,
+  "anamnesisTemplate.updateMany": 1,
+  "anamnesisTemplate.upsert": 1,
+  "globalAnamnesisTemplate.findUnique": 1,
+  "procedure.create": 30,
+  "procedure.findUnique": 30,
+  "specialty.upsert": 9,
+  "tenant.create": 1,
+  "tenant.findUnique": 1,
+  "tenant.update": 1,
+  "user.create": 1,
+  "user.findUnique": 1,
+  "user.update": 1,
+}
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: mail.renderTemplate 1`] = `
+{
+  "bodyHtml": "A conta da <b style="color:#3f3f46;">Clínica Sorriso Teste</b> foi criada com sucesso e seus 14 dias de teste já estão valendo. Confirme seu e-mail pra garantir o acesso e a recuperação de senha:",
+  "brandName": "Clínica Sorriso Teste",
+  "ctaLabel": "Confirmar meu e-mail",
+  "ctaUrl": "<link de confirmação>",
+  "footerNote": "Entre no sistema com este e-mail e a senha que você definiu no cadastro. Qualquer dúvida, é só responder esta mensagem.",
+  "title": "Sua clínica está no ar, Maria!",
+}
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: mail.send 1`] = `
+{
+  "html": "<html>Sua clínica está no ar, Maria!</html>",
+  "subject": "Bem-vindo(a) ao Odonto System — Clínica Sorriso Teste",
+  "to": "maria@clinica.teste",
+}
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: resposta do POST /signup 1`] = `
+{
+  "admin": {
+    "email": "maria@clinica.teste",
+    "id": "admin-1",
+    "name": "Maria Teste",
+  },
+  "tenant": {
+    "id": "tenant-clinica-nova",
+    "name": "Clínica Sorriso Teste",
+    "owner_user_id": "admin-1",
+  },
+}
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: tenant.create 1`] = `
+[
+  {
+    "data": {
+      "cpf_cnpj": "12345678000190",
+      "email": "maria@clinica.teste",
+      "name": "Clínica Sorriso Teste",
+      "phone": "82999990000",
+      "plan": "STARTER",
+      "slug": "clinica-sorriso-teste",
+      "status": "TRIAL",
+      "trial_ends_at": 2026-11-03T15:00:00.000Z,
+    },
+  },
+]
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: tenant.findUnique (slug) 1`] = `
+[
+  {
+    "where": {
+      "slug": "clinica-sorriso-teste",
+    },
+  },
+]
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: tenant.update 1`] = `
+[
+  {
+    "data": {
+      "owner_user_id": "admin-1",
+    },
+    "where": {
+      "id": "tenant-clinica-nova",
+    },
+  },
+]
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: user.create 1`] = `
+{
+  "data": {
+    "email": "maria@clinica.teste",
+    "name": "Maria Teste",
+    "password_hash": "<argon2>",
+    "phone": "82999990000",
+    "roles": [
+      "ADMIN",
+    ],
+    "tenant_id": "tenant-clinica-nova",
+  },
+}
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: user.findUnique (e-mail) 1`] = `
+[
+  {
+    "where": {
+      "email": "maria@clinica.teste",
+    },
+  },
+]
+`;
+
+exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN + defaults na mesma transação, e manda as boas-vindas: user.update (boas-vindas) 1`] = `
+{
+  "data": {
+    "email_verify_sent_at": 2026-10-20T15:00:00.000Z,
+    "email_verify_token": "<token>",
+  },
+  "where": {
+    "id": "admin-1",
+  },
+}
+`;
+
+exports[`retrato: defaults de uma clínica nova (F0a) anamnese padrão: seções e perguntas: ids das seções 1`] = `
+[
+  "general",
+  "medical_history",
+  "allergies_meds",
+  "lifestyle",
+  "dental_history",
+  "oral_health",
+  "pregnancy",
+  "family_history",
+  "notes",
+]
+`;
+
+exports[`retrato: defaults de uma clínica nova (F0a) anamnese padrão: seções e perguntas: template completo 1`] = `
+{
+  "sections": [
+    {
+      "id": "general",
+      "questions": [
+        {
+          "id": "sex",
+          "label": "Sexo biológico",
+          "options": [
+            "Feminino",
+            "Masculino",
+            "Outro",
+            "Prefiro não informar",
+          ],
+          "required": false,
+          "type": "select",
+        },
+        {
+          "id": "height",
+          "label": "Altura (cm)",
+          "required": false,
+          "type": "number",
+        },
+        {
+          "id": "weight",
+          "label": "Peso (kg)",
+          "required": false,
+          "type": "number",
+        },
+        {
+          "id": "blood_type",
+          "label": "Tipo sanguíneo",
+          "options": [
+            "A+",
+            "A-",
+            "B+",
+            "B-",
+            "AB+",
+            "AB-",
+            "O+",
+            "O-",
+            "Não sei",
+          ],
+          "required": false,
+          "type": "select",
+        },
+      ],
+      "title": "Dados Gerais",
+    },
+    {
+      "id": "medical_history",
+      "questions": [
+        {
+          "id": "chronic_diseases",
+          "label": "Possui alguma doença crônica?",
+          "options": [
+            "Diabetes",
+            "Hipertensão",
+            "Doença cardíaca",
+            "Doença renal",
+            "Doença hepática",
+            "Problema de tireoide",
+            "Epilepsia",
+            "Asma",
+            "Anemia",
+            "Outra",
+            "Nenhuma",
+          ],
+          "required": false,
+          "type": "multiselect",
+        },
+        {
+          "id": "chronic_disease_other",
+          "label": "Se outra, especifique",
+          "required": false,
+          "type": "text",
+        },
+        {
+          "id": "had_surgery",
+          "label": "Já fez alguma cirurgia?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "surgeries_detail",
+          "label": "Se sim, qual(is)?",
+          "required": false,
+          "type": "textarea",
+        },
+        {
+          "id": "was_hospitalized",
+          "label": "Esteve hospitalizado nos últimos 2 anos?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "hospitalizations_detail",
+          "label": "Se sim, motivo?",
+          "required": false,
+          "type": "textarea",
+        },
+      ],
+      "title": "Histórico Médico",
+    },
+    {
+      "id": "allergies_meds",
+      "questions": [
+        {
+          "id": "allergies_known",
+          "label": "Possui alergias conhecidas?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "allergies_list",
+          "label": "Se sim, quais? (medicamentos, látex, anestésicos, etc.)",
+          "required": false,
+          "type": "textarea",
+        },
+        {
+          "id": "uses_medication",
+          "label": "Usa algum medicamento atualmente?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "medications_current",
+          "label": "Se sim, quais? (nome, dose, frequência)",
+          "required": false,
+          "type": "textarea",
+        },
+        {
+          "id": "uses_anticoagulant",
+          "label": "Usa anticoagulante (AAS, varfarina, rivaroxabana, etc.)?",
+          "required": false,
+          "type": "boolean",
+        },
+      ],
+      "title": "Alergias e Medicamentos",
+    },
+    {
+      "id": "lifestyle",
+      "questions": [
+        {
+          "id": "smoker",
+          "label": "Fuma?",
+          "options": [
+            "Nunca",
+            "Ex-fumante",
+            "Fumante ocasional",
+            "Fumante diário",
+          ],
+          "required": false,
+          "type": "select",
+        },
+        {
+          "id": "alcohol",
+          "label": "Consome álcool?",
+          "options": [
+            "Não",
+            "Socialmente",
+            "Frequentemente",
+            "Diariamente",
+          ],
+          "required": false,
+          "type": "select",
+        },
+        {
+          "id": "uses_drugs",
+          "label": "Faz uso de drogas recreativas?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "snoring",
+          "label": "Costuma roncar ou tem apneia?",
+          "required": false,
+          "type": "boolean",
+        },
+      ],
+      "title": "Hábitos e Estilo de Vida",
+    },
+    {
+      "id": "dental_history",
+      "questions": [
+        {
+          "id": "last_visit",
+          "label": "Quando foi sua última consulta odontológica?",
+          "options": [
+            "Menos de 6 meses",
+            "6 a 12 meses",
+            "1 a 2 anos",
+            "Mais de 2 anos",
+            "Nunca",
+          ],
+          "required": false,
+          "type": "select",
+        },
+        {
+          "id": "brushing_frequency",
+          "label": "Frequência de escovação",
+          "options": [
+            "1x ao dia",
+            "2x ao dia",
+            "3x ao dia",
+            "Mais de 3x ao dia",
+            "Irregular",
+          ],
+          "required": false,
+          "type": "select",
+        },
+        {
+          "id": "floss_use",
+          "label": "Usa fio dental diariamente?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "uses_mouthwash",
+          "label": "Usa enxaguante bucal?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "had_orthodontic",
+          "label": "Já usou aparelho ortodôntico?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "had_extraction",
+          "label": "Já extraiu algum dente?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "anesthesia_reaction",
+          "label": "Já teve reação a anestesia odontológica?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "anesthesia_reaction_detail",
+          "label": "Se sim, descreva",
+          "required": false,
+          "type": "textarea",
+        },
+      ],
+      "title": "Histórico Odontológico",
+    },
+    {
+      "id": "oral_health",
+      "questions": [
+        {
+          "id": "pain_current",
+          "label": "Sente dor em algum dente agora?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "pain_description",
+          "label": "Se sim, descreva a dor e localização",
+          "required": false,
+          "type": "textarea",
+        },
+        {
+          "id": "gum_bleeding",
+          "label": "Suas gengivas sangram ao escovar?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "bad_breath",
+          "label": "Tem mau hálito persistente?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "dry_mouth",
+          "label": "Sente boca seca com frequência?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "mouth_sores",
+          "label": "Aparecem feridas/aftas na boca com frequência?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "bruxism",
+          "label": "Aperta ou range os dentes (bruxismo)?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "jaw_pain",
+          "label": "Sente estalos ou dor na ATM (mandíbula)?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "sensitivity",
+          "label": "Sensibilidade a:",
+          "options": [
+            "Frio",
+            "Calor",
+            "Doces",
+            "Pressão",
+            "Nenhuma",
+          ],
+          "required": false,
+          "type": "multiselect",
+        },
+      ],
+      "title": "Saúde Bucal Atual",
+    },
+    {
+      "id": "pregnancy",
+      "questions": [
+        {
+          "id": "pregnant",
+          "label": "Está gestante?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "pregnancy_weeks",
+          "label": "Se sim, quantas semanas?",
+          "required": false,
+          "type": "number",
+        },
+        {
+          "id": "breastfeeding",
+          "label": "Está amamentando?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "uses_contraceptive",
+          "label": "Usa anticoncepcional?",
+          "required": false,
+          "type": "boolean",
+        },
+        {
+          "id": "menopause",
+          "label": "Está na menopausa?",
+          "required": false,
+          "type": "boolean",
+        },
+      ],
+      "show_if": {
+        "equals": "Feminino",
+        "question_id": "sex",
+      },
+      "title": "Gestação e Hormônios",
+    },
+    {
+      "id": "family_history",
+      "questions": [
+        {
+          "id": "family_diseases",
+          "label": "Parentes próximos com:",
+          "options": [
+            "Diabetes",
+            "Hipertensão",
+            "Câncer",
+            "Doença cardíaca",
+            "Problemas dentários graves",
+            "Nenhum",
+          ],
+          "required": false,
+          "type": "multiselect",
+        },
+      ],
+      "title": "Histórico Familiar",
+    },
+    {
+      "id": "notes",
+      "questions": [
+        {
+          "id": "patient_notes",
+          "label": "Algo mais que considera importante informar?",
+          "required": false,
+          "type": "textarea",
+        },
+      ],
+      "title": "Observações Livres",
+    },
+  ],
+}
+`;
+
+exports[`retrato: defaults de uma clínica nova (F0a) especialidades padrão 1`] = `
+[
+  {
+    "description": "Atendimento geral odontológico",
+    "name": "Clínica Geral",
+  },
+  {
+    "description": "Correção de posicionamento dentário",
+    "name": "Ortodontia",
+  },
+  {
+    "description": "Tratamento de canal",
+    "name": "Endodontia",
+  },
+  {
+    "description": "Implantes dentários",
+    "name": "Implantodontia",
+  },
+  {
+    "description": "Próteses fixas e removíveis",
+    "name": "Prótese",
+  },
+  {
+    "description": "Clareamento, facetas e procedimentos cosméticos",
+    "name": "Estética",
+  },
+  {
+    "description": "Tratamento de tecidos gengivais e de sustentação",
+    "name": "Periodontia",
+  },
+  {
+    "description": "Extrações e cirurgias menores",
+    "name": "Cirurgia Oral",
+  },
+  {
+    "description": "Atendimento infantil (dentição decídua e mista)",
+    "name": "Odontopediatria",
+  },
+]
+`;
+
+exports[`retrato: defaults de uma clínica nova (F0a) tabela de preços padrão (nome, especialidade, preço, duração, raio-x, anestesia) 1`] = `
+[
+  {
+    "anesthesia": false,
+    "duration": 30,
+    "name": "Avaliação inicial",
+    "price": 0,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 45,
+    "name": "Profilaxia (limpeza)",
+    "price": 150,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 15,
+    "name": "Aplicação tópica de flúor",
+    "price": 50,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 40,
+    "name": "Restauração em resina — 1 face",
+    "price": 200,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 60,
+    "name": "Restauração em resina — 2 faces",
+    "price": 300,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 75,
+    "name": "Restauração em resina — 3+ faces",
+    "price": 400,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 20,
+    "name": "Selante",
+    "price": 80,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 30,
+    "name": "Consulta de urgência",
+    "price": 150,
+    "specialty": "Clínica Geral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 90,
+    "name": "Tratamento endodôntico — unirradicular",
+    "price": 800,
+    "specialty": "Endodontia",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 120,
+    "name": "Tratamento endodôntico — birradicular",
+    "price": 1000,
+    "specialty": "Endodontia",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 150,
+    "name": "Tratamento endodôntico — multirradicular",
+    "price": 1300,
+    "specialty": "Endodontia",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 45,
+    "name": "Raspagem supragengival",
+    "price": 200,
+    "specialty": "Periodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 60,
+    "name": "Raspagem subgengival (1 quadrante)",
+    "price": 350,
+    "specialty": "Periodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": true,
+    "duration": 90,
+    "name": "Cirurgia periodontal",
+    "price": 800,
+    "specialty": "Periodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": true,
+    "duration": 30,
+    "name": "Extração simples",
+    "price": 200,
+    "specialty": "Cirurgia Oral",
+    "xray": false,
+  },
+  {
+    "anesthesia": true,
+    "duration": 60,
+    "name": "Extração de siso",
+    "price": 500,
+    "specialty": "Cirurgia Oral",
+    "xray": true,
+  },
+  {
+    "anesthesia": true,
+    "duration": 45,
+    "name": "Biópsia oral",
+    "price": 400,
+    "specialty": "Cirurgia Oral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 20,
+    "name": "Sutura de ferida",
+    "price": 100,
+    "specialty": "Cirurgia Oral",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 90,
+    "name": "Coroa protética cerâmica",
+    "price": 1500,
+    "specialty": "Prótese",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 180,
+    "name": "Prótese total",
+    "price": 2500,
+    "specialty": "Prótese",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 150,
+    "name": "Prótese parcial removível",
+    "price": 1800,
+    "specialty": "Prótese",
+    "xray": false,
+  },
+  {
+    "anesthesia": true,
+    "duration": 120,
+    "name": "Implante dentário — por unidade",
+    "price": 3500,
+    "specialty": "Implantodontia",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 90,
+    "name": "Coroa sobre implante",
+    "price": 2000,
+    "specialty": "Implantodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": true,
+    "duration": 120,
+    "name": "Enxerto ósseo",
+    "price": 1500,
+    "specialty": "Implantodontia",
+    "xray": true,
+  },
+  {
+    "anesthesia": false,
+    "duration": 90,
+    "name": "Instalação de aparelho fixo",
+    "price": 2500,
+    "specialty": "Ortodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 30,
+    "name": "Manutenção mensal de aparelho",
+    "price": 250,
+    "specialty": "Ortodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 60,
+    "name": "Alinhador ortodôntico transparente — tratamento completo",
+    "price": 12000,
+    "specialty": "Ortodontia",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 90,
+    "name": "Clareamento dental de consultório",
+    "price": 1200,
+    "specialty": "Estética",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 30,
+    "name": "Clareamento dental com moldeira",
+    "price": 600,
+    "specialty": "Estética",
+    "xray": false,
+  },
+  {
+    "anesthesia": false,
+    "duration": 120,
+    "name": "Faceta de porcelana — por unidade",
+    "price": 2500,
+    "specialty": "Estética",
+    "xray": false,
+  },
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) com anamnese master (GlobalAnamnesisTemplate id=1): planta o schema da master 1`] = `
+[
+  {
+    "create": {
+      "active": true,
+      "notes": "Sincronizado da Anamnese Master v7.",
+      "schema": {
+        "sections": [
+          {
+            "id": "master",
+            "questions": [],
+            "title": "Master",
+          },
+        ],
+      },
+      "tenant_id": "tenant-clinica-nova",
+      "version": 3,
+    },
+    "update": {
+      "active": true,
+      "notes": "Sincronizado da Anamnese Master v7.",
+      "schema": {
+        "sections": [
+          {
+            "id": "master",
+            "questions": [],
+            "title": "Master",
+          },
+        ],
+      },
+    },
+    "where": {
+      "tenant_id_version": {
+        "tenant_id": "tenant-clinica-nova",
+        "version": 3,
+      },
+    },
+  },
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) re-seed num tenant que já tem a tabela: não cria nem mexe em preço; só vincula especialidade vazia: chamadas por model 1`] = `
+{
+  "anamnesisTemplate.updateMany": 1,
+  "anamnesisTemplate.upsert": 1,
+  "globalAnamnesisTemplate.findUnique": 1,
+  "procedure.findUnique": 30,
+  "procedure.update": 15,
+  "specialty.upsert": 9,
+}
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) re-seed num tenant que já tem a tabela: não cria nem mexe em preço; só vincula especialidade vazia: procedure.update 1`] = `
+[
+  {
+    "data": {
+      "specialty_id": "spec:Clínica Geral",
+    },
+    "where": {
+      "id": "proc-existente-0",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Clínica Geral",
+    },
+    "where": {
+      "id": "proc-existente-2",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Clínica Geral",
+    },
+    "where": {
+      "id": "proc-existente-4",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Clínica Geral",
+    },
+    "where": {
+      "id": "proc-existente-6",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Endodontia",
+    },
+    "where": {
+      "id": "proc-existente-8",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Endodontia",
+    },
+    "where": {
+      "id": "proc-existente-10",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Periodontia",
+    },
+    "where": {
+      "id": "proc-existente-12",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Cirurgia Oral",
+    },
+    "where": {
+      "id": "proc-existente-14",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Cirurgia Oral",
+    },
+    "where": {
+      "id": "proc-existente-16",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Prótese",
+    },
+    "where": {
+      "id": "proc-existente-18",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Prótese",
+    },
+    "where": {
+      "id": "proc-existente-20",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Implantodontia",
+    },
+    "where": {
+      "id": "proc-existente-22",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Ortodontia",
+    },
+    "where": {
+      "id": "proc-existente-24",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Ortodontia",
+    },
+    "where": {
+      "id": "proc-existente-26",
+    },
+  },
+  {
+    "data": {
+      "specialty_id": "spec:Estética",
+    },
+    "where": {
+      "id": "proc-existente-28",
+    },
+  },
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: anamnesisTemplate.updateMany 1`] = `
+[
+  {
+    "data": {
+      "active": false,
+    },
+    "where": {
+      "tenant_id": "tenant-clinica-nova",
+      "version": {
+        "lt": 3,
+      },
+    },
+  },
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: anamnesisTemplate.upsert 1`] = `
+{
+  "create": {
+    "active": true,
+    "notes": "Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.",
+    "schema": "<DEFAULT_ANAMNESIS_TEMPLATE>",
+    "tenant_id": "tenant-clinica-nova",
+    "version": 3,
+  },
+  "update": {
+    "active": true,
+    "notes": "Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.",
+    "schema": "<DEFAULT_ANAMNESIS_TEMPLATE>",
+  },
+  "where": {
+    "tenant_id_version": {
+      "tenant_id": "tenant-clinica-nova",
+      "version": 3,
+    },
+  },
+}
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: chamadas por model 1`] = `
+{
+  "anamnesisTemplate.updateMany": 1,
+  "anamnesisTemplate.upsert": 1,
+  "globalAnamnesisTemplate.findUnique": 1,
+  "procedure.create": 30,
+  "procedure.findUnique": 30,
+  "specialty.upsert": 9,
+}
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: ordem 1`] = `
+[
+  "specialty.upsert",
+  "procedure.findUnique",
+  "procedure.create",
+  "globalAnamnesisTemplate.findUnique",
+  "anamnesisTemplate.upsert",
+  "anamnesisTemplate.updateMany",
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: procedure.create 1`] = `
+[
+  {
+    "data": {
+      "base_price": 0,
+      "duration_minutes": 30,
+      "name": "Avaliação inicial",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 150,
+      "duration_minutes": 45,
+      "name": "Profilaxia (limpeza)",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 50,
+      "duration_minutes": 15,
+      "name": "Aplicação tópica de flúor",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 200,
+      "duration_minutes": 40,
+      "name": "Restauração em resina — 1 face",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 300,
+      "duration_minutes": 60,
+      "name": "Restauração em resina — 2 faces",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 400,
+      "duration_minutes": 75,
+      "name": "Restauração em resina — 3+ faces",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 80,
+      "duration_minutes": 20,
+      "name": "Selante",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 150,
+      "duration_minutes": 30,
+      "name": "Consulta de urgência",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 800,
+      "duration_minutes": 90,
+      "name": "Tratamento endodôntico — unirradicular",
+      "requires_anesthesia": false,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Endodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1000,
+      "duration_minutes": 120,
+      "name": "Tratamento endodôntico — birradicular",
+      "requires_anesthesia": false,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Endodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1300,
+      "duration_minutes": 150,
+      "name": "Tratamento endodôntico — multirradicular",
+      "requires_anesthesia": false,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Endodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 200,
+      "duration_minutes": 45,
+      "name": "Raspagem supragengival",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Periodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 350,
+      "duration_minutes": 60,
+      "name": "Raspagem subgengival (1 quadrante)",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Periodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 800,
+      "duration_minutes": 90,
+      "name": "Cirurgia periodontal",
+      "requires_anesthesia": true,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Periodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 200,
+      "duration_minutes": 30,
+      "name": "Extração simples",
+      "requires_anesthesia": true,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Cirurgia Oral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 500,
+      "duration_minutes": 60,
+      "name": "Extração de siso",
+      "requires_anesthesia": true,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Cirurgia Oral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 400,
+      "duration_minutes": 45,
+      "name": "Biópsia oral",
+      "requires_anesthesia": true,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Cirurgia Oral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 100,
+      "duration_minutes": 20,
+      "name": "Sutura de ferida",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Cirurgia Oral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1500,
+      "duration_minutes": 90,
+      "name": "Coroa protética cerâmica",
+      "requires_anesthesia": false,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Prótese",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 2500,
+      "duration_minutes": 180,
+      "name": "Prótese total",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Prótese",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1800,
+      "duration_minutes": 150,
+      "name": "Prótese parcial removível",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Prótese",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 3500,
+      "duration_minutes": 120,
+      "name": "Implante dentário — por unidade",
+      "requires_anesthesia": true,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Implantodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 2000,
+      "duration_minutes": 90,
+      "name": "Coroa sobre implante",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Implantodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1500,
+      "duration_minutes": 120,
+      "name": "Enxerto ósseo",
+      "requires_anesthesia": true,
+      "requires_x_ray": true,
+      "specialty_id": "spec:Implantodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 2500,
+      "duration_minutes": 90,
+      "name": "Instalação de aparelho fixo",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Ortodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 250,
+      "duration_minutes": 30,
+      "name": "Manutenção mensal de aparelho",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Ortodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 12000,
+      "duration_minutes": 60,
+      "name": "Alinhador ortodôntico transparente — tratamento completo",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Ortodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 1200,
+      "duration_minutes": 90,
+      "name": "Clareamento dental de consultório",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Estética",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 600,
+      "duration_minutes": 30,
+      "name": "Clareamento dental com moldeira",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Estética",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+  {
+    "data": {
+      "base_price": 2500,
+      "duration_minutes": 120,
+      "name": "Faceta de porcelana — por unidade",
+      "requires_anesthesia": false,
+      "requires_x_ray": false,
+      "specialty_id": "spec:Estética",
+      "tenant_id": "tenant-clinica-nova",
+    },
+  },
+]
+`;
+
+exports[`retrato: seedTenantDefaults num Prisma mockado (F0a) tenant novo, sem anamnese master: o que grava, em que ordem e quantas linhas: specialty.upsert 1`] = `
+[
+  {
+    "create": {
+      "description": "Atendimento geral odontológico",
+      "name": "Clínica Geral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Atendimento geral odontológico",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Clínica Geral",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Correção de posicionamento dentário",
+      "name": "Ortodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Correção de posicionamento dentário",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Ortodontia",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Tratamento de canal",
+      "name": "Endodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Tratamento de canal",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Endodontia",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Implantes dentários",
+      "name": "Implantodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Implantes dentários",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Implantodontia",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Próteses fixas e removíveis",
+      "name": "Prótese",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Próteses fixas e removíveis",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Prótese",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Clareamento, facetas e procedimentos cosméticos",
+      "name": "Estética",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Clareamento, facetas e procedimentos cosméticos",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Estética",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Tratamento de tecidos gengivais e de sustentação",
+      "name": "Periodontia",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Tratamento de tecidos gengivais e de sustentação",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Periodontia",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Extrações e cirurgias menores",
+      "name": "Cirurgia Oral",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Extrações e cirurgias menores",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Cirurgia Oral",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+  {
+    "create": {
+      "description": "Atendimento infantil (dentição decídua e mista)",
+      "name": "Odontopediatria",
+      "tenant_id": "tenant-clinica-nova",
+    },
+    "update": {
+      "description": "Atendimento infantil (dentição decídua e mista)",
+    },
+    "where": {
+      "tenant_id_name": {
+        "name": "Odontopediatria",
+        "tenant_id": "tenant-clinica-nova",
+      },
+    },
+  },
+]
+`;

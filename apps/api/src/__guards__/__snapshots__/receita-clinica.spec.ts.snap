@@ -1,0 +1,485 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) boleto importado do Asaas (sem plano): cliente pelo paciente direto, sem dentista e sem comissão 1`] = `
+{
+  "data": {
+    "amount": "1200",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": null,
+    "description": "Recebimento — Bruno Importado · Mensalidade importada",
+    "lead_id": "lead-bruno",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "BOLETO",
+    "reference_id": "pay_legado_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind ENTRADA backfill do cron (dateFromCharge): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "700",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-19T00:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Entrada — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "BOLETO",
+    "reference_id": "pay_ENTRADA_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind ENTRADA recebido na clínica — dinheiro (registerClinicReceipt): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "700",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Entrada — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "DINHEIRO",
+    "reference_id": "pay_ENTRADA_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind ENTRADA recebido na clínica — maquineta 3x: financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "700",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Entrada — Ana Teste [plan:plan-1] · Cartão 3×",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "CARTAO",
+    "reference_id": "pay_ENTRADA_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind ENTRADA webhook do Asaas (online): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "700",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Entrada — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "BOLETO",
+    "reference_id": "pay_ENTRADA_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind INSTALLMENT backfill do cron (dateFromCharge): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "250",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-19T00:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Parcelas 10x R$ 250 — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "BOLETO",
+    "reference_id": "pay_INSTALLMENT_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind INSTALLMENT recebido na clínica — dinheiro (registerClinicReceipt): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "250",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Parcelas 10x R$ 250 — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "DINHEIRO",
+    "reference_id": "pay_INSTALLMENT_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind INSTALLMENT recebido na clínica — maquineta 3x: financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "250",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Parcelas 10x R$ 250 — Ana Teste [plan:plan-1] · Cartão 3×",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "CARTAO",
+    "reference_id": "pay_INSTALLMENT_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind INSTALLMENT webhook do Asaas (online): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "250",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Parcelas 10x R$ 250 — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "BOLETO",
+    "reference_id": "pay_INSTALLMENT_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind SINAL backfill do cron (dateFromCharge): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "300",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-19T00:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Sinal — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "PIX",
+    "reference_id": "pay_SINAL_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind SINAL recebido na clínica — dinheiro (registerClinicReceipt): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "300",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Sinal — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "DINHEIRO",
+    "reference_id": "pay_SINAL_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind SINAL recebido na clínica — maquineta 3x: financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "300",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Sinal — Ana Teste [plan:plan-1] · Cartão 3×",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "CARTAO",
+    "reference_id": "pay_SINAL_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind SINAL webhook do Asaas (online): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "300",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Sinal — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "PIX",
+    "reference_id": "pay_SINAL_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind null (legado) backfill do cron (dateFromCharge): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "1200",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-19T00:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Plano de tratamento — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "PIX",
+    "reference_id": "pay_legado_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind null (legado) recebido na clínica — dinheiro (registerClinicReceipt): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "1200",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Plano de tratamento — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "DINHEIRO",
+    "reference_id": "pay_legado_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind null (legado) recebido na clínica — maquineta 3x: financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "1200",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebido na clínica — Ana Teste · Plano de tratamento — Ana Teste [plan:plan-1] · Cartão 3×",
+    "lead_id": "lead-ana",
+    "notes": "Venda/atendimento recebido na clínica (fechamento de caixa)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "CARTAO",
+    "reference_id": "pay_legado_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) kind null (legado) webhook do Asaas (online): financialTransaction.create 1`] = `
+{
+  "data": {
+    "amount": "1200",
+    "category": "PROCEDIMENTO",
+    "date": 2026-10-20T15:00:00.000Z,
+    "dentist_id": "dentista-1",
+    "description": "Recebimento — Ana Teste · Plano de tratamento — Ana Teste [plan:plan-1]",
+    "lead_id": "lead-ana",
+    "notes": "Recebimento de cobrança (Asaas online)",
+    "paid_at": 2026-10-19T13:30:00.000Z,
+    "payment_method": "PIX",
+    "reference_id": "pay_legado_001",
+    "status": "PAGO",
+    "tenant_id": "tenant-clinica-1",
+    "type": "RECEITA",
+  },
+}
+`;
+
+exports[`retrato: RECEITA de cobrança de clínica — ensureChargeReceita (F0a) trava anti-corrida, vínculo na cobrança e liberação das comissões do plano 1`] = `
+[
+  {
+    "args": {
+      "include": {
+        "patient": {
+          "select": {
+            "lead_id": true,
+            "name": true,
+          },
+        },
+        "treatment_plan": {
+          "select": {
+            "patient": {
+              "select": {
+                "lead_id": true,
+                "name": true,
+              },
+            },
+            "quote": {
+              "select": {
+                "created_by_user_id": true,
+              },
+            },
+          },
+        },
+      },
+      "where": {
+        "id": "ch-INSTALLMENT",
+      },
+    },
+    "op": "paymentGatewayCharge.findUnique",
+  },
+  {
+    "args": {
+      "maxWait": 5000,
+      "timeout": 15000,
+    },
+    "op": "$transaction",
+  },
+  {
+    "args": {
+      "sql": "SELECT pg_advisory_xact_lock(hashtext($), 1)",
+      "valores": [
+        "ch-INSTALLMENT",
+      ],
+    },
+    "op": "$executeRaw",
+  },
+  {
+    "args": {
+      "select": {
+        "transaction_id": true,
+      },
+      "where": {
+        "id": "ch-INSTALLMENT",
+      },
+    },
+    "op": "paymentGatewayCharge.findUnique",
+  },
+  {
+    "args": {
+      "data": {
+        "amount": "250",
+        "category": "PROCEDIMENTO",
+        "date": 2026-10-20T15:00:00.000Z,
+        "dentist_id": "dentista-1",
+        "description": "Recebimento — Ana Teste · Parcelas 10x R$ 250 — Ana Teste [plan:plan-1]",
+        "lead_id": "lead-ana",
+        "notes": "Recebimento de cobrança (Asaas online)",
+        "paid_at": 2026-10-19T13:30:00.000Z,
+        "payment_method": "BOLETO",
+        "reference_id": "pay_INSTALLMENT_001",
+        "status": "PAGO",
+        "tenant_id": "tenant-clinica-1",
+        "type": "RECEITA",
+      },
+    },
+    "op": "financialTransaction.create",
+  },
+  {
+    "args": {
+      "data": {
+        "transaction_id": "receita-1",
+      },
+      "where": {
+        "id": "ch-INSTALLMENT",
+      },
+    },
+    "op": "paymentGatewayCharge.update",
+  },
+  {
+    "args": {
+      "select": {
+        "quote_id": true,
+      },
+      "where": {
+        "id": "plan-1",
+      },
+    },
+    "op": "treatmentPlan.findUnique",
+  },
+  {
+    "args": {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "OR": [
+          {
+            "treatment_plan_item": {
+              "treatment_plan_id": "plan-1",
+            },
+          },
+          {
+            "quote_id": "quote-1",
+          },
+        ],
+        "status": "DEVIDA",
+        "tenant_id": "tenant-clinica-1",
+      },
+    },
+    "op": "commission.findMany",
+  },
+  {
+    "args": {
+      "data": {
+        "available_at": 2026-10-20T15:00:00.000Z,
+        "status": "DISPONIVEL",
+      },
+      "where": {
+        "id": {
+          "in": [
+            "com-1",
+            "com-2",
+          ],
+        },
+      },
+    },
+    "op": "commission.updateMany",
+  },
+]
+`;

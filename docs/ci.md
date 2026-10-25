@@ -37,6 +37,38 @@ bash scripts/ci/check-schema-expand-only.sh
 node scripts/ci/di-smoke.cjs api
 ```
 
+## Retratos de comportamento (clínica idêntica)
+
+`apps/api/src/__guards__/` congela, em teste, o que as fases do laboratório
+**não podem mudar para as clínicas**. Rodam no passo "Testes — API", só com
+mocks (sem banco, sem rede).
+
+| Spec | Congela |
+|---|---|
+| `auth-payload.spec.ts` | token do login e do MCP com exatamente `email, sub, roles, tenant_id` (+ `iat/exp`), HS256, 30 dias / 365 dias, e o `req.user` que o `JwtStrategy` monta. Sem snapshot: a lista de chaves está no próprio spec. |
+| `canaccessroute-matrix.spec.ts` + `canaccessroute.matrix.json` | tela × setor (`canAccessRoute` com as permissões padrão do setor), papel → setor (`mapBackendRole`) e setor × permissão. Telas = páginas de `apps/web/src/app/atendimento` + prefixos do `ROUTE_ACCESS`. |
+| `tenant-defaults.spec.ts` | especialidades, tabela de preços e anamnese padrão; o que `seedTenantDefaults` grava; o que `POST /signup` grava (tenant TRIAL 14 dias, admin `ADMIN`, defaults na mesma transação, e-mail de boas-vindas). |
+| `receita-clinica.spec.ts` | a RECEITA que `ensureChargeReceita` lança no caixa para cobrança de clínica (kind null, SINAL, ENTRADA, INSTALLMENT × webhook, baixa na clínica, maquineta, backfill), a trava anti-corrida e a liberação das comissões. |
+
+**Retrato vermelho** = o comportamento de clínica mudou. Se não era para
+mudar, conserte o código. Se era (decisão do dono para as clínicas), atualize o
+retrato **no mesmo commit** e diga o porquê na mensagem:
+
+```bash
+cd apps/api
+npx jest __guards__/tenant-defaults -u        # snapshots (.snap)
+npx jest __guards__/receita-clinica -u
+GUARDS_UPDATE=1 npx jest __guards__/canaccessroute   # regrava o JSON e lista o que mudou
+```
+
+- Na matriz, só par **que já existe** no JSON e muda de resultado reprova. Tela,
+  setor, papel ou permissão nova/removida só dá aviso (`console.warn`) pedindo a
+  regravação. O script raiz `npm run guards:update` (`scripts/ci/inventario.cjs
+  --write`) deve rodar também o `GUARDS_UPDATE=1 npx jest __guards__/canaccessroute`.
+- A matriz lê o `@crm/shared` **compilado**: depois de mexer em
+  `sectors.config.ts`, rode `npm run build -w @crm/shared` antes do jest.
+- Retrato quebrado nunca vai para a quarentena.
+
 ## Decisão pendente do dono
 
 Fazer o build das imagens esperar este CI (`needs`) com uma saída de
