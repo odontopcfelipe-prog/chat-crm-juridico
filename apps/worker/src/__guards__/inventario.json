@@ -1,0 +1,67 @@
+{
+  "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize com: npm run guards:update",
+  "app": "worker",
+  "resumo": {
+    "automatismos": { "@Cron": 26, "@Processor": 5, "BullModule.registerQueue": 6, "onModuleInit": 3 },
+    "socket": 0,
+    "globais": 0,
+    "controllers": 1,
+    "handlers": 1,
+    "@Public": 0
+  },
+  "automatismos": [
+    { "tipo": "@Cron", "arquivo": "admin-alerts/admin-agendamento-alert.service.ts", "alvo": "AdminAgendamentoAlertService.tick", "detalhe": "'* * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "after-hours/after-hours.service.ts", "alvo": "AfterHoursService.tick", "detalhe": "'*/5 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "ai/ai-reactivation-cron.service.ts", "alvo": "AiReactivationCronService.reactivateStaleConversations", "detalhe": "'17 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automation/appointment-confirmation-dispatcher.service.ts", "alvo": "AppointmentConfirmationDispatcherService.dispatchPending", "detalhe": "'5 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automation/appointment-confirmation-scheduler.service.ts", "alvo": "AppointmentConfirmationSchedulerService.scheduleConfirmations", "detalhe": "'0 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automation/appointment-orto-reminder.service.ts", "alvo": "AppointmentOrtoReminderService.sendOrtoReminders", "detalhe": "'10 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automation/goals-recalculator.service.ts", "alvo": "GoalsRecalculatorService.recalculateAllActive", "detalhe": "'0 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "automation/return-alert-expirator.service.ts", "alvo": "ReturnAlertExpiratorService.expireOldAlerts", "detalhe": "'0 3 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "financeiro/overdue-alerts.service.ts", "alvo": "OverdueAlertsService.checkOverdueItems", "detalhe": "'0 8,10,12,14,16,18 * * 1-5', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "financeiro/recurring-expenses.service.ts", "alvo": "RecurringExpensesService.generateRecurringExpenses", "detalhe": "'0 1 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "followup/followup-cron.service.ts", "alvo": "FollowupCronService.checkStaleLeads", "detalhe": "'0 9 * * 1-5', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "followup/followup-cron.service.ts", "alvo": "FollowupCronService.processEnrollments", "detalhe": "'0 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "influencer-messages/influencer-messages-cron.service.ts", "alvo": "InfluencerMessagesCronService.tick", "detalhe": "CronExpression.EVERY_MINUTE, { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "maintenance/maintenance-recall-cron.service.ts", "alvo": "MaintenanceRecallCronService.dailyMissedSweep", "detalhe": "'0 3 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "maintenance/maintenance-recall-cron.service.ts", "alvo": "MaintenanceRecallCronService.pacerTick", "detalhe": "'*/1 8-17 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "memory/daily-memory-batch.processor.ts", "alvo": "DailyMemoryBatchProcessor.scheduleDailyExtraction", "detalhe": "'0 0 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "memory/memory-dedup.service.ts", "alvo": "MemoryDedupService.dedupOrganizationMemories", "detalhe": "'0 3 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "memory/org-profile-consolidation.processor.ts", "alvo": "OrgProfileConsolidationProcessor.scheduleDailyConsolidation", "detalhe": "'0 2 * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "payment/payment-alerts-cron.service.ts", "alvo": "PaymentAlertsCronService.pacerTick", "detalhe": "'*/1 8-17 * * 1-5', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "post-care/post-care-cron.service.ts", "alvo": "PostCareCronService.tick", "detalhe": "'*/10 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "reativacao/reativacao-despachante.service.ts", "alvo": "ReativacaoDespachanteService.tick", "detalhe": "'*/1 8-18 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "reativacao/reativacao-despachante.service.ts", "alvo": "ReativacaoDespachanteService.varrerPresos", "detalhe": "'*/5 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "reativacao/reativacao-planejador.service.ts", "alvo": "ReativacaoPlanejadorService.tick", "detalhe": "'*/30 7-18 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "reativacao/reativacao-redator.service.ts", "alvo": "ReativacaoRedatorService.tick", "detalhe": "'*/15 7-18 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "task/task-alerts-cron.service.ts", "alvo": "TaskAlertsCronService.checkDueSoon", "detalhe": "'*/10 * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "task/task-alerts-cron.service.ts", "alvo": "TaskAlertsCronService.checkOverdue", "detalhe": "'0 8,14 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Processor", "arquivo": "ai/ai.processor.ts", "alvo": "AiProcessor", "detalhe": "'ai-jobs'" },
+    { "tipo": "@Processor", "arquivo": "followup/followup.processor.ts", "alvo": "FollowupProcessor", "detalhe": "'followup-jobs'" },
+    { "tipo": "@Processor", "arquivo": "media/media.processor.ts", "alvo": "MediaProcessor", "detalhe": "'media-jobs'" },
+    { "tipo": "@Processor", "arquivo": "memory/memory-jobs.processor.ts", "alvo": "MemoryJobsProcessor", "detalhe": "'memory-jobs'" },
+    { "tipo": "@Processor", "arquivo": "notification-whatsapp/notification-whatsapp.processor.ts", "alvo": "NotificationWhatsappProcessor", "detalhe": "'notification-whatsapp'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "ai/ai.module.ts", "alvo": "AiModule", "detalhe": "'ai-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "ai/ai.module.ts", "alvo": "AiModule", "detalhe": "'calendar-reminders'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "followup/followup.module.ts", "alvo": "FollowupModule", "detalhe": "'followup-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "media/media.module.ts", "alvo": "MediaModule", "detalhe": "'media-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "memory/memory.module.ts", "alvo": "MemoryModule", "detalhe": "'memory-jobs'" },
+    { "tipo": "BullModule.registerQueue", "arquivo": "notification-whatsapp/notification-whatsapp.module.ts", "alvo": "NotificationWhatsappModule", "detalhe": "'notification-whatsapp'" },
+    { "tipo": "onModuleInit", "arquivo": "post-care/post-care-cron.service.ts", "alvo": "PostCareCronService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "prisma/prisma.service.ts", "alvo": "PrismaService.onModuleInit", "detalhe": "" },
+    { "tipo": "onModuleInit", "arquivo": "s3/s3.service.ts", "alvo": "S3Service.onModuleInit", "detalhe": "" }
+  ],
+  "socket": [],
+  "globais": [],
+  "controllers": [
+    {
+      "arquivo": "app.controller.ts",
+      "classe": "AppController",
+      "path": "",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "AppController.getHello", "verbo": "GET", "path": "", "rota": "GET /", "acesso": [] }
+      ]
+    }
+  ]
+}
