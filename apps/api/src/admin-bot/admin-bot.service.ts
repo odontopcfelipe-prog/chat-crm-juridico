@@ -570,7 +570,10 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
 
         case 'list_users': {
           const users = await this.prisma.user.findMany({
-            where: { roles: { hasSome: ['ADMIN', 'DENTIST', 'OPERADOR'] } },
+            where: {
+              roles: { hasSome: ['ADMIN', 'DENTIST', 'OPERADOR'] },
+              ...(tenantId ? { tenant_id: tenantId } : {}),
+            },
             select: { id: true, name: true, roles: true },
             orderBy: { name: 'asc' },
           });
@@ -578,6 +581,8 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_task': {
+          const fora = await this.foraDaClinica(tenantId, args);
+          if (fora) return { error: fora };
           const task = await this.tasksService.create({
             title: args.title,
             description: args.description,
@@ -600,6 +605,8 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_calendar_event': {
+          const fora = await this.foraDaClinica(tenantId, args);
+          if (fora) return { error: fora };
           const startAt = new Date(args.start_at);
           const endAt = args.end_at
             ? new Date(args.end_at)
@@ -678,6 +685,8 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_charge': {
+          const fora = await this.foraDaClinica(tenantId, args);
+          if (fora) return { error: fora };
           // Cobrança vinculada a honorario_payment foi descontinuada.
           // A Fase 2 vai reimplementar via Installment (odonto).
           await this.paymentGatewayService.ensureCustomer(args.lead_id, tenantId || undefined);
@@ -702,6 +711,8 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_revenue': {
+          const fora = await this.foraDaClinica(tenantId, args);
+          if (fora) return { error: fora };
           const tx = await this.financeiroService.createTransaction({
             type: 'RECEITA',
             category: args.category,
@@ -733,6 +744,33 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Responsável e cliente vindos do modelo sempre da clínica do robô (o modelo
+   * pode inventar ou reaproveitar um id). Devolve o motivo da recusa, ou null.
+   * Robô sem clínica (chip legado): como antes.
+   */
+  private async foraDaClinica(
+    tenantId: string | null,
+    args: { assigned_user_id?: string; lead_id?: string },
+  ): Promise<string | null> {
+    if (!tenantId) return null;
+    if (args.assigned_user_id) {
+      const u = await this.prisma.user.findFirst({
+        where: { id: args.assigned_user_id, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!u) return 'Responsável não encontrado nesta clínica.';
+    }
+    if (args.lead_id) {
+      const l = await this.prisma.lead.findFirst({
+        where: { id: args.lead_id, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!l) return 'Cliente não encontrado nesta clínica.';
+    }
+    return null;
+  }
 
   private async sendReply(instanceName: string, jid: string, text: string): Promise<void> {
     await this.whatsapp.sendText(jid, text, instanceName).catch((e) =>
