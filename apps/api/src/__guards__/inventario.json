@@ -2,7 +2,7 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
-    "automatismos": { "@Cron": 24, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "automatismos": { "@Cron": 25, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
     "globais": 11,
     "produtores": 24,
@@ -26,6 +26,7 @@
     { "tipo": "@Cron", "arquivo": "email-automation/email-automation.service.ts", "alvo": "EmailAutomationService.sendDueTomorrowReminders", "detalhe": "'0 9 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "google-drive/google-drive-cleanup.cron.ts", "alvo": "GoogleDriveCleanupCron.cleanupStaleLeadFolders", "detalhe": "'0 3 1 * *'" },
     { "tipo": "@Cron", "arquivo": "notifications/notifications.service.ts", "alvo": "NotificationsService.handleCleanupCron", "detalhe": "CronExpression.EVERY_DAY_AT_3AM" },
+    { "tipo": "@Cron", "arquivo": "ops/disk-sentinel.service.ts", "alvo": "DiskSentinelService.verificar", "detalhe": "'*/10 * * * *'" },
     { "tipo": "@Cron", "arquivo": "patients/patient-avatar-backfill.cron.ts", "alvo": "PatientAvatarBackfillCron.drip", "detalhe": "'*/5 * * * *'" },
     { "tipo": "@Cron", "arquivo": "payment-gateway/boleto-delivery.service.ts", "alvo": "BoletoDeliveryService.tick", "detalhe": "'*/1 8-17 * * 1-5', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "payment-gateway/payment-gateway.service.ts", "alvo": "PaymentGatewayService.ensureReceitaBackfillCron", "detalhe": "'*/15 8-20 * * *', { timeZone: 'America/Maceio' }" },
