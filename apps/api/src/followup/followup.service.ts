@@ -44,6 +44,9 @@ export interface DisparoRow {
   ref_title: string | null;
 }
 
+/** Clínica de quem chama uma rota de follow-up (ver followup.controller). */
+export type EscopoFollowup = { tenantId: string | null; superAdmin: boolean };
+
 @Injectable()
 export class FollowupService {
   private readonly logger = new Logger(FollowupService.name);
@@ -1171,6 +1174,49 @@ export class FollowupService {
 
   // ─── CRUD Sequências ─────────────────────────────────────────────────────
 
+  // ─── Escopo das rotas por id (F0b) ──────────────────────────────────────
+  // Recurso de outra clínica = "não encontrado". Registro sem clínica (global
+  // ou legado) só o SUPER_ADMIN altera. Chamadas internas (auto-enroll,
+  // automações) não passam escopo e seguem como antes.
+
+  private dentroDoEscopo(recursoTenant: string | null | undefined, escopo?: EscopoFollowup): boolean {
+    if (!escopo || escopo.superAdmin) return true;
+    return !!recursoTenant && recursoTenant === escopo.tenantId;
+  }
+
+  private async assertSequencia(id: string, escopo?: EscopoFollowup) {
+    if (!escopo) return;
+    const seq = await this.prisma.followupSequence.findUnique({ where: { id }, select: { tenant_id: true } });
+    if (!seq || !this.dentroDoEscopo(seq.tenant_id, escopo)) throw new NotFoundException('Sequência não encontrada');
+  }
+
+  private async assertPasso(stepId: string, escopo?: EscopoFollowup) {
+    if (!escopo) return;
+    const step = await this.prisma.followupStep.findUnique({ where: { id: stepId }, select: { sequence: { select: { tenant_id: true } } } });
+    if (!step || !this.dentroDoEscopo(step.sequence?.tenant_id, escopo)) throw new NotFoundException('Passo não encontrado');
+  }
+
+  private async assertInscricao(enrollmentId: string, escopo?: EscopoFollowup) {
+    if (!escopo) return;
+    const e = await this.prisma.followupEnrollment.findUnique({ where: { id: enrollmentId }, select: { lead: { select: { tenant_id: true } } } });
+    if (!e || !this.dentroDoEscopo(e.lead?.tenant_id, escopo)) throw new NotFoundException('Enrollment não encontrado');
+  }
+
+  private async assertMensagem(messageId: string, escopo?: EscopoFollowup) {
+    if (!escopo) return;
+    const m = await this.prisma.followupMessage.findUnique({
+      where: { id: messageId },
+      select: { enrollment: { select: { lead: { select: { tenant_id: true } } } } },
+    });
+    if (!m || !this.dentroDoEscopo(m.enrollment?.lead?.tenant_id, escopo)) throw new NotFoundException('Mensagem não encontrada');
+  }
+
+  private async assertDisparoEmMassa(id: string, escopo?: EscopoFollowup) {
+    if (!escopo) return;
+    const b = await this.prisma.broadcastJob.findUnique({ where: { id }, select: { tenant_id: true } });
+    if (!b || !this.dentroDoEscopo(b.tenant_id, escopo)) throw new NotFoundException('Disparo não encontrado');
+  }
+
   async listSequences(tenantId?: string) {
     return this.prisma.followupSequence.findMany({
       where: tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {},
@@ -1197,13 +1243,15 @@ export class FollowupService {
   async updateSequence(id: string, data: Partial<{
     name: string; description: string; category: string; active: boolean;
     auto_enroll_stages: string[]; max_attempts: number;
-  }>) {
+  }>, escopo?: EscopoFollowup) {
+    await this.assertSequencia(id, escopo);
     return this.prisma.followupSequence.update({ where: { id }, data,
       include: { steps: { orderBy: { position: 'asc' } } },
     });
   }
 
-  async deleteSequence(id: string) {
+  async deleteSequence(id: string, escopo?: EscopoFollowup) {
+    await this.assertSequencia(id, escopo);
     // Cancelar enrollments ativos antes de deletar
     await this.prisma.followupEnrollment.updateMany({
       where: { sequence_id: id, status: { in: ['ATIVO', 'PAUSADO'] } },
@@ -1216,27 +1264,31 @@ export class FollowupService {
   async addStep(sequenceId: string, data: {
     position: number; delay_hours: number; channel: string; tone: string;
     objective: string; custom_prompt?: string; auto_send?: boolean;
-  }) {
+  }, escopo?: EscopoFollowup) {
+    await this.assertSequencia(sequenceId, escopo);
     return this.prisma.followupStep.create({ data: { sequence_id: sequenceId, ...data } });
   }
 
   async updateStep(stepId: string, data: Partial<{
     position: number; delay_hours: number; channel: string; tone: string;
     objective: string; custom_prompt: string; auto_send: boolean;
-  }>) {
+  }>, escopo?: EscopoFollowup) {
+    await this.assertPasso(stepId, escopo);
     return this.prisma.followupStep.update({ where: { id: stepId }, data });
   }
 
-  async deleteStep(stepId: string) {
+  async deleteStep(stepId: string, escopo?: EscopoFollowup) {
+    await this.assertPasso(stepId, escopo);
     await this.prisma.followupStep.delete({ where: { id: stepId } });
     return { ok: true };
   }
 
   // ─── Enrollments ─────────────────────────────────────────────────────────
 
-  async listEnrollments(filters: { status?: string; sequence_id?: string; lead_id?: string } = {}) {
+  async listEnrollments(filters: { status?: string; sequence_id?: string; lead_id?: string } = {}, escopo?: EscopoFollowup) {
     return this.prisma.followupEnrollment.findMany({
       where: {
+        ...(escopo && !escopo.superAdmin ? { lead: { tenant_id: escopo.tenantId ?? '__sem_clinica__' } } : {}),
         ...(filters.status && { status: filters.status }),
         ...(filters.sequence_id && { sequence_id: filters.sequence_id }),
         ...(filters.lead_id && { lead_id: filters.lead_id }),
@@ -1250,12 +1302,12 @@ export class FollowupService {
     });
   }
 
-  async enrollLead(leadId: string, sequenceId: string) {
+  async enrollLead(leadId: string, sequenceId: string, escopo?: EscopoFollowup) {
     const [lead, sequence] = await Promise.all([
       this.prisma.lead.findUnique({ where: { id: leadId } }),
       this.prisma.followupSequence.findUnique({ where: { id: sequenceId }, include: { steps: { orderBy: { position: 'asc' }, take: 1 } } }),
     ]);
-    if (!lead) throw new NotFoundException('Lead não encontrado');
+    if (!lead || !this.dentroDoEscopo(lead.tenant_id, escopo)) throw new NotFoundException('Lead não encontrado');
     if (!sequence) throw new NotFoundException('Sequência não encontrada');
     // Sequência de uma clínica nunca pega lead de outra (regra de automação,
     // auto-enroll ou inscrição manual). Sequência global ou lead legado: livre.
@@ -1289,14 +1341,16 @@ export class FollowupService {
     return enrollment;
   }
 
-  async pauseEnrollment(enrollmentId: string, reason?: string) {
+  async pauseEnrollment(enrollmentId: string, reason?: string, escopo?: EscopoFollowup) {
+    await this.assertInscricao(enrollmentId, escopo);
     return this.prisma.followupEnrollment.update({
       where: { id: enrollmentId },
       data: { status: 'PAUSADO', paused_reason: reason },
     });
   }
 
-  async resumeEnrollment(enrollmentId: string) {
+  async resumeEnrollment(enrollmentId: string, escopo?: EscopoFollowup) {
+    await this.assertInscricao(enrollmentId, escopo);
     const enrollment = await this.prisma.followupEnrollment.findUnique({
       where: { id: enrollmentId },
       include: { sequence: { include: { steps: { orderBy: { position: 'asc' } } } } },
@@ -1321,14 +1375,16 @@ export class FollowupService {
     return updated;
   }
 
-  async cancelEnrollment(enrollmentId: string) {
+  async cancelEnrollment(enrollmentId: string, escopo?: EscopoFollowup) {
+    await this.assertInscricao(enrollmentId, escopo);
     return this.prisma.followupEnrollment.update({
       where: { id: enrollmentId },
       data: { status: 'CANCELADO' },
     });
   }
 
-  async markConverted(enrollmentId: string) {
+  async markConverted(enrollmentId: string, escopo?: EscopoFollowup) {
+    await this.assertInscricao(enrollmentId, escopo);
     return this.prisma.followupEnrollment.update({
       where: { id: enrollmentId },
       data: { status: 'CONVERTIDO' },
@@ -1357,7 +1413,8 @@ export class FollowupService {
     });
   }
 
-  async approveMessage(messageId: string, approvedBy: string, editedText?: string) {
+  async approveMessage(messageId: string, approvedBy: string, editedText?: string, escopo?: EscopoFollowup) {
+    await this.assertMensagem(messageId, escopo);
     const msg = await this.prisma.followupMessage.update({
       where: { id: messageId },
       data: {
@@ -1372,14 +1429,16 @@ export class FollowupService {
     return msg;
   }
 
-  async rejectMessage(messageId: string, approvedBy: string) {
+  async rejectMessage(messageId: string, approvedBy: string, escopo?: EscopoFollowup) {
+    await this.assertMensagem(messageId, escopo);
     return this.prisma.followupMessage.update({
       where: { id: messageId },
       data: { status: 'REJEITADO', approved_by: approvedBy, approved_at: new Date() },
     });
   }
 
-  async regenerateMessage(messageId: string) {
+  async regenerateMessage(messageId: string, escopo?: EscopoFollowup) {
+    await this.assertMensagem(messageId, escopo);
     const msg = await this.prisma.followupMessage.findUnique({
       where: { id: messageId },
       include: {
@@ -1660,7 +1719,8 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
     });
   }
 
-  async getBroadcast(id: string) {
+  async getBroadcast(id: string, escopo?: EscopoFollowup) {
+    await this.assertDisparoEmMassa(id, escopo);
     const broadcast = await this.prisma.broadcastJob.findUnique({
       where: { id },
       include: {
@@ -1675,7 +1735,8 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
     return broadcast;
   }
 
-  async cancelBroadcast(id: string) {
+  async cancelBroadcast(id: string, escopo?: EscopoFollowup) {
+    await this.assertDisparoEmMassa(id, escopo);
     const broadcast = await this.prisma.broadcastJob.findUnique({ where: { id } });
     if (!broadcast) throw new NotFoundException('Disparo não encontrado');
     if (broadcast.status !== 'ENVIANDO') throw new BadRequestException('Disparo não está em andamento');

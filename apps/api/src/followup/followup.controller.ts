@@ -1,7 +1,13 @@
 import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException } from '@nestjs/common';
-import { FollowupService } from './followup.service';
+import { FollowupService, type EscopoFollowup } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+
+/** Clínica de quem chama: recurso de outra clínica responde "não encontrado". */
+function escopo(req: any): EscopoFollowup {
+  const roles: string[] = Array.isArray(req.user?.roles) ? req.user.roles : [];
+  return { tenantId: req.user?.tenant_id ?? null, superAdmin: roles.includes('SUPER_ADMIN') };
+}
 
 @UseGuards(JwtAuthGuard)
 // Onda 17.32.128 — Fase 6: follow-up exige view_marketing
@@ -119,55 +125,61 @@ export class FollowupController {
   }
 
   // ─── Sequências ──────────────────────────────────────────────────────────
+  // Sequências da clínica + as globais (o ?tenant_id da URL não vale mais).
   @Get('sequences')
-  listSequences(@Query('tenant_id') tenantId?: string) {
-    return this.svc.listSequences(tenantId);
+  listSequences(@Request() req: any) {
+    const e = escopo(req);
+    return this.svc.listSequences(e.tenantId ?? undefined);
   }
 
+  // Nasce na clínica de quem cria; sem clínica (global) só o SUPER_ADMIN.
   @Post('sequences')
-  createSequence(@Body() body: any) { return this.svc.createSequence(body); }
+  createSequence(@Body() body: any, @Request() req: any) {
+    const e = escopo(req);
+    return this.svc.createSequence({ ...body, tenant_id: e.superAdmin ? body?.tenant_id : e.tenantId ?? undefined });
+  }
 
   @Patch('sequences/:id')
-  updateSequence(@Param('id') id: string, @Body() body: any) {
-    return this.svc.updateSequence(id, body);
+  updateSequence(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.svc.updateSequence(id, body, escopo(req));
   }
 
   @Delete('sequences/:id')
-  deleteSequence(@Param('id') id: string) { return this.svc.deleteSequence(id); }
+  deleteSequence(@Param('id') id: string, @Request() req: any) { return this.svc.deleteSequence(id, escopo(req)); }
 
   @Post('sequences/:id/steps')
-  addStep(@Param('id') id: string, @Body() body: any) { return this.svc.addStep(id, body); }
+  addStep(@Param('id') id: string, @Body() body: any, @Request() req: any) { return this.svc.addStep(id, body, escopo(req)); }
 
   @Patch('steps/:id')
-  updateStep(@Param('id') id: string, @Body() body: any) { return this.svc.updateStep(id, body); }
+  updateStep(@Param('id') id: string, @Body() body: any, @Request() req: any) { return this.svc.updateStep(id, body, escopo(req)); }
 
   @Delete('steps/:id')
-  deleteStep(@Param('id') id: string) { return this.svc.deleteStep(id); }
+  deleteStep(@Param('id') id: string, @Request() req: any) { return this.svc.deleteStep(id, escopo(req)); }
 
   // ─── Enrollments ─────────────────────────────────────────────────────────
   @Get('enrollments')
-  listEnrollments(@Query() q: { status?: string; sequence_id?: string; lead_id?: string }) {
-    return this.svc.listEnrollments(q);
+  listEnrollments(@Query() q: { status?: string; sequence_id?: string; lead_id?: string }, @Request() req: any) {
+    return this.svc.listEnrollments(q, escopo(req));
   }
 
   @Post('enrollments')
-  enrollLead(@Body() body: { lead_id: string; sequence_id: string }) {
-    return this.svc.enrollLead(body.lead_id, body.sequence_id);
+  enrollLead(@Body() body: { lead_id: string; sequence_id: string }, @Request() req: any) {
+    return this.svc.enrollLead(body.lead_id, body.sequence_id, escopo(req));
   }
 
   @Patch('enrollments/:id/pause')
-  pauseEnrollment(@Param('id') id: string, @Body() body: { reason?: string }) {
-    return this.svc.pauseEnrollment(id, body.reason);
+  pauseEnrollment(@Param('id') id: string, @Body() body: { reason?: string }, @Request() req: any) {
+    return this.svc.pauseEnrollment(id, body.reason, escopo(req));
   }
 
   @Patch('enrollments/:id/resume')
-  resumeEnrollment(@Param('id') id: string) { return this.svc.resumeEnrollment(id); }
+  resumeEnrollment(@Param('id') id: string, @Request() req: any) { return this.svc.resumeEnrollment(id, escopo(req)); }
 
   @Patch('enrollments/:id/cancel')
-  cancelEnrollment(@Param('id') id: string) { return this.svc.cancelEnrollment(id); }
+  cancelEnrollment(@Param('id') id: string, @Request() req: any) { return this.svc.cancelEnrollment(id, escopo(req)); }
 
   @Patch('enrollments/:id/converted')
-  markConverted(@Param('id') id: string) { return this.svc.markConverted(id); }
+  markConverted(@Param('id') id: string, @Request() req: any) { return this.svc.markConverted(id, escopo(req)); }
 
   // ─── Aprovações ──────────────────────────────────────────────────────────
   @Get('approvals')
@@ -175,16 +187,16 @@ export class FollowupController {
 
   @Patch('messages/:id/approve')
   approveMessage(@Param('id') id: string, @Body() body: { edited_text?: string }, @Request() req: any) {
-    return this.svc.approveMessage(id, req.user?.name || 'Sistema', body.edited_text);
+    return this.svc.approveMessage(id, req.user?.name || 'Sistema', body.edited_text, escopo(req));
   }
 
   @Patch('messages/:id/reject')
   rejectMessage(@Param('id') id: string, @Request() req: any) {
-    return this.svc.rejectMessage(id, req.user?.name || 'Sistema');
+    return this.svc.rejectMessage(id, req.user?.name || 'Sistema', escopo(req));
   }
 
   @Post('messages/:id/regenerate')
-  regenerateMessage(@Param('id') id: string) { return this.svc.regenerateMessage(id); }
+  regenerateMessage(@Param('id') id: string, @Request() req: any) { return this.svc.regenerateMessage(id, escopo(req)); }
 
   // ─── Disparos em Massa (Broadcasts) ─────────────────────────────────────
   @Get('broadcasts/preview')
@@ -198,8 +210,8 @@ export class FollowupController {
   }
 
   @Get('broadcasts/:id')
-  getBroadcast(@Param('id') id: string) {
-    return this.svc.getBroadcast(id);
+  getBroadcast(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getBroadcast(id, escopo(req));
   }
 
   @Post('broadcasts')
@@ -208,11 +220,17 @@ export class FollowupController {
   }
 
   @Patch('broadcasts/:id/cancel')
-  cancelBroadcast(@Param('id') id: string) {
-    return this.svc.cancelBroadcast(id);
+  cancelBroadcast(@Param('id') id: string, @Request() req: any) {
+    return this.svc.cancelBroadcast(id, escopo(req));
   }
 
   // ─── Seed ────────────────────────────────────────────────────────────────
+  // Cria sequências GLOBAIS (valem para todas as clínicas): só o SUPER_ADMIN.
   @Post('seed-defaults')
-  seedDefaultSequences() { return this.svc.seedDefaultSequences(); }
+  seedDefaultSequences(@Request() req: any) {
+    if (!escopo(req).superAdmin) {
+      throw new ForbiddenException({ message: 'Só o administrador do sistema cria as sequências padrão', code: 'PERMISSION_DENIED' });
+    }
+    return this.svc.seedDefaultSequences();
+  }
 }
