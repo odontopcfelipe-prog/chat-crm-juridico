@@ -4,11 +4,13 @@
 # banco de verdade.
 #
 # Cobre: CI verde × vermelho × --sem-ci (e a ÚLTIMA tentativa do run),
-# 'latest', disco cheio, diff sem perigo, DROP COLUMN, DROP INDEX de drift
-# conhecido, diff tocando TeamMessage/ponto, diff que não dá para calcular
-# (falha fechada), segredo que nunca aparece na saída, --dry-run sem nenhum
-# "service update", API que não sobe (worker e web ficam) e o backup (espaço,
-# /tmp, retenção, pg_dump que falha).
+# 'latest', disco cheio, diff sem perigo, DROP COLUMN, troca de tipo, SET NOT
+# NULL, RENAME, enum recriado, DROP INDEX de drift conhecido, diff tocando
+# TeamMessage/ponto, diff que não dá para calcular (falha fechada), segredo que
+# nunca aparece na saída, --dry-run sem nenhum "service update", API que não
+# sobe (inclusive o Nest que cai depois do "Schema aplicado"; worker e web
+# ficam), interrupção no meio da espera, variáveis numéricas fora do formato e
+# o backup (espaço, /tmp, retenção, pg_dump que falha).
 #
 # O leitor de JSON do script aceita python3 (o do servidor) ou node: o teste
 # roda com os dois quando existem. No CI o python3 é obrigatório.
@@ -48,18 +50,27 @@ case "$1" in
         [ "${STUB_UPDATE_FALHA:-}" = "$ultimo" ] && exit 1
         prev=""
         for a in "$@"; do [ "$prev" = "--image" ] && echo "$a" > "$S/img.$ultimo"; prev="$a"; done
-        touch "$S/atualizado.$ultimo" ;;
+        touch "$S/atualizado.$ultimo"
+        [ "${STUB_MATA_NO_UPDATE:-}" = "$ultimo" ] && kill -TERM "$(cat "$S/pid")"
+        exit 0 ;;
       ps)
         svc="$3"
         if [[ " $* " == *" -q "* ]]; then echo "task-velha-$svc"; exit 0; fi
         echo "task-velha-$svc|$(cat "$S/img0.$svc")|Running 2 days ago"
         if [ -f "$S/atualizado.$svc" ]; then
-          echo "task-nova-$svc|$(cat "$S/img.$svc")|${STUB_ESTADO_NOVA:-Running 5 seconds ago}"
+          nova="task-nova-$svc"
+          if [ "${STUB_TASK_TROCA:-0}" = 1 ]; then
+            # crash loop: o Swarm troca a task a cada consulta
+            n=$(( $(cat "$S/ps.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/ps.n"; nova="$nova-$n"
+          fi
+          echo "$nova|$(cat "$S/img.$svc")|${STUB_ESTADO_NOVA:-Running 5 seconds ago}"
         fi ;;
       logs)
         case "$ultimo" in
-          task-velha-*) echo "[entrypoint] Schema aplicado com sucesso." ;;
-          *) printf '%s\n' "${STUB_LOG_API-[entrypoint] Schema aplicado com sucesso.}" ;;
+          task-velha-*) printf '%s\n' "[entrypoint] Schema aplicado com sucesso." "[Nest] 1  - LOG [Bootstrap] API rodando em http://localhost:3005" ;;
+          *) # STUB_MATA_NO_LOG: o "Ctrl+C" chega enquanto o script espera a API
+             [ "${STUB_MATA_NO_LOG:-0}" = 1 ] && kill -TERM "$(cat "$S/pid")"
+             printf '%b\n' "${STUB_LOG_API-[entrypoint] Schema aplicado com sucesso.\n[Nest] 1  - LOG [Bootstrap] API rodando em http://localhost:3005}" ;;
         esac ;;
     esac ;;
   info) echo "/var/lib/docker" ;;
@@ -171,8 +182,8 @@ rodar() {  # rodar <script> [VAR=valor ...] -- <args>
   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do vars+=("$1"); shift; done
   [ "$#" -gt 0 ] && shift
   env -u TAG PATH="$T/bin:$PATH" HOME="$S/home" TMPDIR="$S" STUB_DIR="$S" STUB_SHA="$SHA" \
-    JSON_ENGINE="$ENGINE" POLL_SEG=0 ESPERA_API_SEG=5 ${vars[@]+"${vars[@]}"} \
-    bash "$alvo" "$@" > "$S/saida.txt" 2>&1
+    JSON_ENGINE="$ENGINE" POLL_SEG=0 ESPERA_API_SEG=5 ESTAVEL_API_SEG=0 ${vars[@]+"${vars[@]}"} \
+    bash -c 'echo $$ > "$STUB_DIR/pid"; exec bash "$@"' rodar "$alvo" "$@" > "$S/saida.txt" 2>&1
   RC=$?
   if grep -qE 'SEGREDO_NAO_IMPRIMIR|SEGREDO_DO_STUB' "$S/saida.txt"; then falhou "segredo apareceu na saída"; else passou; fi
 }
@@ -239,6 +250,11 @@ suite_redeploy() {
   update_tem chatcrm_api "--image $IMG_NOVA_API"
   docker_tem "create --network none --entrypoint sh $IMG_NOVA_API"
   docker_tem "pull -q odontopassos/chat-crm-juridico-web@sha256:$(rep d 64)"
+  # o diff lê a URL do banco do ambiente da API (datasource do schema dela),
+  # nunca como argumento de processo
+  docker_tem "--from-schema-datasource \"\$1\" --to-schema-datamodel \"\$2\" --script sh /app/packages/shared/prisma/schema.prisma /tmp/"
+  docker_nao_tem "--from-url"; docker_nao_tem "DATABASE_URL"
+  tem "de pé há 0s"
   # as 3 imagens baixadas antes do 1º update
   local ult_pull pri_upd
   ult_pull=$(grep -n '^pull ' "$S/docker.log" | tail -1 | cut -d: -f1)
@@ -314,7 +330,7 @@ EOF
 
   novo_caso "DROP COLUMN + --confirmo-sem-migracao: API sobe com RUN_MIGRATIONS=false"
   diff_drop_column
-  redeploy STUB_LOG_API="[entrypoint] APP=api RUN_MIGRATIONS=false — pulando auto-migração." -- --confirmo-sem-migracao "$SHA"
+  redeploy STUB_LOG_API="[entrypoint] APP=api RUN_MIGRATIONS=false — pulando auto-migração.\n[Nest] 1  - LOG [NestApplication] Nest application successfully started" -- --confirmo-sem-migracao "$SHA"
   rc 0; ordem "chatcrm_api chatcrm_worker chatcrm_web"
   update_tem chatcrm_api "--env-add RUN_MIGRATIONS=false"; update_nao_tem chatcrm_worker "RUN_MIGRATIONS"
   tem "pulando auto-migração"; tem "ficou com RUN_MIGRATIONS=false"
@@ -368,6 +384,48 @@ SQL
   rc 1; tem "4 PERIGO"; tem 'PERIGO  DROP INDEX "TeamMessage_tenant_id_channel_created_at_idx"'
   docker_nao_tem "service update"
 
+  novo_caso "troca de tipo, SET NOT NULL, RENAME e enum recriado (sem tabela protegida): PERIGO"
+  # o bloco AlterEnum é o que o prisma escreve quando um valor sai do enum
+  cat > "$S/diff.sql" <<'SQL'
+/*
+  Warnings:
+
+  - The values [LEGACY] on the enum `Role` will be removed. If these variants are still used in the database, this will fail.
+
+*/
+-- AlterEnum
+BEGIN;
+CREATE TYPE "Role_new" AS ENUM ('ADMIN', 'OPERADOR');
+ALTER TABLE "User" ALTER COLUMN "role" DROP DEFAULT;
+ALTER TABLE "User" ALTER COLUMN "role" TYPE "Role_new" USING ("role"::text::"Role_new");
+ALTER TYPE "Role" RENAME TO "Role_old";
+ALTER TYPE "Role_new" RENAME TO "Role";
+DROP TYPE "Role_old";
+ALTER TABLE "User" ALTER COLUMN "role" SET DEFAULT 'OPERADOR';
+COMMIT;
+
+-- AlterTable
+ALTER TABLE "Lead" ALTER COLUMN "name" SET DATA TYPE VARCHAR(100);
+
+-- AlterTable
+ALTER TABLE "Lead" ALTER COLUMN "email" SET NOT NULL;
+
+ALTER TABLE "Lead" RENAME COLUMN "obs" TO "observacao";
+
+ALTER TABLE "LeadVelho" RENAME TO "LeadArquivo";
+SQL
+  redeploy -- "$SHA"
+  rc 1; tem "8 PERIGO · 1 aviso"; docker_nao_tem "service update"
+  tem 'PERIGO  ALTER TABLE "User" ALTER COLUMN "role" TYPE "Role_new"'
+  tem 'PERIGO  ALTER TYPE "Role" RENAME TO "Role_old"'
+  tem 'PERIGO  ALTER TYPE "Role_new" RENAME TO "Role"'
+  tem 'PERIGO  DROP TYPE "Role_old"'
+  tem 'PERIGO  ALTER TABLE "Lead" ALTER COLUMN "name" SET DATA TYPE VARCHAR(100)'
+  tem 'PERIGO  ALTER TABLE "Lead" ALTER COLUMN "email" SET NOT NULL'
+  tem 'PERIGO  ALTER TABLE "Lead" RENAME COLUMN "obs" TO "observacao"'
+  tem 'PERIGO  ALTER TABLE "LeadVelho" RENAME TO "LeadArquivo"'
+  tem 'aviso   ALTER TABLE "User" ALTER COLUMN "role" DROP DEFAULT'
+
   novo_caso "CREATE TABLE de tabela protegida: acréscimo, com aviso de que ainda não existe"
   cat > "$S/diff.sql" <<'SQL'
 -- CreateTable
@@ -416,8 +474,43 @@ SQL
   rc 1; ordem "chatcrm_api"
 
   novo_caso "db push falhou 15 vezes: para na hora"
-  redeploy "STUB_LOG_API=[entrypoint] prisma db push falhou (tentativa 15/15). Aguardando 3s..." ESPERA_API_SEG=60 -- "$SHA"
+  redeploy "STUB_LOG_API=[entrypoint] prisma db push falhou (tentativa 15/15). Aguardando 3s...\n[Nest] 1  - LOG [Bootstrap] API rodando em http://localhost:3005" ESPERA_API_SEG=60 -- "$SHA"
   rc 1; ordem "chatcrm_api"; tem "falhou 15 vezes"
+
+  novo_caso "Nest cai no boot depois do 'Schema aplicado' (ciclo de DI): para, worker/web ficam"
+  redeploy "STUB_LOG_API=[entrypoint] Schema aplicado com sucesso.\n[Nest] 1  - ERROR [ExceptionHandler] Nest can't resolve dependencies of the X (?)" \
+    ESPERA_API_SEG=2 POLL_SEG=1 -- "$SHA"
+  rc 1; ordem "chatcrm_api"; tem "NÃO executado"; nao_tem "✅ API no ar"; nao_tem "Redeploy completo"
+  if grep -q 'falhou: api nao subiu' "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem o 'falhou'"; fi
+
+  novo_caso "Nest escuta mas a task é trocada a cada consulta (cai depois do listen): para"
+  redeploy STUB_TASK_TROCA=1 ESTAVEL_API_SEG=2 ESPERA_API_SEG=2 POLL_SEG=1 -- "$SHA"
+  rc 1; ordem "chatcrm_api"; tem "Nest escutando na task"; nao_tem "✅ API no ar"; tem "NÃO executado"
+
+  novo_caso "Nest escuta e a mesma task fica de pé pela janela: segue"
+  redeploy ESTAVEL_API_SEG=1 ESPERA_API_SEG=5 POLL_SEG=1 -- "$SHA"
+  rc 0; tem "de pé há 1s"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "interrompido durante a espera da API: mostra a volta e registra"
+  # kill no próprio script quando ele consulta os logs da task nova
+  redeploy "STUB_LOG_API=[entrypoint] Schema aplicado com sucesso." STUB_MATA_NO_LOG=1 ESPERA_API_SEG=30 POLL_SEG=1 -- "$SHA"
+  rc 143; ordem "chatcrm_api"; tem "Saiu no meio da espera da API"; tem "NÃO executado"
+  if grep -q 'falhou: interrompido depois do update da api' "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem o 'interrompido'"; fi
+
+  novo_caso "interrompido no update do worker: avisa que a API já subiu e registra"
+  redeploy STUB_MATA_NO_UPDATE=chatcrm_worker -- "$SHA"
+  rc 143; ordem "chatcrm_api chatcrm_worker"; tem "Saiu no meio do update de worker/web"; nao_tem "Redeploy completo"
+  if grep -q 'falhou: interrompido no update de worker/web' "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem o 'interrompido'"; fi
+
+  for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESTAVEL_API_SEG POLL_SEG; do
+    novo_caso "$V fora do formato: uso errado antes de qualquer docker"
+    redeploy STUB_DF_USO=99 "$V=15%" -- "$SHA"
+    rc 2; tem "$V='15%' precisa ser um número"
+    if [ -s "$S/docker.log" ]; then falhou "chamou o docker: $(head -1 "$S/docker.log")"; else passou; fi
+  done
+  novo_caso "DISCO_MIN_LIVRE acima de 100: uso errado"
+  redeploy DISCO_MIN_LIVRE=101 -- "$SHA"
+  rc 2; docker_nao_tem "service"
 
   novo_caso "opção desconhecida: uso errado"
   redeploy -- --sem-cii "$SHA"

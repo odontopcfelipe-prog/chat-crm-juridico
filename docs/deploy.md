@@ -53,9 +53,9 @@ fim).
 | CI | Runs do workflow **"CI — testes e checagens"** do sha na API pública do GitHub (sem token). Vale a **última tentativa**: o maior `run_attempt` do run (um re-run que passou libera, sem commit vazio); entre runs diferentes do mesmo sha, o que começou por último. Precisa `completed` + `success`. | Recusa. Escape: `--sem-ci` (aviso na tela e no registro). Com `latest` não há sha para conferir: exige `--sem-ci`. |
 | Disco | `df -h` da raiz e do diretório de dados do Docker. | Menos de 10% livre: recusa. Escape: `--forcar-disco`. |
 | Imagens | Digest de cada tag no Docker Hub e `docker pull` **por digest** das 3 antes de mexer (pull por tag trava neste servidor). | Para; nada foi alterado. |
-| Schema | `docker create` da imagem nova (sem rodar) → `docker cp` do `schema.prisma` dela → `docker cp` para o `/tmp` da API que está no ar → `docker exec` com `prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel ... --script`. O `DATABASE_URL` só existe dentro do container e nunca é impresso. | Diff que não dá para calcular (API fora, erro do prisma) conta como **PERIGO** (falha fechada). |
+| Schema | `docker create` da imagem nova (sem rodar) → `docker cp` do `schema.prisma` dela → `docker cp` para o `/tmp` da API que está no ar → `docker exec` com `prisma migrate diff --from-schema-datasource <schema da própria API> --to-schema-datamodel <schema novo> --script`. O prisma lê o `DATABASE_URL` do ambiente da API (como o `db push` do boot): a URL não vira argumento de processo, não passa pelo host e nunca é impressa. | Diff que não dá para calcular (API fora, erro do prisma) conta como **PERIGO** (falha fechada). |
 | Migração | PERIGO → a API sobe com `--env-add RUN_MIGRATIONS=false`, **só** com `--confirmo-sem-migracao`. Sem perigo e a API com `RUN_MIGRATIONS=false` de antes → `--env-rm RUN_MIGRATIONS` (religa). | Sem a confirmação, para antes de mexer. |
-| Ordem | API primeiro; espera (até 300s) a task nova ficar Running e o log mostrar `[entrypoint] Schema aplicado com sucesso.` ou `pulando auto-migração`. Só então worker e web. | API não subiu: para, worker e web ficam na versão anterior e o script **mostra** (não executa) o comando de volta. |
+| Ordem | API primeiro. Espera (até 300s) uma task **nova** Running cujo log tenha as duas coisas: a linha do entrypoint (`[entrypoint] Schema aplicado com sucesso.` ou `pulando auto-migração`) **e** a do Nest depois do `listen` (`API rodando em`, ou `Nest application successfully started`). Depois, a **mesma** task tem de ficar de pé por 30s. Só então worker e web. A linha do entrypoint sozinha não basta, porque sai antes do `node` subir: um Nest que cai no boot (ciclo de DI, env faltando) imprime essa linha em cada restart. | API não subiu (Nest não chegou ao `listen`, task trocada sem parar, `tentativa 15/15`, tempo esgotado), ou o script foi interrompido no meio da espera: para, worker e web ficam na versão anterior, grava o `falhou` no registro e **mostra** (não executa) o comando de volta. |
 | Fim | Limpa imagens órfãs (>72h), mostra os digests antes → depois, o CI e a decisão de migração, e grava uma linha em `~/vps-redeploy.log`. | — |
 
 ### Como o diff é lido
@@ -89,9 +89,11 @@ ainda não subiu.
 | `--confirmo-sem-migracao` | Aceitar subir a API com `RUN_MIGRATIONS=false` quando o diff tem PERIGO. |
 
 Variáveis (raramente): `STACK` (padrão `chatcrm`), `ESPERA_API_SEG` (300),
-`DISCO_MIN_LIVRE` (10), `REDEPLOY_LOG` (`~/vps-redeploy.log`), `DRIFT_EXTRA`
-(nomes de índice a mais no drift), `PROTEGIDAS_EXTRA` (tabelas a mais na
-lista protegida; não dá para tirar nenhuma).
+`ESTAVEL_API_SEG` (30), `POLL_SEG` (5), `DISCO_MIN_LIVRE` (10, em %),
+`REDEPLOY_LOG` (`~/vps-redeploy.log`), `DRIFT_EXTRA` (nomes de índice a mais
+no drift), `PROTEGIDAS_EXTRA` (tabelas a mais na lista protegida; não dá para
+tirar nenhuma). As numéricas são só dígitos (`DISCO_MIN_LIVRE=15`, não `15%`):
+fora disso o script sai com 2 antes de chamar o docker.
 
 Saída: 0 = feito; 1 = recusado ou falhou; 2 = uso errado.
 
@@ -118,7 +120,15 @@ docker service update --force --image <imagem anterior da API> --env-add RUN_MIG
 
 A volta é sem migração de propósito: a imagem anterior com db push apagaria o
 que a nova acabou de criar. Antes de colar, olhe
-`docker service logs --tail=80 chatcrm_api`.
+`docker service logs --tail=80 chatcrm_api`. O caso mais comum é o Nest cair
+no boot depois do `Schema aplicado` (ex.: `Nest can't resolve dependencies`):
+o schema novo já foi aplicado, mas o código não subiu.
+
+O mesmo vale se o script for interrompido (Ctrl+C, `kill`, queda da sessão,
+quando só o registro fica) durante a espera: ele mostra a volta e grava
+`falhou: interrompido` no registro. Interrompido durante o update do worker
+ou do web, ele avisa que a API já está na versão nova; rode o mesmo comando
+de novo (o mesmo sha é seguro).
 
 ## `vps-backup.sh`
 
@@ -137,15 +147,40 @@ bash ~/scripts/vps-backup.sh [rótulo]     # rótulo padrão: manual
   **5 mais recentes** (`BACKUP_MANTER` muda; só apaga `chatcrm-*.dump`).
 - Não rode durante um deploy: rode antes, encadeado com `&&`.
 
-Conferir ou restaurar num banco **novo** (nunca por cima do de produção sem
-decidir com o dono; o Postgres precisa da extensão `vector`):
+**Conferir um dump** (o próprio `vps-backup.sh` já faz isso antes de guardar):
+só lê o índice, não grava nada no banco.
 
 ```bash
 PG=$(docker ps -q --filter label=com.docker.swarm.service.name=chatcrm_postgres)
 docker exec -i "$PG" pg_restore -l < ~/backups/<arquivo>.dump | head
-docker exec "$PG" sh -c 'createdb -U "$POSTGRES_USER" restaurado_teste'
-docker exec -i "$PG" sh -c 'pg_restore -U "$POSTGRES_USER" -d restaurado_teste --no-owner' < ~/backups/<arquivo>.dump
 ```
+
+**Teste de restauração completo**: **nunca** dentro do Postgres de produção.
+Ele divide o disco e o diretório de dados com o banco no ar; um restore
+grande (os anexos dos disparos são bytea) pode encher o disco e derrubar o
+Postgres de produção. Use um container descartável, sem rede, com volume
+próprio e a **mesma imagem** do Postgres que já roda no servidor (pelo id
+local: sem pull, que por tag trava aqui, e com a extensão `vector` que o
+banco usa). Faça fora do horário de atendimento: o restore pesa no disco.
+
+```bash
+set +H
+PG=$(docker ps -q --filter label=com.docker.swarm.service.name=chatcrm_postgres)
+IMG=$(docker inspect --format '{{.Image}}' "$PG")
+# 1. espaço: o livre no diretório do Docker precisa passar de 2x o banco
+docker exec "$PG" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -tAc "SELECT pg_size_pretty(pg_database_size(current_database()))"'
+df -h "$(docker info --format '{{.DockerRootDir}}')"
+# 2. só se sobrar espaço: container descartável (sem rede, então trust é local)
+docker run -d --name pg-restaurado-teste --network none -e POSTGRES_HOST_AUTH_METHOD=trust -v pg-restaurado-teste:/var/lib/postgresql/data "$IMG"
+until docker exec pg-restaurado-teste pg_isready -U postgres; do sleep 2; done
+docker exec pg-restaurado-teste createdb -U postgres restaurado_teste
+docker exec -i pg-restaurado-teste pg_restore -U postgres -d restaurado_teste --no-owner --no-privileges < ~/backups/<arquivo>.dump
+docker exec pg-restaurado-teste psql -U postgres -d restaurado_teste -tAc 'SELECT count(*) FROM "Patient"'
+# 3. SEMPRE no fim: apaga o container e o volume do teste
+docker rm -f pg-restaurado-teste && docker volume rm pg-restaurado-teste
+```
+
+Restaurar por cima do banco de produção é outra coisa: só decidindo com o dono.
 
 ## Voltar para o v1
 
@@ -182,5 +217,8 @@ máquina sem python.
 - O diff roda com o prisma da API **que está no ar**. Se a imagem nova trouxer
   um prisma que a velha não entende, o diff falha e conta como PERIGO.
 - O rótulo `crm.lab_aware` da imagem só é mostrado; vira trava na F2a.
-- A espera da API olha a linha do entrypoint e o estado da task, não o
-  `/health`.
+- A espera da API olha o log da task (linha do entrypoint + linha do Nest
+  depois do `listen`) e se ela fica de pé 30s; não chama o `/health`. Se a
+  frase `API rodando em` de `apps/api/src/main.ts` mudar, a padrão do Nest
+  (`Nest application successfully started`) ainda vale; se as duas sumirem,
+  o deploy para depois da API (falha fechada: worker e web não sobem).

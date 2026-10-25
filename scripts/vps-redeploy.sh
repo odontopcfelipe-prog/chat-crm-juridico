@@ -29,8 +29,10 @@
 #     banco vivo. Se o diff apagaria algo, a API sobe com RUN_MIGRATIONS=false
 #     (só com --confirmo-sem-migracao); sem perigo, religa a migração se um
 #     deploy anterior tinha desligado. Diff que não dá para calcular = PERIGO.
-#   - Ordem: API primeiro; espera o "[entrypoint] Schema aplicado com sucesso."
-#     (ou "pulando auto-migração") com limite de tempo; só então worker e web.
+#   - Ordem: API primeiro; espera, com limite de tempo, uma task nova com o
+#     "[entrypoint] Schema aplicado com sucesso." (ou "pulando auto-migração"),
+#     a linha do Nest depois do listen e a task de pé por 30s; só então
+#     worker e web.
 #   - --dry-run: mostra tudo isso e não mexe em nenhum service.
 #
 # Uso na VPS (deploy é MANUAL, a pedido do dono — docs/deploy.md):
@@ -93,8 +95,21 @@ CI_WORKFLOW="${CI_WORKFLOW:-CI — testes e checagens}"
 CI_WORKFLOW_PATH="${CI_WORKFLOW_PATH:-.github/workflows/ci.yml}"
 DISCO_MIN_LIVRE="${DISCO_MIN_LIVRE:-10}"        # % livre mínimo
 ESPERA_API_SEG="${ESPERA_API_SEG:-300}"         # limite para a API nova subir
+ESTAVEL_API_SEG="${ESTAVEL_API_SEG:-30}"        # a task nova tem de ficar de pé esse tempo
 POLL_SEG="${POLL_SEG:-5}"
 REDEPLOY_LOG="${REDEPLOY_LOG:-$HOME/vps-redeploy.log}"
+# Número fora do formato quebrava a trava em silêncio: o `[ -lt ]` do disco dava
+# erro e passava (falha aberta), e a espera da API morria por `set -u` DEPOIS do
+# update dela. Confere aqui, antes de qualquer docker.
+for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESTAVEL_API_SEG POLL_SEG; do
+  if ! [[ "${!V}" =~ ^[0-9]+$ ]]; then
+    echo "❌ $V='${!V}' precisa ser um número inteiro (sem %, sem unidade). NADA foi alterado."
+    exit 2
+  fi
+done
+if [ "$DISCO_MIN_LIVRE" -gt 100 ]; then
+  echo "❌ DISCO_MIN_LIVRE=$DISCO_MIN_LIVRE passa de 100 (%). NADA foi alterado."; exit 2
+fi
 
 # Tabelas que NUNCA entram no drift aceito: ponto (registro legal), anexos dos
 # disparos e conversa da equipe. Qualquer DROP/ALTER nelas é PERIGO. A lista só
@@ -286,12 +301,33 @@ redigir() { sed -E 's#(postgres(ql)?://)[^[:space:]"'"'"'`]+#\1***#g'; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/vps-redeploy.XXXXXX")
 NEW_CID=""; API_CID=""; REMOTE_SCHEMA=""
+# "api" do update da API até ela ser dada como no ar; "resto" durante worker e
+# web. Se o script sair no meio (Ctrl+C, erro inesperado), o trap mostra a
+# volta (ou o que falta) e grava o 'falhou', em vez de sair calado com a API
+# nova e worker/web velhos.
+FASE=""
 limpar() {
+  if [ "$FASE" = "api" ]; then
+    FASE=""
+    echo ""
+    echo "  ❌ Saiu no meio da espera da API (interrompido ou erro inesperado)."
+    mostrar_volta
+    registrar "falhou: interrompido depois do update da api"
+  elif [ "$FASE" = "resto" ]; then
+    FASE=""
+    echo ""
+    echo "  ❌ Saiu no meio do update de worker/web: a API já está na versão nova."
+    echo "     Confira com 'docker service ls' e rode o mesmo comando de novo (o mesmo sha é seguro)."
+    registrar "falhou: interrompido no update de worker/web"
+  fi
   if [ -n "$NEW_CID" ]; then docker rm -f "$NEW_CID" >/dev/null 2>&1 || true; fi
   if [ -n "$API_CID" ] && [ -n "$REMOTE_SCHEMA" ]; then docker exec "$API_CID" rm -f "$REMOTE_SCHEMA" >/dev/null 2>&1 || true; fi
   rm -rf "$WORK"
 }
 trap limpar EXIT
+trap 'exit 130' INT    # o EXIT acima roda também no Ctrl+C, no kill e na
+trap 'exit 143' TERM   # queda da sessão (aí só o registro fica)
+trap 'exit 129' HUP
 
 echo "═══════════════════════════════════════════════════════════════"
 echo " Redeploy chatcrm ($VERSAO) — tag: $TAG"
@@ -482,6 +518,7 @@ fi
 
 # ── 5. Schema: imagem nova × banco vivo ─────────────────────────────────────
 SCHEMA_RESULT="DESCONHECIDO"; SCHEMA_MOTIVO=""
+API_SCHEMA_VIVO="/app/packages/shared/prisma/schema.prisma"   # dentro da API no ar
 schema_desconhecido() {
   SCHEMA_RESULT="DESCONHECIDO"; SCHEMA_MOTIVO="$1"
   echo "  ⛔ Não calculei o diff: $1."
@@ -524,11 +561,13 @@ calcular_diff() {
   if ! docker cp "$WORK/schema.novo.prisma" "$API_CID:$REMOTE_SCHEMA" >/dev/null 2>&1; then
     REMOTE_SCHEMA=""; schema_desconhecido "docker cp do schema para o container da API falhou"; return
   fi
-  # O DATABASE_URL só é expandido DENTRO do container (aspas simples): nunca
-  # passa pelo host nem aparece na tela; erros passam pelo redigir().
+  # Origem = o datasource do schema da PRÓPRIA API no ar (url = env("DATABASE_URL")):
+  # o prisma lê a URL do ambiente do container, como o `db push` do entrypoint.
+  # Ela não vira argumento de processo (que o `ps` do host mostra) nem passa
+  # pelo host; erros passam pelo redigir().
   if ! timeout 180 docker exec -w /app/packages/shared "$API_CID" sh -c \
-      'PRISMA_HIDE_UPDATE_MESSAGE=1 npx --no-install prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel "$1" --script' \
-      sh "$REMOTE_SCHEMA" > "$WORK/diff.sql" 2> "$WORK/diff.err"; then
+      'PRISMA_HIDE_UPDATE_MESSAGE=1 npx --no-install prisma migrate diff --from-schema-datasource "$1" --to-schema-datamodel "$2" --script' \
+      sh "$API_SCHEMA_VIVO" "$REMOTE_SCHEMA" > "$WORK/diff.sql" 2> "$WORK/diff.err"; then
     echo "  saída do prisma (redigida):"
     redigir < "$WORK/diff.err" | tail -15 | sed 's/^/     | /'
     schema_desconhecido "prisma migrate diff falhou dentro da API (banco fora? prisma da API velha não entende o schema novo?)"
@@ -615,6 +654,7 @@ for S in "${ORDEM[@]}"; do
   echo "  $N. ${STACK}_${S} → ${REPO}-${S}@${DIG[$S]:0:19}…${EXTRA}"
   if [ "$S" = api ]; then
     echo "     espera até ${ESPERA_API_SEG}s: task nova Running + log \"[entrypoint] Schema aplicado com sucesso.\" (ou \"pulando auto-migração\")"
+    echo "     + \"API rodando em\" do Nest + a mesma task de pé por ${ESTAVEL_API_SEG}s"
   fi
 done
 
@@ -650,30 +690,53 @@ mostrar_volta() {
 esperar_api() {
   # Só vale task NOVA: as que já existiam antes do update ficam de fora (num
   # redeploy do mesmo sha a task velha tem o mesmo digest e o log antigo).
-  local fim linha tid estado="" logs
-  fim=$(( $(date +%s) + ESPERA_API_SEG ))
+  #
+  # A linha do entrypoint ("Schema aplicado"/"pulando auto-migração") sai ANTES
+  # do `exec node` (infra/entrypoint.sh): sozinha não prova nada. Um Nest que
+  # cai no boot (ciclo de DI, env faltando, Redis) imprime a mesma linha em
+  # cada restart, e cada restart do Swarm é uma task nova com o digest novo.
+  # Por isso exige também, na MESMA task:
+  #   - a linha do Nest depois do app.listen ("API rodando em", de
+  #     apps/api/src/main.ts, ou a padrão "Nest application successfully started");
+  #   - a task continuar Running, sem ser trocada, por ESTAVEL_API_SEG (pega o
+  #     que cai logo depois do listen, como o adapter do Socket.IO).
+  # Limite: ESPERA_API_SEG para chegar ao Nest no ar, + ESTAVEL_API_SEG de pé.
+  local agora fim duro linha tid estado logs marca_tid="" marca_t=0 schema_txt
+  agora=$(date +%s); fim=$((agora + ESPERA_API_SEG)); duro=$((fim + ESTAVEL_API_SEG))
   while :; do
+    agora=$(date +%s)
     linha=$(docker service ps "${STACK}_api" --filter desired-state=running --no-trunc \
       --format '{{.ID}}|{{.Image}}|{{.CurrentState}}' 2>/dev/null | grep -F "${DIG[api]}" \
       | grep -vF -f "$WORK/tasks-antes.txt" | head -1 || true)
-    if [ -n "$linha" ]; then
-      tid="${linha%%|*}"; estado="${linha##*|}"
-      if [[ "$estado" == Running* ]]; then
-        logs=$(docker service logs --raw "$tid" 2>&1 \
-          | grep -E 'Schema aplicado com sucesso|pulando auto-migra|db push falhou \(tentativa 15/15\)' || true)
-        if grep -q 'Schema aplicado com sucesso' <<<"$logs"; then
-          echo "  ✅ API no ar: \"[entrypoint] Schema aplicado com sucesso.\""; return 0
-        fi
-        if grep -q 'pulando auto-migra' <<<"$logs"; then
-          echo "  ✅ API no ar: \"pulando auto-migração\" (RUN_MIGRATIONS=false)"; return 0
-        fi
-        if grep -q 'tentativa 15/15' <<<"$logs"; then
-          echo "  ❌ O db push da API falhou 15 vezes (log da task $tid)."; return 1
-        fi
+    tid=""; estado=""
+    if [ -n "$linha" ]; then tid="${linha%%|*}"; estado="${linha##*|}"; fi
+    if [ -n "$tid" ] && [[ "$estado" == Running* ]]; then
+      logs=$(docker service logs --raw "$tid" 2>&1 \
+        | grep -E 'Schema aplicado com sucesso|pulando auto-migra|db push falhou \(tentativa 15/15\)|API rodando em|Nest application successfully started' || true)
+      if grep -q 'tentativa 15/15' <<<"$logs"; then
+        echo "  ❌ O db push da API falhou 15 vezes (log da task $tid)."; return 1
       fi
+      if grep -qE 'Schema aplicado com sucesso|pulando auto-migra' <<<"$logs" \
+          && grep -qE 'API rodando em|Nest application successfully started' <<<"$logs"; then
+        if [ "$marca_tid" != "$tid" ]; then
+          marca_tid="$tid"; marca_t="$agora"
+          echo "  ⏳ Nest escutando na task $tid; conferindo se ela fica de pé por ${ESTAVEL_API_SEG}s"
+        fi
+        if [ $((agora - marca_t)) -ge "$ESTAVEL_API_SEG" ]; then
+          if grep -q 'pulando auto-migra' <<<"$logs"; then schema_txt='"pulando auto-migração" (RUN_MIGRATIONS=false)'
+          else schema_txt='"[entrypoint] Schema aplicado com sucesso."'; fi
+          echo "  ✅ API no ar: $schema_txt, Nest escutando e a task de pé há ${ESTAVEL_API_SEG}s"
+          return 0
+        fi
+      else
+        marca_tid=""
+      fi
+    else
+      marca_tid=""   # a task marcada caiu ou foi trocada: a janela recomeça na próxima
     fi
-    if [ "$(date +%s)" -ge "$fim" ]; then
-      echo "  ❌ A API não subiu em ${ESPERA_API_SEG}s (último estado: ${estado:-sem task nova com o digest novo})."
+    if { [ -z "$marca_tid" ] && [ "$agora" -ge "$fim" ]; } || [ "$agora" -ge "$duro" ]; then
+      echo "  ❌ A API não ficou no ar em ${ESPERA_API_SEG}s (último estado: ${estado:-sem task nova Running com o digest novo}${tid:+, task $tid})."
+      echo "     Pedido: linha do entrypoint + \"API rodando em\" do Nest + a mesma task de pé por ${ESTAVEL_API_SEG}s."
       return 1
     fi
     sleep "$POLL_SEG"
@@ -687,18 +750,22 @@ registrar "inicio"
   | sed '/^[[:space:]]*$/d' > "$WORK/tasks-antes.txt"
 echo ""
 echo "▶ ${STACK}_api → ${PIN[api]}"
+FASE="api"
 if ! docker service update --force --detach --quiet --image "${PIN[api]}" ${MIG_API[@]+"${MIG_API[@]}"} "${STACK}_api" >/dev/null; then
+  FASE=""
   echo "  ❌ docker service update da API falhou."
   mostrar_volta
   registrar "falhou: update da api"
   exit 1
 fi
-echo "  ⏳ esperando a task nova (até ${ESPERA_API_SEG}s)..."
+echo "  ⏳ esperando a task nova (até ${ESPERA_API_SEG}s + ${ESTAVEL_API_SEG}s de pé)..."
 if ! esperar_api; then
+  FASE=""
   mostrar_volta
   registrar "falhou: api nao subiu"
   exit 1
 fi
+FASE="resto"
 
 FALHAS=()
 for S in "${ORDEM[@]}"; do
@@ -719,6 +786,7 @@ echo ""
 echo "▶ Limpando imagens órfãs (>72h) para não encher o disco..."
 docker image prune -af --filter 'until=72h' >/dev/null 2>&1 || true
 
+FASE=""
 if [ "${#FALHAS[@]}" -gt 0 ]; then registrar "falhou: ${FALHAS[*]}"; else registrar "ok"; fi
 
 echo ""
@@ -746,7 +814,7 @@ echo " Registro: $REDEPLOY_LOG"
 echo ""
 echo " Confira (aguarde ~30s):"
 echo "   docker service ls"
-echo "   docker service logs --tail=30 ${STACK}_api | grep -iE 'started|listening|error'"
+echo "   docker service logs --tail=30 ${STACK}_api | grep -iE 'rodando em|started|error'"
 echo "   curl -i https://sistema.institutoodontopassos.com.br/api/health"
 [ "${#FALHAS[@]}" -gt 0 ] && exit 1
 exit 0
