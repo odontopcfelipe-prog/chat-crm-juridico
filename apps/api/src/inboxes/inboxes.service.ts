@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** Quem está chamando: a clínica do JWT. SUPER_ADMIN mexe em qualquer clínica. */
+export type InboxCaller = { tenantId: string | null | undefined; isSuperAdmin?: boolean };
+
 @Injectable()
 export class InboxesService {
   constructor(private prisma: PrismaService) {}
@@ -93,7 +96,28 @@ export class InboxesService {
     });
   }
 
-  async findOne(id: string) {
+  /**
+   * Setor (inbox) só é lido/alterado pela clínica dele — mesmo critério da lista
+   * (findAll filtra tenant_id = clínica do JWT). De outra clínica = "não encontrada".
+   */
+  private async assertInboxDoChamador(inboxId: string, caller?: InboxCaller) {
+    const inbox = await this.inbox.findUnique({ where: { id: inboxId }, select: { id: true, tenant_id: true } });
+    if (!inbox) throw new NotFoundException('Inbox não encontrada');
+    if (caller && !caller.isSuperAdmin && (inbox.tenant_id ?? null) !== (caller.tenantId ?? null)) {
+      throw new NotFoundException('Inbox não encontrada');
+    }
+    return inbox as { id: string; tenant_id: string | null };
+  }
+
+  /** Chip de outra clínica não entra em setor desta (nem por createFull nem por addInstance). */
+  private assertChipLivreParaClinica(existing: { tenant_id?: string | null } | null, tenantId: string | null | undefined) {
+    if (existing?.tenant_id && existing.tenant_id !== (tenantId ?? null)) {
+      throw new ConflictException('Esta instância pertence a outra clínica.');
+    }
+  }
+
+  async findOne(id: string, caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(id, caller);
     const inbox = await this.inbox.findUnique({
       where: { id },
       include: {
@@ -119,7 +143,8 @@ export class InboxesService {
     });
   }
 
-  async update(id: string, data: { name?: string; color?: string | null; auto_route?: boolean }) {
+  async update(id: string, data: { name?: string; color?: string | null; auto_route?: boolean }, caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(id, caller);
     return this.inbox.update({
       where: { id },
       data,
@@ -130,7 +155,8 @@ export class InboxesService {
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(id, caller);
     await Promise.all([
       (this.prisma as any).conversation.updateMany({
         where: { inbox_id: id },
@@ -146,7 +172,15 @@ export class InboxesService {
 
   // --- Gestão de Usuários no Setor ---
 
-  async addUser(inboxId: string, userId: string) {
+  async addUser(inboxId: string, userId: string, caller?: InboxCaller) {
+    if (caller) {
+      const inbox = await this.assertInboxDoChamador(inboxId, caller);
+      // Só gente da clínica do setor entra nele.
+      const user = await (this.prisma as any).user.findUnique({ where: { id: userId }, select: { tenant_id: true } });
+      if (!user || (user.tenant_id ?? null) !== (inbox.tenant_id ?? null)) {
+        throw new NotFoundException('Usuário não encontrado');
+      }
+    }
     return this.inbox.update({
       where: { id: inboxId },
       data: {
@@ -155,7 +189,8 @@ export class InboxesService {
     });
   }
 
-  async removeUser(inboxId: string, userId: string) {
+  async removeUser(inboxId: string, userId: string, caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(inboxId, caller);
     return this.inbox.update({
       where: { id: inboxId },
       data: {
@@ -166,7 +201,8 @@ export class InboxesService {
 
   // --- Gestão de Instâncias ---
 
-  async addInstance(inboxId: string, instanceName: string, type: 'whatsapp' | 'instagram') {
+  async addInstance(inboxId: string, instanceName: string, type: 'whatsapp' | 'instagram', caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(inboxId, caller);
     const existing = await this.instance.findUnique({ where: { name: instanceName } });
     if (existing?.inbox_id && existing.inbox_id !== inboxId) {
       const otherInbox = await this.inbox.findUnique({ where: { id: existing.inbox_id }, select: { name: true } });
@@ -180,6 +216,7 @@ export class InboxesService {
       select: { tenant_id: true },
     });
     if (!parentInbox) throw new NotFoundException(`Inbox ${inboxId} não encontrado`);
+    this.assertChipLivreParaClinica(existing, parentInbox.tenant_id);
     const instance = await this.instance.upsert({
       where: { name: instanceName },
       update: {
@@ -200,7 +237,10 @@ export class InboxesService {
     // ficavam com tenant=null (porque a Instance não tinha tenant na época) e eram
     // filtradas por /conversations (que sempre aplica where.tenant_id = tenantId).
     await (this.prisma as any).conversation.updateMany({
-      where: { instance_name: instanceName },
+      where: {
+        instance_name: instanceName,
+        ...(parentInbox.tenant_id ? { OR: [{ tenant_id: parentInbox.tenant_id }, { tenant_id: null }] } : {}),
+      },
       data: { inbox_id: inboxId },
     });
     if (parentInbox.tenant_id) {
@@ -221,7 +261,8 @@ export class InboxesService {
   }
 
   /** Desvincula a instância do setor sem apagá-la (fica órfã). */
-  async removeInstance(inboxId: string, instanceName: string) {
+  async removeInstance(inboxId: string, instanceName: string, caller?: InboxCaller) {
+    if (caller) await this.assertInboxDoChamador(inboxId, caller);
     const existing = await this.instance.findUnique({ where: { name: instanceName } });
     if (!existing || existing.inbox_id !== inboxId) {
       throw new NotFoundException('Instância não está vinculada a este setor');
@@ -249,6 +290,7 @@ export class InboxesService {
 
     if (instanceName) {
       const existing = await this.instance.findUnique({ where: { name: instanceName } });
+      this.assertChipLivreParaClinica(existing, tenant_id);
       if (existing?.inbox_id) {
         const other = await this.inbox.findUnique({ where: { id: existing.inbox_id }, select: { name: true } });
         throw new ConflictException(
@@ -257,6 +299,14 @@ export class InboxesService {
       }
     }
 
+    // Operadores só da clínica do setor (a tela já lista só os dela).
+    const operadores: string[] = operatorIds.length
+      ? (await (this.prisma as any).user.findMany({
+          where: { id: { in: operatorIds }, tenant_id: tenant_id ?? null },
+          select: { id: true },
+        })).map((u: { id: string }) => u.id)
+      : [];
+
     return (this.prisma as any).$transaction(async (tx: any) => {
       const created = await tx.inbox.create({
         data: {
@@ -264,7 +314,7 @@ export class InboxesService {
           color: color ?? null,
           auto_route: autoRoute ?? false,
           tenant_id,
-          users: operatorIds.length > 0 ? { connect: operatorIds.map(id => ({ id })) } : undefined,
+          users: operadores.length > 0 ? { connect: operadores.map(id => ({ id })) } : undefined,
         },
       });
 
@@ -285,7 +335,10 @@ export class InboxesService {
         });
 
         await tx.conversation.updateMany({
-          where: { instance_name: instanceName },
+          where: {
+            instance_name: instanceName,
+            ...(tenant_id ? { OR: [{ tenant_id }, { tenant_id: null }] } : {}),
+          },
           data: { inbox_id: created.id },
         });
         // Backfill tenant_id em conversas/leads criados antes do vínculo
