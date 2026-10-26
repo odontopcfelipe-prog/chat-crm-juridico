@@ -1247,6 +1247,8 @@ export class EvolutionService implements OnApplicationBootstrap {
             status: 'A_FAZER',
             due_at: new Date(Date.now() + 2 * 3600000), // 2 horas
             lead_id: leadId,
+            // Clínica do lead: sem ela a tarefa nascia órfã (sem clínica).
+            tenant_id: enrollment.lead?.tenant_id ?? null,
             assigned_user_id: null, // será assignado pelo responsável
           },
         });
@@ -1269,6 +1271,7 @@ export class EvolutionService implements OnApplicationBootstrap {
             status: 'A_FAZER',
             due_at: new Date(Date.now() + 4 * 3600000),
             lead_id: leadId,
+            tenant_id: enrollment.lead?.tenant_id ?? null,
             assigned_user_id: null,
           },
         });

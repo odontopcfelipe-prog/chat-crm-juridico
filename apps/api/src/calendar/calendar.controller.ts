@@ -615,25 +615,28 @@ export class CalendarController {
     return this.calendarService.findHolidays(req.user?.tenant_id);
   }
 
+  // Feriado global (tenant_id NULL) só o SUPER_ADMIN cria/edita/apaga — o
+  // service confere pelos papéis. SUPER_ADMIN no @Roles: sem isso, o SUPER_ADMIN
+  // sem o papel ADMIN era barrado e ninguém mantinha os nacionais pela API.
   @Post('holidays')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   createHoliday(@Body() data: CreateHolidayDto, @Request() req: any) {
-    return this.calendarService.createHoliday({
-      ...data,
-      tenant_id: req.user?.tenant_id,
-    });
+    return this.calendarService.createHoliday(
+      { ...data, tenant_id: req.user?.tenant_id },
+      req.user?.roles,
+    );
   }
 
   @Patch('holidays/:id')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   updateHoliday(@Param('id') id: string, @Body() data: UpdateHolidayDto, @Request() req: any) {
-    return this.calendarService.updateHoliday(id, data, req.user?.tenant_id);
+    return this.calendarService.updateHoliday(id, data, req.user?.tenant_id, req.user?.roles);
   }
 
   @Delete('holidays/:id')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   deleteHoliday(@Param('id') id: string, @Request() req: any) {
-    return this.calendarService.deleteHoliday(id, req.user?.tenant_id);
+    return this.calendarService.deleteHoliday(id, req.user?.tenant_id, req.user?.roles);
   }
 
   // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ──────────
@@ -758,9 +761,14 @@ export class CalendarController {
 
   // ─── Migration ────────────────────────────────────────
 
+  // Só a clínica de quem chama; o SUPER_ADMIN varre todas.
   @Post('migrate-tasks')
-  @Roles('ADMIN')
-  async migrateTasks() {
-    return this.calendarService.migrateOrphanTasks();
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  async migrateTasks(@Request() req: any) {
+    const roles: string[] = Array.isArray(req.user?.roles) ? req.user.roles : [];
+    return this.calendarService.migrateOrphanTasks({
+      tenantId: req.user?.tenant_id ?? null,
+      superAdmin: roles.includes('SUPER_ADMIN'),
+    });
   }
 }

@@ -54,6 +54,11 @@ const EVENT_TYPES = [
 // seguem com a mesma lógica de disparo/waitlist; os novos são estados intermediários.
 const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO', 'CANCELADO', 'NO_SHOW', 'ADIADO'] as const;
 
+// Feriado com tenant_id NULL vale para TODAS as clínicas — a tela de
+// Configurações › Consultório mostra esta mensagem quando o ADMIN tenta mexer.
+export const MSG_FERIADO_GLOBAL_SO_SUPER =
+  'Feriado nacional vale para todas as clínicas: só o administrador do sistema cria, edita ou apaga.';
+
 @Injectable()
 export class CalendarService {
   private readonly logger = new Logger(CalendarService.name);
@@ -3237,7 +3242,12 @@ export class CalendarService {
     });
   }
 
-  async createHoliday(data: { date: string; name: string; recurring_yearly?: boolean; tenant_id?: string }) {
+  async createHoliday(
+    data: { date: string; name: string; recurring_yearly?: boolean; tenant_id?: string },
+    roles?: string[],
+  ) {
+    // Sem clínica = feriado GLOBAL (vale para todas): só SUPER_ADMIN.
+    if (!data.tenant_id) this.exigirSuperAdminFeriadoGlobal(roles);
     return this.prisma.holiday.create({
       data: {
         date: new Date(data.date),
@@ -3248,8 +3258,13 @@ export class CalendarService {
     });
   }
 
-  async updateHoliday(id: string, data: { date?: string; name?: string; recurring_yearly?: boolean }, tenantId?: string) {
-    await this.assertHolidayTenant(id, tenantId);
+  async updateHoliday(
+    id: string,
+    data: { date?: string; name?: string; recurring_yearly?: boolean },
+    tenantId?: string,
+    roles?: string[],
+  ) {
+    await this.assertHolidayTenant(id, tenantId, roles);
     const updateData: any = {};
     if (data.date) updateData.date = new Date(data.date);
     if (data.name !== undefined) updateData.name = data.name;
@@ -3257,19 +3272,34 @@ export class CalendarService {
     return this.prisma.holiday.update({ where: { id }, data: updateData });
   }
 
-  async deleteHoliday(id: string, tenantId?: string) {
-    await this.assertHolidayTenant(id, tenantId);
+  async deleteHoliday(id: string, tenantId?: string, roles?: string[]) {
+    await this.assertHolidayTenant(id, tenantId, roles);
     await this.prisma.holiday.delete({ where: { id } });
     return { deleted: true };
   }
 
   // Onda 17.61 (segurança/IDOR) — feriado tem que ser do tenant do chamador.
-  private async assertHolidayTenant(id: string, tenantId?: string) {
-    if (!tenantId) return;
+  // Feriado GLOBAL (tenant_id NULL) vale para todas as clínicas (agenda, IA,
+  // ponto, disparos): só SUPER_ADMIN edita/apaga. Antes o ADMIN de qualquer
+  // clínica apagava o "Natal" de todas. Listar continua igual.
+  private async assertHolidayTenant(id: string, tenantId?: string, roles?: string[]) {
     const h = await this.prisma.holiday.findUnique({ where: { id }, select: { tenant_id: true } });
-    if (!h || (h.tenant_id && h.tenant_id !== tenantId)) {
-      throw new NotFoundException('Feriado não encontrado');
+    if (!h) throw new NotFoundException('Feriado não encontrado');
+    if (h.tenant_id === null) return this.exigirSuperAdminFeriadoGlobal(roles);
+    // Sem clínica no login, só o SUPER_ADMIN mexe em feriado de clínica (antes
+    // passava direto e alcançava o feriado de qualquer uma).
+    if (!tenantId) {
+      if (!(roles || []).includes('SUPER_ADMIN')) {
+        throw negarPermissao('Sem clínica no login: só o administrador do sistema altera feriados.');
+      }
+      return;
     }
+    if (h.tenant_id !== tenantId) throw new NotFoundException('Feriado não encontrado');
+  }
+
+  // Sem papéis = negado (falha fechada).
+  private exigirSuperAdminFeriadoGlobal(roles?: string[]) {
+    if (!(roles || []).includes('SUPER_ADMIN')) throw negarPermissao(MSG_FERIADO_GLOBAL_SO_SUPER);
   }
 
   // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ───────────
@@ -3755,16 +3785,65 @@ export class CalendarService {
 
   // ─── Migrate Tasks ────────────────────────────────────
 
-  async migrateOrphanTasks() {
+  // Só a clínica de quem chama (SUPER_ADMIN varre todas). Criador de reserva =
+  // ADMIN da MESMA clínica da task; sem ele, a task é pulada e contada. Antes o
+  // ADMIN de qualquer clínica convertia as tarefas de TODAS, com o 1º ADMIN do
+  // banco (de outra clínica) como criador do evento.
+  async migrateOrphanTasks(escopo: { tenantId?: string | null; superAdmin: boolean }) {
+    // Prisma ignora `tenant_id: undefined` → varreria TODAS as clínicas. Falha fechado.
+    if (!escopo?.superAdmin && !escopo?.tenantId) {
+      throw negarPermissao('Sem clínica no login: a migração de tarefas só roda na clínica de quem chama.');
+    }
+    const daClinica = escopo.superAdmin ? {} : { tenant_id: escopo.tenantId as string };
+
     const orphanTasks = await this.prisma.task.findMany({
-      where: { calendar_event_id: null },
+      where: { calendar_event_id: null, ...daClinica },
       include: { comments: true },
     });
 
+    // 1 consulta por clínica (o SUPER_ADMIN varre várias).
+    const adminPorClinica = new Map<string, string | null>();
+    const adminDaClinica = async (tenantId: string): Promise<string | null> => {
+      if (!adminPorClinica.has(tenantId)) {
+        const u = await this.prisma.user.findFirst({
+          where: { tenant_id: tenantId, roles: { has: 'ADMIN' } },
+          select: { id: true },
+        });
+        adminPorClinica.set(tenantId, u?.id ?? null);
+      }
+      return adminPorClinica.get(tenantId) ?? null;
+    };
+
     let migrated = 0;
+    let skippedNoCreator = 0;
+    let skippedNoClinic = 0;
     for (const task of orphanTasks) {
-      const creatorId = task.assigned_user_id || (await this.prisma.user.findFirst({ where: { roles: { has: 'ADMIN' } }, select: { id: true } }))?.id;
-      if (!creatorId) continue;
+      // Evento sem clínica aparece na agenda de TODAS (findAll inclui tenant_id
+      // NULL). Task sem clínica herda a do responsável (1 usuário = 1 clínica);
+      // sem responsável com clínica, é pulada — nunca vira evento "de todas".
+      let clinica = task.tenant_id;
+      if (!clinica && task.assigned_user_id) {
+        const resp = await this.prisma.user.findUnique({
+          where: { id: task.assigned_user_id },
+          select: { tenant_id: true },
+        });
+        clinica = resp?.tenant_id ?? null;
+      }
+      if (!clinica) {
+        skippedNoClinic++;
+        this.logger.warn(`[migrate-tasks] task ${task.id} sem clínica (nem pelo responsável) — pulada`);
+        continue;
+      }
+
+      // Sem responsável: o criador de reserva é um ADMIN da MESMA clínica.
+      const creatorId = task.assigned_user_id || (await adminDaClinica(clinica));
+      if (!creatorId) {
+        skippedNoCreator++;
+        this.logger.warn(
+          `[migrate-tasks] task ${task.id} (clínica ${clinica}) sem responsável e sem ADMIN da mesma clínica — pulada`,
+        );
+        continue;
+      }
 
       const event = await this.prisma.calendarEvent.create({
         data: {
@@ -3780,13 +3859,14 @@ export class CalendarService {
           created_by_id: creatorId,
           lead_id: task.lead_id,
           conversation_id: task.conversation_id,
-          tenant_id: task.tenant_id,
+          tenant_id: clinica,
         },
       });
 
       await this.prisma.task.update({
         where: { id: task.id },
-        data: { calendar_event_id: event.id },
+        // a task sem clínica passa a ter a mesma do evento
+        data: { calendar_event_id: event.id, ...(task.tenant_id ? {} : { tenant_id: clinica }) },
       });
 
       // Migrar comentários
@@ -3798,9 +3878,9 @@ export class CalendarService {
       migrated++;
     }
 
-    // Migrar comentários de tasks já vinculadas
+    // Migrar comentários de tasks já vinculadas — só da clínica de quem chama
     const linkedTasks = await this.prisma.task.findMany({
-      where: { calendar_event_id: { not: null } },
+      where: { calendar_event_id: { not: null }, ...daClinica },
       include: { comments: true },
     });
     let commentsMigrated = 0;
@@ -3818,7 +3898,7 @@ export class CalendarService {
       }
     }
 
-    return { orphanTasksMigrated: migrated, commentsMigrated };
+    return { orphanTasksMigrated: migrated, commentsMigrated, skippedNoCreator, skippedNoClinic };
   }
 
   // ─── Re-envio manual de notificação ──────────────────────────────────────────

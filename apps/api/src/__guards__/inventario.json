@@ -335,9 +335,9 @@
         { "metodo": "CalendarController.getRemindersHealth", "verbo": "GET", "path": "reminders/health", "rota": "GET /calendar/reminders/health", "acesso": [] },
         { "metodo": "CalendarController.exportRemindersCSV", "verbo": "GET", "path": "reminders/export.csv", "rota": "GET /calendar/reminders/export.csv", "acesso": [] },
         { "metodo": "CalendarController.findHolidays", "verbo": "GET", "path": "holidays", "rota": "GET /calendar/holidays", "acesso": [] },
-        { "metodo": "CalendarController.createHoliday", "verbo": "POST", "path": "holidays", "rota": "POST /calendar/holidays", "acesso": ["@Roles('ADMIN')"] },
-        { "metodo": "CalendarController.updateHoliday", "verbo": "PATCH", "path": "holidays/:id", "rota": "PATCH /calendar/holidays/:id", "acesso": ["@Roles('ADMIN')"] },
-        { "metodo": "CalendarController.deleteHoliday", "verbo": "DELETE", "path": "holidays/:id", "rota": "DELETE /calendar/holidays/:id", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "CalendarController.createHoliday", "verbo": "POST", "path": "holidays", "rota": "POST /calendar/holidays", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "CalendarController.updateHoliday", "verbo": "PATCH", "path": "holidays/:id", "rota": "PATCH /calendar/holidays/:id", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
+        { "metodo": "CalendarController.deleteHoliday", "verbo": "DELETE", "path": "holidays/:id", "rota": "DELETE /calendar/holidays/:id", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
         { "metodo": "CalendarController.findScheduleBlocks", "verbo": "GET", "path": "blocks", "rota": "GET /calendar/blocks", "acesso": [] },
         { "metodo": "CalendarController.createScheduleBlock", "verbo": "POST", "path": "blocks", "rota": "POST /calendar/blocks", "acesso": [] },
         { "metodo": "CalendarController.updateScheduleBlock", "verbo": "PATCH", "path": "blocks/:id", "rota": "PATCH /calendar/blocks/:id", "acesso": [] },
@@ -345,7 +345,7 @@
         { "metodo": "CalendarController.search", "verbo": "GET", "path": "search", "rota": "GET /calendar/search", "acesso": [] },
         { "metodo": "CalendarController.exportEventIcs", "verbo": "GET", "path": "export/ics/:id", "rota": "GET /calendar/export/ics/:id", "acesso": [] },
         { "metodo": "CalendarController.exportRangeIcs", "verbo": "GET", "path": "export/ics", "rota": "GET /calendar/export/ics", "acesso": [] },
-        { "metodo": "CalendarController.migrateTasks", "verbo": "POST", "path": "migrate-tasks", "rota": "POST /calendar/migrate-tasks", "acesso": ["@Roles('ADMIN')"] }
+        { "metodo": "CalendarController.migrateTasks", "verbo": "POST", "path": "migrate-tasks", "rota": "POST /calendar/migrate-tasks", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] }
       ]
     },
     {

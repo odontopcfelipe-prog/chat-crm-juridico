@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Clock, Briefcase, Trash2, Plus, Save, X, Star, Users, Copy } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 import {
   ScheduleEditor,
   type DaySchedule,
@@ -29,6 +30,8 @@ interface Holiday {
   date: string;
   name: string;
   recurring_yearly: boolean;
+  // null = feriado nacional (vale para todas as clínicas; só o SUPER_ADMIN mexe)
+  tenant_id?: string | null;
 }
 
 interface UserOption {
@@ -56,6 +59,10 @@ export default function OfficeSettingsPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [newHoliday, setNewHoliday] = useState({ date: '', name: '', recurring_yearly: false });
   const [showNewHoliday, setShowNewHoliday] = useState(false);
+  const [holidayError, setHolidayError] = useState('');
+  // Feriado nacional (tenant_id null) só o SUPER_ADMIN apaga — o backend dá 403
+  // pros outros; aqui a lixeira some e vira o selo "Nacional".
+  const { isSuperAdmin } = useRole();
 
   // Onda 17.32.180 — config SMTP saiu desta tela: e global do SaaS e
   // agora vive no painel /admin/settings (somente SUPER_ADMIN)
@@ -219,19 +226,26 @@ export default function OfficeSettingsPage() {
 
   const createHoliday = async () => {
     if (!newHoliday.date || !newHoliday.name.trim()) return;
+    setHolidayError('');
     try {
       await api.post('/calendar/holidays', newHoliday);
       setNewHoliday({ date: '', name: '', recurring_yearly: false });
       setShowNewHoliday(false);
       loadHolidays();
-    } catch {}
+    } catch (e: any) {
+      setHolidayError(e?.response?.data?.message || 'Não foi possível salvar o feriado.');
+    }
   };
 
   const deleteHoliday = async (id: string) => {
+    setHolidayError('');
     try {
       await api.delete(`/calendar/holidays/${id}`);
       loadHolidays();
-    } catch {}
+    } catch (e: any) {
+      // Antes o erro era engolido e a lixeira "não fazia nada".
+      setHolidayError(e?.response?.data?.message || 'Não foi possível apagar o feriado.');
+    }
   };
 
   // ─── Render ────────────────────────────────────────
@@ -563,14 +577,29 @@ export default function OfficeSettingsPage() {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => deleteHoliday(h.id)}
-                  className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex items-center gap-2">
+                  {h.tenant_id === null && (
+                    <span
+                      title="Feriado nacional: vale para todas as clínicas. Só o administrador do sistema altera."
+                      className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded"
+                    >
+                      Nacional
+                    </span>
+                  )}
+                  {(h.tenant_id !== null || isSuperAdmin) && (
+                    <button
+                      onClick={() => deleteHoliday(h.id)}
+                      className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
+            {holidayError && (
+              <p className="text-xs text-destructive font-semibold">{holidayError}</p>
+            )}
             {holidays.length === 0 && !showNewHoliday && (
               <p className="text-sm text-muted-foreground text-center py-4">
                 Nenhum feriado cadastrado. Dias sem feriado ficam disponíveis na agenda.
