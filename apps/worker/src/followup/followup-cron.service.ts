@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { loadClinicAiContext } from '../ai/clinic-ai-context';
 import axios from 'axios';
+import { excludeLabWhere, getLabTenantIds } from '@crm/shared';
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
 import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
@@ -41,8 +42,14 @@ export class FollowupCronService {
   @Cron('0 * * * *', { timeZone: 'America/Maceio' })
   async processEnrollments() {
     const now = new Date();
+    // F2 [LAB-GATE] — inscrição de lead de laboratório não entra na fila (nem ocupa o
+    // take). O freio definitivo é o do FollowupProcessor.processStep (a API também
+    // enfileira). Clínica: sem laboratório o where é o mesmo de antes (lead é
+    // relação obrigatória: o filtro só entra quando há laboratório).
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    const base = { status: 'ATIVO', next_send_at: { lte: now } };
     const enrollments = await this.prisma.followupEnrollment.findMany({
-      where: { status: 'ATIVO', next_send_at: { lte: now } },
+      where: labs.size ? { ...base, lead: excludeLabWhere('lead', {}, labs) } : base,
       select: { id: true },
       take: 50,
     });
@@ -69,12 +76,17 @@ export class FollowupCronService {
       { stage: 'QUALIFICANDO', days: 5, msg: 'Olá {{name}}, estamos à disposição para continuar o atendimento do seu caso. Podemos prosseguir?' },
     ];
 
+    // F2 [LAB-GATE] — texto e assinatura de clínica, sem toggle: lead de laboratório
+    // fica fora da busca. Clínica: sem laboratório o where é o mesmo objeto; com
+    // laboratório o lead legado sem conta (tenant_id NULL) continua entrando.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.size) this.logger.log(`[LAB-GATE] followup-legado — ${labs.size} laboratório(s) fora da busca`);
     let totalSent = 0;
     for (const config of staleConfigs) {
       try {
         const cutoff = new Date(Date.now() - config.days * 24 * 60 * 60 * 1000);
         const leads = await this.prisma.lead.findMany({
-          where: {
+          where: excludeLabWhere('lead', {
             stage: config.stage, updated_at: { lt: cutoff },
             // Onda 17.64 — PACIENTE (is_client) não recebe follow-up de lead. Este cron
             // legado envia direto (axios), fora do processStep, então precisa do filtro aqui.
@@ -82,7 +94,7 @@ export class FollowupCronService {
             OR: [{ last_followup_at: null }, { last_followup_at: { lt: cutoff } }],
             // Pular leads que já estão em alguma sequência ativa
             followup_enrollments: { none: { status: 'ATIVO' } },
-          },
+          }, labs),
           include: { conversations: { where: { status: 'ABERTO', ...FORA_DO_FINANCEIRO }, take: 1, orderBy: { last_message_at: 'desc' } } }, // nunca o chip Financeiro
         });
 

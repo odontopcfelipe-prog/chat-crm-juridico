@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FollowupService } from './followup.service';
 import axios from 'axios';
+import { isLabTenant } from '@crm/shared';
 // Null-safe: `NOT { inbox: { purpose: 'FINANCEIRO' } }` descarta caixa com purpose NULL
 // (clínica legada de 1 chip) — o filtro da reativação inclui esses casos.
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
@@ -103,6 +104,18 @@ export class FollowupProcessor extends WorkerHost {
     });
 
     if (!enrollment || enrollment.status !== 'ATIVO') return;
+
+    // F2 [LAB-GATE] — freio DEFINITIVO do follow-up (o cron do worker e a API enfileiram
+    // aqui): lead de laboratório não tem texto gerado pela IA nem envio. A inscrição
+    // sai do ATIVO para não voltar a cada hora. Clínica: nenhum id casa e segue igual.
+    if (await isLabTenant(this.prisma, enrollment.lead?.tenant_id, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] followup — inscrição ${enrollmentId} é de laboratório: pausada, sem IA e sem envio`);
+      await this.prisma.followupEnrollment.update({
+        where: { id: enrollmentId },
+        data: { status: 'PAUSADO', paused_reason: 'Laboratório: sem follow-up automático' },
+      });
+      return;
+    }
 
     // Onda 17.64 — REDE DE SEGURANÇA: se o lead virou PACIENTE (is_client), não manda
     // nutrição de LEAD. Cancela o enrollment e para. Cobre qualquer enrollment que ficou
@@ -339,6 +352,16 @@ export class FollowupProcessor extends WorkerHost {
 
     const item = await this.prisma.broadcastItem.findUnique({ where: { id: itemId } });
     if (!item || item.status !== 'PENDENTE') return;
+
+    // F2 [LAB-GATE] — disparo em massa legado (texto do operador ou gerado pela IA com
+    // prompt de outro ramo): de laboratório não sai e não chama a IA. O item fica como
+    // falha (o disparo não espera por ele). Clínica: nenhum id casa e segue igual.
+    if (await isLabTenant(this.prisma, broadcast.tenant_id, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] broadcast — disparo ${broadcastId} é de laboratório: item ${itemId} não sai`);
+      await this.prisma.broadcastItem.update({ where: { id: itemId }, data: { status: 'FALHOU', error: 'Laboratório: sem disparo em massa' } });
+      await this.prisma.broadcastJob.update({ where: { id: broadcastId }, data: { failed_count: { increment: 1 } } });
+      return;
+    }
 
     // Load event + lead + case context
     const event = item.event_id ? await this.prisma.calendarEvent.findUnique({

@@ -9,6 +9,8 @@ import {
   escolherChipPaciente,
   chipPacienteOuLegado,
   soTemChipFinanceiro,
+  getLabTenantIds,
+  isLabTenant,
 } from '@crm/shared';
 import axios from 'axios';
 
@@ -86,6 +88,12 @@ export class MaintenanceRecallCronService {
     const offTenants = offRows
       .map((r) => r.key.slice('RECALL_PREVENTIVO_ENABLED_'.length))
       .filter(Boolean);
+    // F2 [LAB-GATE] — recall de revisão é de clínica (texto, padrão LIGADO): o
+    // laboratório entra na MESMA exclusão do banco que as clínicas OFF, pelo mesmo
+    // motivo (a fila é cross-tenant por vencimento; uma task dele na frente travaria a
+    // das clínicas). Sem laboratório, a lista é a mesma de antes.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    const excluidos = labs.size ? [...offTenants, ...labs] : offTenants;
 
     const task = await (this.prisma as any).maintenanceTask.findFirst({
       where: {
@@ -94,7 +102,7 @@ export class MaintenanceRecallCronService {
         reminder_sent_at: null,
         patient: {
           phone: { not: null },
-          ...(offTenants.length ? { tenant_id: { notIn: offTenants } } : {}),
+          ...(excluidos.length ? { tenant_id: { notIn: excluidos } } : {}),
         },
       },
       include: {
@@ -200,6 +208,11 @@ export class MaintenanceRecallCronService {
    *  sempre rodou pra todo mundo) — só o valor 'false' desliga. */
   private async isRecallEnabled(tenantId: string): Promise<boolean> {
     if (!tenantId) return true;
+    // F2 [LAB-GATE] — defesa: laboratório nunca recebe recall (o where já o exclui).
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] recall — conta ${tenantId} é laboratório: recall não sai`);
+      return false;
+    }
     try {
       const row = await this.prisma.globalSetting.findUnique({
         where: { key: `RECALL_PREVENTIVO_ENABLED_${tenantId}` },

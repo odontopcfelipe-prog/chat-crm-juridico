@@ -9,6 +9,8 @@ import {
   DEFAULT_BOLETO_INTRO,
   COBRANCA_STAGES,
   cobrancaTemplateKey,
+  excludeLabWhere,
+  getLabTenantIds,
   type CobrancaStage,
   type CobrancaTipo,
 } from '@crm/shared';
@@ -465,12 +467,19 @@ export class PaymentAlertsCronService {
     const lo = new Date(Date.now() - 33 * 86_400_000);
     const hi = new Date(Date.now() + 3 * 86_400_000);
 
+    // F2 [LAB-GATE] — a régua de cobrança inteira fica fora no laboratório (o envio
+    // MANUAL de boleto/carnê pela tela continua). No where, e não no laço: o take vem
+    // antes do toggle de estágio, e o marca-passo é um só para todas as contas.
+    // Clínica: sem laboratório o where é o mesmo objeto; a cobrança legada sem conta
+    // (tenant_id NULL) continua entrando.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.size) this.logger.debug(`[LAB-GATE] regua-marcos — ${labs.size} laboratório(s) fora da busca`);
     const charges = await this.prisma.paymentGatewayCharge.findMany({
-      where: {
+      where: excludeLabWhere('paymentGatewayCharge', {
         status: { in: ['PENDING', 'OVERDUE'] },
         received_in_cash: false,
         due_date: { gte: lo, lte: hi },
-      },
+      }, labs),
       select: {
         id: true,
         external_id: true,
@@ -678,6 +687,17 @@ export class PaymentAlertsCronService {
   private async findNextOverdue(): Promise<ChargeCandidate | null> {
     // Só varre se ALGUM tenant ligou o "cobrar atrasados" — senão nem toca no banco.
     const enabledTenants = await this.loadOverdueEnabledTenants();
+    // F2 [LAB-GATE] — "cobrar atrasados" é régua: laboratório sai do conjunto mesmo com
+    // o toggle ligado. Clínica: sem laboratório o conjunto é o mesmo.
+    if (enabledTenants.size) {
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      for (const id of [...enabledTenants]) {
+        if (labs.has(id)) {
+          enabledTenants.delete(id);
+          this.logger.debug(`[LAB-GATE] regua-atrasados — conta ${id} é laboratório: fora`);
+        }
+      }
+    }
     if (enabledTenants.size === 0) return null;
 
     const todayIdx = this.dayIndexUTC(new Date(Date.now() - 3 * 3_600_000)); // hoje Maceió
@@ -1305,9 +1325,15 @@ export class PaymentAlertsCronService {
     // groupBy = 1 registro por VENDA (plano), NÃO por boleto — assim o volume aqui
     // é o nº de vendas, e uma venda de 20 boletos não ocupa 20 slots. Mais antiga
     // primeiro. (findMany+take por charge deixava planos novos invisíveis sob volume.)
+    // F2 [LAB-GATE] — apresentação D+1 e a âncora que libera o carnê automático D+2
+    // ficam fora no laboratório (decisão do dono: a régua inteira; o envio manual pela
+    // tela continua). Venda de laboratório não entra: nem mensagem, nem âncora, nem
+    // vez no marca-passo. Clínica: sem laboratório o where é o mesmo objeto.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.size) this.logger.debug(`[LAB-GATE] regua-apresentacao — ${labs.size} laboratório(s) fora da busca`);
     const sales = await this.prisma.paymentGatewayCharge.groupBy({
       by: ['treatment_plan_id', 'tenant_id'],
-      where: {
+      where: excludeLabWhere('paymentGatewayCharge', {
         billing_type: 'BOLETO',
         created_at: { gte: yStart, lt: yEnd },
         treatment_plan_id: { not: null },
@@ -1317,7 +1343,7 @@ export class PaymentAlertsCronService {
         // (findPendingDeliveries→sendBoletos) filtra o que aqui passava batido.
         status: { in: ['PENDING', 'OVERDUE'] },
         received_in_cash: false,
-      },
+      }, labs),
       orderBy: { _min: { created_at: 'asc' } },
     });
     if (sales.length === 0) return null;

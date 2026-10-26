@@ -11,6 +11,8 @@ import {
   escolherChipPaciente,
   chipPacienteOuLegado,
   soTemChipFinanceiro,
+  excludeLabWhere,
+  getLabTenantIds,
 } from '@crm/shared';
 
 /**
@@ -55,13 +57,18 @@ export class AppointmentOrtoReminderService {
       const in1h = new Date(nowNaive.getTime() + 60 * 60 * 1000);
       const in2h = new Date(nowNaive.getTime() + 120 * 60 * 1000);
 
+      // F2 [LAB-GATE] — lembrete de ortodontia é de clínica: evento de laboratório fica
+      // fora da busca (no where, e não no laço: o take vem antes do toggle por conta e
+      // não pode ser ocupado por ele). Clínica: sem laboratório o where é o mesmo objeto.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) this.logger.log(`[LAB-GATE] orto-1h — ${labs.size} laboratório(s) fora da busca`);
       const eligible = await this.prisma.calendarEvent.findMany({
-        where: {
+        where: excludeLabWhere('calendarEvent', {
           type: 'ORTODONTIA',
           status: { in: ['AGENDADO', 'CONFIRMADO'] },
           patient_id: { not: null },
           start_at: { gte: in1h, lt: in2h },
-        },
+        }, labs),
         take: this.MAX_PER_RUN,
         select: {
           id: true,

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { formatTenantAddress, DEFAULT_CONFIRMACAO_ORTO } from '@crm/shared';
+import { formatTenantAddress, DEFAULT_CONFIRMACAO_ORTO, excludeLabWhere, getLabTenantIds } from '@crm/shared';
 
 /**
  * Cron horario que cria AppointmentConfirmation pendente para
@@ -47,13 +47,19 @@ export class AppointmentConfirmationSchedulerService {
       // Onda 18.x — + ORTODONTIA: eventos de orto TAMBÉM recebem confirmação. Se a
       // confirmação de orto estiver LIGADA, usam o texto de orto (ordem de chegada);
       // se DESLIGADA, caem na confirmação NORMAL (original).
+      // F2 [LAB-GATE] — confirmação de consulta (texto e toggle de clínica, LIGADO por
+      // padrão): evento de laboratório fica fora da busca. Este é o único produtor de
+      // confirmação pendente. Clínica: sem laboratório o where é o mesmo objeto; com
+      // laboratório o evento legado sem conta (tenant_id NULL) continua entrando.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) this.logger.log(`[LAB-GATE] confirmacao-24h — ${labs.size} laboratório(s) fora da busca`);
       const eligible = await this.prisma.calendarEvent.findMany({
-        where: {
+        where: excludeLabWhere('calendarEvent', {
           type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
           status: 'AGENDADO',
           patient_id: { not: null },
           start_at: { gte: in24h, lt: in25h },
-        },
+        }, labs),
         select: {
           id: true,
           tenant_id: true,

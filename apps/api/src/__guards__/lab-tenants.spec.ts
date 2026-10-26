@@ -139,6 +139,8 @@ describe('com um laboratório', () => {
       AND: [{ status: 'ATIVO' }, { OR: [{ tenant_id: null }, { tenant_id: { notIn: [LAB] } }] }],
     });
     expect(excludeLabWhere('patient', where, labs)).toEqual({ AND: [{ status: 'ATIVO' }, { tenant_id: { notIn: [LAB] } }] });
+    // F2 parte 2 — pesquisa pós-atendimento: tenant_id obrigatório, notIn direto.
+    expect(excludeLabWhere('postCareSurvey', where, labs)).toEqual({ AND: [{ status: 'ATIVO' }, { tenant_id: { notIn: [LAB] } }] });
     expect(excludeLabWhere('quote', undefined, labs)).toEqual({ AND: [{}, { patient: { tenant_id: { notIn: [LAB] } } }] });
     expect(where).toEqual(copia);
   });

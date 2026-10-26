@@ -129,6 +129,7 @@ export const EXCLUI_LAB_FORMA = {
   paymentGatewayCharge: 'tenant_opcional',
   task: 'tenant_opcional',
   patient: 'tenant_obrigatorio',
+  postCareSurvey: 'tenant_obrigatorio',
   quote: 'via_paciente',
   treatmentPlan: 'via_paciente',
 } as const;

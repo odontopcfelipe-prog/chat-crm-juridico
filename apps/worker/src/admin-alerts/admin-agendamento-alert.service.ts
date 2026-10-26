@@ -5,6 +5,7 @@ import {
   isAiChipPurpose,
   normalizeAiChipProfile,
   DEFAULT_ASSISTANT_NAME,
+  getLabTenantIds,
   type DestinatarioAviso,
 } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -83,8 +84,16 @@ export class AdminAgendamentoAlertService {
     });
     if (!rows.length) return 0;
 
+    // F2 [LAB-GATE] — o aviso é de CONSULTA (texto e tipos de clínica): laboratório
+    // não entra, nem busca, nem reivindica (admin_notified_at fica como está).
+    // Clínica: nenhum id casa e o laço é o de antes.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     let total = 0;
     for (const [tenantId, ligados] of togglesPorClinica(rows)) {
+      if (labs.has(tenantId)) {
+        this.logger.log(`[LAB-GATE] admin-agendamento — conta ${tenantId} é laboratório: sem aviso de agendamento`);
+        continue;
+      }
       try {
         total += await this.processarClinica(tenantId, ligados, agora);
       } catch (e: any) {

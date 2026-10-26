@@ -9,6 +9,7 @@ import {
   escolherChipPaciente,
   chipPacienteOuLegado,
   soTemChipFinanceiro,
+  getLabTenantIds,
 } from '@crm/shared';
 
 /**
@@ -91,6 +92,10 @@ export class AppointmentConfirmationDispatcherService {
       let sent = 0;
       let failed = 0;
       let skipped = 0;
+      // F2 [LAB-GATE] — único ponto de envio da confirmação: a de laboratório não sai
+      // (o scheduler já não cria; isto cobre a criada antes de a conta virar
+      // laboratório). Marca como falha para não ocupar a fila. Clínica: nenhum id casa.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const c of pending) {
         const tenantId = c.appointment?.tenant_id;
@@ -98,6 +103,13 @@ export class AppointmentConfirmationDispatcherService {
 
         if (!tenantId || !phone) {
           await this.markFailed(c.id, 'Sem tenant ou telefone');
+          skipped++;
+          continue;
+        }
+
+        if (labs.has(tenantId)) {
+          this.logger.log(`[LAB-GATE] confirmacao-24h — confirmação ${c.id} é de laboratório: não sai`);
+          await this.markFailed(c.id, 'Laboratório: sem confirmação automática');
           skipped++;
           continue;
         }

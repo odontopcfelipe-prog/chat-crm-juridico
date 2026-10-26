@@ -11,6 +11,8 @@ import {
   contaDaChavePostCare,
   POST_CARE_CONFIG_KEY,
   POST_CARE_CONFIG_PREFIX,
+  excludeLabWhere,
+  getLabTenantIds,
 } from '@crm/shared';
 import axios from 'axios';
 
@@ -135,15 +137,20 @@ export class PostCareCronService implements OnModuleInit {
     const since = new Date();
     since.setDate(since.getDate() - 1);
 
+    // F2 [LAB-GATE] — pesquisa pós-atendimento é de clínica (config global, LIGADA por
+    // padrão): consulta de laboratório não ganha pesquisa. Clínica: sem laboratório o
+    // where é o mesmo objeto; o evento legado sem conta continua entrando.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.size) this.logger.log(`[LAB-GATE] pos-atendimento — ${labs.size} laboratório(s) fora da varredura`);
     const events = await (this.prisma as any).calendarEvent.findMany({
-      where: {
+      where: excludeLabWhere('calendarEvent', {
         status: 'CONCLUIDO',
         type: 'CONSULTA',
         updated_at: { gte: since },
         post_care_survey: null,
         patient_id: { not: null },
         ...plano.filtroConta,
-      },
+      }, labs),
       select: {
         id: true, tenant_id: true, patient_id: true, assigned_user_id: true,
         title: true, start_at: true, end_at: true,
@@ -186,8 +193,12 @@ export class PostCareCronService implements OnModuleInit {
 
   private async dispatchPendingSurveys(plano: PlanoPostCare): Promise<number> {
     const now = new Date();
+    // F2 [LAB-GATE] — envio: pesquisa de laboratório não sai (a API também cria
+    // pesquisa). No where, e não no laço: o take por trigger_at não pode ser ocupado
+    // por elas. Clínica: sem laboratório o where é o mesmo objeto.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     const surveys = await (this.prisma as any).postCareSurvey.findMany({
-      where: { status: 'PENDING', trigger_at: { lte: now }, ...plano.filtroConta },
+      where: excludeLabWhere('postCareSurvey', { status: 'PENDING', trigger_at: { lte: now }, ...plano.filtroConta }, labs),
       orderBy: { trigger_at: 'asc' },
       take: 30,
       include: {
