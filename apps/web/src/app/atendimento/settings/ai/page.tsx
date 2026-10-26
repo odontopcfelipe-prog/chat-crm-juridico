@@ -375,6 +375,8 @@ export default function AiSettingsPage() {
 
   // ---------- TTS ----------
   const handleSaveTts = async () => {
+    // A voz da IA é da plataforma (crédito Google): só o administrador do sistema grava.
+    if (!isSuperAdmin) return;
     setSavingTts(true);
     try {
       const payload: any = { enabled: ttsEnabled, voice: ttsVoice };
@@ -1193,7 +1195,11 @@ export default function AiSettingsPage() {
           n={5}
           id="etapa-voz"
           title="Voz (opcional)"
-          description="Responder com áudio quando o paciente manda áudio."
+          description={
+            isSuperAdmin
+              ? 'Responder com áudio quando o paciente manda áudio.'
+              : 'Responder com áudio quando o paciente manda áudio. A voz é da plataforma: ligada e escolhida pelo administrador do sistema.'
+          }
           status={loading ? 'checking' : setupSteps[4].status}
         >
           {/* ── Text-to-Speech ── */}
@@ -1209,7 +1215,10 @@ export default function AiSettingsPage() {
                   <p className="text-[11px] text-muted-foreground mt-0.5">Converte respostas da IA em mensagens de voz no WhatsApp</p>
                 </div>
               </div>
-              {/* Toggle ativar/desativar */}
+              {/* Toggle ativar/desativar (só o administrador do sistema; a clínica vê o status) */}
+              {!isSuperAdmin ? (
+                <span className={`text-xs font-bold ${ttsEnabled ? 'text-emerald-400' : 'text-muted-foreground'}`}>{ttsEnabled ? 'Ativo' : 'Inativo'}</span>
+              ) : (
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <div
                   onClick={() => setTtsEnabled(!ttsEnabled)}
@@ -1222,8 +1231,28 @@ export default function AiSettingsPage() {
                   {ttsEnabled ? 'Ativo' : 'Inativo'}
                 </span>
               </label>
+              )}
             </div>
 
+            {!isSuperAdmin ? (
+              <div className="p-5 space-y-3">
+                <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                  <span className="text-muted-foreground">Chave Google da plataforma</span>
+                  {ttsConfigured ? (
+                    <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> CONFIGURADO</span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> NÃO CONFIGURADO</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                  <span className="text-muted-foreground">Voz</span>
+                  <span className="font-bold text-foreground">{ttsVoice}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  A voz da IA usa o crédito Google da plataforma: ligar, desligar e trocar a voz fica com o administrador do sistema.
+                </p>
+              </div>
+            ) : (
             <div className="p-5 space-y-5">
               {/* Google API Key */}
               <div className="space-y-2">
@@ -1341,6 +1370,7 @@ export default function AiSettingsPage() {
                 </button>
               </div>
             </div>
+            )}
           </div>
         </AiSetupStep>
 

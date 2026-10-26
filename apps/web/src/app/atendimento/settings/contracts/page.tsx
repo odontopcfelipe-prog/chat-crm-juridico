@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,11 @@ const DEFAULT_CONTRACT: ContractConfig = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ContractsSettingsPage() {
+  // ClickSign e a URL pública da API são da PLATAFORMA (uma conta para todas):
+  // só o administrador do sistema troca. A clínica vê o status e edita os dados
+  // fixos dos contratos DELA.
+  const { isSuperAdmin } = useRole();
+
   // ── Clicksign state
   const [csConfig, setCsConfig] = useState<ClicksignConfig>({
     baseUrl: SANDBOX_URL,
@@ -139,7 +145,9 @@ export default function ContractsSettingsPage() {
   const handleSaveContract = async () => {
     setSavingCt(true);
     try {
-      await api.patch('/settings/contract', contract);
+      // A URL pública da API é da plataforma: a clínica não manda.
+      const { publicApiUrl: _daPlataforma, ...daClinica } = contract;
+      await api.patch('/settings/contract', isSuperAdmin ? contract : daClinica);
       setSavedCt(true);
       setTimeout(() => setSavedCt(false), 3000);
     } catch (e) {
@@ -163,7 +171,9 @@ export default function ContractsSettingsPage() {
       <header className="px-8 mb-6 shrink-0">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Contratos & Assinatura Digital</h1>
         <p className="text-[13px] text-muted-foreground mt-1">
-          Configure a integração com o Clicksign e os dados fixos do contrato trabalhista.
+          {isSuperAdmin
+            ? 'Configure a integração com o Clicksign e os dados fixos do contrato trabalhista.'
+            : 'Veja o status da assinatura digital (Clicksign, gerenciada pela plataforma) e preencha os dados fixos dos contratos da sua clínica.'}
         </p>
       </header>
 
@@ -201,6 +211,11 @@ export default function ContractsSettingsPage() {
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                     <Globe size={12} /> Ambiente
                   </label>
+                  {!isSuperAdmin ? (
+                    <p className="text-sm font-bold text-foreground">
+                      {csEnv === 'sandbox' ? '🧪 Sandbox (testes)' : '🚀 Produção'}
+                    </p>
+                  ) : (
                   <div className="flex gap-2">
                     {(['sandbox', 'prod'] as const).map((env) => (
                       <button
@@ -218,6 +233,7 @@ export default function ContractsSettingsPage() {
                       </button>
                     ))}
                   </div>
+                  )}
                   <p className="text-[11px] text-muted-foreground">
                     URL: <code className="font-mono text-violet-400">{csEnv === 'sandbox' ? SANDBOX_URL : PROD_URL}</code>
                   </p>
@@ -229,12 +245,14 @@ export default function ContractsSettingsPage() {
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                       <KeyRound size={12} /> API Token
                     </label>
+                    {isSuperAdmin && (
                     <button
                       onClick={() => { setEditToken(!editToken); setCsToken(''); setShowToken(false); }}
                       className="text-xs font-bold text-primary hover:underline"
                     >
                       {editToken ? 'Cancelar' : csConfig.isConfigured ? 'Trocar' : 'Configurar'}
                     </button>
+                    )}
                   </div>
                   {editToken ? (
                     <div className="relative">
@@ -281,12 +299,14 @@ export default function ContractsSettingsPage() {
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                       <Webhook size={12} /> Token do Webhook (HMAC)
                     </label>
+                    {isSuperAdmin && (
                     <button
                       onClick={() => { setEditWebhook(!editWebhook); setCsWebhook(''); setShowWebhook(false); }}
                       className="text-xs font-bold text-primary hover:underline"
                     >
                       {editWebhook ? 'Cancelar' : csConfig.webhookToken ? 'Trocar' : 'Configurar'}
                     </button>
+                    )}
                   </div>
                   {editWebhook ? (
                     <div className="relative">
@@ -325,6 +345,13 @@ export default function ContractsSettingsPage() {
                   </p>
                 </div>
 
+                {!isSuperAdmin && (
+                  <p className="text-[11px] text-muted-foreground bg-muted/30 rounded-xl px-4 py-2.5">
+                    Integração da plataforma: o ambiente e os tokens do Clicksign são configurados pelo administrador do sistema.
+                  </p>
+                )}
+
+                {isSuperAdmin && (<>
                 {/* Webhook URL info */}
                 <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-4 space-y-1">
                   <p className="text-xs font-bold text-violet-400 flex items-center gap-2">
@@ -353,6 +380,7 @@ export default function ContractsSettingsPage() {
                     {savedCs ? 'Salvo!' : 'Salvar Clicksign'}
                   </button>
                 </div>
+                </>)}
               </div>
             </div>
 
@@ -478,7 +506,8 @@ export default function ContractsSettingsPage() {
                   <p className="text-[11px] text-muted-foreground">Cidade que constará na cláusula de eleição de foro do contrato.</p>
                 </div>
 
-                {/* URL Pública da API */}
+                {/* URL Pública da API (plataforma: só o administrador do sistema) */}
+                {isSuperAdmin && (
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                     <Link size={12} /> URL Pública da API
@@ -494,6 +523,7 @@ export default function ContractsSettingsPage() {
                     Deve ser acessível pela internet (ex: via Nginx reverse proxy ou Ngrok em dev).
                   </p>
                 </div>
+                )}
 
                 <div className="flex justify-end pt-1">
                   <button

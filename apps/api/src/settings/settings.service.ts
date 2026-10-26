@@ -18,6 +18,13 @@ import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/cryp
 import { lerConfigDaClinicaSemErro } from './config-da-clinica';
 import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, adminBotEfetivo, cooldownEfetivo } from './ia-config';
 import {
+  CONTRACT_CONFIG_KEY,
+  lerDadosContrato,
+  normalizarClicksignBaseUrl,
+  tokenClicksignParaGravar,
+  type DadosContrato,
+} from './contrato-config';
+import {
   CANNED_RESPONSES_KEY,
   CRM_CONFIG_KEY,
   normalizarStagnationDays,
@@ -8049,14 +8056,23 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     };
   }
 
+  /**
+   * ClickSign da plataforma (só o administrador do sistema chega aqui). baseUrl
+   * só aceita os dois ambientes (produção/sandbox); token vazio ou mascarado =
+   * manter o atual. Valida tudo antes de gravar.
+   */
   async setClicksignConfig(data: {
     baseUrl?: string;
     apiToken?: string;
     webhookToken?: string;
   }) {
-    if (data.baseUrl      !== undefined) await this.set('CLICKSIGN_BASE_URL',      data.baseUrl);
-    if (data.apiToken     !== undefined) await this.set('CLICKSIGN_API_TOKEN',     data.apiToken);
-    if (data.webhookToken !== undefined) await this.set('CLICKSIGN_WEBHOOK_TOKEN', data.webhookToken);
+    const d = data && typeof data === 'object' ? data : {};
+    const baseUrl      = normalizarClicksignBaseUrl(d.baseUrl);
+    const apiToken     = tokenClicksignParaGravar(d.apiToken);
+    const webhookToken = tokenClicksignParaGravar(d.webhookToken);
+    if (baseUrl      !== undefined) await this.set('CLICKSIGN_BASE_URL',      baseUrl);
+    if (apiToken     !== null)      await this.set('CLICKSIGN_API_TOKEN',     apiToken);
+    if (webhookToken !== null)      await this.set('CLICKSIGN_WEBHOOK_TOKEN', webhookToken);
   }
 
   // ─── Contrato Trabalhista — dados fixos ────────────────────────────────────
@@ -8087,9 +8103,46 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     }
   }
 
-  async setContractConfig(data: Record<string, string>) {
-    const current = await this.getContractConfig();
-    await this.set('CONTRACT_CONFIG', JSON.stringify({ ...current, ...data }));
+  /**
+   * Tela Contratos & Assinatura: os 8 dados fixos DA CLÍNICA (a conta legada sem
+   * os dela vê os antigos; conta nova e laboratório, em branco) + a URL pública
+   * da API, que é da plataforma (global/env, igual para todas).
+   */
+  async getContractConfigDaConta(tenantId: string | null): Promise<DadosContrato & { publicApiUrl: string }> {
+    const plataforma: Record<string, unknown> = await this.getContractConfig();
+    const publicApiUrl = typeof plataforma.publicApiUrl === 'string' ? plataforma.publicApiUrl : '';
+    if (!tenantId) return { ...lerDadosContrato(JSON.stringify(plataforma)), publicApiUrl };
+    const raw = await lerConfigDaClinicaSemErro(this.prisma, CONTRACT_CONFIG_KEY, tenantId, (m) => this.logger.warn(m));
+    return { ...lerDadosContrato(raw), publicApiUrl };
+  }
+
+  /**
+   * Grava os dados fixos em `chave` (chaveDeGravacaoDaClinica). Na chave da conta
+   * vai só o JSON dos 8 campos (os que não vieram ficam como a conta via); na
+   * global antiga (administrador do sistema sem conta), o merge de antes.
+   */
+  async setContractConfigDaConta(chave: string, tenantId: string | null, dados: Partial<DadosContrato>): Promise<void> {
+    if (tenantId) {
+      const atual = await this.getContractConfigDaConta(tenantId);
+      const { publicApiUrl: _plataforma, ...daConta } = atual;
+      await this.set(chave, JSON.stringify({ ...daConta, ...dados }));
+      return;
+    }
+    const atual = await this.getContractConfig();
+    await this.set(chave, JSON.stringify({ ...atual, ...dados }));
+  }
+
+  /** URL pública da API (plataforma): só esse campo da CONTRACT_CONFIG global muda. */
+  async setContractPublicApiUrl(url: string): Promise<void> {
+    const raw = await this.get(CONTRACT_CONFIG_KEY);
+    let atual: Record<string, unknown> = {};
+    try {
+      const v = raw ? JSON.parse(raw) : {};
+      if (v && typeof v === 'object' && !Array.isArray(v)) atual = v;
+    } catch {
+      atual = {};
+    }
+    await this.set(CONTRACT_CONFIG_KEY, JSON.stringify({ ...atual, publicApiUrl: url }));
   }
 
   // ─── TTS (Text-to-Speech) ─────────────────────────────────────────────────

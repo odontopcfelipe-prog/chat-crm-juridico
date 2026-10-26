@@ -29,6 +29,10 @@ import {
 } from './settings-scope';
 import { SEM_CONTA_MSG, chaveDeGravacaoDaClinica, contaDoUsuario, ehSuperAdmin } from './config-da-clinica';
 import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, camposDePlataformaEnviados, normalizarCooldown, type CorpoAiConfig } from './ia-config';
+import { CONTRACT_CONFIG_KEY, escolherCamposContrato, urlPublicaAceita } from './contrato-config';
+
+/** 403 de configuração da plataforma pedida por quem não é administrador do sistema. */
+const SO_PLATAFORMA_MSG = 'Configuração da plataforma — somente o administrador do sistema pode alterar.';
 import { CANNED_RESPONSES_KEY, CRM_CONFIG_KEY, validarRespostasRapidas } from './crc-config';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
@@ -145,11 +149,13 @@ export class SettingsController {
     return { ok: true };
   }
 
-  // ─── DJEN Lawyers ──────────────────────────────────────
+  // ─── DJEN Lawyers (legado; configuração da plataforma) ─────────────────
+  // Nenhuma tela usa. Só o administrador do sistema lê e grava.
 
   @Get('djen-lawyers')
   @Roles('ADMIN', 'DENTIST')
-  async getDjenLawyers() {
+  async getDjenLawyers(@Request() req: any) {
+    if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
     const raw = await this.settingsService.get('DJEN_LAWYERS');
     if (raw) {
       try { return JSON.parse(raw); } catch {}
@@ -163,7 +169,9 @@ export class SettingsController {
 
   @Patch('djen-lawyers')
   @Roles('ADMIN')
-  async saveDjenLawyers(@Body() body: { lawyers: Array<{ oab: string; uf: string; nome: string }> }) {
+  async saveDjenLawyers(@Request() req: any, @Body() body: { lawyers: Array<{ oab: string; uf: string; nome: string }> }) {
+    if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
+    if (!Array.isArray(body?.lawyers)) throw new BadRequestException('Envie a lista de advogados (lawyers).');
     await this.settingsService.upsert('DJEN_LAWYERS', JSON.stringify(body.lawyers));
     return { message: 'Advogados DJEN salvos com sucesso', count: body.lawyers.length };
   }
@@ -665,38 +673,74 @@ export class SettingsController {
     return this.settingsService.getAiCosts({ tipo: 'clinica', tenantId: contaDoUsuario(req.user) });
   }
 
-  // ─── Clicksign ────────────────────────────────────────
+  // ─── Clicksign (integração da PLATAFORMA) ─────────────
+  // Uma conta ClickSign para todas: só o administrador do sistema troca ambiente
+  // e tokens. A clínica vê o status (mesmas chaves e sim/não, tokens como
+  // '********'); o GET nunca dá 403 (a tela carrega tudo junto).
 
   @Get('clicksign')
   @Roles('ADMIN')
-  async getClicksign() {
+  async getClicksign(@Request() req: any) {
     const cfg = await this.settingsService.getClicksignConfig();
+    const isSuper = ehSuperAdmin(req.user);
+    const mascarar = (t: string | null | undefined) => (isSuper ? maskApiKey(t) : t ? '********' : null);
     return {
       ...cfg,
-      apiToken:     maskApiKey(cfg.apiToken),
-      webhookToken: maskApiKey(cfg.webhookToken),
+      apiToken:     mascarar(cfg.apiToken),
+      webhookToken: mascarar(cfg.webhookToken),
     };
   }
 
   @Patch('clicksign')
   @Roles('ADMIN')
-  async setClicksign(@Body() body: { baseUrl?: string; apiToken?: string; webhookToken?: string }) {
+  async setClicksign(@Request() req: any, @Body() body: { baseUrl?: string; apiToken?: string; webhookToken?: string }) {
+    if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
     await this.settingsService.setClicksignConfig(body);
     return { ok: true };
   }
 
-  // ─── Contrato Trabalhista ─────────────────────────────
+  // ─── Dados fixos dos contratos (POR CLÍNICA) ──────────
+  // Os 8 dados (dentista responsável/CRO, endereço, foro) são da clínica; a URL
+  // pública da API é da plataforma (só o administrador do sistema grava; vinda
+  // de outro usuário é ignorada, com aviso no log e em `ignorados`).
 
   @Get('contract')
-  async getContract() {
-    return this.settingsService.getContractConfig();
+  async getContract(@Request() req: any) {
+    return this.settingsService.getContractConfigDaConta(contaDoUsuario(req.user));
   }
 
   @Patch('contract')
   @Roles('ADMIN')
-  async setContract(@Body() body: Record<string, string>) {
-    await this.settingsService.setContractConfig(body);
-    return { ok: true };
+  async setContract(@Request() req: any, @Body() body: Record<string, string>) {
+    const corpo: Record<string, unknown> = body && typeof body === 'object' ? body : {};
+    const isSuper = ehSuperAdmin(req.user);
+    const conta = contaDoUsuario(req.user);
+
+    // 1. Decide tudo antes de gravar.
+    const chave = chaveDeGravacaoDaClinica(CONTRACT_CONFIG_KEY, req.user);
+    const dados = escolherCamposContrato(corpo);
+    const ignorados: string[] = [];
+    let novaUrl: string | null = null;
+    if (corpo.publicApiUrl !== undefined && corpo.publicApiUrl !== null) {
+      if (!isSuper) {
+        ignorados.push('publicApiUrl');
+        this.logger.warn(`[contract] publicApiUrl ignorada (usuário ${req.user?.id ?? '?'} sem SUPER_ADMIN)`);
+      } else {
+        const enviada = String(corpo.publicApiUrl).trim();
+        const atual = String((await this.settingsService.getContractConfig()).publicApiUrl ?? '').trim();
+        if (enviada !== atual) {
+          if (!urlPublicaAceita(enviada)) {
+            throw new BadRequestException('URL Pública da API inválida: use um endereço http(s) completo.');
+          }
+          novaUrl = enviada;
+        }
+      }
+    }
+
+    // 2. Grava.
+    await this.settingsService.setContractConfigDaConta(chave, conta, dados);
+    if (novaUrl !== null) await this.settingsService.setContractPublicApiUrl(novaUrl);
+    return { ok: true, ignorados };
   }
 
   // ─── CRM Config (POR CLÍNICA) ─────────────────────────
@@ -743,9 +787,13 @@ export class SettingsController {
     return this.settingsService.getTtsConfig();
   }
 
+  // Voz da IA (liga/desliga, voz e chave Google) é da PLATAFORMA: usa o crédito
+  // Google da plataforma. A clínica vê o status pelo GET; só o administrador do
+  // sistema grava.
   @Patch('tts')
   @Roles('ADMIN')
-  async setTtsConfig(@Body() body: { enabled?: boolean; googleApiKey?: string; voice?: string; language?: string }) {
+  async setTtsConfig(@Request() req: any, @Body() body: { enabled?: boolean; googleApiKey?: string; voice?: string; language?: string }) {
+    if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
     await this.settingsService.setTtsConfig(body);
     return { ok: true };
   }
