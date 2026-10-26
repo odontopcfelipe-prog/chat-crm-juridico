@@ -41,6 +41,7 @@ import { WaitlistService } from '../waitlist/waitlist.service';
 import { PostCareService } from '../post-care/post-care.service';
 import { FollowupService } from '../followup/followup.service';
 import { AutomationsService } from '../automations/automations.service';
+import { AutomationsController } from '../automations/automations.controller';
 import { LeadsService } from '../leads/leads.service';
 import { GoogleDriveController } from '../google-drive/google-drive.controller';
 import { ContractsService } from '../commercial/contracts.service';
@@ -991,6 +992,24 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
     expect(m.avisos).toEqual([]);
   });
 
+  // Lembrete SEM canal: no criar o padrão gravado é PUSH (da equipe, fica); no remarcar
+  // o padrão gravado é WHATSAPP (ao contato, sai no laboratório).
+  it('criar, laboratório, lembrete sem canal: vale o padrão do criar (PUSH) e fica', async () => {
+    const m = montar([LAB]);
+    await m.svc.create(evento(LAB, { reminders: [{ minutes_before: 45 }, { minutes_before: 1440, channel: 'WHATSAPP' }] }));
+    await esperar();
+    expect(lembretesCriados(m)).toEqual([{ minutes_before: 45, channel: 'PUSH' }]);
+    expect(m.fila.add).not.toHaveBeenCalled();
+  });
+
+  it('remarcar, laboratório, lembrete sem canal: vale o padrão do remarcar (WHATSAPP) e sai', async () => {
+    const m = montar([LAB], antes(LAB));
+    await m.svc.update('evento-1', { start_at: '2026-10-29T14:00:00.000Z', reminders: [{ minutes_before: 45 }, { minutes_before: 30, channel: 'PUSH' }] });
+    await esperar();
+    expect(m.de('eventReminder.createMany')).toEqual([{ data: [{ event_id: 'evento-1', minutes_before: 30, channel: 'PUSH' }] }]);
+    expect(m.fila.add).not.toHaveBeenCalled();
+  });
+
   const lembreteAntigo = { id: 'antigo-1', minutes_before: 1440, channel: 'WHATSAPP' };
   const comAntigo = (t: string) => ({
     ...antes(t),
@@ -1323,10 +1342,19 @@ describe('Regras de automação — as globais (de clínica) não agem em lead d
     expect(etiquetas(lab)).toEqual(['lab-STAGE_CHANGE']);
   });
 
-  it('gancho sem conta, lead legado sem conta com OUTRA conta laboratório: todas as regras, como antes', async () => {
+  it('gancho sem conta, lead legado sem conta: as regras de clínica como antes; a do laboratório não age', async () => {
+    const semLab = montar([]);
+    await semLab.svc.onStageChange('lead-legado', 'QUALIFICANDO', undefined);
+    expect(etiquetas(semLab)).toEqual(['global-STAGE_CHANGE', 'clinica-STAGE_CHANGE', 'lab-STAGE_CHANGE']);
     const legado = montar([LAB]);
     await legado.svc.onStageChange('lead-legado', 'QUALIFICANDO', undefined);
-    expect(etiquetas(legado)).toEqual(['global-STAGE_CHANGE', 'clinica-STAGE_CHANGE', 'lab-STAGE_CHANGE']);
+    expect(etiquetas(legado)).toEqual(['global-STAGE_CHANGE', 'clinica-STAGE_CHANGE']);
+  });
+
+  it('gancho sem conta, lead de clínica com OUTRA conta laboratório: a regra do laboratório não age', async () => {
+    const m = montar([LAB]);
+    await m.svc.onNewLead('lead-clinica', undefined);
+    expect(etiquetas(m)).toEqual(['global-NEW_LEAD', 'clinica-NEW_LEAD']);
   });
 
   it('tela de regras, clínica sem laboratório e com OUTRA conta laboratório: as dela e as globais (mesmo where)', async () => {
@@ -1342,6 +1370,15 @@ describe('Regras de automação — as globais (de clínica) não agem em lead d
     const lab = montar([LAB]);
     await lab.svc.findAll(LAB);
     expect(lab.de('automationRule.findMany')[0].where).toEqual({ tenant_id: LAB });
+  });
+
+  it('editar/apagar pela rota: o controller repassa a conta de quem chama', async () => {
+    const svc = { update: jest.fn(async () => ({})), remove: jest.fn(async () => ({})) };
+    const ctl = new AutomationsController(svc as any);
+    await ctl.update('regra-1', { enabled: false }, { user: { tenant_id: LAB } });
+    await ctl.remove('regra-1', { user: { tenant_id: LAB } });
+    expect(svc.update).toHaveBeenCalledWith('regra-1', { enabled: false }, LAB);
+    expect(svc.remove).toHaveBeenCalledWith('regra-1', LAB);
   });
 
   it('editar/apagar, clínica com OUTRA conta laboratório: como antes (sem leitura a mais)', async () => {
@@ -1415,6 +1452,21 @@ describe('Pasta do lead no Google Drive (Drive global da clínica)', () => {
     expect(d.ops).toEqual(a.ops);
   });
 
+  it('etapa AGUARDANDO_DOCS, lead legado sem conta: pela conta de quem move (laboratório não; clínica cria igual)', async () => {
+    const lab = montar([LAB], null as any);
+    await lab.svc.updateStatus('lead-velho', 'AGUARDANDO_DOCS', LAB);
+    await esperar();
+    expect(lab.drive.ensureLeadFolder).not.toHaveBeenCalled();
+    const antes = montar([], null as any);
+    await antes.svc.updateStatus('lead-velho', 'AGUARDANDO_DOCS', CLINICA);
+    await esperar();
+    const depois = montar([LAB], null as any);
+    await depois.svc.updateStatus('lead-velho', 'AGUARDANDO_DOCS', CLINICA);
+    await esperar();
+    expect(antes.drive.ensureLeadFolder.mock.calls).toEqual([['lead-velho', 'Maria Exemplo']]);
+    expect(depois.drive.ensureLeadFolder.mock.calls).toEqual(antes.drive.ensureLeadFolder.mock.calls);
+  });
+
   it('etapa AGUARDANDO_DOCS, laboratório: sem pasta no Drive da clínica', async () => {
     const m = montar([LAB], LAB);
     await m.svc.updateStatus('lead-lab', 'AGUARDANDO_DOCS', LAB);
@@ -1457,7 +1509,19 @@ describe('Pasta do lead no Google Drive (Drive global da clínica)', () => {
     expect(codigo(await erro(plataforma.ctl.createLeadFolder('lead-lab', { user: { roles: ['SUPER_ADMIN'] } })))).toBe(CODIGO_VERTICAL_NEGADA);
     const cruzado = manual([LAB], CLINICA);
     expect(await erro(cruzado.ctl.createLeadFolder('lead-1', { user: { tenant_id: LAB } }))).toBeInstanceOf(NotFoundException);
-    for (const m of [proprio, plataforma, cruzado]) expect(m.drive.ensureLeadFolder).not.toHaveBeenCalled();
+    // Lead legado sem conta passa pela checagem de conta: decide a conta de quem pede.
+    const legado = manual([LAB], null as any);
+    expect(codigo(await erro(legado.ctl.createLeadFolder('lead-velho', { user: { tenant_id: LAB } })))).toBe(CODIGO_VERTICAL_NEGADA);
+    for (const m of [proprio, plataforma, cruzado, legado]) expect(m.drive.ensureLeadFolder).not.toHaveBeenCalled();
+  });
+
+  it('criação manual da pasta, lead legado sem conta por usuário de clínica: cria igual, com ou sem laboratório', async () => {
+    const antes = manual([], null as any);
+    await antes.ctl.createLeadFolder('lead-velho', { user: { tenant_id: CLINICA } });
+    const depois = manual([LAB], null as any);
+    await depois.ctl.createLeadFolder('lead-velho', { user: { tenant_id: CLINICA } });
+    expect(antes.drive.ensureLeadFolder.mock.calls).toEqual([['lead-velho', 'Maria Exemplo']]);
+    expect(depois.drive.ensureLeadFolder.mock.calls).toEqual(antes.drive.ensureLeadFolder.mock.calls);
   });
 });
 

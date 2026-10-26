@@ -289,6 +289,34 @@ describe('Retorno de manutenção (cron) — laboratório não dispara', () => {
 
 // ─── regras "sem resposta" 24/48 h ───────────────────────────────────────────
 
+describe('Regras "sem resposta" — regra do laboratório não age em conversa legada sem conta', () => {
+  it('conversa legada sem conta: a regra global age como antes; a do laboratório não', async () => {
+    const velha = { id: 'c-velha', lead_id: 'l-velha', tenant_id: null };
+    const casos: Array<[string[], string[][]]> = [
+      [[], [['l-velha', 'seq-global'], ['l-velha', 'seq-lab']]],
+      [[LAB], [['l-velha', 'seq-global']]],
+    ];
+    for (const [labs, esperado] of casos) {
+      const b = banco(labs, {
+        'automationRule.findMany': ({ where }) =>
+          where.trigger === 'NO_RESPONSE_24H'
+            ? [
+                { id: 'r-global', tenant_id: null, action: 'ENROLL_FOLLOWUP', action_value: 'seq-global' },
+                { id: 'r-lab', tenant_id: LAB, action: 'ENROLL_FOLLOWUP', action_value: 'seq-lab' },
+              ]
+            : [],
+        'conversation.findMany': () => [velha],
+        'lead.findUnique': () => ({ tenant_id: null }),
+        'conversation.findUnique': () => ({ tenant_id: null }),
+      });
+      const followup = { enrollLead: jest.fn(async () => ({})) };
+      const svc = new AutomationsService(b.prisma, { get: jest.fn(() => followup) } as any);
+      await svc.checkNoResponse();
+      expect(followup.enrollLead.mock.calls).toEqual(esperado);
+    }
+  });
+});
+
 describe('Regras "sem resposta" 24/48 h (cron) — conversa de laboratório fica fora', () => {
   const H = 3_600_000;
   const BASE24 = { status: { not: 'FECHADO' }, last_message_at: { gte: new Date(AGORA.getTime() - 25 * H), lte: new Date(AGORA.getTime() - 24 * H) } };

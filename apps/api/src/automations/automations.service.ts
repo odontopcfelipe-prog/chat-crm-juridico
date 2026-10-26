@@ -81,7 +81,13 @@ export class AutomationsService {
     if (!labs.size) return rules;
     const conta =
       tenantId || (await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } }))?.tenant_id;
-    if (!conta || !labs.has(conta)) return rules;
+    if (!conta || !labs.has(conta)) {
+      // Lead de clínica ou legado sem conta: regra de LABORATÓRIO nunca age fora dele.
+      const semDeLab = rules.filter((r) => !(r.tenant_id && labs.has(r.tenant_id)));
+      if (semDeLab.length === rules.length) return rules;
+      this.logger.log(`[LAB-GATE] automacoes — lead ${leadId} não é do laboratório: ${rules.length - semDeLab.length} regra(s) de laboratório fora`);
+      return semDeLab;
+    }
     const daConta = rules.filter((r) => r.tenant_id === conta);
     this.logger.log(`[LAB-GATE] automacoes — lead ${leadId} é de laboratório: ${rules.length - daConta.length} regra(s) de clínica fora`);
     return daConta;
@@ -251,6 +257,9 @@ export class AutomationsService {
     if (labs.size) this.logger.log(`[LAB-GATE] no-response — ${labs.size} laboratório(s) fora da busca`);
     const foraDoLab = (where: Prisma.ConversationWhereInput): Prisma.ConversationWhereInput =>
       labs.size ? excludeLabWhere('conversation', { ...where, lead: excludeLabWhere('lead', {}, labs) }, labs) : where;
+    // Regra de laboratório só vale na conversa DELE — nunca na legada sem conta.
+    const vale = (rule: { tenant_id?: string | null }, conv: { tenant_id?: string | null }) =>
+      regraValeParaConversa(rule, conv) && !(rule.tenant_id && labs.has(rule.tenant_id) && conv.tenant_id !== rule.tenant_id);
 
     if (rules24.length > 0) {
       // Conversations last active between 25h and 24h ago (1-hour window to avoid re-triggering)
@@ -263,7 +272,7 @@ export class AutomationsService {
       });
       for (const conv of convs) {
         for (const rule of rules24) {
-          if (!regraValeParaConversa(rule, conv)) continue;
+          if (!vale(rule, conv)) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }
@@ -280,7 +289,7 @@ export class AutomationsService {
       });
       for (const conv of convs) {
         for (const rule of rules48) {
-          if (!regraValeParaConversa(rule, conv)) continue;
+          if (!vale(rule, conv)) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }
