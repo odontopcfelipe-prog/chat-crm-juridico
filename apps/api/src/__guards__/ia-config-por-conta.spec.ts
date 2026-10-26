@@ -471,6 +471,39 @@ describe('Webhook: tempo de resposta e robô de comando da clínica da conversa'
   });
 });
 
+describe('AdminBot.isEnabled — a entrada sem conta não serve para a clínica', () => {
+  it('o "sem conta" em cache não é usado para B nem para a conta nova', async () => {
+    const store = new Map<string, string>([['ADMIN_BOT_ENABLED', 'false']]);
+    const prisma = prismaWebhook(store, null);
+    const bot = new AdminBotService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+    expect(await bot.isEnabled(null)).toBe(false);
+    store.set('ADMIN_BOT_ENABLED', 'true');
+    // B (legada) lê agora a global antiga; a conta nova, o padrão — nenhuma usa o "sem conta" guardado.
+    expect(await bot.isEnabled(B)).toBe(true);
+    expect(await bot.isEnabled(NOVA)).toBe(true);
+    expect(await bot.isEnabled(null)).toBe(false);
+  });
+});
+
+describe('GET /settings/whatsapp-config — trechos da chave só para o administrador do sistema', () => {
+  const CHAVE = 'chave-de-exemplo-do-servidor-0123456789';
+  function controller() {
+    const settings: any = {
+      getWhatsAppConfig: jest.fn(async () => ({ apiUrl: 'https://evo.exemplo.test', apiKey: CHAVE, webhookUrl: 'https://api.exemplo.test/webhooks/evolution' })),
+    };
+    return new SettingsController(settings, {} as any, {} as any, {} as any, {} as any);
+  }
+  it('ADMIN de clínica: só sabe que existe (sem trecho da chave), mesmo formato', async () => {
+    const r: any = await controller().getWhatsAppConfig({ user: { tenant_id: A, roles: ['ADMIN'] } });
+    expect(r).toEqual({ apiUrl: 'https://evo.exemplo.test', apiKey: '********', webhookUrl: 'https://api.exemplo.test/webhooks/evolution' });
+  });
+  it('SUPER_ADMIN: o mascarado de hoje (início e fim)', async () => {
+    const r: any = await controller().getWhatsAppConfig({ user: { tenant_id: A, roles: ['ADMIN', 'SUPER_ADMIN'] } });
+    expect(r.apiKey.startsWith(CHAVE.slice(0, 4))).toBe(true);
+    expect(r.apiKey.endsWith(CHAVE.slice(-4))).toBe(true);
+  });
+});
+
 // ─── Tela (leitura do código) ──────────────────────────────────────────────
 
 describe('Telas: o gate também no front', () => {
@@ -482,6 +515,15 @@ describe('Telas: o gate também no front', () => {
     expect(p).toContain(': { adminBotEnabled, cooldownSeconds };');
     expect(p).not.toMatch(/whatsappAiEnabled,\s*cooldownSeconds/);
     expect(p).toMatch(/isSuperAdmin && apiKey\.trim\(\)/);
+    expect(p).toMatch(/isSuperAdmin && adminKey\.trim\(\)/);
+    expect(p).toMatch(/isSuperAdmin && anthropicKey\.trim\(\)/);
+    // Modelo padrão e DJEN: dentro de um bloco só do SUPER_ADMIN.
+    const modelo = p.indexOf('Modelo padrão (Chat / Skills)</label>');
+    const abreModelo = p.lastIndexOf('{isSuperAdmin && (<>', modelo);
+    expect(modelo).toBeGreaterThan(-1);
+    expect(abreModelo).toBeGreaterThan(-1);
+    expect(p.indexOf('</>)}', abreModelo)).toBeGreaterThan(modelo);
+    expect(p.lastIndexOf('</>)}', modelo)).toBeLessThan(abreModelo);
     const chaves = p.indexOf('API Key OpenAI</label>');
     const abre = p.lastIndexOf('{isSuperAdmin && (<>', chaves);
     expect(abre).toBeGreaterThan(-1);
@@ -494,5 +536,9 @@ describe('Telas: o gate também no front', () => {
     expect(p).toContain("const daClinica   = data.escopo === 'clinica';");
     expect(p).toContain('{!daClinica && !openai.configured && (');
     expect(p).toMatch(/\{!daClinica && \(\s*<a href="https:\/\/platform\.openai\.com\/usage"/);
+    // Rodapé "Fontes de dados": para a clínica, a estimativa dela (sem mandar configurar a Admin Key).
+    expect(p).toMatch(/\{daClinica \? \(\s*<p>\s*Estimativa pelas chamadas de IA registradas da sua clínica/);
+    const rodape = p.indexOf('Fatura oficial:');
+    expect(p.lastIndexOf('{!daClinica && (', rodape)).toBeGreaterThan(p.indexOf('Fontes de dados'));
   });
 });

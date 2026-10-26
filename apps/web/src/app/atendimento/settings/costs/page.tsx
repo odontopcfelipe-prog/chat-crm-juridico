@@ -472,7 +472,12 @@ export default function AiCostsPage() {
         {/* ── Nota ─────────────────────────────────────────────────────── */}
         <div className="bg-card/50 rounded-2xl border border-border p-4 text-[12px] text-muted-foreground space-y-1.5">
           <p className="font-bold text-foreground text-xs">ℹ️ Fontes de dados</p>
-          {hasOpenAi ? (
+          {daClinica ? (
+            <p>
+              Estimativa pelas chamadas de IA registradas da sua clínica, calculada pela
+              tabela de preços por modelo.
+            </p>
+          ) : hasOpenAi ? (
             <p>
               Tokens via <code className="font-mono text-primary">/v1/organization/usage/completions</code> (Admin Key).
               Custos calculados pela tabela de preços oficial da OpenAI por modelo.
@@ -488,12 +493,16 @@ export default function AiCostsPage() {
             </p>
           )}
           <p>
-            Cotação USD/BRL: <span className="font-mono text-foreground">R$\u00A0{rate.toFixed(2)}</span>{' '}
-            · Fatura oficial:{' '}
-            <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer"
-              className="font-mono text-primary hover:underline">
-              platform.openai.com/usage
-            </a>
+            Cotação USD/BRL: <span className="font-mono text-foreground">R$\u00A0{rate.toFixed(2)}</span>
+            {!daClinica && (
+              <>
+                {' '}· Fatura oficial:{' '}
+                <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer"
+                  className="font-mono text-primary hover:underline">
+                  platform.openai.com/usage
+                </a>
+              </>
+            )}
           </p>
         </div>
 

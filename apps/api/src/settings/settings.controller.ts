@@ -292,7 +292,10 @@ export class SettingsController {
     // tiver configurado ainda).
     const tenantId = req.user?.tenant_id ?? null;
     const config = await this.settingsService.getWhatsAppConfig(tenantId);
-    return { ...config, apiKey: maskApiKey(config.apiKey) };
+    // A chave pode ser a do servidor da plataforma: trechos dela só para o
+    // administrador do sistema; os demais veem só que existe.
+    const apiKey = ehSuperAdmin(req.user) ? maskApiKey(config.apiKey) : config.apiKey ? '********' : null;
+    return { ...config, apiKey };
   }
 
   @Post('whatsapp-config')
