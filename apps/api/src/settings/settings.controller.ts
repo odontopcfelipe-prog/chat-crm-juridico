@@ -218,7 +218,10 @@ export class SettingsController {
     business_days?: number[];
     timezone?: string;
   }) {
-    const tenantId: string | null = req.user?.tenant_id ?? null;
+    // Com clínica: grava na dela. Sem clínica: só o administrador do sistema grava
+    // o padrão global (os demais recebem 403).
+    const tenantId = contaDoUsuario(req.user);
+    if (!tenantId && !ehSuperAdmin(req.user)) throw negarPermissao(SEM_CONTA_MSG);
     if (body.timezone && body.timezone.length > 0) {
       try {
         new Intl.DateTimeFormat('en-US', { timeZone: body.timezone });
@@ -298,8 +301,10 @@ export class SettingsController {
     @Request() req: any,
     @Body() data: { apiUrl: string; apiKey?: string; webhookUrl?: string },
   ) {
-    // Onda 17.32.129 — Fase 6.1: salva no tenant logado (nao no global)
-    const tenantId = req.user?.tenant_id ?? null;
+    // Onda 17.32.129 — Fase 6.1: salva no tenant logado (nao no global). Sem
+    // clínica: só o administrador do sistema grava o servidor global; os demais, 403.
+    const tenantId = contaDoUsuario(req.user);
+    if (!tenantId && !ehSuperAdmin(req.user)) throw negarPermissao(SEM_CONTA_MSG);
     await this.settingsService.setWhatsAppConfig(
       data.apiUrl, data.apiKey, data.webhookUrl, tenantId,
     );
