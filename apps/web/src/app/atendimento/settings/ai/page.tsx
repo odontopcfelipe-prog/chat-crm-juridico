@@ -430,6 +430,7 @@ export default function AiSettingsPage() {
   };
 
   const saveSkill = async () => {
+    if (!isSuperAdmin) return; // skills são da plataforma
     if (!form.name.trim() || !form.area.trim()) {
       alert('Nome e área são obrigatórios.');
       return;
@@ -467,6 +468,7 @@ export default function AiSettingsPage() {
   };
 
   const deleteSkill = async (id: string) => {
+    if (!isSuperAdmin) return; // skills são da plataforma
     if (!confirm('Excluir esta skill permanentemente?')) return;
     setDeletingId(id);
     try {
@@ -481,6 +483,7 @@ export default function AiSettingsPage() {
   };
 
   const toggleSkill = async (id: string, current: boolean) => {
+    if (!isSuperAdmin) return; // skills são da plataforma
     try {
       await api.patch(`/settings/skills/${id}/toggle`, { isActive: !current });
       setSkills((prev) => prev.map((s) => s.id === id ? { ...s, isActive: !current } : s));
@@ -524,10 +527,12 @@ export default function AiSettingsPage() {
   const renderSkillCard = (skill: Skill) => (
     <div key={skill.id}>
       <div className="p-4 flex items-center gap-3 hover:bg-muted/30 transition-all">
-        {/* Toggle ativo/inativo da skill */}
+        {/* Toggle ativo/inativo da skill (só o administrador do sistema muda; a clínica vê) */}
         <button
           onClick={() => toggleSkill(skill.id, skill.isActive)}
-          className={`w-8 h-4 rounded-full transition-colors shrink-0 relative ${skill.isActive ? 'bg-emerald-500' : 'bg-muted'}`}
+          disabled={!isSuperAdmin}
+          title={isSuperAdmin ? undefined : skill.isActive ? 'Skill ativa (mantida pela plataforma)' : 'Skill inativa (mantida pela plataforma)'}
+          className={`w-8 h-4 rounded-full transition-colors shrink-0 relative disabled:cursor-default ${skill.isActive ? 'bg-emerald-500' : 'bg-muted'}`}
         >
           <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${skill.isActive ? 'left-4' : 'left-0.5'}`} />
         </button>
@@ -553,6 +558,7 @@ export default function AiSettingsPage() {
             {skill.description || (skill.systemPrompt || '').slice(0, 80)}{!skill.description && skill.systemPrompt?.length > 80 ? '…' : ''}
           </p>
         </div>
+        {isSuperAdmin && (
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => (editingId === skill.id ? cancelEdit() : openEdit(skill))}
@@ -570,8 +576,9 @@ export default function AiSettingsPage() {
             {deletingId === skill.id ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
           </button>
         </div>
+        )}
       </div>
-      {editingId === skill.id && (
+      {isSuperAdmin && editingId === skill.id && (
         <SkillEditor
           form={form}
           setForm={setForm}
@@ -1029,7 +1036,11 @@ export default function AiSettingsPage() {
           n={4}
           id="etapa-chips"
           title="Assistente em cada chip"
-          description="Ligue a IA em cada WhatsApp (Comercial, Clínica, Financeiro). Abra o chip para dar nome à assistente, escolher o tamanho e o tempo das respostas, as instruções e as skills."
+          description={
+            isSuperAdmin
+              ? 'Ligue a IA em cada WhatsApp (Comercial, Clínica, Financeiro). Abra o chip para dar nome à assistente, escolher o tamanho e o tempo das respostas, as instruções e as skills.'
+              : 'Ligue a IA em cada WhatsApp (Comercial, Clínica, Financeiro). Abra o chip para dar nome à assistente, escolher o tamanho e o tempo das respostas e as instruções. As skills são mantidas pela plataforma.'
+          }
           status={loading ? 'checking' : setupSteps[3].status}
         >
           {/* ── IA por chip (Onda 18.23): liberação + skills JUNTOS. Cada chip é uma
@@ -1109,7 +1120,7 @@ export default function AiSettingsPage() {
                           )}
 
                           {/* Banner Sincronizar SDR só no Comercial (onde a SDR vive) */}
-                          {chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
+                          {isSuperAdmin && chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
                             <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
                               <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
                                 {skills.some((s) => s.name === 'SDR Jurídico — Sophia')
@@ -1149,7 +1160,7 @@ export default function AiSettingsPage() {
                           )}
 
                           {/* Nova skill deste chip (editor inline) */}
-                          {creatingHere && (
+                          {isSuperAdmin && creatingHere && (
                             <div className="p-4 bg-violet-500/5 border-t border-violet-500/20">
                               <p className="text-xs font-bold text-violet-400 mb-3 uppercase tracking-wide flex items-center gap-2">
                                 <Plus size={12} /> Nova skill · {chip.label}
@@ -1171,7 +1182,7 @@ export default function AiSettingsPage() {
                             </div>
                           )}
 
-                          {!creatingHere && (
+                          {isSuperAdmin && !creatingHere && (
                             <div className="p-3">
                               <button
                                 onClick={() => openNew(chip.id)}

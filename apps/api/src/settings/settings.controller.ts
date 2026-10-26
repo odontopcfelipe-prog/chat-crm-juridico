@@ -12,6 +12,7 @@ import {
   computeBusinessHoursInfo,
   formatClinicHours,
   isAfterHoursAiEnabled,
+  isLabTenant,
   loadOfficeHoursValues,
   type AiChipProfile,
   type ClinicHours,
@@ -30,6 +31,9 @@ import {
 import { SEM_CONTA_MSG, chaveDeGravacaoDaClinica, contaDoUsuario, ehSuperAdmin } from './config-da-clinica';
 import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, camposDePlataformaEnviados, normalizarCooldown, type CorpoAiConfig } from './ia-config';
 import { CONTRACT_CONFIG_KEY, escolherCamposContrato, urlPublicaAceita } from './contrato-config';
+
+/** 403 da escrita de skills (instruções da IA), que são da plataforma. */
+const SKILLS_PLATAFORMA_MSG = 'Skills da IA são mantidas pela plataforma — somente o administrador do sistema pode alterar.';
 
 /** 403 de configuração da plataforma pedida por quem não é administrador do sistema. */
 const SO_PLATAFORMA_MSG = 'Configuração da plataforma — somente o administrador do sistema pode alterar.';
@@ -511,22 +515,41 @@ export class SettingsController {
     return this.settingsService.saveAiChipProfile(tenantId, purpose, body ?? {});
   }
 
+  // ─── Skills (instruções da IA) — da PLATAFORMA ─────────
+  // Leitura: ADMIN de clínica, como antes (laboratório não tem IA: lista vazia).
+  // Criar, editar, ligar/desligar, apagar, ferramentas e referências: só o
+  // administrador do sistema (403 PERMISSION_DENIED para os demais).
+
+  /** Laboratório (sem SUPER_ADMIN) não lê as skills de clínica. */
+  private async semSkillsParaLaboratorio(user: any): Promise<boolean> {
+    if (ehSuperAdmin(user)) return false;
+    return isLabTenant(this.prisma, contaDoUsuario(user), (m) => this.logger.warn(m));
+  }
+
+  /** Escrita de skill/ferramenta/referência: só o administrador do sistema. */
+  private exigirPlataforma(user: any): void {
+    if (!ehSuperAdmin(user)) throw negarPermissao(SKILLS_PLATAFORMA_MSG);
+  }
+
   @Get('skills')
   @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — config de IA é admin-only.
-  async getSkills() {
+  async getSkills(@Request() req: any) {
+    if (await this.semSkillsParaLaboratorio(req.user)) return [];
     return this.settingsService.getSkills();
   }
 
   @Patch('skills/:id/toggle')
   @Roles('ADMIN')
-  async toggleSkill(@Param('id') id: string, @Body() data: { isActive: boolean }) {
+  async toggleSkill(@Request() req: any, @Param('id') id: string, @Body() data: { isActive: boolean }) {
+    this.exigirPlataforma(req.user);
     await this.settingsService.toggleSkill(id, data.isActive);
     return { message: 'Skill atualizada com sucesso' };
   }
 
   @Post('skills/reset-defaults')
   @Roles('ADMIN')
-  async resetSkillsToDefaults() {
+  async resetSkillsToDefaults(@Request() req: any) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.resetSkillsToDefaults();
   }
 
@@ -537,25 +560,29 @@ export class SettingsController {
    */
   @Post('skills/migrate-sdr-to-odonto')
   @Roles('ADMIN')
-  async migrateSdrToOdonto() {
+  async migrateSdrToOdonto(@Request() req: any) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.migrateSdrToOdonto();
   }
 
   @Post('skills')
   @Roles('ADMIN')
-  async createSkill(@Body() data: CreateSkillDto) {
+  async createSkill(@Request() req: any, @Body() data: CreateSkillDto) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.createSkill(data);
   }
 
   @Patch('skills/:id')
   @Roles('ADMIN')
-  async updateSkill(@Param('id') id: string, @Body() data: UpdateSkillDto) {
+  async updateSkill(@Request() req: any, @Param('id') id: string, @Body() data: UpdateSkillDto) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.updateSkill(id, data);
   }
 
   @Delete('skills/:id')
   @Roles('ADMIN')
-  async deleteSkill(@Param('id') id: string) {
+  async deleteSkill(@Request() req: any, @Param('id') id: string) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.deleteSkill(id);
   }
 
@@ -563,25 +590,29 @@ export class SettingsController {
 
   @Get('skills/:skillId/tools')
   @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — tools (handler_config/url) admin-only.
-  async getSkillTools(@Param('skillId') skillId: string) {
+  async getSkillTools(@Request() req: any, @Param('skillId') skillId: string) {
+    if (await this.semSkillsParaLaboratorio(req.user)) return [];
     return this.settingsService.getSkillTools(skillId);
   }
 
   @Post('skills/:skillId/tools')
   @Roles('ADMIN')
-  async createSkillTool(@Param('skillId') skillId: string, @Body() data: CreateSkillToolDto) {
+  async createSkillTool(@Request() req: any, @Param('skillId') skillId: string, @Body() data: CreateSkillToolDto) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.createSkillTool(skillId, data);
   }
 
   @Patch('skills/tools/:toolId')
   @Roles('ADMIN')
-  async updateSkillTool(@Param('toolId') toolId: string, @Body() data: UpdateSkillToolDto) {
+  async updateSkillTool(@Request() req: any, @Param('toolId') toolId: string, @Body() data: UpdateSkillToolDto) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.updateSkillTool(toolId, data);
   }
 
   @Delete('skills/tools/:toolId')
   @Roles('ADMIN')
-  async deleteSkillTool(@Param('toolId') toolId: string) {
+  async deleteSkillTool(@Request() req: any, @Param('toolId') toolId: string) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.deleteSkillTool(toolId);
   }
 
@@ -589,7 +620,8 @@ export class SettingsController {
 
   @Get('skills/:skillId/assets')
   @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — assets de skill admin-only.
-  async getSkillAssets(@Param('skillId') skillId: string) {
+  async getSkillAssets(@Request() req: any, @Param('skillId') skillId: string) {
+    if (await this.semSkillsParaLaboratorio(req.user)) return [];
     return this.settingsService.getSkillAssets(skillId);
   }
 
@@ -597,10 +629,12 @@ export class SettingsController {
   @Roles('ADMIN')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSkillAsset(
+    @Request() req: any,
     @Param('skillId') skillId: string,
     @UploadedFile() file: any,
     @Body() body: { asset_type?: string; inject_mode?: string },
   ) {
+    this.exigirPlataforma(req.user); // antes de subir qualquer arquivo
     if (!file) throw new NotFoundException('Nenhum arquivo enviado');
 
     const ext = file.originalname.split('.').pop() || 'bin';
@@ -632,13 +666,15 @@ export class SettingsController {
 
   @Patch('skills/assets/:assetId')
   @Roles('ADMIN')
-  async updateSkillAsset(@Param('assetId') assetId: string, @Body() body: { inject_mode?: string; asset_type?: string; content_text?: string; size?: number }) {
+  async updateSkillAsset(@Request() req: any, @Param('assetId') assetId: string, @Body() body: { inject_mode?: string; asset_type?: string; content_text?: string; size?: number }) {
+    this.exigirPlataforma(req.user);
     return this.settingsService.updateSkillAsset(assetId, body);
   }
 
   @Delete('skills/assets/:assetId')
   @Roles('ADMIN')
-  async deleteSkillAsset(@Param('assetId') assetId: string) {
+  async deleteSkillAsset(@Request() req: any, @Param('assetId') assetId: string) {
+    this.exigirPlataforma(req.user);
     const asset = await this.settingsService.deleteSkillAsset(assetId);
     if (asset?.s3_key) {
       try { await this.s3Service.deleteObject(asset.s3_key); } catch {}
@@ -648,7 +684,8 @@ export class SettingsController {
 
   @Get('skills/assets/:assetId/download')
   @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — download de asset admin-only.
-  async downloadSkillAsset(@Param('assetId') assetId: string, @Res() res: any) {
+  async downloadSkillAsset(@Request() req: any, @Param('assetId') assetId: string, @Res() res: any) {
+    if (await this.semSkillsParaLaboratorio(req.user)) throw new NotFoundException('Asset não encontrado');
     const asset = await this.settingsService.findSkillAssetById(assetId);
     if (!asset) throw new NotFoundException('Asset não encontrado');
 
