@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { computeNextRunAt, interpolateTemplate } from '@crm/shared';
 import axios from 'axios';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
 const MAX_SCHEDULES_PER_TICK = 50;
 const MAX_RECIPIENTS_PER_SCHEDULE = 500;
@@ -183,7 +184,10 @@ export class InfluencerMessagesCronService {
         });
         return 'FAILED';
       }
-      const instance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+      // Chip padrão do servidor SÓ se for desta clínica (env-chip.ts; cache de 60s, não
+      // consulta por destinatário). Sem ele → catch abaixo: log FAILED, como o 404 de hoje.
+      const instance = await resolveOwnedEnvChip(this.prisma, sch.tenant_id, 'influenciadores', 'whatsapp');
+      if (!instance) throw new Error('Clínica sem chip próprio — o chip padrão do servidor não é desta clínica');
       const cleanPhone = inf.phone.replace(/\D/g, '');
       const res = await axios.post(
         `${apiUrl}/message/sendText/${instance}`,

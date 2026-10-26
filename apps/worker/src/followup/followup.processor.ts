@@ -8,6 +8,10 @@ import axios from 'axios';
 // Null-safe: `NOT { inbox: { purpose: 'FINANCEIRO' } }` descarta caixa com purpose NULL
 // (clínica legada de 1 chip) — o filtro da reativação inclui esses casos.
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
+
+/** Sem chip: cai no MESMO registro de falha de quando a Evolution recusava o chip vazio/morto. */
+const SEM_CHIP_PROPRIO = 'Clínica sem chip próprio — o chip padrão do servidor está vazio ou é de outra clínica';
 
 @Processor('followup-jobs')
 export class FollowupProcessor extends WorkerHost {
@@ -273,6 +277,8 @@ export class FollowupProcessor extends WorkerHost {
     const instanceName = convo?.instance_name || (await this.chipDoLead(lead));
 
     try {
+      // Sem chip → catch abaixo: FollowupMessage FALHOU + DispatchLog FAILED, como hoje.
+      if (!instanceName) throw new Error(SEM_CHIP_PROPRIO);
       await axios.post(`${apiUrl}/message/sendText/${instanceName}`, {
         number: lead.phone, text,
       }, { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 });
@@ -376,6 +382,8 @@ export class FollowupProcessor extends WorkerHost {
         orderBy: { last_message_at: 'desc' },
       });
       const instanceName = convo?.instance_name || (await this.chipDoLead(lead));
+      // Sem chip → catch abaixo: BroadcastItem FALHOU + failed_count, como hoje.
+      if (!instanceName) throw new Error(SEM_CHIP_PROPRIO);
 
       await axios.post(`${apiUrl}/message/sendText/${instanceName}`, {
         number: lead.phone, text,
@@ -471,8 +479,9 @@ Gere APENAS o texto da mensagem, sem introduções.`;
    *  VIVO da clínica dele (Comercial pra lead, Clínica pra paciente — nunca o
    *  Financeiro). Antes caía direto na instância padrão do servidor (env), que pode
    *  ser o antigo "whatsapp", chip que não existe mais. Clínica legada sem chips com
-   *  função: mantém o padrão do servidor. */
-  private async chipDoLead(lead: { tenant_id?: string | null; is_client?: boolean | null } | null): Promise<string> {
+   *  função: o padrão do servidor SÓ se for da clínica do lead (env-chip.ts); null =
+   *  não envia (quem chama registra a falha). */
+  private async chipDoLead(lead: { tenant_id?: string | null; is_client?: boolean | null } | null): Promise<string | null> {
     if (lead?.tenant_id) {
       const chips = await this.prisma.instance.findMany({
         where: { tenant_id: lead.tenant_id, type: 'whatsapp', purpose: { in: ['COMERCIAL', 'CLINICA'] } },
@@ -483,7 +492,7 @@ Gere APENAS o texto da mensagem, sem introduções.`;
       const chip = chips.find((c) => c.purpose === quer) ?? chips[0];
       if (chip) return chip.name;
     }
-    return process.env.EVOLUTION_INSTANCE_NAME || '';
+    return resolveOwnedEnvChip(this.prisma, lead?.tenant_id, 'followup');
   }
 
   private async advanceEnrollment(msgId: string) {

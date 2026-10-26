@@ -22,6 +22,7 @@ import {
   desligouDisparoEquipe,
 } from '@crm/shared';
 import { sendAdminAlert } from '../admin-alerts/admin-alert';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 import {
   NON_PATIENT_HANDOFF_TEXT,
   buildNonPatientAdminText,
@@ -547,7 +548,7 @@ export class AiProcessor extends WorkerHost {
       const { profile } = await loadClinicAiContext(this.prisma, tenantId, 'COMERCIAL');
       assistantName = profile.assistantName;
       const signature = profile.signature ? `*${profile.assistantName}:* ` : '';
-      const sent = await this.sendPlainWhatsApp(convo.lead?.phone, `${signature}${NON_PATIENT_HANDOFF_TEXT}`, convo.instance_name);
+      const sent = await this.sendPlainWhatsApp(convo.lead?.phone, `${signature}${NON_PATIENT_HANDOFF_TEXT}`, convo.instance_name, tenantId);
       if (!sent) this.logger.warn(`[AI][NÃO-PACIENTE] Conv ${convo.id}: resposta de repasse NÃO entregue — segue o handoff (ADMs avisados)`);
     } catch (e: any) {
       this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao responder o contato (conv ${convo.id}): ${e?.message} — segue o fluxo normal sem agenda`);
@@ -908,11 +909,15 @@ export class AiProcessor extends WorkerHost {
     phone: string | null | undefined,
     text: string,
     instanceName?: string | null,
+    tenantId?: string | null,
   ): Promise<boolean> {
     if (!phone) return false;
     const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
     if (!apiUrl) return false;
-    const inst = instanceName || process.env.EVOLUTION_INSTANCE_NAME || '';
+    // Sem chip na conversa: o padrão do servidor só se for desta clínica (env-chip.ts).
+    // null = não envia — mesmo false de quando a Evolution recusava o chip vazio/morto.
+    const inst = instanceName || (await resolveOwnedEnvChip(this.prisma, tenantId, 'ia-nao-paciente'));
+    if (!inst) return false;
     try {
       const res = await axios.post(
         `${apiUrl}/message/sendText/${inst}`,
@@ -929,6 +934,19 @@ export class AiProcessor extends WorkerHost {
       this.logger.warn(`[AI] sendPlainWhatsApp falhou (${inst}): ${e?.message}`);
       return false;
     }
+  }
+
+  /**
+   * Chip da resposta da IA: o da conversa; sem ele, o padrão do servidor SÓ se for
+   * desta clínica (env-chip.ts). Devolve '' (nunca null) de propósito: o envio segue,
+   * a Evolution recusa a rota vazia e o balão fica gravado como 'falhou' no painel —
+   * igual a hoje com a env vazia, e o operador vê para reenviar.
+   */
+  private async chipDaResposta(convo: { instance_name?: string | null }, tenantId: string | null): Promise<string> {
+    if (convo.instance_name) return convo.instance_name;
+    const chip = await resolveOwnedEnvChip(this.prisma, tenantId, 'ia-resposta');
+    if (!chip) this.logger.warn(`[AI] Conversa sem chip e sem chip padrão da clínica ${tenantId ?? '?'} (vazio ou de outra clínica) — resposta fica 'falhou'`);
+    return chip || '';
   }
 
   // ─── Retorna o parâmetro correto de tokens conforme o modelo ───
@@ -4328,8 +4346,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         return;
       }
 
-      const instanceName =
-        convo.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
+      const instanceName = await this.chipDaResposta(convo, profileTenantId);
 
       // Onda 18.x — tira o TRAVESSÃO (— em dash / – en dash) das respostas da IA: a
       // clínica não quer esse traço no WhatsApp. Troca por vírgula (leitura natural em

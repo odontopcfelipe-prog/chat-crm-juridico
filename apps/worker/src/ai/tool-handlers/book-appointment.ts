@@ -5,6 +5,7 @@ import type { ToolHandler, ToolContext } from '../tool-executor';
 import { isHolidayMatch, resolveConversationTenantId } from './check-availability';
 import { isAiAutobookEnabled } from '../auto-book-gate';
 import { isPastNaive, reminderDelayMs, REMINDER_MIN_DELAY_MS } from '../scheduling-safety';
+import { resolveOwnedEnvChip } from '../../admin-alerts/env-chip';
 
 /**
  * Evento ativo do dentista que se sobrepõe a [startAt, endAt) — a MESMA regra de
@@ -525,7 +526,16 @@ export class BookAppointmentHandler implements ToolHandler {
     if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
     apiUrl = apiUrl.replace(/\/+$/, '');
 
-    const instance = process.env.EVOLUTION_INSTANCE_NAME || '';
+    // Chip padrão do servidor SÓ se for da clínica do evento (env-chip.ts). null = não
+    // envia: o paciente fica sem a confirmação formal, como já ficava quando a Evolution
+    // recusava o chip vazio/morto; o evento e os lembretes seguem normais.
+    const instance = await resolveOwnedEnvChip(prisma, event.tenant_id, 'book_appointment');
+    if (!instance) {
+      this.logger.warn(
+        `[book_appointment] Confirmação ao paciente não enviada — clínica ${event.tenant_id ?? '?'} sem chip próprio (chip padrão do servidor vazio ou de outra clínica)`,
+      );
+      return;
+    }
 
     // Tenta pegar endereco da clinica (GlobalSetting CLINIC_ADDRESS)
     const addrRow = await prisma.globalSetting

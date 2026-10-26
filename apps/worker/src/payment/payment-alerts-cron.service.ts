@@ -13,6 +13,7 @@ import {
   type CobrancaTipo,
 } from '@crm/shared';
 import axios from 'axios';
+import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 import { buildGroupMessage, memberKey, planGroup, GROUP_MAX_PDFS, type GroupMember, type GroupPlan } from './cobranca-grupo';
 import { combinar, veredictoAsaas, veredictoLocal, type ConsultaAsaas, type Veredicto } from './cobranca-freio';
 import { buildAlertIndex, DEDUP_LOOKBACK_DAYS } from './regua-dedup';
@@ -253,6 +254,12 @@ export class PaymentAlertsCronService {
       pick.pdfUrls = groupPlan.pdfs.map((m) => m.pdfUrl as string);
     }
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
+    // Sem chip (null): os envios abaixo devolvem false — a MESMA falha do 404 do chip
+    // morto de hoje (marco travado, FAILED na Central, marca-passo andando). Nunca
+    // 'cooldown'/'freio': a mesma cobrança voltaria todo minuto e travaria a régua.
+    if (!instanceName) {
+      this.logger.warn(`[COBRANCA] Clínica ${pick.tenantId} sem chip FINANCEIRO/CLINICA próprio — não envia (charge ${pick.chargeId})`);
+    }
     const clinica = await this.resolveClinicName(pick.tenantId);
     const message = groupPlan
       ? buildGroupMessage(pick.name.split(' ')[0], clinica, pick.amount, groupPlan)
@@ -328,7 +335,7 @@ export class PaymentAlertsCronService {
       pick.phone,
       message,
       typeof messageId === 'string' ? messageId : null,
-      instanceName,
+      instanceName as string, // saiu → havia chip (sem chip o envio é false e retorna acima)
     );
     this.logger.log(
       `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
@@ -844,27 +851,28 @@ export class PaymentAlertsCronService {
     return set;
   }
 
-  /** Instância do chip FINANCEIRO do tenant → fallback CLINICA → env default. */
-  private async resolveFinanceiroInstance(tenantId: string): Promise<string> {
-    const fallback = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
-    if (!tenantId) return fallback;
-    try {
-      const fin = await this.prisma.instance.findFirst({
-        where: { tenant_id: tenantId, type: 'whatsapp', purpose: 'FINANCEIRO' },
-        orderBy: { created_at: 'asc' },
-        select: { name: true },
-      });
-      if (fin?.name) return fin.name;
-      const clinica = await this.prisma.instance.findFirst({
-        where: { tenant_id: tenantId, type: 'whatsapp', purpose: 'CLINICA' },
-        orderBy: { created_at: 'asc' },
-        select: { name: true },
-      });
-      if (clinica?.name) return clinica.name;
-    } catch (e: any) {
-      this.logger.warn(`[COBRANCA] Falha ao resolver instância do tenant ${tenantId}: ${e.message}`);
+  /** Instância do chip FINANCEIRO do tenant → fallback CLINICA → chip padrão do servidor
+   *  SÓ se for desta clínica (env-chip.ts). null = não envia (sendWhatsApp* devolvem false). */
+  private async resolveFinanceiroInstance(tenantId: string): Promise<string | null> {
+    if (tenantId) {
+      try {
+        const fin = await this.prisma.instance.findFirst({
+          where: { tenant_id: tenantId, type: 'whatsapp', purpose: 'FINANCEIRO' },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        });
+        if (fin?.name) return fin.name;
+        const clinica = await this.prisma.instance.findFirst({
+          where: { tenant_id: tenantId, type: 'whatsapp', purpose: 'CLINICA' },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        });
+        if (clinica?.name) return clinica.name;
+      } catch (e: any) {
+        this.logger.warn(`[COBRANCA] Falha ao resolver instância do tenant ${tenantId}: ${e.message}`);
+      }
     }
-    return fallback;
+    return resolveOwnedEnvChip(this.prisma, tenantId, 'cobranca', 'whatsapp');
   }
 
   /** O freio barrou este paciente+estágio (pago/cancelado ou Asaas sem resposta) ou a
@@ -1186,13 +1194,16 @@ export class PaymentAlertsCronService {
    * Envia WhatsApp via Evolution numa instância específica (o chip Financeiro).
    * Retorna messageId (string) em sucesso, false em falha, 'NO_CONFIG' se o
    * Evolution não está configurado (pra não gastar o slot do marca-passo).
+   * `instance` null (clínica sem chip próprio) → false, depois do NO_CONFIG: a mesma
+   * falha que o chip morto dava, sem chamar a Evolution.
    */
-  private async sendWhatsApp(phone: string, text: string, instance: string): Promise<string | false | 'NO_CONFIG'> {
+  private async sendWhatsApp(phone: string, text: string, instance: string | null): Promise<string | false | 'NO_CONFIG'> {
     const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
     if (!apiUrl) {
       this.logger.warn('[COBRANCA] Evolution apiUrl não configurada — pulando');
       return 'NO_CONFIG';
     }
+    if (!instance) return false;
     try {
       const cleanPhone = toBrazilWhatsappNumber(phone);
       const res = await axios.post(
@@ -1210,19 +1221,20 @@ export class PaymentAlertsCronService {
   /**
    * Envia o boleto como DOCUMENTO PDF (a Evolution baixa a URL pública do Asaas —
    * sem base64). `caption` é a mensagem do estágio. Mesmo contrato de retorno do
-   * sendWhatsApp (messageId | false | 'NO_CONFIG').
+   * sendWhatsApp (messageId | false | 'NO_CONFIG'), inclusive `instance` null → false.
    */
   private async sendWhatsAppMedia(
     phone: string,
     pdfUrl: string,
     caption: string,
-    instance: string,
+    instance: string | null,
   ): Promise<string | false | 'NO_CONFIG'> {
     const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
     if (!apiUrl) {
       this.logger.warn('[COBRANCA] Evolution apiUrl não configurada — pulando');
       return 'NO_CONFIG';
     }
+    if (!instance) return false;
     try {
       const cleanPhone = toBrazilWhatsappNumber(phone);
       const res = await axios.post(
@@ -1421,6 +1433,11 @@ export class PaymentAlertsCronService {
   /** Envia a apresentação, marca no AuditLog e avança o marca-passo compartilhado. */
   private async sendIntro(cand: IntroCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
     const instanceName = await this.resolveFinanceiroInstance(cand.tenantId);
+    // Sem chip (null): sendWhatsApp devolve false — a mesma falha do chip morto de hoje
+    // (marcada como tentada + FAILED + marca-passo), nunca 'cooldown'.
+    if (!instanceName) {
+      this.logger.warn(`[BOLETO_INTRO] Clínica ${cand.tenantId} sem chip FINANCEIRO/CLINICA próprio — não envia (plano ${cand.planId})`);
+    }
     const template = await this.resolveIntroTemplate(cand.tenantId);
     const clinica = await this.resolveClinicName(cand.tenantId);
     const firstName = cand.name.split(' ')[0];
@@ -1446,7 +1463,7 @@ export class PaymentAlertsCronService {
       cand.phone,
       message,
       typeof messageId === 'string' ? messageId : null,
-      instanceName,
+      instanceName as string, // saiu → havia chip (sem chip o envio é false e retorna acima)
     );
     this.logger.log(
       `[BOLETO_INTRO] Apresentação enviada (plano ${cand.planId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
