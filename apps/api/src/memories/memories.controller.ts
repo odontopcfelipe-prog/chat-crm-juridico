@@ -16,6 +16,23 @@ import { Queue } from 'bullmq';
 import { MemoriesService } from './memories.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { negarPermissao } from '../auth/require-any-permission';
+import { ehSuperAdmin } from '../settings/config-da-clinica';
+
+/**
+ * Modelo e prompts da consolidação do resumo da clínica: uma configuração só,
+ * que vale para todas as clínicas (o worker lê sem conta).
+ */
+const PERFIL_ORG_PLATAFORMA_MSG =
+  'Modelo e prompts do resumo da clínica valem para todas as clínicas — somente o administrador do sistema pode alterar.';
+
+/** Manutenção que reescreve as skills ou enfileira jobs de todas as contas. */
+const MANUTENCAO_PLATAFORMA_MSG = 'Manutenção da plataforma — somente o administrador do sistema pode executar.';
+
+/** Só o administrador do sistema (SUPER_ADMIN) passa; os demais, 403 PERMISSION_DENIED. */
+function exigirPlataforma(user: { roles?: unknown } | null | undefined, mensagem: string): void {
+  if (!ehSuperAdmin(user)) throw negarPermissao(mensagem);
+}
 
 @Controller('memories')
 @UseGuards(JwtAuthGuard)
@@ -72,7 +89,8 @@ export class MemoriesController {
    */
   @Post('migrate-skills-to-memory-vars')
   @Roles('ADMIN')
-  async migrateSkills() {
+  async migrateSkills(@Request() req: any) {
+    exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
     return this.memoriesService.migrateSkillsToMemoryVars();
   }
 
@@ -91,9 +109,11 @@ export class MemoriesController {
   @Post('migrate-legacy-leads-to-profile')
   @Roles('ADMIN')
   async migrateLegacyLeads(
+    @Request() req: any,
     @Query('limit') limit?: string,
     @Query('active_since') activeSince?: string,
   ) {
+    exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
     return this.memoriesService.migrateLegacyLeadsToProfile({
       limit: limit ? parseInt(limit, 10) : undefined,
       activeSince,
@@ -114,22 +134,30 @@ export class MemoriesController {
    */
   @Get('skills/clean-hardcoded-org-info')
   @Roles('ADMIN')
-  async previewCleanSkillsHardcoded() {
+  async previewCleanSkillsHardcoded(@Request() req: any) {
+    exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
     return this.memoriesService.cleanSkillHardcodedOrgInfo(true);
   }
 
   @Post('skills/clean-hardcoded-org-info')
   @Roles('ADMIN')
-  async applyCleanSkillsHardcoded(@Query('dry_run') dryRunParam?: string) {
+  async applyCleanSkillsHardcoded(@Request() req: any, @Query('dry_run') dryRunParam?: string) {
+    exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
     const dryRun = dryRunParam !== 'false';
     return this.memoriesService.cleanSkillHardcodedOrgInfo(dryRun);
   }
 
+  /**
+   * Modelo e prompts da consolidação do resumo: valem para todas as clínicas,
+   * então só o administrador do sistema grava (a leitura acima segue para o ADMIN).
+   */
   @Put('organization/settings')
   @Roles('ADMIN')
   async updateOrgSettings(
+    @Request() req: any,
     @Body() body: { model?: string; incremental_prompt?: string; rebuild_prompt?: string },
   ) {
+    exigirPlataforma(req.user, PERFIL_ORG_PLATAFORMA_MSG);
     return this.memoriesService.updateOrganizationProfileSettings(body);
   }
 

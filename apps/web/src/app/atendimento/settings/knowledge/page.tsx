@@ -38,6 +38,7 @@ import {
   FileCode2,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 import {
   ORG_MEMORY_SUBCATEGORIES,
   LEGACY_ORG_MEMORY_SUBCATEGORIES,
@@ -169,6 +170,9 @@ function formatDate(iso: string | null): string {
 }
 
 export default function KnowledgeSettingsPage() {
+  // Modelo e prompts do resumo (Configurações Avançadas) valem para todas as
+  // clínicas: só o administrador do sistema vê e grava.
+  const { isSuperAdmin } = useRole();
   const [groups, setGroups] = useState<Record<string, MemoryItem[]>>({});
   const [stats, setStats] = useState<OrgStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -528,11 +532,11 @@ export default function KnowledgeSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (advancedOpen && !settings) loadSettings();
-  }, [advancedOpen, settings, loadSettings]);
+    if (isSuperAdmin && advancedOpen && !settings) loadSettings();
+  }, [isSuperAdmin, advancedOpen, settings, loadSettings]);
 
   const handleSaveSettings = async () => {
-    if (!settings) return;
+    if (!isSuperAdmin || !settings) return;
     setSettingsSaving(true);
     try {
       const payload: any = {};
@@ -1132,8 +1136,8 @@ export default function KnowledgeSettingsPage() {
         </div>
       )}
 
-      {/* Configurações Avançadas */}
-      {!loading && (
+      {/* Configurações Avançadas — da plataforma (valem para todas as clínicas) */}
+      {!loading && isSuperAdmin && (
         <div className="mt-6 bg-card border border-border rounded-xl overflow-hidden">
           <button
             onClick={() => setAdvancedOpen(!advancedOpen)}
@@ -1143,7 +1147,7 @@ export default function KnowledgeSettingsPage() {
             <div className="flex-1 min-w-0">
               <span className="text-sm font-medium">Configurações Avançadas</span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Modelo de IA e prompts usados pela consolidação do resumo
+                Modelo de IA e prompts usados pela consolidação do resumo — valem para todas as clínicas
               </p>
             </div>
             {advancedOpen ? (
