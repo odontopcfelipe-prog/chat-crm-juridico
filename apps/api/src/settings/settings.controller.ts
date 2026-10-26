@@ -18,6 +18,15 @@ import {
 } from '@crm/shared';
 import { setTenantSetting } from '../tenants/tenant-settings.helper';
 import { AiTestChatService } from './ai-test-chat.service';
+import { negarPermissao } from '../auth/require-any-permission';
+import {
+  MEMORY_BATCH_KEY,
+  clinicSettingStorageKey,
+  isClinicScopedSettingKey,
+  memoryBatchEfetivo,
+  trocarLinhaMemoryBatch,
+  validarValorChaveClinica,
+} from './settings-scope';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
@@ -41,32 +50,63 @@ export class SettingsController {
 
   // ─── Generic Settings ─────────────────────────────────
 
+  /**
+   * Lista da GlobalSetting.
+   * - ADMIN de clínica: só a linha MEMORY_BATCH_ENABLED (nome sem sufixo, a Base
+   *   de Conhecimento procura esse nome) com o valor efetivo da CONTA dele. Nada
+   *   da plataforma, de outra conta ou segredo. Sem conta: lista vazia (sem 403:
+   *   a tela carrega tudo num Promise.all e cairia inteira).
+   * - SUPER_ADMIN: a lista inteira, como antes; com conta, a linha
+   *   MEMORY_BATCH_ENABLED mostra o valor efetivo da conta dele.
+   */
   @Get()
   @Roles('ADMIN', 'SUPER_ADMIN')
   async getAll(@Request() req: any) {
-    const all = await this.settingsService.getAll();
-    // Onda 17.32.180 — chaves da PLATAFORMA (SMTP_*) nao aparecem pra
-    // admin de tenant: a config de e-mail e global do SaaS e nao deve
-    // vazar host/usuario pros clientes
     const isSuper = (req.user?.roles || []).includes('SUPER_ADMIN');
-    return isSuper ? all : all.filter((s: any) => !String(s.key || '').startsWith('SMTP_'));
+    const tenantId: string | undefined = req.user?.tenant_id || undefined;
+    const avisar = (m: string) => this.logger.warn(m);
+    if (!isSuper) {
+      if (!tenantId) return [];
+      const value = await memoryBatchEfetivo(this.prisma, tenantId, avisar);
+      return [{ key: MEMORY_BATCH_KEY, value }];
+    }
+    const all = await this.settingsService.getAll();
+    if (!tenantId) return all;
+    return trocarLinhaMemoryBatch(all, await memoryBatchEfetivo(this.prisma, tenantId, avisar));
   }
 
+  /**
+   * Grava uma chave da GlobalSetting.
+   * - Chaves das telas de clínica (Base de Conhecimento, Nota Fiscal): quem tem
+   *   conta no token (ADMIN, ou o dono SUPER_ADMIN que também é de uma clínica)
+   *   grava SEMPRE na chave da conta (`<chave>_<tenantId>`). Só o SUPER_ADMIN sem
+   *   conta grava a global antiga.
+   * - Qualquer outra chave: só o SUPER_ADMIN (como antes; o Gateway dele usa este
+   *   caminho). Para o ADMIN de clínica, 403 PERMISSION_DENIED.
+   */
   @Put()
   @Roles('ADMIN', 'SUPER_ADMIN')
   async upsert(@Request() req: any, @Body() data: { key: string; value: string }) {
-    // Onda 17.32.180 — admin de tenant NAO pode sobrescrever o SMTP
-    // global do SaaS (mesma classe do vazamento Evolution da Onda 74)
     const isSuper = (req.user?.roles || []).includes('SUPER_ADMIN');
+    const tenantId: string | undefined = req.user?.tenant_id || undefined;
     const key = String(data?.key || '');
-    // Onda 18.x — CHAVES GLOBAIS DA PLATAFORMA (Asaas + dono da chave global):
-    // admin de TENANT não pode sobrescrever, senão (a) a cobrança de uma clínica cai
-    // na conta Asaas de outra, ou (b) o isolamento por tenant é burlado (poisonar o
-    // ASAAS_GLOBAL_OWNER_TENANT). A chave Asaas PRÓPRIA da clínica vai por outro caminho
-    // (POST /payment-gateway/setup → TenantSetting), não por aqui.
-    const PLATFORM_GLOBAL_KEYS = ['asaas_api_key', 'asaas_webhook_token', 'asaas_sandbox', 'ASAAS_GLOBAL_OWNER_TENANT'];
-    if ((key.startsWith('SMTP_') || PLATFORM_GLOBAL_KEYS.includes(key)) && !isSuper) {
-      throw new ForbiddenException('Configuração global da plataforma — somente o administrador do SaaS. Para a conta Asaas da sua clínica, use "Configurar gateway".');
+
+    if (isClinicScopedSettingKey(key)) {
+      const value = validarValorChaveClinica(key, data?.value);
+      if (tenantId) return this.settingsService.upsert(clinicSettingStorageKey(key, tenantId), value);
+      if (isSuper) return this.settingsService.upsert(key, value);
+      throw negarPermissao('Configuração da clínica — sua conta de usuário não está ligada a uma clínica.');
+    }
+
+    if (!isSuper) {
+      // Onda 18.x — CHAVES GLOBAIS DA PLATAFORMA (Asaas + dono da chave global):
+      // a chave Asaas PRÓPRIA da clínica vai por outro caminho
+      // (POST /payment-gateway/setup → TenantSetting), não por aqui.
+      const PLATFORM_ASAAS_KEYS = ['asaas_api_key', 'asaas_webhook_token', 'asaas_sandbox', 'ASAAS_GLOBAL_OWNER_TENANT'];
+      if (PLATFORM_ASAAS_KEYS.includes(key)) {
+        throw negarPermissao('Configuração global da plataforma — somente o administrador do SaaS. Para a conta Asaas da sua clínica, use "Configurar gateway".');
+      }
+      throw negarPermissao('Configuração da plataforma — somente o administrador do sistema pode alterar.');
     }
     return this.settingsService.upsert(data.key, data.value);
   }

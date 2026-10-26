@@ -9,6 +9,7 @@ import { EmbeddingService } from './embedding.service';
 import { MemoryRetrievalService } from './memory-retrieval.service';
 import { BATCH_EXTRACTION_PROMPT } from './memory-prompts';
 import { getLabTenantIds, screenExtractedOrgMemory, withoutLabTenants } from '@crm/shared';
+import { memoryBatchLigado } from './memory-batch-flag';
 
 const DEFAULT_BATCH_SIZE = 30;
 const MIN_MESSAGE_LEN = 3;
@@ -75,12 +76,6 @@ export class DailyMemoryBatchProcessor {
 
   @Cron('0 0 * * *', { timeZone: 'America/Maceio' })
   async scheduleDailyExtraction() {
-    const enabled = await this.isEnabled();
-    if (!enabled) {
-      this.logger.log('[MemoryBatch] MEMORY_BATCH_ENABLED=false — pulando extracao diaria');
-      return;
-    }
-
     this.logger.log('=== Inicio da extracao diaria de memorias ===');
     // F2 [LAB-GATE] — laboratório não tem memória de IA.
     const tenants = withoutLabTenants(
@@ -90,7 +85,14 @@ export class DailyMemoryBatchProcessor {
     );
     const today = new Date().toISOString().split('T')[0];
 
+    let agendados = 0;
     for (const tenant of tenants) {
+      // "Extração automática diária" é POR CONTA (Base de Conhecimento de cada clínica).
+      if (!(await this.isEnabled(tenant.id))) {
+        this.logger.log(`[MemoryBatch] Tenant ${tenant.id}: extracao diaria desligada — pulando`);
+        continue;
+      }
+      agendados++;
       await this.memoryQueue.add(
         'daily-batch-extract',
         { tenant_id: tenant.id },
@@ -102,14 +104,17 @@ export class DailyMemoryBatchProcessor {
         },
       );
     }
-    this.logger.log(`[MemoryBatch] Agendada extracao para ${tenants.length} tenants`);
+    this.logger.log(`[MemoryBatch] Agendada extracao para ${agendados}/${tenants.length} tenants`);
   }
 
-  private async isEnabled(): Promise<boolean> {
-    const row = await this.prisma.globalSetting.findUnique({
-      where: { key: 'MEMORY_BATCH_ENABLED' },
-    });
-    return (row?.value ?? 'true').toLowerCase() !== 'false';
+  /** Chave da conta ?? global antiga (só conta legada) ?? 'true'. Erro de leitura = desligada nesta noite. */
+  private async isEnabled(tenantId: string): Promise<boolean> {
+    try {
+      return await memoryBatchLigado(this.prisma, tenantId, (m) => this.logger.warn(m));
+    } catch (e: any) {
+      this.logger.warn(`[MemoryBatch] Tenant ${tenantId}: falha ao ler MEMORY_BATCH_ENABLED — pulando: ${e?.message ?? e}`);
+      return false;
+    }
   }
 
   /** Processa um tenant inteiro: itera conversas do dia e extrai memorias. */

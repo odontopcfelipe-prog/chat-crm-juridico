@@ -54,6 +54,15 @@ export const SENSITIVE_KEYS = new Set([
   'GDRIVE_OAUTH_REFRESH_TOKEN',
 ]);
 
+/**
+ * Segredos guardados POR CONTA, como `<chave>_<tenantId>` (ex.: a chave da NFS-e
+ * de cada clínica). O nome exato não casa com SENSITIVE_KEYS; o prefixo, sim.
+ * Nenhuma chave gravada antes desta lista começa com estes prefixos (as globais
+ * casam pelo nome exato acima), então o comportamento delas não muda.
+ */
+export const SENSITIVE_KEY_PREFIXES_POR_CONTA: readonly string[] = ['nfse_api_key_'];
+
 export function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEYS.has(key);
+  if (SENSITIVE_KEYS.has(key)) return true;
+  return SENSITIVE_KEY_PREFIXES_POR_CONTA.some((p) => key.startsWith(p) && key.length > p.length);
 }

@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { getLabTenantIds, withoutLabTenants } from '@crm/shared';
+import { memoryBatchLigado } from './memory-batch-flag';
 import {
   ORG_PROFILE_CONSOLIDATION_PROMPT,
   ORG_PROFILE_INCREMENTAL_PROMPT,
@@ -51,11 +52,8 @@ export class OrgProfileConsolidationProcessor {
 
   @Cron('0 2 * * *', { timeZone: 'America/Maceio' })
   async scheduleDailyConsolidation() {
-    const enabled = await this.prisma.globalSetting.findUnique({
-      where: { key: 'MEMORY_BATCH_ENABLED' },
-    });
-    if ((enabled?.value ?? 'true').toLowerCase() === 'false') return;
-
+    // A "Extração automática diária" (MEMORY_BATCH_ENABLED) é decidida POR CONTA
+    // dentro do laço do consolidateAll.
     await this.consolidateAll();
   }
 
@@ -63,6 +61,8 @@ export class OrgProfileConsolidationProcessor {
    * Consolida INCREMENTALMENTE o perfil organizacional de TODOS os tenants ativos.
    * Pula tenants com edicao manual (manually_edited_at IS NOT NULL) — nesses
    * casos, so atualiza se admin clicar "Regenerar" explicitamente.
+   * Pula também a conta com a extração diária desligada (chave da conta ?? global
+   * antiga se a conta for legada ?? ligada).
    *
    * Padrao: INCREMENTAL — LLM recebe summary atual + memorias novas/deletadas
    * desde a ultima incorporacao. Se nao houver mudancas, summary permanece igual.
@@ -90,6 +90,10 @@ export class OrgProfileConsolidationProcessor {
         continue;
       }
       try {
+        if (!(await memoryBatchLigado(this.prisma, t.id, (m) => this.logger.warn(m)))) {
+          this.logger.log(`[OrgProfileConsolidation] Tenant ${t.id}: pulado (extracao diaria desligada)`);
+          continue;
+        }
         const result = await this.consolidateIncremental(t.id);
         processed++;
         if (result?.changed) changed++;

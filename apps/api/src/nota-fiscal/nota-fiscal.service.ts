@@ -18,6 +18,17 @@ export class NotaFiscalService {
     private settings: SettingsService,
   ) {}
 
+  /**
+   * Config de NFS-e é POR CONTA: `nfse_*_<tenantId>` na GlobalSetting (gravada pela
+   * tela Nota Fiscal via PUT /settings). Sem reserva na chave global antiga: cada
+   * clínica tem o seu CNPJ, inscrição e chave, e a emissão é simulada. Sem conta,
+   * nada configurado.
+   */
+  private nfse(key: string, tenantId?: string | null): Promise<string | null> {
+    if (!tenantId) return Promise.resolve(null);
+    return this.settings.get(`${key}_${tenantId}`);
+  }
+
   // ─── List NFs ──────────────────────────────────────────
 
   async findAll(query: {
@@ -123,16 +134,18 @@ export class NotaFiscalService {
       return existing;
     }
 
-    // 3. Get NFS-e config from settings
+    // 3. Config de NFS-e DA CONTA da transação (SUPER_ADMIN sem conta chega com
+    // tenantId undefined: vale a conta da própria transação).
+    const conta = tenantId || transaction.tenant_id || null;
     const [provider, apiKey, cnpj, inscricaoMunicipal, cnaeCode, issRate, servicoDescricao] =
       await Promise.all([
-        this.settings.get('nfse_provider'),
-        this.settings.get('nfse_api_key'),
-        this.settings.get('nfse_cnpj'),
-        this.settings.get('nfse_inscricao_municipal'),
-        this.settings.get('nfse_cnae_code'),
-        this.settings.get('nfse_default_iss_rate'),
-        this.settings.get('nfse_servico_descricao'),
+        this.nfse('nfse_provider', conta),
+        this.nfse('nfse_api_key', conta),
+        this.nfse('nfse_cnpj', conta),
+        this.nfse('nfse_inscricao_municipal', conta),
+        this.nfse('nfse_cnae_code', conta),
+        this.nfse('nfse_default_iss_rate', conta),
+        this.nfse('nfse_servico_descricao', conta),
       ]);
 
     if (!provider || !apiKey) {
@@ -240,14 +253,14 @@ export class NotaFiscalService {
   async getConfig(tenantId?: string) {
     const [provider, apiKey, cnpj, inscricaoMunicipal, cnaeCode, issRate, autoEmit, servicoDescricao] =
       await Promise.all([
-        this.settings.get('nfse_provider'),
-        this.settings.get('nfse_api_key'),
-        this.settings.get('nfse_cnpj'),
-        this.settings.get('nfse_inscricao_municipal'),
-        this.settings.get('nfse_cnae_code'),
-        this.settings.get('nfse_default_iss_rate'),
-        this.settings.get('nfse_auto_emit'),
-        this.settings.get('nfse_servico_descricao'),
+        this.nfse('nfse_provider', tenantId),
+        this.nfse('nfse_api_key', tenantId),
+        this.nfse('nfse_cnpj', tenantId),
+        this.nfse('nfse_inscricao_municipal', tenantId),
+        this.nfse('nfse_cnae_code', tenantId),
+        this.nfse('nfse_default_iss_rate', tenantId),
+        this.nfse('nfse_auto_emit', tenantId),
+        this.nfse('nfse_servico_descricao', tenantId),
       ]);
 
     return {
@@ -266,7 +279,12 @@ export class NotaFiscalService {
   // ─── Auto-emit if enabled ─────────────────────────────
 
   async autoEmitIfEnabled(transactionId: string, tenantId?: string) {
-    const autoEmit = await this.settings.get('nfse_auto_emit');
+    const conta =
+      tenantId ||
+      (await this.prisma.financialTransaction.findUnique({ where: { id: transactionId }, select: { tenant_id: true } }))
+        ?.tenant_id ||
+      null;
+    const autoEmit = await this.nfse('nfse_auto_emit', conta);
     if (autoEmit !== 'true') {
       this.logger.debug('Auto-emissao de NFS-e desabilitada, pulando');
       return null;

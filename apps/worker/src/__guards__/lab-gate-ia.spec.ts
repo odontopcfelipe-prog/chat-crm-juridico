@@ -341,6 +341,8 @@ describe('Extração noturna e perfil da organização — laboratório fica de 
       __limparCacheLabTenants();
       const prisma: any = {
         tenantBusinessProfile: perfis(labs),
+        // A extração diária (MEMORY_BATCH_ENABLED) é decidida por conta no laço: sem chave = ligada.
+        globalSetting: { findUnique: jest.fn(async () => null) },
         tenant: { findMany: jest.fn(async () => [{ id: CLINICA }, { id: LAB }, { id: OUTRA_CLINICA }]) },
         organizationProfile: { findMany: jest.fn(async () => []) },
       };
