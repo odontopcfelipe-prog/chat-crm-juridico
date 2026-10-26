@@ -49,3 +49,5 @@ export * from './audio-disparo';
 // F1 do laboratório: tipo de negócio da conta (CLÍNICA × LABORATÓRIO) e quem é lab
 export * from './business-type';
 export * from './lab-tenants';
+// Configuração por conta na GlobalSetting: reserva na global antiga só para contas legadas
+export * from './conta-legada';
