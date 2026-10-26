@@ -1,0 +1,2121 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar.service.ts — sendAppointmentEventEmail (e-mail de consulta agendada/remarcada) 1`] = `
+[
+  {
+    "assunto": "Consulta agendada — Clínica Exemplo",
+    "de": "Clínica Exemplo",
+    "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Consulta agendada — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria Exemplo da Silva!<br><br>Sua consulta na Clínica Exemplo foi agendada:<br><br>Data: 22/10/2026<br>Horário: 14:30<br>Profissional: Dra. Ana Exemplo Souza<br><br>Se precisar remarcar, é só entrar em contato com a gente.</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+    "para": "paciente@exemplo.test",
+    "responderPara": "contato@clinica-exemplo.test",
+  },
+  {
+    "assunto": "Consulta remarcada — Clínica Exemplo",
+    "de": "Clínica Exemplo",
+    "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Consulta remarcada — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria Exemplo da Silva!<br><br>Sua consulta na Clínica Exemplo foi remarcada:<br><br>Nova data: 22/10/2026<br>Novo horário: 14:30<br>Profissional: Dra. Ana Exemplo Souza<br><br>Se o novo horário não funcionar pra você, é só entrar em contato com a gente.</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+    "para": "paciente@exemplo.test",
+    "responderPara": "contato@clinica-exemplo.test",
+  },
+]
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar.service.ts — sendAppointmentEventWhatsapp (agendada, remarcada, ortodontia, lead) 1`] = `
+{
+  "consulta agendada — local digitado no evento": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua consulta foi agendada para *22/10* às *14:30* com Dra. Ana.
+📍 Unidade Centro — 2º andar
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "consulta agendada — paciente (texto fixo)": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua consulta foi agendada para *22/10* às *14:30* com Dra. Ana.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "consulta agendada — sem dentista e sem endereço cadastrado": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua consulta foi agendada para *22/10* às *14:30*.
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "consulta remarcada — texto padrão": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua consulta foi *remarcada* para *22/10* às *14:30* com Dra. Ana.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "lead (não-cliente) — agenda do Comercial: avaliação agendada": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua avaliação foi agendada para *22/10* às *14:30* com Dra. Ana.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "lead (não-cliente) — agenda do Comercial: avaliação remarcada": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua avaliação foi *remarcada* para *22/10* às *14:30* com Dra. Ana.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "ortodontia por hora marcada (padrão) — mesmo texto da consulta": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Sua consulta foi agendada para *22/10* às *14:30* com Dra. Ana.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+  "ortodontia por ordem de chegada — confirmação imediata": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Olá Maria! 😊
+
+Agendamos seu atendimento de *ortodontia* com Dra. Ana para *22/10*.
+📌 É *por ordem de chegada*, a partir das *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar.service.ts — sendBirthdayGreetingsNow (as 3 mensagens de aniversário) 1`] = `
+{
+  "mensagem 1": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Feliz aniversário, Maria! 🎉🎂
+
+A equipe da Clínica Exemplo deseja um dia maravilhoso pra você. Conte com a gente pra cuidar do seu sorriso! 😁",
+      "via": "sendText",
+    },
+  ],
+  "mensagem 2": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Feliz aniversário, Maria! 🎉
+Talvez a gente não tenha conseguido ser o primeiro a te desejar… mas a gente tentou. 😊 Que neste dia tão especial — em que recordamos o dia do seu nascimento — o Senhor Jesus te abençoe cada dia mais. Aproveite muito esse dia maravilhoso!
+Com carinho,
+
+Equipe Clínica Exemplo 🎂",
+      "via": "sendText",
+    },
+  ],
+  "mensagem 3": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Maria, a gente não poderia deixar essa data passar em branco. 💙
+E, do nosso jeito, queríamos te presentear com algo nosso: é com muito carinho que preparamos pra você 50% de desconto em um clareamento dental. ✨🎁
+É só responder esta mensagem que a gente agenda pra você. Seu sorriso merece!
+Um abraço,
+
+Equipe Clínica Exemplo",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar.service.ts — textos-padrão servidos à Central (confirmação 24h, remarcada, ortodontia) 1`] = `
+{
+  "confirmacao_24h": "Oi {nome}, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.
+{local_line}
+Posso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.",
+  "confirmacao_ortodontia": "Oi {nome}, tudo bem? 😊
+
+Passando pra confirmar seu atendimento de *ortodontia* com {dentista} amanhã, *{data}*, a partir das *{hora}*.
+{local_line}
+⚠️ O atendimento é *por ordem de chegada* — quanto mais cedo você chegar, mais cedo é atendido(a).
+Posso confirmar sua presença? 🙂",
+  "lembrete_ortodontia": "Oi {nome}! 👋
+
+Passando pra lembrar do seu atendimento de *ortodontia* com {dentista} hoje. Abrimos os portões em cerca de *1 hora* (por volta das *{hora}*).
+{local_line}
+📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙",
+  "lembretes": {
+    "consulta_15min": "{nome}, estamos te esperando! 💙
+
+Sua avaliação com {dentista} começa logo ({data}).
+{local_line}",
+    "consulta_1h": "Oi {nome}! 👋
+
+Sua avaliação com {dentista} é em cerca de 1 hora ({data}).
+{local_line}
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+    "consulta_24h": "Oi {nome}! 😊
+
+Passando só pra lembrar da sua consulta com {dentista} amanhã, *{data}* às *{hora}*.
+{local_line}
+Até lá! Qualquer coisa é só chamar por aqui.",
+    "consulta_confirmacao": "Oi {nome}, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com {dentista}, marcado pro dia *{data}* às *{hora}*.
+{local_line}
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+  },
+  "ortodontia_imediata": "Olá {nome}! 😊
+
+Agendamos seu atendimento de *ortodontia* com {dentista} para *{data}*.
+📌 É *por ordem de chegada*, a partir das *{hora}*.
+{local_line}
+Qualquer dúvida, é só chamar por aqui!",
+  "remarcada": "Olá {nome}! 😊
+
+Sua consulta foi *remarcada* para *{data}* às *{hora}* com {dentista}.
+{local_line}
+Qualquer dúvida, é só chamar por aqui!",
+}
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar-reminder.worker.ts sendWhatsAppReminders — lead (Comercial): confirmação 48h e lembretes 1 dia/1h/15min 1`] = `
+{
+  "1440 min antes": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 😊
+
+Passando só pra lembrar da sua avaliação com Dra. Ana amanhã, *22/10* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Até lá! Qualquer coisa é só chamar por aqui.",
+      "via": "sendText",
+    },
+  ],
+  "15 min antes": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Maria, estamos te esperando! 💙
+
+Sua avaliação com Dra. Ana começa logo (22/10).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL",
+      "via": "sendText",
+    },
+  ],
+  "2880 min antes": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar sua avaliação com Dra. Ana, marcada pro dia *22/10* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+      "via": "sendText",
+    },
+  ],
+  "60 min antes": [
+    {
+      "chip": "chip-comercial",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Sua avaliação com Dra. Ana é em cerca de 1 hora (22/10).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar-reminder.worker.ts sendWhatsAppReminders — legado jurídico (AUDIÊNCIA sem IA): template de fallback 1`] = `
+[
+  {
+    "chip": "chip-clinica",
+    "para": "5582900000001",
+    "texto": "⚖️ *Lembrete de Audiência*
+
+Olá, Maria!
+
+Sua audiência está marcada para *1 dia*:
+
+📅 *Data/Hora:* quinta-feira, 22/10/2026, 14:30
+📍 *Local:* Fórum Exemplo
+
+Por favor, chegue com *30 minutos de antecedência*.
+Em caso de dúvidas, entre em contato com o escritório.
+
+_Aviso automático do escritório_",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: agenda → paciente (F1) apps/api/src/calendar/calendar-reminder.worker.ts sendWhatsAppReminders — paciente: confirmação 48h e lembretes 24h/1h/15min 1`] = `
+{
+  "1440 min antes": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 😊
+
+Passando só pra lembrar da sua consulta com Dra. Ana amanhã, *quinta-feira, 22/10/2026, 14:30* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Até lá! Qualquer coisa é só chamar por aqui.",
+      "via": "sendText",
+    },
+  ],
+  "15 min antes": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Maria, estamos te esperando! 💙
+
+Sua avaliação com Dra. Ana começa logo (quinta-feira, 22/10/2026, 14:30).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL",
+      "via": "sendText",
+    },
+  ],
+  "2880 min antes": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana, marcado pro dia *quinta-feira, 22/10/2026, 14:30* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+      "via": "sendText",
+    },
+  ],
+  "60 min antes": [
+    {
+      "chip": "chip-clinica",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Sua avaliação com Dra. Ana é em cerca de 1 hora (quinta-feira, 22/10/2026, 14:30).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/boleto-delivery.service.ts sendBoletos — abertura + carnê do Asaas + boleto da entrada 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 📄 Aqui estão os seus boletos, todos em PDF. Qualquer dúvida, é só me chamar por aqui! 💙",
+    "via": "sendText",
+  },
+  {
+    "arquivo": "carne-boletos.pdf",
+    "chip": "chip-financeiro",
+    "legenda": "Carnê — 3 parcelas",
+    "midia": "<arquivo em base64>",
+    "mime": "application/pdf",
+    "para": "5582900000001",
+    "tipo": "document",
+    "via": "sendMedia",
+  },
+  {
+    "arquivo": "boleto-entrada.pdf",
+    "chip": "chip-financeiro",
+    "legenda": "Entrada",
+    "midia": "https://asaas.exemplo.test/b/entrada.pdf",
+    "mime": "application/pdf",
+    "para": "5582900000001",
+    "tipo": "document",
+    "via": "sendMedia",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/boleto-delivery.service.ts sendBoletos — boleto único à vista (sem parcelas) 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 📄 Aqui estão os seus boletos, todos em PDF. Qualquer dúvida, é só me chamar por aqui! 💙",
+    "via": "sendText",
+  },
+  {
+    "arquivo": "boleto-boleto.pdf",
+    "chip": "chip-financeiro",
+    "legenda": "Boleto",
+    "midia": "https://asaas.exemplo.test/b/entrada.pdf",
+    "mime": "application/pdf",
+    "para": "5582900000001",
+    "tipo": "document",
+    "via": "sendMedia",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/boleto-delivery.service.ts sendBoletos — carnê montado aqui com parcela faltando: a que faltou vai por link 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 📄 Aqui estão os seus boletos, todos em PDF. Qualquer dúvida, é só me chamar por aqui! 💙",
+    "via": "sendText",
+  },
+  {
+    "arquivo": "carne-boletos.pdf",
+    "chip": "chip-financeiro",
+    "legenda": "Carnê — 1 parcelas",
+    "midia": "<arquivo em base64>",
+    "mime": "application/pdf",
+    "para": "5582900000001",
+    "tipo": "document",
+    "via": "sendMedia",
+  },
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "E estes boletos seguem pelo link:
+
+Parcela 2: https://asaas.exemplo.test/b/parcela-2.pdf
+Parcela 3: https://asaas.exemplo.test/b/parcela-3.pdf",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/boleto-delivery.service.ts sendBoletos — sem carnê na última tentativa: os boletos vão por link 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 📄 Aqui estão os seus boletos, todos em PDF. Qualquer dúvida, é só me chamar por aqui! 💙",
+    "via": "sendText",
+  },
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Aqui estão os boletos das suas parcelas:
+
+Parcela 1: https://asaas.exemplo.test/b/parcela-1.pdf
+Parcela 2: https://asaas.exemplo.test/b/parcela-2.pdf
+Parcela 3: https://asaas.exemplo.test/b/parcela-3.pdf",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/boleto-delivery.service.ts sendCurrentBoleto — botão "mandar o boleto atual" 1`] = `
+[
+  {
+    "arquivo": "boleto.pdf",
+    "chip": "chip-financeiro",
+    "legenda": "Oi Maria! 👋 Segue o seu boleto (vence 10/11). Qualquer dúvida, é só responder por aqui. 😊",
+    "midia": "https://asaas.exemplo.test/b/parcela-1.pdf",
+    "mime": "application/pdf",
+    "para": "5582900000001",
+    "tipo": "document",
+    "via": "sendMedia",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/payment-gateway.service.ts — e-mails de pagamento atrasado e confirmado (variáveis reais) 1`] = `
+[
+  {
+    "assunto": "Sua cobrança da Clínica Exemplo está em aberto",
+    "de": "Clínica Exemplo",
+    "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Sua cobrança da Clínica Exemplo está em aberto</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria Exemplo da Silva.<br><br>Notamos que a cobrança abaixo venceu e ainda não identificamos o pagamento:<br><br>Valor: R$ 250,00<br>Venceu em: 19/10/2026<br><br>Você pode regularizar agora pelo botão abaixo. Se já pagou, desconsidere esta mensagem — a confirmação pode levar algumas horas.</p>
+          
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="https://pagamento.exemplo.test/fatura/2" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Regularizar agora
+            </a>
+          </p>
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+    "para": "paciente@exemplo.test",
+    "responderPara": "contato@clinica-exemplo.test",
+  },
+  {
+    "assunto": "Pagamento confirmado — Clínica Exemplo",
+    "de": "Clínica Exemplo",
+    "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Pagamento confirmado — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria Exemplo da Silva!<br><br>Recebemos o seu pagamento de R$ 250,00 em 19/10/2026. Tudo certo por aqui!<br><br>Obrigado pela confiança.<br>Clínica Exemplo</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+    "para": "paciente@exemplo.test",
+    "responderPara": "contato@clinica-exemplo.test",
+  },
+]
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/payment-gateway.service.ts — notifyClientChargeDeleted (estorno e cancelamento) 1`] = `
+{
+  "DELETED": [
+    {
+      "chip": "chip-financeiro",
+      "para": "558200000001",
+      "texto": "📋 *Cobrança Cancelada*
+
+Olá, Maria!
+
+Informamos que a cobrança no valor de *R$ 350,00* (Parcela 3/10) foi *cancelada*.
+
+Caso tenha dúvidas sobre o motivo ou precise de uma nova cobrança, responda esta mensagem.",
+      "via": "sendText",
+    },
+  ],
+  "REFUNDED": [
+    {
+      "chip": "chip-financeiro",
+      "para": "558200000001",
+      "texto": "💰 *Estorno de Cobrança*
+
+Olá, Maria!
+
+Informamos que a cobrança no valor de *R$ 350,00* (Parcela 3/10) foi *estornada*.
+
+O valor será devolvido conforme a forma de pagamento utilizada.
+Qualquer dúvida, estamos à disposição.",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/payment-gateway.service.ts — notifyClientPaymentReceived (confirmação de pagamento) 1`] = `
+{
+  "PIX com descrição (tag interna sai)": [
+    {
+      "chip": "chip-financeiro",
+      "para": "558200000001",
+      "texto": "✅ *Pagamento Confirmado!*
+
+Olá, Maria!
+
+Confirmamos o recebimento do seu pagamento via PIX no valor de *R$ 350,00* (Parcela 3/10 — Maria Exemplo).
+
+Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.",
+      "via": "sendText",
+    },
+  ],
+  "boleto (linha do vencimento)": [
+    {
+      "chip": "chip-financeiro",
+      "para": "558200000001",
+      "texto": "✅ *Pagamento Confirmado!*
+
+Olá, Maria!
+
+Confirmamos o recebimento do seu pagamento via boleto no valor de *R$ 250,00* (Parcela 4/10).
+📅 Boleto com vencimento em *19/10/2026*.
+
+Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.",
+      "via": "sendText",
+    },
+  ],
+  "cartão sem descrição": [
+    {
+      "chip": "chip-financeiro",
+      "para": "558200000001",
+      "texto": "✅ *Pagamento Confirmado!*
+
+Olá, Maria!
+
+Confirmamos o recebimento do seu pagamento via cartão no valor de *R$ 1.500,00*.
+
+Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: cobrança → paciente (F1) apps/api/src/payment-gateway/payment-gateway.service.ts — resendChargeWhatsapp (botão "Reenviar" por forma de pagamento) 1`] = `
+{
+  "BOLETO": [
+    {
+      "arquivo": "boleto.pdf",
+      "chip": "chip-financeiro",
+      "legenda": "Oi Maria! 👋
+
+Lembrando do seu *boleto* de *R$ 250,00*.
+📅 Vencimento: 25/10/2026
+
+🔗 Acesse o boleto:
+https://asaas.exemplo.test/b/parcela.pdf
+
+📋 Código de barras:
+\`\`\`00000.00000 00000.000000 00000.000000 0 00000000000000\`\`\`
+
+Qualquer dúvida, é só responder. 😊",
+      "midia": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mime": "application/pdf",
+      "para": "5582900000001",
+      "tipo": "document",
+      "via": "sendMedia",
+    },
+  ],
+  "CREDIT_CARD": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Lembrando do pagamento de *R$ 250,00* no *cartão*.
+📅 Vencimento: 25/10/2026
+
+💳 Link pra pagar:
+https://pagamento.exemplo.test/fatura/3
+
+Qualquer dúvida, estamos por aqui. 😊",
+      "via": "sendText",
+    },
+  ],
+  "PIX": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Lembrando do seu pagamento via *PIX* de *R$ 250,00*.
+📅 Vencimento: 25/10/2026
+
+🔗 Link de pagamento:
+https://pagamento.exemplo.test/fatura/1
+
+📋 PIX Copia e Cola:
+\`\`\`000201EXEMPLO-PIX-COPIA-E-COLA\`\`\`
+
+Qualquer dúvida, é só responder por aqui. 😊",
+      "via": "sendText",
+    },
+  ],
+  "UNDEFINED": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Lembrando do seu pagamento de *R$ 250,00*.
+📅 Vencimento: 25/10/2026
+
+🔗 Link:
+https://pagamento.exemplo.test/fatura/4
+
+",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: e-mails automáticos → paciente (F1) apps/api/src/email-automation/email-automation.service.ts — dispatch de cada evento (HTML que o paciente recebe) 1`] = `
+{
+  "agendamento_criado": [
+    {
+      "assunto": "Consulta agendada — Clínica Exemplo",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Consulta agendada — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva!<br><br>Sua consulta na Clínica Exemplo foi agendada:<br><br>Data: 15/06/2026<br>Horário: 14:30<br>Profissional: Dr. João<br><br>Se precisar remarcar, é só entrar em contato com a gente.</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+  "agendamento_remarcado": [
+    {
+      "assunto": "Consulta remarcada — Clínica Exemplo",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Consulta remarcada — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva!<br><br>Sua consulta na Clínica Exemplo foi remarcada:<br><br>Nova data: 16/06/2026<br>Novo horário: 15:00<br>Profissional: Dr. João<br><br>Se o novo horário não funcionar pra você, é só entrar em contato com a gente.</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+  "cobranca_criada": [
+    {
+      "assunto": "Sua cobrança da Clínica Exemplo chegou",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Sua cobrança da Clínica Exemplo chegou</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva!<br><br>A Clínica Exemplo gerou uma cobrança pra você:<br><br>Valor: R$ 350,00<br>Vencimento: 20/06/2026<br>Forma de pagamento: PIX<br><br>É só clicar no botão abaixo pra pagar com segurança.</p>
+          
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="https://pagamento.exemplo.test/fatura/123" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Pagar agora
+            </a>
+          </p>
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+  "pagamento_atrasado": [
+    {
+      "assunto": "Sua cobrança da Clínica Exemplo está em aberto",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Sua cobrança da Clínica Exemplo está em aberto</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva.<br><br>Notamos que a cobrança abaixo venceu e ainda não identificamos o pagamento:<br><br>Valor: R$ 350,00<br>Venceu em: 10/06/2026<br><br>Você pode regularizar agora pelo botão abaixo. Se já pagou, desconsidere esta mensagem — a confirmação pode levar algumas horas.</p>
+          
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="https://pagamento.exemplo.test/fatura/123" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Regularizar agora
+            </a>
+          </p>
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+  "pagamento_confirmado": [
+    {
+      "assunto": "Pagamento confirmado — Clínica Exemplo",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Pagamento confirmado — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva!<br><br>Recebemos o seu pagamento de R$ 350,00 em 11/06/2026. Tudo certo por aqui!<br><br>Obrigado pela confiança.<br>Clínica Exemplo</p>
+          
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+  "vencimento_proximo": [
+    {
+      "assunto": "Lembrete: sua cobrança vence amanhã — Clínica Exemplo",
+      "de": "Clínica Exemplo",
+      "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Lembrete: sua cobrança vence amanhã — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria da Silva!<br><br>Passando pra lembrar que sua cobrança da Clínica Exemplo vence amanhã:<br><br>Valor: R$ 350,00<br>Vencimento: 12/06/2026<br>Forma de pagamento: Boleto<br><br>Pagando em dia você evita juros. Qualquer dúvida, é só falar com a gente.</p>
+          
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="https://pagamento.exemplo.test/fatura/123" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Pagar agora
+            </a>
+          </p>
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+      "para": "paciente@exemplo.test",
+      "responderPara": "contato@clinica-exemplo.test",
+    },
+  ],
+}
+`;
+
+exports[`retrato: e-mails automáticos → paciente (F1) apps/api/src/email-automation/email-automation.service.ts — sendDueTomorrowReminders (cron "vence amanhã") 1`] = `
+[
+  {
+    "assunto": "Lembrete: sua cobrança vence amanhã — Clínica Exemplo",
+    "de": "Clínica Exemplo",
+    "html": "
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Lembrete: sua cobrança vence amanhã — Clínica Exemplo</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px; line-height: 1.55;">Olá, Maria Exemplo da Silva!<br><br>Passando pra lembrar que sua cobrança da Clínica Exemplo vence amanhã:<br><br>Valor: R$ 350,00<br>Vencimento: 21/10/2026<br>Forma de pagamento: Boleto<br><br>Pagando em dia você evita juros. Qualquer dúvida, é só falar com a gente.</p>
+          
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="https://pagamento.exemplo.test/fatura/1" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Pagar agora
+            </a>
+          </p>
+          
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — Clínica Exemplo
+        </p>
+      </div>
+    ",
+    "para": "paciente@exemplo.test",
+    "responderPara": "contato@clinica-exemplo.test",
+  },
+]
+`;
+
+exports[`retrato: e-mails automáticos → paciente (F1) apps/api/src/email-automation/email-events.ts — catálogo (assunto, corpo e botão padrão) 1`] = `
+[
+  {
+    "assunto": "Sua cobrança da {{clinica_nome}} chegou",
+    "botao": "Pagar agora",
+    "corpo": "Olá, {{paciente_nome}}!
+
+A {{clinica_nome}} gerou uma cobrança pra você:
+
+Valor: {{valor}}
+Vencimento: {{vencimento}}
+Forma de pagamento: {{forma_pagamento}}
+
+É só clicar no botão abaixo pra pagar com segurança.",
+    "key": "cobranca_criada",
+  },
+  {
+    "assunto": "Lembrete: sua cobrança vence amanhã — {{clinica_nome}}",
+    "botao": "Pagar agora",
+    "corpo": "Olá, {{paciente_nome}}!
+
+Passando pra lembrar que sua cobrança da {{clinica_nome}} vence amanhã:
+
+Valor: {{valor}}
+Vencimento: {{vencimento}}
+Forma de pagamento: {{forma_pagamento}}
+
+Pagando em dia você evita juros. Qualquer dúvida, é só falar com a gente.",
+    "key": "vencimento_proximo",
+  },
+  {
+    "assunto": "Pagamento confirmado — {{clinica_nome}}",
+    "botao": null,
+    "corpo": "Olá, {{paciente_nome}}!
+
+Recebemos o seu pagamento de {{valor}} em {{data_pagamento}}. Tudo certo por aqui!
+
+Obrigado pela confiança.
+{{clinica_nome}}",
+    "key": "pagamento_confirmado",
+  },
+  {
+    "assunto": "Sua cobrança da {{clinica_nome}} está em aberto",
+    "botao": "Regularizar agora",
+    "corpo": "Olá, {{paciente_nome}}.
+
+Notamos que a cobrança abaixo venceu e ainda não identificamos o pagamento:
+
+Valor: {{valor}}
+Venceu em: {{vencimento}}
+
+Você pode regularizar agora pelo botão abaixo. Se já pagou, desconsidere esta mensagem — a confirmação pode levar algumas horas.",
+    "key": "pagamento_atrasado",
+  },
+  {
+    "assunto": "Consulta agendada — {{clinica_nome}}",
+    "botao": null,
+    "corpo": "Olá, {{paciente_nome}}!
+
+Sua consulta na {{clinica_nome}} foi agendada:
+
+Data: {{data}}
+Horário: {{hora}}
+Profissional: {{profissional_nome}}
+
+Se precisar remarcar, é só entrar em contato com a gente.",
+    "key": "agendamento_criado",
+  },
+  {
+    "assunto": "Consulta remarcada — {{clinica_nome}}",
+    "botao": null,
+    "corpo": "Olá, {{paciente_nome}}!
+
+Sua consulta na {{clinica_nome}} foi remarcada:
+
+Nova data: {{data}}
+Novo horário: {{hora}}
+Profissional: {{profissional_nome}}
+
+Se o novo horário não funcionar pra você, é só entrar em contato com a gente.",
+    "key": "agendamento_remarcado",
+  },
+]
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendApresentacao (o Financeiro se apresenta no fechamento) 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 😊
+
+Aqui é o setor financeiro da Clínica Exemplo. Seja muito bem-vindo(a)! A partir de agora é por aqui que a gente cuida de tudo sobre os seus pagamentos.
+
+Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄
+
+Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendByWhatsapp (orçamento: legenda do PDF e texto sem PDF) 1`] = `
+{
+  "com PDF, desconto, validade e anexos": [
+    {
+      "arquivo": "orcamento-42.pdf",
+      "conversa": "conv-paciente-1",
+      "legenda": "Oi Maria! 👋
+
+Seu orçamento na clínica *Clínica Exemplo* está pronto:
+
+📋 3 procedimento(s)
+💰 Total: R$ 4.200,00
+🎁 Desconto: R$ 300,00
+📅 Válido até 19/11/2026
+📎 2 anexo(s) (fotos, exames)
+
+Acesse pra ver detalhes e aceitar:
+https://portal.exemplo.test/p/token-exemplo
+
+Qualquer dúvida, é só responder por aqui. 😊",
+      "mime": "application/pdf",
+      "para": "5582900000001",
+      "via": "sendPatientFile",
+    },
+  ],
+  "sem PDF, sem desconto/validade/anexos e clínica sem nome": [
+    {
+      "conversa": "conv-paciente-1",
+      "para": "5582900000001",
+      "texto": "Oi Maria! 👋
+
+Seu orçamento está pronto:
+
+📋 1 procedimento(s)
+💰 Total: R$ 4.200,00
+
+Acesse pra ver detalhes e aceitar:
+https://portal.exemplo.test/p/token-exemplo
+
+Qualquer dúvida, é só responder por aqui. 😊",
+      "via": "sendPatientText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendComprovantePagamento (venda paga na clínica) 1`] = `
+{
+  "CARTAO": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "🧾 *Comprovante de pagamento*
+_Clínica Exemplo_
+
+Olá, Maria! Pagamento *confirmado*. ✅
+
+🦷 Clareamento dental
+🦷 Restauração em resina (2x)
+
+💰 Valor pago: R$ 450,00
+💳 Forma: cartão
+
+Obrigado pela confiança! Qualquer dúvida, é só chamar por aqui. 💙",
+      "via": "sendText",
+    },
+  ],
+  "DINHEIRO": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "🧾 *Comprovante de pagamento*
+_Clínica Exemplo_
+
+Olá, Maria! Pagamento *confirmado*. ✅
+
+🦷 Clareamento dental
+🦷 Restauração em resina (2x)
+
+💰 Valor pago: R$ 450,00
+💳 Forma: dinheiro
+
+Obrigado pela confiança! Qualquer dúvida, é só chamar por aqui. 💙",
+      "via": "sendText",
+    },
+  ],
+  "PIX_MAQUININHA": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "🧾 *Comprovante de pagamento*
+_Clínica Exemplo_
+
+Olá, Maria! Pagamento *confirmado*. ✅
+
+🦷 Clareamento dental
+🦷 Restauração em resina (2x)
+
+💰 Valor pago: R$ 450,00
+💳 Forma: PIX na maquineta
+
+Obrigado pela confiança! Qualquer dúvida, é só chamar por aqui. 💙",
+      "via": "sendText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendEntradaCobranca (boleto do sinal com PIX e da entrada sem PIX) 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Maria, pra garantir seu tratamento, segue o *boleto do sinal* de *R$ 300,00* (vence em *20/10/2026*).
+
+🔗 Boleto:
+https://asaas.exemplo.test/b/sinal.pdf
+
+Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇",
+    "via": "sendText",
+  },
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "000201EXEMPLO-PIX-COPIA-E-COLA-SINAL",
+    "via": "sendText",
+  },
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Maria, pra garantir seu tratamento, segue o *boleto da entrada* de *R$ 700,00* (vence em *20/10/2026*).
+
+🔗 Boleto:
+https://asaas.exemplo.test/b/entrada.pdf",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendExpiryReminders (orçamento perto de expirar; cron desligado, chamada manual) 1`] = `
+[
+  {
+    "chip": null,
+    "para": "5582900000001",
+    "texto": "Oi Maria! 👋
+
+Passando pra lembrar que seu orçamento (R$ 2.500,00) está prestes a expirar em 23/10/2026.
+
+Quer reservar agora ou tem alguma dúvida sobre o tratamento? É só responder por aqui que a gente conversa! 😊",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendNegociacaoAprovada (parcelado no boleto, à vista PIX e cartão) + PDF dos procedimentos 1`] = `
+{
+  "boleto: entrada + 10 parcelas": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Olá, Maria! 🎉 Seu tratamento foi *aprovado*.
+
+• Clareamento dental
+• Restauração em resina (2x)
+
+• Entrada: R$ 500,00
+• 10x de R$ 250,00
+• Total: R$ 3.000,00
+
+Qualquer dúvida, é só chamar por aqui! 💙",
+      "via": "sendText",
+    },
+    {
+      "arquivo": "procedimentos-Maria.pdf",
+      "chip": "chip-financeiro",
+      "legenda": "Aqui estão os procedimentos do seu tratamento, Maria. 😊",
+      "midia": "<arquivo em base64>",
+      "mime": "application/pdf",
+      "para": "5582900000001",
+      "tipo": "document",
+      "via": "sendMedia",
+    },
+  ],
+  "à vista no PIX": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Olá, Maria! 🎉 Seu tratamento foi *aprovado*.
+
+• Clareamento dental
+• Restauração em resina (2x)
+
+• Total: R$ 1.500,00 (PIX)
+
+Já te envio o código PIX aqui mesmo pra você pagar. 😊
+
+Qualquer dúvida, é só chamar por aqui! 💙",
+      "via": "sendText",
+    },
+    {
+      "arquivo": "procedimentos-Maria.pdf",
+      "chip": "chip-financeiro",
+      "legenda": "Aqui estão os procedimentos do seu tratamento, Maria. 😊",
+      "midia": "<arquivo em base64>",
+      "mime": "application/pdf",
+      "para": "5582900000001",
+      "tipo": "document",
+      "via": "sendMedia",
+    },
+  ],
+  "à vista no cartão": [
+    {
+      "chip": "chip-financeiro",
+      "para": "5582900000001",
+      "texto": "Olá, Maria! 🎉 Seu tratamento foi *aprovado*.
+
+• Clareamento dental
+• Restauração em resina (2x)
+
+• Total: R$ 1.500,00 (cartão)
+
+Já te envio o link pra pagamento no cartão aqui mesmo. 😊
+
+Qualquer dúvida, é só chamar por aqui! 💙",
+      "via": "sendText",
+    },
+    {
+      "arquivo": "procedimentos-Maria.pdf",
+      "chip": "chip-financeiro",
+      "legenda": "Aqui estão os procedimentos do seu tratamento, Maria. 😊",
+      "midia": "<arquivo em base64>",
+      "mime": "application/pdf",
+      "para": "5582900000001",
+      "tipo": "document",
+      "via": "sendMedia",
+    },
+  ],
+}
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/quotes.service.ts — sendPixDelivery (código PIX no fechamento) 1`] = `
+[
+  {
+    "chip": "chip-financeiro",
+    "para": "5582900000001",
+    "texto": "Olá, Maria! 💠 Seu PIX está pronto — é só copiar o código abaixo e pagar no app do seu banco:
+
+000201EXEMPLO-PIX-COPIA-E-COLA
+
+Assim que cair, a gente confirma por aqui. Qualquer dúvida, é só chamar! 💙",
+    "via": "sendText",
+  },
+]
+`;
+
+exports[`retrato: fechamento da venda e orçamento → paciente (F1) apps/api/src/commercial/treatment-plan-contract.service.ts — sendForSignature (link do TCLE + mensagem do ClickSign) 1`] = `
+{
+  "clicksign": [
+    {
+      "buffer": "<PDF do TCLE>",
+      "conversationId": "conv-paciente-1",
+      "filename": "TCLE_Maria_Exemplo_da_Silva_1792508400000.pdf",
+      "leadId": "lead-1",
+      "signerEmail": "paciente@exemplo.test",
+      "signerMessage": "Por favor, leia o plano de tratamento e assine o Termo de Consentimento Livre e Esclarecido.",
+      "signerName": "Maria Exemplo da Silva",
+      "signerPhone": "5582900000001",
+    },
+  ],
+  "whatsapp": [
+    {
+      "conversa": "conv-paciente-1",
+      "para": "5582900000001",
+      "texto": "🦷 *Plano de Tratamento — Clínica Exemplo*
+
+Olá Maria!
+
+Seu plano de tratamento odontológico está pronto. Para iniciarmos, precisamos da sua assinatura digital no Termo de Consentimento (TCLE).
+
+🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).
+📱 Você confirmará sua identidade via WhatsApp.
+
+✍️ *Clique aqui para assinar:*
+https://assinatura.exemplo.test/sign/abc",
+      "via": "sendPatientText",
+    },
+  ],
+}
+`;
+
+exports[`retrato: pesquisa pós-atendimento → paciente (F1) apps/api/src/post-care/post-care-templates.ts — pergunta inicial (3 estilos), agradecimento e desculpas 1`] = `
+{
+  "agradecimento": "Que bom que gostou, Maria! 💛 Seu feedback nos ajuda muito. Se quiser nos ajudar ainda mais, deixa uma avaliação no Google!",
+  "config_padrao": {
+    "estilo": "descontraido",
+    "horas_depois": 2,
+    "ligado": true,
+  },
+  "desculpas": "Sentimos muito que sua experiência não tenha sido a esperada, Maria. Nossa equipe vai entrar em contato com você em breve pra entender e resolver. Obrigada pelo retorno!",
+  "inicial": {
+    "breve": "Oi Maria! Como foi seu atendimento com Dr(a). Ana Exemplo hoje? Manda um feedback rapidinho 💛",
+    "descontraido": "Olá Maria! Passando aqui pra perguntar o que achou do atendimento com Dr(a). Ana Exemplo referente ao procedimento de limpeza. O que você achou? 😊",
+    "formal": "Olá, Maria. Esperamos que esteja bem. Gostaríamos de saber sua opinião sobre o atendimento realizado por Dr(a). Ana Exemplo referente ao procedimento de limpeza. Como foi sua experiência?",
+  },
+  "inicial_sem_dados": "Olá paciente! Passando aqui pra perguntar o que achou do atendimento com o(a) profissional referente ao procedimento de sua consulta. O que você achou? 😊",
+}
+`;
+
+exports[`retrato: retorno de manutenção → paciente (F1) apps/api/src/agenda-extended/retorno-disparos.service.ts — enviar (12 toques, textos de retorno-disparos.ts) 1`] = `
+{
+  "retorno_clareamento_antes": [
+    "Oi, Maria! 😊 Aqui é da equipe Clínica Exemplo.
+
+Já faz 5 meses do seu clareamento, e a manutenção está chegando (dia 30/10/2026).
+
+Café, chá, vinho, refrigerante e molhos vão devolvendo a cor aos poucos. O retoque na hora certa mantém o branco com pouco esforço — bem antes de precisar refazer tudo.
+
+Quer que eu já reserve um horário?",
+  ],
+  "retorno_clareamento_depois": [
+    "Oi, Maria, tudo bem? A manutenção do seu clareamento passou do prazo: já são 7 meses desde o último.
+
+Os pigmentos voltam a entrar no esmalte e, quanto mais demora, mais sessões o retoque pede — e mais perto fica de ter que refazer o clareamento inteiro.
+
+Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙",
+  ],
+  "retorno_clareamento_no_dia": [
+    "Oi, Maria! Hoje completa o prazo da manutenção do seu clareamento (6 meses desde o último). ✨
+
+É agora que o sorriso começa a perder o tom que você conquistou. Um retoque rápido devolve o branco e protege o investimento que você já fez.
+
+Posso ver um horário pra você?",
+  ],
+  "retorno_faceta_resina_antes": [
+    "Oi, Maria! 😊 Aqui é da equipe Clínica Exemplo.
+
+Suas facetas de resina completam 5 meses, e a revisão está chegando (dia 30/10/2026).
+
+A resina sente o dia a dia: perde o brilho, pode manchar nas bordas e ter pequenos desgastes. Na revisão a gente faz o polimento e corrige qualquer detalhe antes que vire problema.
+
+Quer que eu já reserve um horário?",
+  ],
+  "retorno_faceta_resina_depois": [
+    "Oi, Maria, tudo bem? A revisão das suas facetas passou do prazo: já são 7 meses.
+
+Sem manutenção a resina perde cor e brilho, e uma borda que solta ou lasca deixa a placa entrar: vem mancha, infiltração e cárie no dente por baixo — e o reparo que era simples vira troca da faceta.
+
+Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙",
+  ],
+  "retorno_faceta_resina_no_dia": [
+    "Oi, Maria! Hoje é o dia da revisão das suas facetas de resina (6 meses desde a última). 🦷
+
+O polimento devolve o brilho, e conferir as bordas evita que a sujeira entre por baixo — é assim que começa a cárie escondida embaixo da faceta.
+
+Posso ver um horário pra você?",
+  ],
+  "retorno_lentes_porcelana_antes": [
+    "Oi, Maria! 😊 Aqui é da equipe Clínica Exemplo.
+
+Suas lentes de porcelana completam 5 meses, e a revisão está chegando (dia 30/10/2026).
+
+A porcelana não mancha, mas a gengiva e a borda da lente precisam de cuidado: é ali que a placa se acumula. Na revisão a gente faz a limpeza profissional e confere a cimentação e a mordida.
+
+Quer que eu já reserve um horário?",
+  ],
+  "retorno_lentes_porcelana_depois": [
+    "Oi, Maria, tudo bem? A revisão das suas lentes passou do prazo: já são 7 meses.
+
+Placa acumulada na borda inflama a gengiva, que pode retrair e deixar a margem aparecendo, e também causa cárie no dente embaixo da lente. Ranger ou apertar os dentes sem proteção pode trincar ou soltar a peça. Revisar cedo protege o investimento que você fez.
+
+Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙",
+  ],
+  "retorno_lentes_porcelana_no_dia": [
+    "Oi, Maria! Hoje completa o prazo da revisão das suas lentes (6 meses). ✨
+
+Cuidar agora mantém a gengiva saudável em volta das lentes (sem inflamar nem retrair) e garante que nada esteja forçando a porcelana — é isso que faz elas durarem muitos anos.
+
+Posso ver um horário pra você?",
+  ],
+  "retorno_limpeza_antes": [
+    "Oi, Maria! 😊 Aqui é da equipe Clínica Exemplo.
+
+Sua última limpeza foi há 5 meses, e a próxima já está chegando (dia 30/10/2026).
+
+Com o tempo, a placa que a escova não alcança endurece e vira tártaro — ele só sai na limpeza profissional e, se fica, inflama a gengiva e abre caminho pra cárie entre os dentes.
+
+Quer que eu já reserve um horário pra você?",
+  ],
+  "retorno_limpeza_depois": [
+    "Oi, Maria, tudo bem? Passando porque sua limpeza está atrasada: a última foi há 7 meses.
+
+Quanto mais tempo o tártaro fica, mais ele irrita a gengiva (ela sangra e pode retrair) e maior a chance de uma cárie escondida entre os dentes. Resolver cedo é sempre mais simples — e mais barato.
+
+Vamos marcar? Se você já fez em outro lugar, me avisa que eu atualizo aqui. 💙",
+  ],
+  "retorno_limpeza_no_dia": [
+    "Oi, Maria! Hoje completa o prazo da sua limpeza — já são 6 meses desde a última. 🦷
+
+É nessa fase que o tártaro começa a se acumular junto da gengiva. Tirando agora, a limpeza é rápida, tranquila e evita sangramento, mau hálito e cárie.
+
+Posso ver um horário pra você esta semana?",
+  ],
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/audio-disparo.ts — lembrete em áudio (teste): texto falado e instrução da voz 1`] = `
+{
+  "config_padrao": {
+    "motor": "chatgpt",
+    "sotaque": "neutro",
+    "texto": "Oi, {nome}! Aqui é da equipe {clinica}. Passando pra lembrar da sua consulta amanhã, dia {data}, às {hora}, com {dentista}. Se precisar remarcar, é só responder essa mensagem. Até amanhã!",
+    "velocidade": 1,
+    "voz": "marin",
+  },
+  "instrucao_da_voz": "Voz de atendente de clínica odontológica: simpática, acolhedora e profissional. Natural, como um áudio de WhatsApp gravado por uma pessoa — nunca robótica. Português do Brasil com sotaque neutro, de telejornal. Ritmo normal de conversa.",
+  "texto_falado": "Oi, Maria! Aqui é da equipe Clínica Exemplo. Passando pra lembrar da sua consulta amanhã, dia 22/10, às 14:30, com Dra. Ana. Se precisar remarcar, é só responder essa mensagem. Até amanhã!",
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/cobranca.ts — régua por estágio × tipo, textos da venda e blocos montados: blocos montados (condições, método, forma, descrição) 1`] = `
+{
+  "a_vista_pix": {
+    "condicoes": "• Total: R$ 1.500,00 (PIX)",
+    "condicoesSemTotal": "• Pagamento à vista (PIX)",
+  },
+  "a_vista_sem_forma": {
+    "condicoes": "• Total: R$ 1.500,00",
+    "condicoesSemTotal": "",
+  },
+  "descricao_sem_tag_interna": "Parcela 3/10 — Maria Exemplo",
+  "entrada_e_1_parcela": {
+    "condicoes": "• Entrada: R$ 500,00
+• 1x de R$ 1.000,00
+• Total: R$ 1.500,00",
+    "condicoesSemTotal": "• Entrada: R$ 500,00
+• 1x de R$ 1.000,00",
+  },
+  "forma_recebida": {
+    "BOLETO": "boleto",
+    "CARTAO": "cartão",
+    "CASH": "dinheiro",
+    "CREDIT_CARD": "cartão",
+    "DINHEIRO": "dinheiro",
+    "OUTRA": "OUTRA",
+    "PIX": "PIX",
+    "PIX_MAQUININHA": "PIX na maquineta",
+  },
+  "metodo_da_confirmacao": {
+    "BOLETO": " via boleto",
+    "CREDIT_CARD": " via cartão",
+    "PIX": " via PIX",
+    "UNDEFINED": "",
+  },
+  "parcelado_com_entrada": {
+    "condicoes": "• Entrada: R$ 500,00
+• 10x de R$ 250,00
+• Total: R$ 3.000,00",
+    "condicoesSemTotal": "• Entrada: R$ 500,00
+• 10x de R$ 250,00",
+  },
+  "so_parcelas": {
+    "condicoes": "• 6x de R$ 200,00
+• Total: R$ 1.200,00",
+    "condicoesSemTotal": "• 6x de R$ 200,00",
+  },
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/cobranca.ts — régua por estágio × tipo, textos da venda e blocos montados: régua: estágio × tipo 1`] = `
+{
+  "boleto_1d_antes": {
+    "boleto": "Oi {nome}! 😊 Passando pra lembrar que seu boleto de *{valor}* vence *amanhã ({data})*.
+
+{codigo}
+
+Qualquer dúvida, é só chamar aqui!",
+    "parcelado": "Oi {nome}! 😊 Passando pra lembrar que sua parcela de *{valor}* vence *amanhã ({data})*.
+
+{codigo}
+
+Qualquer dúvida, é só chamar aqui!",
+    "pix": "Oi {nome}! 😊 Passando pra lembrar que seu pagamento de *{valor}* vence *amanhã ({data})*.
+
+{codigo}
+
+Qualquer dúvida, é só chamar aqui!",
+  },
+  "boleto_atrasado": {
+    "boleto": "Oi {nome}, tudo bem? seu boleto de *{valor}* venceu em {data} e ainda consta em aberto por aqui.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+    "parcelado": "Oi {nome}, tudo bem? sua parcela de *{valor}* venceu em {data} e ainda consta em aberto por aqui.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+    "pix": "Oi {nome}, tudo bem? seu pagamento de *{valor}* venceu em {data} e ainda consta em aberto por aqui.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+  },
+  "boleto_atraso_15d": {
+    "boleto": "Oi {nome}, seu boleto de *{valor}* está em aberto há *15 dias* (venceu em {data}).
+
+{codigo}
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+    "parcelado": "Oi {nome}, sua parcela de *{valor}* está em aberto há *15 dias* (venceu em {data}).
+
+{codigo}
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+    "pix": "Oi {nome}, seu pagamento de *{valor}* está em aberto há *15 dias* (venceu em {data}).
+
+{codigo}
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+  },
+  "boleto_atraso_1d": {
+    "boleto": "Oi {nome}, tudo bem? Notamos que seu boleto de *{valor}* venceu ontem ({data}) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+{codigo}
+
+Se já pagou, é só desconsiderar!",
+    "parcelado": "Oi {nome}, tudo bem? Notamos que sua parcela de *{valor}* venceu ontem ({data}) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+{codigo}
+
+Se já pagou, é só desconsiderar!",
+    "pix": "Oi {nome}, tudo bem? Notamos que seu pagamento de *{valor}* venceu ontem ({data}) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+{codigo}
+
+Se já pagou, é só desconsiderar!",
+  },
+  "boleto_atraso_2d": {
+    "boleto": "Oi {nome}, seu boleto de *{valor}* venceu em {data} e continua em aberto.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏",
+    "parcelado": "Oi {nome}, sua parcela de *{valor}* venceu em {data} e continua em aberto.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏",
+    "pix": "Oi {nome}, seu pagamento de *{valor}* venceu em {data} e continua em aberto.
+
+{codigo}
+
+Se já pagou, é só desconsiderar 🙏",
+  },
+  "boleto_atraso_30d": {
+    "boleto": "Oi {nome}, seu boleto de *{valor}* está com *30 dias* de atraso (venceu em {data}).
+
+{codigo}
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+    "parcelado": "Oi {nome}, sua parcela de *{valor}* está com *30 dias* de atraso (venceu em {data}).
+
+{codigo}
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+    "pix": "Oi {nome}, seu pagamento de *{valor}* está com *30 dias* de atraso (venceu em {data}).
+
+{codigo}
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+  },
+  "boleto_atraso_3d": {
+    "boleto": "Oi {nome}, seu boleto de *{valor}* está em aberto há *3 dias* (venceu em {data}).
+
+{codigo}
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+    "parcelado": "Oi {nome}, sua parcela de *{valor}* está em aberto há *3 dias* (venceu em {data}).
+
+{codigo}
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+    "pix": "Oi {nome}, seu pagamento de *{valor}* está em aberto há *3 dias* (venceu em {data}).
+
+{codigo}
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+  },
+  "boleto_no_dia": {
+    "boleto": "Oi {nome}! 📅 Hoje ({data}) vence seu boleto de *{valor}*.
+
+{codigo}
+
+Se já pagou, pode desconsiderar 🙏",
+    "parcelado": "Oi {nome}! 📅 Hoje ({data}) vence sua parcela de *{valor}*.
+
+{codigo}
+
+Se já pagou, pode desconsiderar 🙏",
+    "pix": "Oi {nome}! 📅 Hoje ({data}) vence seu pagamento de *{valor}*.
+
+{codigo}
+
+Se já pagou, pode desconsiderar 🙏",
+  },
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/cobranca.ts — régua por estágio × tipo, textos da venda e blocos montados: régua: texto único legado (pré-split por tipo) 1`] = `
+{
+  "boleto_1d_antes": "Oi {nome}! 😊 Passando pra lembrar que sua parcela de *{valor}* vence *amanhã ({data})*.
+
+Segue o boleto/pix pra facilitar: {link}
+
+Qualquer dúvida, é só chamar aqui!",
+  "boleto_atrasado": "Oi {nome}, tudo bem? Sua parcela de *{valor}* venceu em {data} e ainda consta em aberto por aqui.
+
+Quando puder, é só usar o link atualizado pra regularizar: {link}
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, fale com a gente!",
+  "boleto_atraso_15d": "Oi {nome}, sua parcela de *{valor}* está em aberto há *15 dias* (venceu em {data}).
+
+Pra regularizar e evitar juros maiores, segue o boleto atualizado: {link}
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+  "boleto_atraso_1d": "Oi {nome}, tudo bem? Notamos que sua parcela de *{valor}* venceu ontem ({data}) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+Segue o boleto atualizado: {link}
+
+Se já pagou, é só desconsiderar!",
+  "boleto_atraso_2d": "Oi {nome}, sua parcela de *{valor}* venceu em {data} e continua em aberto.
+
+Segue o boleto atualizado pra regularizar: {link}
+
+Se já pagou, é só desconsiderar 🙏",
+  "boleto_atraso_30d": "Oi {nome}, sua parcela de *{valor}* está com *30 dias* de atraso (venceu em {data}).
+
+Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+  "boleto_atraso_3d": "Oi {nome}, sua parcela de *{valor}* está em aberto há *3 dias* (venceu em {data}).
+
+Consegue regularizar hoje? Segue o boleto atualizado: {link}
+
+Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+  "boleto_no_dia": "Oi {nome}! 📅 Sua parcela de *{valor}* vence *hoje ({data})*.
+
+Pra não perder o prazo, segue o boleto/pix: {link}
+
+Se já pagou, pode desconsiderar 🙏",
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/cobranca.ts — régua por estágio × tipo, textos da venda e blocos montados: textos da venda e do pagamento (crus) 1`] = `
+{
+  "boleto_delivery": "Olá, {nome}! 📄 Aqui estão os seus boletos, todos em PDF. Qualquer dúvida, é só me chamar por aqui! 💙",
+  "boleto_intro": "Olá, {nome}! 😊
+
+Aqui é o setor financeiro da {clinica}. Seja muito bem-vindo(a)! A partir de agora é por aqui que a gente cuida de tudo sobre os seus pagamentos.
+
+Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄
+
+Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙",
+  "comprovante_pagamento": "🧾 *Comprovante de pagamento*
+_{clinica}_
+
+Olá, {nome}! Pagamento *confirmado*. ✅
+
+{itens}
+
+💰 Valor pago: R$ {total}
+💳 Forma: {forma}
+
+Obrigado pela confiança! Qualquer dúvida, é só chamar por aqui. 💙",
+  "confirmacao_pagamento": "✅ *Pagamento Confirmado!*
+
+Olá, {nome}!
+
+Confirmamos o recebimento do seu pagamento{metodo} no valor de *{valor}*{descricao}.
+{vencimento}
+
+Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.",
+  "negociacao_aprovada": "Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.
+
+{itens}
+
+{condicoes}
+
+Qualquer dúvida, é só chamar por aqui! 💙",
+  "negociacao_aprovada_avista": "Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.
+
+{itens}
+
+{condicoes}
+
+{instrucao}
+
+Qualquer dúvida, é só chamar por aqui! 💙",
+  "pix_delivery": "Olá, {nome}! 💠 Seu PIX está pronto — é só copiar o código abaixo e pagar no app do seu banco:
+
+{codigo_pix}
+
+Assim que cair, a gente confirma por aqui. Qualquer dúvida, é só chamar! 💙",
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/comercial-agenda.ts — agenda do lead (crus) e a faixa de cada lembrete 1`] = `
+{
+  "faixa_do_lembrete": {
+    "1440": "comercial_lembrete_1dia",
+    "15": "comercial_lembrete_15min",
+    "2880": "comercial_confirmacao_48h",
+    "60": "comercial_lembrete_1h",
+  },
+  "ids": [
+    "comercial_confirmacao",
+    "comercial_confirmacao_48h",
+    "comercial_lembrete_1dia",
+    "comercial_lembrete_1h",
+    "comercial_lembrete_15min",
+    "comercial_reagendamento",
+  ],
+  "textos": {
+    "comercial_confirmacao": "Olá {nome}! 😊
+
+Sua avaliação foi agendada para *{data}* às *{hora}* com {dentista}.
+{local_line}
+Qualquer dúvida, é só chamar por aqui!",
+    "comercial_confirmacao_48h": "Oi {nome}, tudo bem? 😊
+
+Aqui é pra confirmar sua avaliação com {dentista}, marcada pro dia *{data}* às *{hora}*.
+{local_line}
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+    "comercial_lembrete_15min": "{nome}, estamos te esperando! 💙
+
+Sua avaliação com {dentista} começa logo ({data}).
+{local_line}",
+    "comercial_lembrete_1dia": "Oi {nome}! 😊
+
+Passando só pra lembrar da sua avaliação com {dentista} amanhã, *{data}* às *{hora}*.
+{local_line}
+Até lá! Qualquer coisa é só chamar por aqui.",
+    "comercial_lembrete_1h": "Oi {nome}! 👋
+
+Sua avaliação com {dentista} é em cerca de 1 hora ({data}).
+{local_line}
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+    "comercial_reagendamento": "Olá {nome}! 😊
+
+Sua avaliação foi *remarcada* para *{data}* às *{hora}* com {dentista}.
+{local_line}
+Qualquer dúvida, é só chamar por aqui!",
+  },
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/reativacao-leads.ts — modelos dos toques por coluna (com e sem tabela de valores) 1`] = `
+{
+  "com_valores_liberados": {
+    "agendado": [
+      "Oi, Maria! Vi que não deu pra você vir na sua avaliação de 19/10 às 15:00.
+
+Espero que esteja tudo bem com você. Imprevisto acontece com todo mundo, tá tudo certo 🙂
+
+Já separei quinta (22/10) às 14:30 ou sexta (23/10) às 9:00 pra remarcar. Qual fica melhor pra você?",
+      "Maria, lembrei de você porque sua avaliação era o primeiro passo pra resolver o dente que está faltando.
+
+Nela a Dra. Ana faz as fotos e o escaneamento, te explica tudo com calma e monta seu plano sob medida.
+
+Quer que eu veja um horário que encaixe melhor na sua rotina?",
+      "Maria, sei que às vezes a semana aperta e a gente adia o que é da gente.
+
+Consegui opções em outro período, caso o horário de antes tenha sido o problema: quinta (22/10) às 14:30 ou sexta (23/10) às 9:00.
+
+Quer que eu reserve um deles, ou prefere que eu te chame no começo do mês que vem?",
+    ],
+    "conversa": [
+      "Oi, Maria! Lembrei da nossa conversa sobre o dente que está faltando e quis retomar de onde a gente parou.
+
+[resposta curta e útil à dúvida que ficou em aberto]
+
+Posso dar uma olhada na agenda da Dra. Ana e ver se consigo pra essa semana?",
+      "Maria, fiquei pensando na nossa conversa sobre implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+O primeiro passo é a avaliação com a Dra. Ana: anamnese, fotos, escaneamento intraoral e um plano sob medida, tudo isso por apenas R$ 150.
+
+Quer que eu veja um horário pra você essa semana?",
+      "Maria, separei dois horários com a Dra. Ana pensando em você.
+
+Ela vai olhar com calma o que você me contou sobre o dente que está faltando e montar um plano sob medida.
+
+quinta (22/10) às 14:30 ou sexta (23/10) às 9:00: qual fica melhor pra você?",
+    ],
+    "convite": [
+      "Oi, Maria! Imagino que aqueles horários que te passei não encaixaram na sua rotina.
+
+Olhei de novo a agenda da Dra. Ana e consegui quinta (22/10) às 14:30 ou sexta (23/10) às 9:00.
+
+Algum desses fica bom pra você?",
+      "Maria, queria te contar como é a avaliação aqui, pra você já chegar sabendo.
+
+Tem anamnese, fotos da face e do sorriso, escaneamento intraoral e a conversa com a Dra. Ana, que monta um plano sob medida pra você.
+
+Tudo isso fica apenas R$ 150.
+
+Fica melhor pra você de manhã ou à tarde? Eu procuro o encaixe na agenda.",
+      "Maria, não quero que você fique sem a sua avaliação por causa de horário 🙂
+
+Se essa semana estiver corrida, a gente olha a próxima com calma.
+
+Prefere que eu já reserve quinta (22/10) às 14:30 pra você, ou que eu te mande opções da semana que vem?",
+    ],
+    "novo": [
+      "Oi, Maria! Aqui é da recepção do Clínica Exemplo 😊
+
+Vi que você chamou a gente sobre implantes e a conversa acabou ficando pela metade.
+
+Quer que eu veja um horário com a Dra. Ana pra você resolver isso com calma?",
+      "Maria, lembrei de você por causa de implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+Posso dar uma olhada na agenda e ver se consigo pra essa semana?",
+      "Maria, muita gente adia a avaliação por não saber como ela é, então te explico rapidinho.
+
+É uma consulta só: anamnese, fotos da face e do sorriso, escaneamento intraoral e a conversa com a Dra. Ana, que monta um plano sob medida pra você.
+
+Tudo isso fica apenas R$ 150, e você sai sabendo o que fazer e por onde começar.
+
+Tenho quinta (22/10) às 14:30 ou sexta (23/10) às 9:00. Qual fica melhor pra você?",
+      "Maria, sei que às vezes a gente adia o dentista com receio de ouvir que precisa fazer um monte de coisa.
+
+Na avaliação a Dra. Ana te mostra tudo nas fotos, explica as opções e você decide no seu tempo.
+
+Faz mais sentido eu ver um horário pra você agora, ou te chamar de novo no mês que vem?",
+    ],
+    "orcamento": [
+      "Oi, Maria! Foi muito bom te receber aqui.
+
+A Dra. Ana montou seu plano de implantes em cima do que ela viu na sua avaliação.
+
+O que ficou faltando pra gente começar: alguma dúvida do tratamento ou da forma de pagamento?",
+      "Maria, fiquei pensando no seu plano de implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+A forma de pagamento eu te explico com calma, pra achar o jeito que fica melhor pra você.
+
+Prefere que eu te explique por aqui ou numa ligação rápida?",
+      "Maria, olhei a agenda da Dra. Ana pensando no início do seu tratamento.
+
+Ela já tem tudo do seu caso em mãos, então dá pra começar pela primeira etapa.
+
+Tenho quinta (22/10) às 14:30 ou sexta (23/10) às 9:00. Qual fica melhor pra você?",
+    ],
+  },
+  "dentista_do_modelo": {
+    "dr": "equipe de avaliação",
+    "dra": "Dra. Ana",
+    "sem_nome": "doutora",
+  },
+  "gancho_generico": "Na avaliação a doutora olha tudo com calma, tira suas dúvidas e monta um plano sob medida pra você.",
+  "ganchos_por_funil": {
+    "clareamento": "O clareamento aqui é feito com acompanhamento: a doutora escolhe a técnica certa pro seu caso, pensando também na sensibilidade, pra seus dentes ficarem mais brancos com tranquilidade.",
+    "estetica-facial": "A ideia é realçar o que você já tem, sem transformar o seu rosto. Quem faz é dentista habilitado pelo CFO, com produto registrado na Anvisa.",
+    "facetas-resina": "Com facetas em resina dá pra ter um sorriso novo em 1 ou 2 consultas, geralmente sem desgastar os dentes, e com polimento elas duram de 5 a 8 anos.",
+    "implantes": "Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.",
+    "lentes-porcelana": "Antes de decidir, você vê o resultado com o mock-up, um ensaio do sorriso novo direto na sua boca, e só então escolhe se quer seguir.",
+    "odonto": "Aqui a limpeza é completa: remoção de tártaro, raspagem em todos os dentes, raspagem subgengival, flúor, polimento, escovação e fio dental. Tudo isso fica apenas R$ 250.",
+    "ortodontia": "Nunca é tarde pra alinhar os dentes: hoje tem alinhador quase invisível, e a manutenção leva de 20 a 30 minutos, dá pra encaixar no almoço ou no sábado.",
+    "protese": "É pra você voltar a comer e sorrir sem medo da prótese soltar. O atendimento é reservado e, se quiser, você pode vir com alguém da família.",
+  },
+  "sem_valores_liberados": {
+    "agendado": [
+      "Oi, Maria! Vi que não deu pra você vir na sua avaliação de 19/10 às 15:00.
+
+Espero que esteja tudo bem com você. Imprevisto acontece com todo mundo, tá tudo certo 🙂
+
+Já separei quinta (22/10) às 14:30 ou sexta (23/10) às 9:00 pra remarcar. Qual fica melhor pra você?",
+      "Maria, lembrei de você porque sua avaliação era o primeiro passo pra resolver o dente que está faltando.
+
+Nela a Dra. Ana faz as fotos e o escaneamento, te explica tudo com calma e monta seu plano sob medida.
+
+Quer que eu veja um horário que encaixe melhor na sua rotina?",
+      "Maria, sei que às vezes a semana aperta e a gente adia o que é da gente.
+
+Consegui opções em outro período, caso o horário de antes tenha sido o problema: quinta (22/10) às 14:30 ou sexta (23/10) às 9:00.
+
+Quer que eu reserve um deles, ou prefere que eu te chame no começo do mês que vem?",
+    ],
+    "conversa": [
+      "Oi, Maria! Lembrei da nossa conversa sobre o dente que está faltando e quis retomar de onde a gente parou.
+
+[resposta curta e útil à dúvida que ficou em aberto]
+
+Posso dar uma olhada na agenda da Dra. Ana e ver se consigo pra essa semana?",
+      "Maria, fiquei pensando na nossa conversa sobre implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+Quer que eu veja um horário pra você essa semana?",
+      "Maria, separei dois horários com a Dra. Ana pensando em você.
+
+Ela vai olhar com calma o que você me contou sobre o dente que está faltando e montar um plano sob medida.
+
+quinta (22/10) às 14:30 ou sexta (23/10) às 9:00: qual fica melhor pra você?",
+    ],
+    "convite": [
+      "Oi, Maria! Imagino que aqueles horários que te passei não encaixaram na sua rotina.
+
+Olhei de novo a agenda da Dra. Ana e consegui quinta (22/10) às 14:30 ou sexta (23/10) às 9:00.
+
+Algum desses fica bom pra você?",
+      "Maria, queria te contar como é a avaliação aqui, pra você já chegar sabendo.
+
+Tem anamnese, fotos da face e do sorriso, escaneamento intraoral e a conversa com a Dra. Ana, que monta um plano sob medida pra você.
+
+Fica melhor pra você de manhã ou à tarde? Eu procuro o encaixe na agenda.",
+      "Maria, não quero que você fique sem a sua avaliação por causa de horário 🙂
+
+Se essa semana estiver corrida, a gente olha a próxima com calma.
+
+Prefere que eu já reserve quinta (22/10) às 14:30 pra você, ou que eu te mande opções da semana que vem?",
+    ],
+    "novo": [
+      "Oi, Maria! Aqui é da recepção do Clínica Exemplo 😊
+
+Vi que você chamou a gente sobre implantes e a conversa acabou ficando pela metade.
+
+Quer que eu veja um horário com a Dra. Ana pra você resolver isso com calma?",
+      "Maria, lembrei de você por causa de implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+Posso dar uma olhada na agenda e ver se consigo pra essa semana?",
+      "Maria, muita gente adia a avaliação por não saber como ela é, então te explico rapidinho.
+
+É uma consulta só: anamnese, fotos da face e do sorriso, escaneamento intraoral e a conversa com a Dra. Ana, que monta um plano sob medida pra você.
+
+Tenho quinta (22/10) às 14:30 ou sexta (23/10) às 9:00. Qual fica melhor pra você?",
+      "Maria, sei que às vezes a gente adia o dentista com receio de ouvir que precisa fazer um monte de coisa.
+
+Na avaliação a Dra. Ana te mostra tudo nas fotos, explica as opções e você decide no seu tempo.
+
+Faz mais sentido eu ver um horário pra você agora, ou te chamar de novo no mês que vem?",
+    ],
+    "orcamento": [
+      "Oi, Maria! Foi muito bom te receber aqui.
+
+A Dra. Ana montou seu plano de implantes em cima do que ela viu na sua avaliação.
+
+O que ficou faltando pra gente começar: alguma dúvida do tratamento ou da forma de pagamento?",
+      "Maria, fiquei pensando no seu plano de implantes.
+
+Implante é pra você voltar a mastigar de tudo e sorrir sem esconder. É feito com anestesia local, no dia seguinte você já volta à rotina e, em alguns casos, dá pra sair com um dente provisório no mesmo dia.
+
+A forma de pagamento eu te explico com calma, pra achar o jeito que fica melhor pra você.
+
+Prefere que eu te explique por aqui ou numa ligação rápida?",
+      "Maria, olhei a agenda da Dra. Ana pensando no início do seu tratamento.
+
+Ela já tem tudo do seu caso em mãos, então dá pra começar pela primeira etapa.
+
+Tenho quinta (22/10) às 14:30 ou sexta (23/10) às 9:00. Qual fica melhor pra você?",
+    ],
+  },
+  "valores_da_tabela": {
+    "com": {
+      "valor_avaliacao": "R$ 150",
+      "valor_limpeza": "R$ 250",
+    },
+    "sem": {
+      "valor_avaliacao": "",
+      "valor_limpeza": "",
+    },
+  },
+}
+`;
+
+exports[`retrato: textos-padrão do @crm/shared (F1) packages/shared/src/reminder-config.ts — confirmação, lembretes, ortodontia, recall e aniversário 1`] = `
+{
+  "aniversario_crus": {
+    "msg1": {
+      "hora": "09:00",
+      "ligada": false,
+      "texto": "Feliz aniversário, {nome}! 🎉🎂
+
+A equipe da {clinica} deseja um dia maravilhoso pra você. Conte com a gente pra cuidar do seu sorriso! 😁",
+    },
+    "msg2": {
+      "hora": "00:00",
+      "ligada": false,
+      "texto": "Feliz aniversário, {nome}! 🎉
+Talvez a gente não tenha conseguido ser o primeiro a te desejar… mas a gente tentou. 😊 Que neste dia tão especial — em que recordamos o dia do seu nascimento — o Senhor Jesus te abençoe cada dia mais. Aproveite muito esse dia maravilhoso!
+Com carinho,
+
+Equipe {clinica} 🎂",
+    },
+    "msg3": {
+      "hora": "12:00",
+      "ligada": false,
+      "texto": "{nome}, a gente não poderia deixar essa data passar em branco. 💙
+E, do nosso jeito, queríamos te presentear com algo nosso: é com muito carinho que preparamos pra você 50% de desconto em um clareamento dental. ✨🎁
+É só responder esta mensagem que a gente agenda pra você. Seu sorriso merece!
+Um abraço,
+
+Equipe {clinica}",
+    },
+  },
+  "antecedencias_padrao": [
+    {
+      "channel": "WHATSAPP",
+      "minutes_before": 2880,
+    },
+    {
+      "channel": "WHATSAPP",
+      "minutes_before": 1440,
+    },
+    {
+      "channel": "WHATSAPP",
+      "minutes_before": 60,
+    },
+    {
+      "channel": "WHATSAPP",
+      "minutes_before": 15,
+    },
+  ],
+  "confirmacao_ortodontia": {
+    "com_local": "Oi Maria, tudo bem? 😊
+
+Passando pra confirmar seu atendimento de *ortodontia* com Dra. Ana amanhã, *qui 22/10/2026*, a partir das *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+⚠️ O atendimento é *por ordem de chegada* — quanto mais cedo você chegar, mais cedo é atendido(a).
+Posso confirmar sua presença? 🙂",
+    "sem_local": "Oi Maria, tudo bem? 😊
+
+Passando pra confirmar seu atendimento de *ortodontia* com Dra. Ana amanhã, *qui 22/10/2026*, a partir das *14:30*.
+
+⚠️ O atendimento é *por ordem de chegada* — quanto mais cedo você chegar, mais cedo é atendido(a).
+Posso confirmar sua presença? 🙂",
+  },
+  "consulta_15min": {
+    "com_local": "Maria, estamos te esperando! 💙
+
+Sua avaliação com Dra. Ana começa logo (qui 22/10/2026).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL",
+    "sem_local": "Maria, estamos te esperando! 💙
+
+Sua avaliação com Dra. Ana começa logo (qui 22/10/2026).",
+  },
+  "consulta_1h": {
+    "com_local": "Oi Maria! 👋
+
+Sua avaliação com Dra. Ana é em cerca de 1 hora (qui 22/10/2026).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+    "sem_local": "Oi Maria! 👋
+
+Sua avaliação com Dra. Ana é em cerca de 1 hora (qui 22/10/2026).
+
+Tente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!",
+  },
+  "consulta_24h": {
+    "com_local": "Oi Maria! 😊
+
+Passando só pra lembrar da sua consulta com Dra. Ana amanhã, *qui 22/10/2026* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Até lá! Qualquer coisa é só chamar por aqui.",
+    "sem_local": "Oi Maria! 😊
+
+Passando só pra lembrar da sua consulta com Dra. Ana amanhã, *qui 22/10/2026* às *14:30*.
+
+Até lá! Qualquer coisa é só chamar por aqui.",
+  },
+  "consulta_confirmacao": {
+    "com_local": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana, marcado pro dia *qui 22/10/2026* às *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+    "sem_local": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana, marcado pro dia *qui 22/10/2026* às *14:30*.
+
+Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.",
+  },
+  "faixa_do_template": {
+    "1440": "consulta_24h",
+    "15": "consulta_15min",
+    "2880": "consulta_24h",
+    "59": "consulta_15min",
+    "60": "consulta_1h",
+    "600": "consulta_1h",
+  },
+  "lembrete_ortodontia_portoes": {
+    "com_local": "Oi Maria! 👋
+
+Passando pra lembrar do seu atendimento de *ortodontia* com Dra. Ana hoje. Abrimos os portões em cerca de *1 hora* (por volta das *14:30*).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙",
+    "sem_local": "Oi Maria! 👋
+
+Passando pra lembrar do seu atendimento de *ortodontia* com Dra. Ana hoje. Abrimos os portões em cerca de *1 hora* (por volta das *14:30*).
+
+📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙",
+  },
+  "liga_desliga_padrao": true,
+  "ortodontia_imediata": {
+    "com_local": "Olá Maria! 😊
+
+Agendamos seu atendimento de *ortodontia* com Dra. Ana para *qui 22/10/2026*.
+📌 É *por ordem de chegada*, a partir das *14:30*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Qualquer dúvida, é só chamar por aqui!",
+    "sem_local": "Olá Maria! 😊
+
+Agendamos seu atendimento de *ortodontia* com Dra. Ana para *qui 22/10/2026*.
+📌 É *por ordem de chegada*, a partir das *14:30*.
+
+Qualquer dúvida, é só chamar por aqui!",
+  },
+  "recall_cru": "Olá, {nome}! 👋
+
+Aqui é da clínica — está chegando a data da sua revisão de *{procedimento}*: {data}.
+
+Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊",
+}
+`;

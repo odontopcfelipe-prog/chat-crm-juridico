@@ -1,0 +1,105 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: GET /tenants/me para usuário de clínica (F1) clínica com tudo preenchido: chaves exatas, valores e o JSON que sai na rede: consulta ao banco (TenantsService.findOne) 1`] = `
+{
+  "include": {
+    "_count": {
+      "select": {
+        "conversations": true,
+        "leads": true,
+        "patients": true,
+        "payment_gateway_charges": true,
+        "quote_templates": true,
+        "users": true,
+      },
+    },
+  },
+  "where": {
+    "id": "00000000-0000-0000-0000-0000000000c1",
+  },
+}
+`;
+
+exports[`retrato: GET /tenants/me para usuário de clínica (F1) clínica com tudo preenchido: chaves exatas, valores e o JSON que sai na rede: corpo JSON na ordem da rede 1`] = `
+"{
+  "id": "00000000-0000-0000-0000-0000000000c1",
+  "name": "Clínica Exemplo",
+  "slug": "clinica-exemplo",
+  "logo_url": "data:image/png;base64,iVBORw0KGgo=",
+  "theme_color": "#0F766E",
+  "phone": "5582900000001",
+  "email": "contato@clinica-exemplo.test",
+  "cpf_cnpj": "00000000000100",
+  "custom_domain": "sistema.clinica-exemplo.test",
+  "status": "TRIAL",
+  "plan": "PRO",
+  "trial_ends_at": "2026-11-03T15:00:00.000Z",
+  "owner_user_id": "u-admin-exemplo",
+  "zip_code": "57000000",
+  "address": "Rua Exemplo",
+  "address_number": "100",
+  "address_complement": "Sala 2",
+  "neighborhood": "Centro",
+  "city": "Cidade Exemplo",
+  "state": "AL",
+  "responsible_name": "Dra. Responsável Exemplo",
+  "responsible_cro": "00000-AL",
+  "business_hours": "Seg-Sex 08:00-18:00, Sab 08:00-12:00"
+}"
+`;
+
+exports[`retrato: GET /tenants/me para usuário de clínica (F1) clínica com tudo preenchido: chaves exatas, valores e o JSON que sai na rede: resposta 1`] = `
+{
+  "address": "Rua Exemplo",
+  "address_complement": "Sala 2",
+  "address_number": "100",
+  "business_hours": "Seg-Sex 08:00-18:00, Sab 08:00-12:00",
+  "city": "Cidade Exemplo",
+  "cpf_cnpj": "00000000000100",
+  "custom_domain": "sistema.clinica-exemplo.test",
+  "email": "contato@clinica-exemplo.test",
+  "id": "00000000-0000-0000-0000-0000000000c1",
+  "logo_url": "data:image/png;base64,iVBORw0KGgo=",
+  "name": "Clínica Exemplo",
+  "neighborhood": "Centro",
+  "owner_user_id": "u-admin-exemplo",
+  "phone": "5582900000001",
+  "plan": "PRO",
+  "responsible_cro": "00000-AL",
+  "responsible_name": "Dra. Responsável Exemplo",
+  "slug": "clinica-exemplo",
+  "state": "AL",
+  "status": "TRIAL",
+  "theme_color": "#0F766E",
+  "trial_ends_at": "2026-11-03T15:00:00.000Z",
+  "zip_code": "57000000",
+}
+`;
+
+exports[`retrato: GET /tenants/me para usuário de clínica (F1) clínica recém-cadastrada (opcionais vazios): mesmas chaves, com null: resposta 1`] = `
+{
+  "address": null,
+  "address_complement": null,
+  "address_number": null,
+  "business_hours": null,
+  "city": null,
+  "cpf_cnpj": null,
+  "custom_domain": null,
+  "email": null,
+  "id": "00000000-0000-0000-0000-0000000000c1",
+  "logo_url": null,
+  "name": "Clínica Exemplo",
+  "neighborhood": null,
+  "owner_user_id": null,
+  "phone": null,
+  "plan": "STARTER",
+  "responsible_cro": null,
+  "responsible_name": null,
+  "slug": null,
+  "state": null,
+  "status": "ACTIVE",
+  "theme_color": null,
+  "trial_ends_at": null,
+  "zip_code": null,
+}
+`;

@@ -1,0 +1,760 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) caixa "Proposta de pagamento apresentada": texto de cada forma de pagamento 1`] = `
+{
+  "boleto parcelado 12x com entrada (parcelado-12x)": {
+    "headline": "Boleto · 12x de R$ 366,72/mês",
+    "lines": [
+      "Entrada: R$ 950,00",
+      "12x de R$ 366,72 no boleto (Banco PASSOS · 1,5% a.m.)",
+      "Total das parcelas: R$ 4.400,64 (juros somam R$ 400,64)",
+      "Valor final: R$ 5.350,64",
+    ],
+  },
+  "boleto parcelado 24x (parcelado-24x)": {
+    "headline": "Boleto · 24x de R$ 247,12/mês",
+    "lines": [
+      "24x de R$ 247,12 no boleto (Banco PASSOS · 1,5% a.m.)",
+      "Total das parcelas: R$ 5.930,98 (juros somam R$ 980,98)",
+      "Valor final: R$ 5.930,98",
+    ],
+  },
+  "boleto parcelado 6x (parcelado-6x)": {
+    "headline": "Boleto · 6x de R$ 868,85/mês",
+    "lines": [
+      "6x de R$ 868,85 no boleto (Banco PASSOS · 1,5% a.m.)",
+      "Total das parcelas: R$ 5.213,10 (juros somam R$ 263,10)",
+      "Valor final: R$ 5.213,10",
+    ],
+  },
+  "boleto à vista com 5% (boleto-avista)": {
+    "headline": "Boleto à vista · R$ 4.702,50",
+    "lines": [
+      "Desconto de 5% (R$ 247,50) pra pagamento imediato em boleto.",
+      "Sem consulta de crédito · Valor original: R$ 4.950,00.",
+    ],
+  },
+  "boleto à vista sem desconto (boleto-avista)": {
+    "headline": "Boleto à vista · R$ 4.950,00",
+    "lines": [
+      "Sem consulta de crédito · pagamento imediato em boleto.",
+    ],
+  },
+  "cartão 10x (com juros) (cartao-10x)": {
+    "headline": "Cartão de crédito 10x · R$ 597,90/mês",
+    "lines": [
+      "10x de R$ 597,90 no cartão (juros PagBank 3,59% a.m.)",
+      "Total parcelado: R$ 5.978,98 (juros somam R$ 1.028,98)",
+      "Valor final: R$ 5.978,98",
+    ],
+  },
+  "cartão 12x com entrada (cartao-12x)": {
+    "headline": "Cartão de crédito 12x · R$ 416,13/mês",
+    "lines": [
+      "Entrada: R$ 950,00 (à vista)",
+      "12x de R$ 416,13 no cartão (juros PagBank 3,59% a.m.)",
+      "Total parcelado: R$ 4.993,58 (juros somam R$ 993,58)",
+      "Valor final: R$ 5.943,58 (entrada + parcelas)",
+    ],
+  },
+  "cartão 1x (cartao-1x)": {
+    "headline": "Cartão de crédito 1x · R$ 4.950,00/mês",
+    "lines": [
+      "1x de R$ 4.950,00 no cartão sem juros",
+      "Total parcelado: R$ 4.950,00",
+      "Valor final: R$ 4.950,00",
+    ],
+  },
+  "cartão 6x com entrada (cartao-6x)": {
+    "headline": "Cartão de crédito 6x · R$ 666,67/mês",
+    "lines": [
+      "Entrada: R$ 950,00 (à vista)",
+      "6x de R$ 666,67 no cartão sem juros",
+      "Total parcelado: R$ 4.000,00",
+      "Valor final: R$ 4.950,00 (entrada + parcelas)",
+    ],
+  },
+  "chave desconhecida (cheque-3x)": null,
+  "entrada maior que o total (parcelado-3x)": {
+    "headline": "Boleto · 3x de R$ 0,00/mês",
+    "lines": [
+      "Entrada: R$ 4.949,99",
+      "3x de R$ 0,00 no boleto (Banco PASSOS · 1,5% a.m.)",
+      "Total das parcelas: R$ 0,01 (juros somam R$ 0,00)",
+      "Valor final: R$ 4.950,00",
+    ],
+  },
+  "pix com 5% à vista (pix)": {
+    "headline": "PIX ou dinheiro à vista · R$ 4.702,50",
+    "lines": [
+      "Desconto de 5% (R$ 247,50) aplicado pra pagamento imediato.",
+      "Valor original: R$ 4.950,00.",
+    ],
+  },
+  "pix sem desconto (pix)": {
+    "headline": "PIX ou dinheiro à vista · R$ 4.950,00",
+    "lines": [],
+  },
+}
+`;
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) com valores: cabeçalho, paciente, tabela, totais, condições, proposta de pagamento, anexos, assinatura e rodapé: new PDFDocument (opções e metadados) 1`] = `
+{
+  "info": {
+    "Title": "Orcamento — Maria Exemplo da Silva",
+  },
+  "margins": {
+    "bottom": 60,
+    "left": 60,
+    "right": 60,
+    "top": 60,
+  },
+  "size": "A4",
+}
+`;
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) com valores: cabeçalho, paciente, tabela, totais, condições, proposta de pagamento, anexos, assinatura e rodapé: texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica 10 center] Clinica Odontologica",
+  "[Helvetica-Bold 15 center] ORÇAMENTO",
+  "[Helvetica 10 center] #A1B2C3D4",
+  "[Helvetica-Bold 10] DADOS DO ORÇAMENTO",
+  "[Helvetica 10] Emitido em: 18/10/2026    |    Válido até: 17/11/2026",
+  "[Helvetica 10] Atendido por: Recepção Exemplo",
+  "[Helvetica-Bold 10] PACIENTE",
+  "[Helvetica 10] Nome: Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00",
+  "[Helvetica 10] RG: 0000000 SSP/AL",
+  "[Helvetica 10] Telefone: 5582900000001",
+  "[Helvetica 10] E-mail: maria@exemplo.test",
+  "[Helvetica 10] Endereço: Rua Exemplo, 100 — Centro — Cidade Exemplo/AL",
+  "[Helvetica-Bold 11] PROCEDIMENTOS",
+  "[Helvetica-Bold 9] Procedimento",
+  "[Helvetica-Bold 9 center] Dente",
+  "[Helvetica-Bold 9 right] Qtd",
+  "[Helvetica-Bold 9 right] Unitário",
+  "[Helvetica-Bold 9 right] Total",
+  "[Helvetica 9.5] Implante dentário (TUSS 00000001)",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica 9.5 right] R$ 3.500,00",
+  "[Helvetica 9.5 right] R$ 3.500,00",
+  "[Helvetica-Oblique 8 #666]   obs: Implante cone morse",
+  "[Helvetica 9.5] Coroa sobre implante",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica 9.5 right] R$ 1.500,00",
+  "[Helvetica 9.5 right] R$ 1.500,00",
+  "[Helvetica 9.5] Restauração em resina",
+  "[Helvetica 9.5 center] -",
+  "[Helvetica 9.5 right] 2",
+  "[Helvetica 9.5 right] R$ 250,00",
+  "[Helvetica 9.5 right] R$ 500,00",
+  "[Helvetica 10 right] Subtotal:",
+  "[Helvetica 10 right] R$ 5.500,00",
+  "[Helvetica 10 right] Desconto (10%):",
+  "[Helvetica 10 right] - R$ 550,00",
+  "[Helvetica-Bold 12 right] TOTAL:",
+  "[Helvetica-Bold 12 right] R$ 4.950,00",
+  "[Helvetica-Bold 10] CONDIÇÕES DE PAGAMENTO",
+  "[Helvetica 10] Entrada + 12x no boleto",
+  "[Helvetica-Bold 10 #92400E] PROPOSTA DE PAGAMENTO APRESENTADA",
+  "[Helvetica-Bold 13] Boleto · 12x de R$ 366,72/mês",
+  "[Helvetica 10] Entrada: R$ 950,00",
+  "[Helvetica 10] 12x de R$ 366,72 no boleto (Banco PASSOS · 1,5% a.m.)",
+  "[Helvetica 10] Total das parcelas: R$ 4.400,64 (juros somam R$ 400,64)",
+  "[Helvetica 10] Valor final: R$ 5.350,64",
+  "[Helvetica-Bold 10] OBSERVAÇÕES",
+  "[Helvetica 10] Retorno em 7 dias após a cirurgia.",
+  "[Helvetica-Bold 10] ANEXOS DESTE ORÇAMENTO",
+  "[Helvetica 9.5] • panoramica.jpg [RADIOGRAFIA]",
+  "[Helvetica 9.5] • plano-de-tratamento.pdf",
+  "[Helvetica 8 #666] Os arquivos podem ser visualizados no portal do paciente ou solicitados à recepção.",
+  "──── página 2 (addPage do service) ────",
+  "[Helvetica 8 #666 center] Assinatura do paciente",
+  "[Helvetica 9 center] Maria Exemplo da Silva",
+  "[Helvetica 7.5 #666 center] Ao assinar, declaro estar ciente dos procedimentos, valores e condições descritos neste documento.",
+  "──── página 3 (quebra automática) ────",
+  "[Helvetica 8 #999 center] Orçamento #A1B2C3D4 · Emitido em 18/10/2026 · Válido até 17/11/2026",
+]
+`;
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta longa: onde a página quebra e o cabeçalho da tabela repetido: páginas 1`] = `
+[
+  {
+    "pagina": "──── página 1 ────",
+    "primeiros": [
+      "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+      "[Helvetica 10 center] Clinica Odontologica",
+      "[Helvetica-Bold 15 center] ORÇAMENTO",
+      "[Helvetica 10 center] #A1B2C3D4",
+      "[Helvetica-Bold 10] DADOS DO ORÇAMENTO",
+      "[Helvetica 10] Emitido em: 18/10/2026    |    Válido até: 17/11/2026",
+      "[Helvetica 10] Atendido por: Recepção Exemplo",
+    ],
+    "total_de_textos": 120,
+    "ultimos": [
+      "[Helvetica 9.5 right] 1",
+      "[Helvetica 9.5 right] R$ 180,00",
+      "[Helvetica 9.5 right] R$ 180,00",
+    ],
+  },
+  {
+    "pagina": "──── página 2 (addPage do service) ────",
+    "primeiros": [
+      "[Helvetica-Bold 9] Procedimento",
+      "[Helvetica-Bold 9 center] Dente",
+      "[Helvetica-Bold 9 right] Qtd",
+      "[Helvetica-Bold 9 right] Unitário",
+      "[Helvetica-Bold 9 right] Total",
+      "[Helvetica-Bold 9] Procedimento de exemplo 21",
+      "[Helvetica-Bold 9 center] 15",
+    ],
+    "total_de_textos": 58,
+    "ultimos": [
+      "[Helvetica 8 #666 center] Assinatura do paciente",
+      "[Helvetica 9 center] Maria Exemplo da Silva",
+      "[Helvetica 7.5 #666 center] Ao assinar, declaro estar ciente dos procedimentos, valores e condições descritos neste documento.",
+    ],
+  },
+  {
+    "pagina": "──── página 3 (quebra automática) ────",
+    "primeiros": [
+      "[Helvetica 8 #999 center] Orçamento #A1B2C3D4 · Emitido em 18/10/2026 · Válido até 17/11/2026",
+    ],
+    "total_de_textos": 1,
+    "ultimos": [
+      "[Helvetica 8 #999 center] Orçamento #A1B2C3D4 · Emitido em 18/10/2026 · Válido até 17/11/2026",
+    ],
+  },
+]
+`;
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta mínima (sem validade, sem atendente, paciente só com nome, sem forma de pagamento): texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica 10 center] Clinica Odontologica",
+  "[Helvetica-Bold 15 center] ORÇAMENTO",
+  "[Helvetica 10 center] #A1B2C3D4",
+  "[Helvetica-Bold 10] DADOS DO ORÇAMENTO",
+  "[Helvetica 10] Emitido em: 18/10/2026    |    Válido até: Sem prazo definido",
+  "[Helvetica-Bold 10] PACIENTE",
+  "[Helvetica 10] Nome: Maria Exemplo da Silva",
+  "[Helvetica-Bold 11] PROCEDIMENTOS",
+  "[Helvetica-Bold 9] Procedimento",
+  "[Helvetica-Bold 9 center] Dente",
+  "[Helvetica-Bold 9 right] Qtd",
+  "[Helvetica-Bold 9 right] Unitário",
+  "[Helvetica-Bold 9 right] Total",
+  "[Helvetica 9.5] Implante dentário (TUSS 00000001)",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica 9.5 right] R$ 3.500,00",
+  "[Helvetica 9.5 right] R$ 3.500,00",
+  "[Helvetica-Oblique 8 #666]   obs: Implante cone morse",
+  "[Helvetica 9.5] Coroa sobre implante",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica 9.5 right] R$ 1.500,00",
+  "[Helvetica 9.5 right] R$ 1.500,00",
+  "[Helvetica 9.5] Restauração em resina",
+  "[Helvetica 9.5 center] -",
+  "[Helvetica 9.5 right] 2",
+  "[Helvetica 9.5 right] R$ 250,00",
+  "[Helvetica 9.5 right] R$ 500,00",
+  "[Helvetica 10 right] Subtotal:",
+  "[Helvetica 10 right] R$ 5.500,00",
+  "[Helvetica-Bold 12 right] TOTAL:",
+  "[Helvetica-Bold 12 right] R$ 5.500,00",
+  "[Helvetica 8 #666 center] Assinatura do paciente",
+  "[Helvetica 9 center] Maria Exemplo da Silva",
+  "[Helvetica 7.5 #666 center] Ao assinar, declaro estar ciente dos procedimentos, valores e condições descritos neste documento.",
+  "──── página 2 (quebra automática) ────",
+  "[Helvetica 8 #999 center] Orçamento #A1B2C3D4 · Emitido em 18/10/2026 · Válido até Sem prazo definido",
+]
+`;
+
+exports[`retrato: PDF da proposta (QuotePdfService) (F1) sem valores (o PDF que vai junto do plano): só procedimentos, sem totais nem pagamento: texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica 10 center] Clinica Odontologica",
+  "[Helvetica-Bold 15 center] ORÇAMENTO",
+  "[Helvetica 10 center] #A1B2C3D4",
+  "[Helvetica-Bold 10] DADOS DO ORÇAMENTO",
+  "[Helvetica 10] Emitido em: 18/10/2026    |    Válido até: 17/11/2026",
+  "[Helvetica 10] Atendido por: Recepção Exemplo",
+  "[Helvetica-Bold 10] PACIENTE",
+  "[Helvetica 10] Nome: Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00",
+  "[Helvetica 10] RG: 0000000 SSP/AL",
+  "[Helvetica 10] Telefone: 5582900000001",
+  "[Helvetica 10] E-mail: maria@exemplo.test",
+  "[Helvetica 10] Endereço: Rua Exemplo, 100 — Centro — Cidade Exemplo/AL",
+  "[Helvetica-Bold 11] PROCEDIMENTOS",
+  "[Helvetica-Bold 9] Procedimento",
+  "[Helvetica-Bold 9 center] Dente",
+  "[Helvetica-Bold 9 right] Qtd",
+  "[Helvetica 9.5] Implante dentário (TUSS 00000001)",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica-Oblique 8 #666]   obs: Implante cone morse",
+  "[Helvetica 9.5] Coroa sobre implante",
+  "[Helvetica 9.5 center] 16",
+  "[Helvetica 9.5 right] 1",
+  "[Helvetica 9.5] Restauração em resina",
+  "[Helvetica 9.5 center] -",
+  "[Helvetica 9.5 right] 2",
+  "[Helvetica-Bold 10] OBSERVAÇÕES",
+  "[Helvetica 10] Retorno em 7 dias após a cirurgia.",
+  "[Helvetica-Bold 10] ANEXOS DESTE ORÇAMENTO",
+  "[Helvetica 9.5] • panoramica.jpg [RADIOGRAFIA]",
+  "[Helvetica 9.5] • plano-de-tratamento.pdf",
+  "[Helvetica 8 #666] Os arquivos podem ser visualizados no portal do paciente ou solicitados à recepção.",
+  "[Helvetica 8 #666 center] Assinatura do paciente",
+  "[Helvetica 9 center] Maria Exemplo da Silva",
+  "[Helvetica 7.5 #666 center] Ao assinar, declaro estar ciente dos procedimentos descritos neste documento.",
+  "──── página 2 (quebra automática) ────",
+  "[Helvetica 8 #999 center] Orçamento #A1B2C3D4 · Emitido em 18/10/2026 · Válido até 17/11/2026",
+]
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE + o que vai pro ClickSign + a mensagem do link no WhatsApp: ClickSign.createGenericSignature 1`] = `
+{
+  "buffer": "<PDF do TCLE>",
+  "conversationId": "conv-paciente-1",
+  "filename": "TCLE_Maria_Exemplo_da_Silva_1792508400000.pdf",
+  "leadId": "lead-exemplo-1",
+  "signerEmail": "maria@exemplo.test",
+  "signerMessage": "Por favor, leia o plano de tratamento e assine o Termo de Consentimento Livre e Esclarecido.",
+  "signerName": "Maria Exemplo da Silva",
+  "signerPhone": "5582900000001",
+}
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE + o que vai pro ClickSign + a mensagem do link no WhatsApp: WhatsApp: mensagem do link 1`] = `
+{
+  "conversationId": "conv-paciente-1",
+  "expectedPhone": "5582900000001",
+  "tenantId": "00000000-0000-0000-0000-0000000000c1",
+  "text": "🦷 *Plano de Tratamento — Clínica Exemplo*
+
+Olá Maria!
+
+Seu plano de tratamento odontológico está pronto. Para iniciarmos, precisamos da sua assinatura digital no Termo de Consentimento (TCLE).
+
+🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).
+📱 Você confirmará sua identidade via WhatsApp.
+
+✍️ *Clique aqui para assinar:*
+https://assinatura.exemplo.test/tcle-1",
+}
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE + o que vai pro ClickSign + a mensagem do link no WhatsApp: new PDFDocument (opções e metadados) 1`] = `
+{
+  "info": {
+    "Title": "TCLE — Plano de Tratamento — Maria Exemplo da Silva",
+  },
+  "margins": {
+    "bottom": 60,
+    "left": 60,
+    "right": 60,
+    "top": 60,
+  },
+  "size": "A4",
+}
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE + o que vai pro ClickSign + a mensagem do link no WhatsApp: texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 16 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica 9 center] Clínica Odontológica",
+  "[Helvetica-Bold 14 center] TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO",
+  "[Helvetica 11 center] Plano de Tratamento Odontológico",
+  "[Helvetica-Bold 11] IDENTIFICAÇÃO DO PACIENTE",
+  "[Helvetica 10] Nome: Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00",
+  "[Helvetica 10] RG: 0000000 SSP/AL",
+  "[Helvetica 10] Data de nascimento: 12/05/1990",
+  "[Helvetica 10] Telefone: 5582900000001",
+  "[Helvetica 10] Email: maria@exemplo.test",
+  "[Helvetica-Bold 11] PLANO DE TRATAMENTO PROPOSTO",
+  "[Helvetica-Bold 9] Procedimento",
+  "[Helvetica-Bold 9 right] Qtd",
+  "[Helvetica-Bold 9 right] Unitário",
+  "[Helvetica-Bold 9 right] Total",
+  "[Helvetica 9] Implante dentário (dente 16)",
+  "[Helvetica 9 right] 1",
+  "[Helvetica 9 right] R$ 3500.00",
+  "[Helvetica 9 right] R$ 3500.00",
+  "[Helvetica 9] Coroa sobre implante (dente 16)",
+  "[Helvetica 9 right] 1",
+  "[Helvetica 9 right] R$ 1500.00",
+  "[Helvetica 9 right] R$ 1500.00",
+  "[Helvetica 9] Procedimento",
+  "[Helvetica 9 right] 2",
+  "[Helvetica 9 right] R$ 250.00",
+  "[Helvetica 9 right] R$ 500.00",
+  "[Helvetica-Bold 11 right] VALOR TOTAL: R$ 5500.00",
+  "[Helvetica-Bold 11] TERMO DE CONSENTIMENTO",
+  "[Helvetica 10 justify] Eu, paciente acima identificado, declaro que:",
+  "[Helvetica 10 justify] 1. Fui devidamente informado(a) sobre o diagnóstico, plano de tratamento, alternativas terapêuticas, riscos, complicações possíveis e prognóstico.",
+  "[Helvetica 10 justify] 2. Tive oportunidade de fazer perguntas e todas foram respondidas de forma clara e completa.",
+  "[Helvetica 10 justify] 3. Compreendo que a Odontologia não é uma ciência exata e que os resultados podem variar conforme resposta biológica individual, condições de saúde, hábitos de higiene e adesão às orientações pós-operatórias.",
+  "──── página 2 (quebra automática) ────",
+  "[…] continuação do texto anterior",
+  "[Helvetica 10 justify] 4. Estou ciente do valor total do tratamento e das condições de pagamento acordadas.",
+  "[Helvetica 10 justify] 5. Comprometo-me a comparecer às consultas agendadas, seguir as recomendações dos profissionais e comunicar qualquer intercorrência.",
+  "[Helvetica 10 justify] 6. Autorizo o registro fotográfico e a documentação clínica necessária ao tratamento, com o devido sigilo profissional.",
+  "[Helvetica 10 justify] 7. Tenho direito a interromper o tratamento a qualquer momento, ciente das possíveis consequências clínicas e financeiras.",
+  "[Helvetica 10 justify] 8. Esta autorização está em conformidade com o Código de Ética Odontológica (CFO 118/2012) e com a Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018).",
+  "[Helvetica 10 justify] Por estar de acordo, assino digitalmente o presente termo, com validade jurídica nos termos da Lei 14.063/2020.",
+  "──── página 3 (quebra automática) ────",
+  "[…] continuação do texto anterior",
+  "[Helvetica 10 left] Data: 20/10/2026",
+  "[Helvetica 10 center] ________________________________________",
+  "[Helvetica 10 center] Maria Exemplo da Silva — Paciente",
+]
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) paciente com o mínimo (sem CPF, RG, nascimento e e-mail) e clínica sem nome: WhatsApp: mensagem sem nome de clínica 1`] = `
+"🦷 *Plano de Tratamento*
+
+Olá Maria!
+
+Seu plano de tratamento odontológico está pronto. Para iniciarmos, precisamos da sua assinatura digital no Termo de Consentimento (TCLE).
+
+🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).
+📱 Você confirmará sua identidade via WhatsApp.
+
+✍️ *Clique aqui para assinar:*
+https://assinatura.exemplo.test/tcle-1"
+`;
+
+exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) paciente com o mínimo (sem CPF, RG, nascimento e e-mail) e clínica sem nome: cabeçalho e identificação 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 16 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica 9 center] Clínica Odontológica",
+  "[Helvetica-Bold 14 center] TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO",
+  "[Helvetica 11 center] Plano de Tratamento Odontológico",
+  "[Helvetica-Bold 11] IDENTIFICAÇÃO DO PACIENTE",
+  "[Helvetica 10] Nome: Maria Exemplo da Silva",
+  "[Helvetica 10] Telefone: 5582900000001",
+  "[Helvetica-Bold 11] PLANO DE TRATAMENTO PROPOSTO",
+  "[Helvetica-Bold 9] Procedimento",
+  "[Helvetica-Bold 9 right] Qtd",
+  "[Helvetica-Bold 9 right] Unitário",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) clínica sem Identidade preenchida, sem dentista com CRO e contrato CANCELADO: textos padrão: anexo gerado (pdfkit): texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 16 center] Clínica Odontológica",
+  "[Helvetica-Bold 13 center] CONTRATO DE PRESTAÇÃO DE SERVIÇOS ODONTOLÓGICOS",
+  "[Helvetica 10 #666 center] Template: Clínico Básico",
+  "[Helvetica-Bold 11] 1. Qualificação das partes",
+  "[Helvetica-Bold 10 continua→] CONTRATANTE: ",
+  "[Helvetica 10] Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00 · RG: 0000000 SSP/AL · Telefone: 5582900000001 · Email: maria@exemplo.test",
+  "[Helvetica 10] Rua Exemplo, 100 · Centro · Cidade Exemplo/AL · CEP 57000-000",
+  "[Helvetica-Bold 10 continua→] CONTRATADA: ",
+  "[Helvetica 10 justify] Clínica Odontológica",
+  "[Helvetica-Bold 11] 2. Objeto",
+  "[Helvetica 10 justify] O presente contrato tem por objeto a prestação dos serviços odontológicos abaixo discriminados, referentes ao orçamento a1b2c3d4-0000-4000-8000-000000000001. Os procedimentos serão executados pela CONTRATADA segundo as melhores práticas odontológicas, respeitando as normas do CFO/CRO.",
+  "[Helvetica-Bold 10] Procedimentos contratados:",
+  "[Helvetica 9] • Implante dentário · dente 16 — R$ 3500,00",
+  "[Helvetica 9] • Coroa sobre implante · dente 16 — R$ 1500,00",
+  "[Helvetica 9] • Restauração em resina (2×) — R$ 500,00",
+  "[Helvetica-Bold 11] 3. Valor e forma de pagamento",
+  "[Helvetica 10] Valor total: R$ 4950,00.",
+  "[Helvetica 9 #666 justify] Em caso de inadimplência, a CONTRATADA poderá suspender a execução dos procedimentos não realizados até a regularização do pagamento.",
+  "[Helvetica-Bold 11] 4. Cláusulas específicas do tratamento",
+  "[Helvetica 10 justify] • Os procedimentos serão executados conforme a melhor técnica disponível, respeitando as normas do CFO/CRO.",
+  "[Helvetica 10 justify] • O CONTRATANTE deve comparecer às consultas agendadas e seguir as orientações de cuidado pós-procedimento.",
+  "[Helvetica 10 justify] • A CONTRATADA garante a qualidade técnica do trabalho executado. Garantias específicas (próteses, restaurações) seguem prazos da legislação aplicável.",
+  "[Helvetica 10 justify] • Eventuais retornos para ajustes em até 30 dias após o procedimento estão inclusos no valor contratado.",
+  "[Helvetica-Bold 11] 5. Termo de Consentimento Livre e Esclarecido (TCLE)",
+  "[Helvetica 10 justify] Declaro que fui devidamente informado(a) sobre o diagnóstico, os procedimentos propostos, as alternativas terapêuticas, os riscos, benefícios e limitações do tratamento, bem como sobre os cuidados pós-operatórios. Tive oportunidade de fazer perguntas e todas foram respondidas a contento. Autorizo a CONTRATADA a executar os procedimentos acima descritos.",
+  "[Helvetica-Bold 11] 6. Tratamento de dados (LGPD)",
+  "[Helvetica 10 justify] Os dados pessoais e clínicos do CONTRATANTE serão tratados pela CONTRATADA exclusivamente para execução do tratamento, conforme Lei 13.709/2018 (LGPD). O CONTRATANTE poderá solicitar acesso, correção e exclusão de seus dados a qualquer momento.",
+  "[Helvetica 10 right] Local, 20 de outubro de 2026",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Maria Exemplo da Silva",
+  "[Helvetica 9 #555] CPF: 000.000.000-00",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Clínica Odontológica",
+  "[Helvetica 9 #555] CONTRATADA (clínica)",
+  "[Helvetica 8 #999 center] Contrato c0ffee00 · Gerado em <AGORA em pt-BR, fuso do servidor> · CANCELADO",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) clínica sem Identidade preenchida, sem dentista com CRO e contrato CANCELADO: textos padrão: pdf-lib: escrito sobre o contrato desenhado 1`] = `
+[
+  "p1 (53.4, 699.9) Helvetica 7.6 · Clínica Odontológica",
+  "p1 (53.4, 672.3) Helvetica 7.6 · Maria Exemplo da Silva",
+  "p1 (119.8, 663.1) Helvetica 7.6 · 0000000 SSP/AL",
+  "p1 (406.9, 663.1) Helvetica 7.6 · 000.000.000-00",
+  "p1 (122, 653.9) Helvetica 7.6 · Rua Exemplo",
+  "p1 (379.5, 653.9) Helvetica 7.6 · 100",
+  "p1 (439.4, 653.9) Helvetica 7.6 · Centro",
+  "p1 (53.4, 644.7) Helvetica 7.6 · Cidade Exemplo",
+  "p1 (175.6, 644.7) Helvetica 7.6 · AL",
+  "p1 (466.8, 561.1) Helvetica 7.6 · 4.950,00",
+  "p1 (55.9, 551.9) Helvetica 7.6 · quatro mil novecentos e cinquenta reais",
+  "p2 (280.3, 389.7) Helvetica 8.2 · 20",
+  "p2 (316.7, 389.7) Helvetica 8.2 · outubro",
+  "p2 (412.5, 389.7) Helvetica 8.2 · 2026",
+  "p1 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p1 (232.64, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Odontológica",
+  "p2 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p2 (232.64, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Odontológica",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) contrato criado (IMPLANTE) com termos marcados: anexo gerado + contrato desenhado e termos preenchidos: anexo gerado (pdfkit): texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 16 center] Clínica Exemplo",
+  "[Helvetica 9 center] CNPJ: 00.000.000/0001-00",
+  "[Helvetica 9 center] Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000",
+  "[Helvetica 9 center] 5582900000002 · contato@clinica-exemplo.test",
+  "[Helvetica-Bold 13 center] CONTRATO DE PRESTAÇÃO DE SERVIÇOS ODONTOLÓGICOS",
+  "[Helvetica 10 #666 center] Template: Implantes Dentários",
+  "[Helvetica-Bold 11] 1. Qualificação das partes",
+  "[Helvetica-Bold 10 continua→] CONTRATANTE: ",
+  "[Helvetica 10] Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00 · RG: 0000000 SSP/AL · Telefone: 5582900000001 · Email: maria@exemplo.test",
+  "[Helvetica 10] Rua Exemplo, 100 · Centro · Cidade Exemplo/AL · CEP 57000-000",
+  "[Helvetica-Bold 10 continua→] CONTRATADA: ",
+  "[Helvetica 10 justify] Clínica Exemplo, inscrita no CNPJ sob o nº 00.000.000/0001-00, com sede na Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000, neste ato representada por seu(sua) responsável técnico(a) Dra. Responsável Exemplo, inscrito(a) no CRO sob o nº 00000-AL",
+  "[Helvetica-Bold 11] 2. Objeto",
+  "[Helvetica 10 justify] O presente contrato tem por objeto a prestação dos serviços odontológicos abaixo discriminados, referentes ao orçamento #042 — Reabilitação superior. Os procedimentos serão executados pela CONTRATADA segundo as melhores práticas odontológicas, respeitando as normas do CFO/CRO.",
+  "[Helvetica-Bold 10] Procedimentos contratados:",
+  "[Helvetica 9] • Implante dentário · dente 16 — R$ 3500,00",
+  "[Helvetica 9] • Coroa sobre implante · dente 16 — R$ 1500,00",
+  "[Helvetica 9] • Restauração em resina (2×) — R$ 500,00",
+  "[Helvetica-Bold 11] 3. Valor e forma de pagamento",
+  "[Helvetica 10] Valor total: R$ 4950,00.
+Forma de pagamento: Entrada + 12x no boleto.",
+  "[Helvetica 9 #666 justify] Em caso de inadimplência, a CONTRATADA poderá suspender a execução dos procedimentos não realizados até a regularização do pagamento.",
+  "[Helvetica-Bold 11] 4. Cláusulas específicas do tratamento",
+  "[Helvetica 10 justify] • O tratamento envolve etapas cirúrgicas e protéticas. O prazo médio entre o implante e a colocação da prótese definitiva é de 4 a 8 meses, dependendo da osseointegração.",
+  "[Helvetica 10 justify] • O sucesso do tratamento depende de fatores biológicos individuais (qualidade óssea, cicatrização, saúde sistêmica). Embora a taxa de sucesso seja alta (>95%), há risco de rejeição ou perda do implante.",
+  "[Helvetica 10 justify] • O CONTRATANTE compromete-se a seguir rigorosamente as orientações pós-operatórias e comparecer às consultas de acompanhamento.",
+  "[Helvetica 10 justify] • Tabagismo, diabetes descompensado e bruxismo aumentam o risco de complicações. O CONTRATANTE deve informar essas condições à equipe.",
+  "[Helvetica 10 justify] • A higiene em torno do implante é crítica — peri-implantite por má higiene não é coberta pela garantia do tratamento.",
+  "[Helvetica-Bold 11] 5. Termo de Consentimento Livre e Esclarecido (TCLE)",
+  "[Helvetica 10 justify] Declaro que fui devidamente informado(a) sobre o diagnóstico, os procedimentos propostos, as alternativas terapêuticas, os riscos, benefícios e limitações do tratamento, bem como sobre os cuidados pós-operatórios. Tive oportunidade de fazer perguntas e todas foram respondidas a contento. Autorizo a CONTRATADA a executar os procedimentos acima descritos.",
+  "[Helvetica-Bold 11] 6. Tratamento de dados (LGPD)",
+  "[Helvetica 10 justify] Os dados pessoais e clínicos do CONTRATANTE serão tratados pela CONTRATADA exclusivamente para execução do tratamento, conforme Lei 13.709/2018 (LGPD). O CONTRATANTE poderá solicitar acesso, correção e exclusão de seus dados a qualquer momento.",
+  "[Helvetica-Bold 11] 7. Termo de garantia estendida",
+  "[Helvetica 10 justify] A CONTRATADA oferece garantia ESTENDIDA de 24 (vinte e quatro) meses para os procedimentos executados, contados a partir da conclusão do tratamento. A garantia cobre defeitos de execução técnica e materiais empregados. NÃO estão cobertos por esta garantia: danos por trauma, má higiene, uso inadequado, alterações biológicas individuais e desgaste natural. Manutenções preventivas semestrais são obrigatórias para manter a validade da garantia.",
+  "──── página 2 (quebra automática) ────",
+  "[…] continuação do texto anterior",
+  "[Helvetica 10 right] Cidade Exemplo - AL, 20 de outubro de 2026",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Maria Exemplo da Silva",
+  "[Helvetica 9 #555] CPF: 000.000.000-00",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Clínica Exemplo",
+  "[Helvetica 9 #555] Dra. Responsável Exemplo — CRO 00000-AL",
+  "[Helvetica 8 #999 center] Contrato c0ffee00 · Gerado em <AGORA em pt-BR, fuso do servidor>",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) contrato criado (IMPLANTE) com termos marcados: anexo gerado + contrato desenhado e termos preenchidos: composição 1`] = `
+{
+  "paginas_do_anexo_gerado": 2,
+  "paginas_no_pdf_final": 7,
+}
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) contrato criado (IMPLANTE) com termos marcados: anexo gerado + contrato desenhado e termos preenchidos: new PDFDocument do anexo (opções e metadados) 1`] = `
+{
+  "info": {
+    "Author": "Clínica Exemplo",
+    "Subject": "Contrato de prestacao de servicos odontologicos",
+    "Title": "Contrato — Quote #42",
+  },
+  "margin": 50,
+  "size": "A4",
+}
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) contrato criado (IMPLANTE) com termos marcados: anexo gerado + contrato desenhado e termos preenchidos: pdf-lib: escrito sobre o contrato desenhado e os termos 1`] = `
+[
+  "p1 (53.4, 699.9) Helvetica 7.6 · Clínica Exemplo",
+  "p1 (395.9, 699.9) Helvetica 7.6 · 00.000.000/0001-00",
+  "p1 (124, 690.7) Helvetica 7.6 · Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000",
+  "p1 (208.8, 681.5) Helvetica 7.6 · Dr. Exemplo Implantodontista",
+  "p1 (419.7, 681.5) Helvetica 7.6 · AL",
+  "p1 (448, 681.5) Helvetica 7.6 · 00001",
+  "p1 (53.4, 672.3) Helvetica 7.6 · Maria Exemplo da Silva",
+  "p1 (119.8, 663.1) Helvetica 7.6 · 0000000 SSP/AL",
+  "p1 (406.9, 663.1) Helvetica 7.6 · 000.000.000-00",
+  "p1 (122, 653.9) Helvetica 7.6 · Rua Exemplo",
+  "p1 (379.5, 653.9) Helvetica 7.6 · 100",
+  "p1 (439.4, 653.9) Helvetica 7.6 · Centro",
+  "p1 (53.4, 644.7) Helvetica 7.6 · Cidade Exemplo",
+  "p1 (175.6, 644.7) Helvetica 7.6 · AL",
+  "p1 (466.8, 561.1) Helvetica 7.6 · 4.950,00",
+  "p1 (55.9, 551.9) Helvetica 7.6 · quatro mil novecentos e cinquenta reais",
+  "p2 (210.8, 453.5) Helvetica 7.6 · Cidade Exemplo",
+  "p2 (385.1, 453.5) Helvetica 7.6 · Alagoas",
+  "p2 (148, 389.7) Helvetica 8.2 · Cidade Exemplo",
+  "p2 (280.3, 389.7) Helvetica 8.2 · 20",
+  "p2 (316.7, 389.7) Helvetica 8.2 · outubro",
+  "p2 (412.5, 389.7) Helvetica 8.2 · 2026",
+  "p1 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p1 imagem 1x1px em (219.5, 755.62) 44×44",
+  "p1 (275.5, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p2 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p2 imagem 1x1px em (219.5, 755.62) 44×44",
+  "p2 (275.5, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p5 (68.7, 684.5) Helvetica 8.6 · Maria Exemplo da Silva",
+  "p5 (433.3, 684.5) Helvetica 8.6 · 0000000 SSP/AL",
+  "p5 (83.5, 674.3) Helvetica 8.6 · 000.000.000-00",
+  "p5 (53.4, 664.1) Helvetica 8.6 · Dr. Exemplo Implantodontista",
+  "p5 (415.8, 664.1) Helvetica 8.49 · CRO-AL 00001",
+  "p5 (174.7, 531.3) Helvetica 8.1 · Cidade Exemplo",
+  "p5 (255.7, 531.3) Helvetica 8.1 · 20",
+  "p5 (291.8, 531.3) Helvetica 8.1 · outubro",
+  "p5 (381.8, 531.3) Helvetica 8.1 · 2026",
+  "p5 retângulo (70, 770.9) 455×15.2 rgb(1,1,1)",
+  "p5 imagem 1x1px em (219.5, 755.32) 44×44",
+  "p5 (275.5, 772.9) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p6 (70.7, 685.6) Helvetica 7.5 · Maria Exemplo da Silva",
+  "p6 (451.4, 685.6) Helvetica 7.22 · 0000000 SSP/AL",
+  "p6 (53.4, 676.5) Helvetica 7.5 · 000.000.000-00",
+  "p6 (199.9, 676.5) Helvetica 7.5 · Rua Exemplo, nº 100, Centro",
+  "p6 (422.9, 676.5) Helvetica 7.5 · Cidade Exemplo",
+  "p6 (68.9, 667.4) Helvetica 7.5 · 57000-000",
+  "p6 (263.1, 667.4) Helvetica 7.5 · Dr. Exemplo Implantodontista",
+  "p6 (203.1, 658.3) Helvetica 5.3 · CRO-AL 00001",
+  "p6 (307.2, 658.3) Helvetica 7.5 · Rua das Flores, nº 200, Sala 3, Centro",
+  "p6 (53.4, 649.2) Helvetica 7.5 · Cidade Exemplo",
+  "p6 (134.3, 649.2) Helvetica 7.5 · 57000-000",
+  "p7 (174.7, 308.3) Helvetica 8.1 · Cidade Exemplo",
+  "p7 (260.2, 308.3) Helvetica 8.1 · 20",
+  "p7 (287.3, 308.3) Helvetica 8.1 · outubro",
+  "p7 (377.3, 308.3) Helvetica 8.1 · 2026",
+  "p6 retângulo (70, 770.9) 455×15.2 rgb(1,1,1)",
+  "p6 imagem 1x1px em (219.5, 755.32) 44×44",
+  "p6 (275.5, 772.9) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p7 retângulo (70, 770.9) 455×15.2 rgb(1,1,1)",
+  "p7 imagem 1x1px em (219.5, 755.32) 44×44",
+  "p7 (275.5, 772.9) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) pré-visualização (antes de criar): template inferido, dentista escolhido e rodapé de prévia: anexo gerado (pdfkit): texto desenhado 1`] = `
+[
+  "──── página 1 ────",
+  "[Helvetica-Bold 16 center] Clínica Exemplo",
+  "[Helvetica 9 center] CNPJ: 00.000.000/0001-00",
+  "[Helvetica 9 center] Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000",
+  "[Helvetica 9 center] 5582900000002 · contato@clinica-exemplo.test",
+  "[Helvetica-Bold 13 center] CONTRATO DE PRESTAÇÃO DE SERVIÇOS ODONTOLÓGICOS",
+  "[Helvetica 10 #666 center] Template: Clínico Básico",
+  "[Helvetica-Bold 11] 1. Qualificação das partes",
+  "[Helvetica-Bold 10 continua→] CONTRATANTE: ",
+  "[Helvetica 10] Maria Exemplo da Silva",
+  "[Helvetica 10] CPF: 000.000.000-00 · RG: 0000000 SSP/AL · Telefone: 5582900000001 · Email: maria@exemplo.test",
+  "[Helvetica 10] Rua Exemplo, 100 · Centro · Cidade Exemplo/AL · CEP 57000-000",
+  "[Helvetica-Bold 10 continua→] CONTRATADA: ",
+  "[Helvetica 10 justify] Clínica Exemplo, inscrita no CNPJ sob o nº 00.000.000/0001-00, com sede na Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000, neste ato representada por seu(sua) responsável técnico(a) Dra. Responsável Exemplo, inscrito(a) no CRO sob o nº 00000-AL",
+  "[Helvetica-Bold 11] 2. Objeto",
+  "[Helvetica 10 justify] O presente contrato tem por objeto a prestação dos serviços odontológicos abaixo discriminados, referentes ao orçamento #042 — Reabilitação superior. Os procedimentos serão executados pela CONTRATADA segundo as melhores práticas odontológicas, respeitando as normas do CFO/CRO.",
+  "[Helvetica-Bold 10] Procedimentos contratados:",
+  "[Helvetica 9] • Implante dentário · dente 16 — R$ 3500,00",
+  "[Helvetica 9] • Coroa sobre implante · dente 16 — R$ 1500,00",
+  "[Helvetica 9] • Restauração em resina (2×) — R$ 500,00",
+  "[Helvetica-Bold 11] 3. Valor e forma de pagamento",
+  "[Helvetica 10] Valor total: R$ 4950,00.
+Forma de pagamento: Entrada + 12x no boleto.",
+  "[Helvetica 9 #666 justify] Em caso de inadimplência, a CONTRATADA poderá suspender a execução dos procedimentos não realizados até a regularização do pagamento.",
+  "[Helvetica-Bold 11] 4. Cláusulas específicas do tratamento",
+  "[Helvetica 10 justify] • Os procedimentos serão executados conforme a melhor técnica disponível, respeitando as normas do CFO/CRO.",
+  "[Helvetica 10 justify] • O CONTRATANTE deve comparecer às consultas agendadas e seguir as orientações de cuidado pós-procedimento.",
+  "[Helvetica 10 justify] • A CONTRATADA garante a qualidade técnica do trabalho executado. Garantias específicas (próteses, restaurações) seguem prazos da legislação aplicável.",
+  "[Helvetica 10 justify] • Eventuais retornos para ajustes em até 30 dias após o procedimento estão inclusos no valor contratado.",
+  "[Helvetica-Bold 11] 5. Termo de Consentimento Livre e Esclarecido (TCLE)",
+  "[Helvetica 10 justify] Declaro que fui devidamente informado(a) sobre o diagnóstico, os procedimentos propostos, as alternativas terapêuticas, os riscos, benefícios e limitações do tratamento, bem como sobre os cuidados pós-operatórios. Tive oportunidade de fazer perguntas e todas foram respondidas a contento. Autorizo a CONTRATADA a executar os procedimentos acima descritos.",
+  "[Helvetica-Bold 11] 6. Tratamento de dados (LGPD)",
+  "[Helvetica 10 justify] Os dados pessoais e clínicos do CONTRATANTE serão tratados pela CONTRATADA exclusivamente para execução do tratamento, conforme Lei 13.709/2018 (LGPD). O CONTRATANTE poderá solicitar acesso, correção e exclusão de seus dados a qualquer momento.",
+  "[Helvetica-Bold 11] 7. Responsável legal (paciente menor de idade ou incapaz)",
+  "[Helvetica 10 justify] Considerando que o CONTRATANTE é menor de 18 anos ou legalmente incapaz, este contrato é assinado pelo seu responsável legal, que declara ter plena capacidade civil para celebrar este instrumento em nome do CONTRATANTE, autorizando a execução do tratamento aqui descrito e assumindo a responsabilidade pelo pagamento integral dos valores acordados.
+
+Nome do responsável legal: _____________________________________________
+CPF: __________________________ · RG: __________________________________
+Grau de parentesco: ____________________________________________________",
+  "──── página 2 (quebra automática) ────",
+  "[…] continuação do texto anterior",
+  "[Helvetica 10 right] Cidade Exemplo - AL, 20 de outubro de 2026",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Maria Exemplo da Silva",
+  "[Helvetica 9 #555] CPF: 000.000.000-00",
+  "[Helvetica 9] _______________________________________",
+  "[Helvetica-Bold 9] Clínica Exemplo",
+  "[Helvetica 9 #555] Dra. Responsável Exemplo — CRO 00000-AL",
+  "[Helvetica 8 #999 center] Contrato preview · Gerado em <AGORA em pt-BR, fuso do servidor> · PRÉ-VISUALIZAÇÃO (não assinado)",
+]
+`;
+
+exports[`retrato: contrato odonto (ContractPdfService) (F1) pré-visualização (antes de criar): template inferido, dentista escolhido e rodapé de prévia: pdf-lib: escrito sobre o contrato desenhado e os termos 1`] = `
+[
+  "p1 (53.4, 699.9) Helvetica 7.6 · Clínica Exemplo",
+  "p1 (395.9, 699.9) Helvetica 7.6 · 00.000.000/0001-00",
+  "p1 (124, 690.7) Helvetica 7.6 · Rua das Flores, nº 200, Sala 3, Centro, Cidade Exemplo/AL, CEP 57000-000",
+  "p1 (208.8, 681.5) Helvetica 7.6 · Dra. Exemplo Escolhida",
+  "p1 (419.7, 681.5) Helvetica 7.6 · AL",
+  "p1 (448, 681.5) Helvetica 7.6 · 00002",
+  "p1 (53.4, 672.3) Helvetica 7.6 · Maria Exemplo da Silva",
+  "p1 (119.8, 663.1) Helvetica 7.6 · 0000000 SSP/AL",
+  "p1 (406.9, 663.1) Helvetica 7.6 · 000.000.000-00",
+  "p1 (122, 653.9) Helvetica 7.6 · Rua Exemplo",
+  "p1 (379.5, 653.9) Helvetica 7.6 · 100",
+  "p1 (439.4, 653.9) Helvetica 7.6 · Centro",
+  "p1 (53.4, 644.7) Helvetica 7.6 · Cidade Exemplo",
+  "p1 (175.6, 644.7) Helvetica 7.6 · AL",
+  "p1 (466.8, 561.1) Helvetica 7.6 · 4.950,00",
+  "p1 (55.9, 551.9) Helvetica 7.6 · quatro mil novecentos e cinquenta reais",
+  "p2 (210.8, 453.5) Helvetica 7.6 · Cidade Exemplo",
+  "p2 (385.1, 453.5) Helvetica 7.6 · Alagoas",
+  "p2 (148, 389.7) Helvetica 8.2 · Cidade Exemplo",
+  "p2 (280.3, 389.7) Helvetica 8.2 · 20",
+  "p2 (316.7, 389.7) Helvetica 8.2 · outubro",
+  "p2 (412.5, 389.7) Helvetica 8.2 · 2026",
+  "p1 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p1 imagem 1x1px em (219.5, 755.62) 44×44",
+  "p1 (275.5, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p2 retângulo (70, 771.2) 455×15.2 rgb(1,1,1)",
+  "p2 imagem 1x1px em (219.5, 755.62) 44×44",
+  "p2 (275.5, 773.2) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+  "p5 (67.4, 685.6) Helvetica 7.5 · Maria Exemplo da Silva",
+  "p5 (389.5, 685.6) Helvetica 7.5 · 0000000 SSP/AL",
+  "p5 (482.5, 685.6) Helvetica 7.5 · 000.000.000-00",
+  "p5 (93.3, 676.5) Helvetica 7.5 · Rua Exemplo, nº 100, Centro",
+  "p5 (292.8, 676.5) Helvetica 7.5 · Cidade Exemplo",
+  "p5 (438.1, 676.5) Helvetica 7.5 · 57000-000",
+  "p5 (139.4, 667.4) Helvetica 7.5 · Dra. Exemplo Escolhida",
+  "p5 (82.7, 658.3) Helvetica 7.5 · 00002-AL",
+  "p5 (185.2, 658.3) Helvetica 7.5 · Rua das Flores, nº 200, Sala 3, Centro",
+  "p5 (418.2, 658.3) Helvetica 6.99 · Cidade Exemplo",
+  "p5 (493.9, 658.3) Helvetica 7.5 · 57000-000",
+  "p5 (174.7, 368.9) Helvetica 8.1 · Cidade Exemplo",
+  "p5 (260.2, 368.9) Helvetica 8.1 · 20",
+  "p5 (287.3, 368.9) Helvetica 8.1 · outubro",
+  "p5 (377.3, 368.9) Helvetica 8.1 · 2026",
+  "p5 retângulo (70, 770.9) 455×15.2 rgb(1,1,1)",
+  "p5 imagem 1x1px em (219.5, 755.32) 44×44",
+  "p5 (275.5, 772.9) Helvetica-Bold 13 rgb(0.06,0.3,0.26) · Clínica Exemplo",
+]
+`;

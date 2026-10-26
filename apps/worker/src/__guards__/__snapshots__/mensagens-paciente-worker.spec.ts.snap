@@ -1,0 +1,722 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/ai/tool-handlers/book-appointment.ts — notifyPatient (confirmação fixa quando a IA marca a avaliação) 1`] = `
+{
+  "com endereço da clínica (CLINIC_ADDRESS)": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-do-env",
+      "text": "Pronto, Maria! ✅
+
+Sua avaliação com Dra. Ana está confirmada:
+
+📅 qua., 21 de out. de 2026
+⏰ 14:30
+📍 Rua Exemplo, 100 — Centro, Maceió/AL
+
+Te aviso 1 dia antes pra confirmar. Qualquer coisa, é só me chamar aqui. 😊",
+    },
+  ],
+  "sem dentista e sem endereço": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-do-env",
+      "text": "Pronto, Maria! ✅
+
+Sua avaliação está confirmada:
+
+📅 qua., 21 de out. de 2026
+⏰ 14:30
+
+Te aviso 1 dia antes pra confirmar. Qualquer coisa, é só me chamar aqui. 😊",
+    },
+  ],
+}
+`;
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/automation/appointment-confirmation-dispatcher.service.ts — dispatchPending (texto de reserva quando a linha veio sem mensagem) 1`] = `
+[
+  {
+    "number": "5582900000001",
+    "rota": "/message/sendText/chip-clinica",
+    "text": "Oi, tudo bem? 😊 Aqui é pra confirmar seu atendimento amanhã. Posso confirmar sua presença? Qualquer imprevisto, me avisa que a gente ajeita um novo horário. 🙂",
+  },
+]
+`;
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/automation/appointment-confirmation-scheduler.service.ts — scheduleConfirmations (confirmação 24h e de ortodontia) 1`] = `
+{
+  "consulta (texto padrão do worker)": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana Exemplo Souza amanhã, *‹data›* às *‹hora›*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+Posso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.",
+  "consulta com local digitado no evento": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana Exemplo Souza amanhã, *‹data›* às *‹hora›*.
+📍 Unidade Centro — 2º andar
+
+Posso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.",
+  "consulta sem endereço cadastrado": "Oi Maria, tudo bem? 😊
+
+Aqui é pra confirmar seu atendimento com Dra. Ana Exemplo Souza amanhã, *‹data›* às *‹hora›*.
+
+Posso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.",
+  "ortodontia por ordem de chegada + confirmação de ortô ligada": "Oi Maria, tudo bem? 😊
+
+Passando pra confirmar seu atendimento de *ortodontia* com Dra. Ana Exemplo Souza amanhã, *‹data›*, a partir das *‹hora›*.
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+⚠️ O atendimento é *por ordem de chegada* — quanto mais cedo você chegar, mais cedo é atendido(a).
+Posso confirmar sua presença? 🙂",
+}
+`;
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/automation/appointment-orto-reminder.service.ts — sendOrtoReminders (portões ~1h antes) 1`] = `
+[
+  {
+    "number": "5582900000001",
+    "rota": "/message/sendText/chip-clinica",
+    "text": "Oi Maria! 👋
+
+Passando pra lembrar do seu atendimento de *ortodontia* com Dra. Ana Exemplo Souza hoje. Abrimos os portões em cerca de *1 hora* (por volta das *‹hora›*).
+📍 Rua Exemplo, 100 — Sala 2, Centro, Maceió/AL
+
+📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙",
+  },
+]
+`;
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/maintenance/maintenance-recall-cron.service.ts — sendOnePacedRecall (recall de revisão, DEFAULT_RECALL_TEMPLATE) 1`] = `
+[
+  {
+    "number": "5582900000001",
+    "rota": "/message/sendText/chip-clinica",
+    "text": "Olá, Maria! 👋
+
+Aqui é da clínica — está chegando a data da sua revisão de *Limpeza*: 25 de outubro.
+
+Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊",
+  },
+]
+`;
+
+exports[`retrato: agenda → paciente pelo worker (F1) apps/worker/src/post-care/post-care-cron.service.ts — tick (pesquisa pós-atendimento: os 3 estilos) 1`] = `
+{
+  "breve": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-clinica",
+      "text": "Oi Maria! Como foi seu atendimento com Dr(a). Dra. Ana hoje? Manda um feedback rapidinho 💛",
+    },
+  ],
+  "descontraido": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-clinica",
+      "text": "Olá Maria! Passando aqui pra perguntar o que achou do atendimento com Dr(a). Dra. Ana referente ao procedimento de limpeza. O que você achou? 😊",
+    },
+  ],
+  "formal": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-clinica",
+      "text": "Olá, Maria. Esperamos que esteja bem. Gostaríamos de saber sua opinião sobre o atendimento realizado por Dr(a). Dra. Ana referente ao procedimento de limpeza. Como foi sua experiência?",
+    },
+  ],
+}
+`;
+
+exports[`retrato: régua de cobrança → paciente (F1) apps/worker/src/payment/payment-alerts-cron.service.ts + cobranca-grupo.ts — sendPacedCharge, aviso AGRUPADO 1`] = `
+{
+  "2 cobranças só com PIX": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Olá Maria, você tem 2 cobranças em aberto na Clínica Exemplo, no total de *R$ 500,00*.
+
+Os códigos *PIX* vão nas *próximas mensagens*, nesta ordem 👇
+• R$ 250,00 — venc. 05/10
+• R$ 250,00 — venc. 05/10
+
+Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA-1",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA-2",
+    },
+  ],
+  "3 boletos com PDF": [
+    {
+      "caption": "Olá Maria, você tem 3 boletos em aberto na Clínica Exemplo, no total de *R$ 750,00*.
+
+📎 Seguem os boletos em anexo.
+
+Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela-1.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "caption": "",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela-2.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "caption": "",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela-3.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+  ],
+  "misto: 1 PDF, 1 PIX e 1 só link": [
+    {
+      "caption": "Olá Maria, você tem 3 cobranças em aberto na Clínica Exemplo, no total de *R$ 750,00*.
+
+📎 Segue o boleto em anexo.
+
+O código *PIX* da outra vai logo depois do boleto 👇
+• R$ 250,00 — venc. 05/09
+
+Pra pagar a outra, acesse:
+https://pagamento.exemplo.test/fatura/1?p=3
+
+Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela-1.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA-2",
+    },
+  ],
+}
+`;
+
+exports[`retrato: régua de cobrança → paciente (F1) apps/worker/src/payment/payment-alerts-cron.service.ts — sendIntro (apresentação do Financeiro, D+1) 1`] = `
+[
+  {
+    "number": "5582900000001",
+    "rota": "/message/sendText/chip-financeiro",
+    "text": "Olá, Maria! 😊
+
+Aqui é o setor financeiro da Clínica Exemplo. Seja muito bem-vindo(a)! A partir de agora é por aqui que a gente cuida de tudo sobre os seus pagamentos.
+
+Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄
+
+Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙",
+  },
+]
+`;
+
+exports[`retrato: régua de cobrança → paciente (F1) apps/worker/src/payment/payment-alerts-cron.service.ts — sendPacedCharge, boleto único: cada estágio × tipo (+ código PIX em msg separada) 1`] = `
+{
+  "boleto_1d_antes · boleto": [
+    {
+      "caption": "Oi Maria! 😊 Passando pra lembrar que seu boleto de *R$ 250,00* vence *amanhã (21/10)*.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Qualquer dúvida, é só chamar aqui!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_1d_antes · parcelado": [
+    {
+      "caption": "Oi Maria! 😊 Passando pra lembrar que sua parcela de *R$ 250,00* vence *amanhã (21/10)*.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Qualquer dúvida, é só chamar aqui!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_1d_antes · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria! 😊 Passando pra lembrar que seu pagamento de *R$ 250,00* vence *amanhã (21/10)*.
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Qualquer dúvida, é só chamar aqui!",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atrasado · boleto": [
+    {
+      "caption": "Oi Maria, tudo bem? seu boleto de *R$ 250,00* venceu em 10/08 e ainda consta em aberto por aqui.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atrasado · parcelado": [
+    {
+      "caption": "Oi Maria, tudo bem? sua parcela de *R$ 250,00* venceu em 10/08 e ainda consta em aberto por aqui.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atrasado · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, tudo bem? seu pagamento de *R$ 250,00* venceu em 10/08 e ainda consta em aberto por aqui.
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_15d · boleto": [
+    {
+      "caption": "Oi Maria, seu boleto de *R$ 250,00* está em aberto há *15 dias* (venceu em 05/10).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_15d · parcelado": [
+    {
+      "caption": "Oi Maria, sua parcela de *R$ 250,00* está em aberto há *15 dias* (venceu em 05/10).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_15d · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, seu pagamento de *R$ 250,00* está em aberto há *15 dias* (venceu em 05/10).
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_1d · boleto": [
+    {
+      "caption": "Oi Maria, tudo bem? Notamos que seu boleto de *R$ 250,00* venceu ontem (19/10) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_1d · parcelado": [
+    {
+      "caption": "Oi Maria, tudo bem? Notamos que sua parcela de *R$ 250,00* venceu ontem (19/10) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_1d · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, tudo bem? Notamos que seu pagamento de *R$ 250,00* venceu ontem (19/10) e ainda consta em aberto — deve ser só um esquecimento 😉
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar!",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_2d · boleto": [
+    {
+      "caption": "Oi Maria, seu boleto de *R$ 250,00* venceu em 18/10 e continua em aberto.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_2d · parcelado": [
+    {
+      "caption": "Oi Maria, sua parcela de *R$ 250,00* venceu em 18/10 e continua em aberto.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_2d · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, seu pagamento de *R$ 250,00* venceu em 18/10 e continua em aberto.
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Se já pagou, é só desconsiderar 🙏",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_30d · boleto": [
+    {
+      "caption": "Oi Maria, seu boleto de *R$ 250,00* está com *30 dias* de atraso (venceu em 20/09).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_30d · parcelado": [
+    {
+      "caption": "Oi Maria, sua parcela de *R$ 250,00* está com *30 dias* de atraso (venceu em 20/09).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_30d · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, seu pagamento de *R$ 250,00* está com *30 dias* de atraso (venceu em 20/09).
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_3d · boleto": [
+    {
+      "caption": "Oi Maria, seu boleto de *R$ 250,00* está em aberto há *3 dias* (venceu em 17/10).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_3d · parcelado": [
+    {
+      "caption": "Oi Maria, sua parcela de *R$ 250,00* está em aberto há *3 dias* (venceu em 17/10).
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_atraso_3d · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, seu pagamento de *R$ 250,00* está em aberto há *3 dias* (venceu em 17/10).
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_no_dia · boleto": [
+    {
+      "caption": "Oi Maria! 📅 Hoje (20/10) vence seu boleto de *R$ 250,00*.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, pode desconsiderar 🙏",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_no_dia · parcelado": [
+    {
+      "caption": "Oi Maria! 📅 Hoje (20/10) vence sua parcela de *R$ 250,00*.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Se já pagou, pode desconsiderar 🙏",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "boleto_no_dia · pix": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria! 📅 Hoje (20/10) vence seu pagamento de *R$ 250,00*.
+
+O código *PIX* pra pagar vai na *próxima mensagem* 👇
+
+Se já pagou, pode desconsiderar 🙏",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+}
+`;
+
+exports[`retrato: régua de cobrança → paciente (F1) apps/worker/src/payment/payment-alerts-cron.service.ts — sendPacedCharge, casos de borda do boleto único 1`] = `
+{
+  "1 dia antes, vencimento na segunda (sai na sexta)": [
+    {
+      "caption": "Oi Maria! 😊 Passando pra lembrar que seu boleto de *R$ 250,00* vence *na segunda-feira (26/10)*.
+
+📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇
+
+Qualquer dúvida, é só chamar aqui!",
+      "fileName": "boleto.pdf",
+      "media": "https://asaas.exemplo.test/b/parcela.pdf",
+      "mediatype": "document",
+      "mimetype": "application/pdf",
+      "number": "5582900000001",
+      "rota": "/message/sendMedia/chip-financeiro",
+    },
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "000201EXEMPLO-PIX-COPIA-E-COLA",
+    },
+  ],
+  "atraso 3d · parcelado sem PDF e sem código (só link)": [
+    {
+      "number": "5582900000001",
+      "rota": "/message/sendText/chip-financeiro",
+      "text": "Oi Maria, sua parcela de *R$ 250,00* está em aberto há *3 dias* (venceu em 17/10).
+
+Pra pagar, acesse:
+https://pagamento.exemplo.test/fatura/1
+
+Consegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.",
+    },
+  ],
+}
+`;

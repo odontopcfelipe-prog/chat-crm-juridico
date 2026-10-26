@@ -1,0 +1,3407 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai "Confirmação de agendamento" desligada na Central: nem WhatsApp nem e-mail, só os lembretes: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai ORTODONTIA por ordem de chegada com a confirmação imediata DESLIGADA (padrão): nem WhatsApp nem e-mail: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "ORTODONTIA de exemplo",
+        "type": "ORTODONTIA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "ORTODONTIA de exemplo",
+      "type": "ORTODONTIA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"ORTO_ORDEM_CHEGADA_tenant-clinica-exemplo"}",
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_ORTO_IMMEDIATE_ENABLED_tenant-clinica-exemplo"}",
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai ORTODONTIA por ordem de chegada com a confirmação imediata de ortô ligada: pede o WhatsApp, sem e-mail: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "ORTODONTIA de exemplo",
+        "type": "ORTODONTIA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "ORTODONTIA de exemplo",
+      "type": "ORTODONTIA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"ORTO_ORDEM_CHEGADA_tenant-clinica-exemplo"}",
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_ORTO_IMMEDIATE_ENABLED_tenant-clinica-exemplo"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "ORTODONTIA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai contato ainda LEAD (is_client=false) com ficha: o create pede o mesmo aviso (a escolha Comercial × Clínica é lá dentro) e manda o e-mail: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": false,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai devedor com o bloqueio ligado: 400 com o valor em atraso e o evento NÃO é gravado: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  "prisma.paymentGatewayCustomer.findMany {"lead_id":"lead-1","tenant_id":"tenant-clinica-exemplo"}",
+  "prisma.paymentGatewayCharge.findMany {"tenant_id":"tenant-clinica-exemplo","status":{"in":["PENDING","OVERDUE"]},"received_in_cash":false,"due_date":{"lt":"2026-10-20T00:00:00.000Z"},"OR":[{"patient_id":"paciente-1"},{"treatment_plan":{"patient_id":"paciente-1"}},{"customer_external_id":{"in":["cus_exemplo_1"]}}]}",
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai devedor com o bloqueio ligado: 400 com o valor em atraso e o evento NÃO é gravado: resposta 400 1`] = `
+{
+  "code": "SCHEDULING_BLOCKED_OVERDUE",
+  "message": "Paciente com 1 boleto(s) em atraso (R$ 150,00). Regularize no Financeiro ou peça a um administrador para liberar.",
+  "overdue": {
+    "count": 1,
+    "total": 150,
+  },
+}
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai devedor liberado por ADMIN com motivo: grava a liberação no próprio evento: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  "prisma.paymentGatewayCustomer.findMany {"lead_id":"lead-1","tenant_id":"tenant-clinica-exemplo"}",
+  "prisma.paymentGatewayCharge.findMany {"tenant_id":"tenant-clinica-exemplo","status":{"in":["PENDING","OVERDUE"]},"received_in_cash":false,"due_date":{"lt":"2026-10-20T00:00:00.000Z"},"OR":[{"patient_id":"paciente-1"},{"treatment_plan":{"patient_id":"paciente-1"}},{"customer_external_id":{"in":["cus_exemplo_1"]}}]}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": 2026-10-20T15:00:00.000Z,
+        "overdue_override_by_user_id": "recepcao-1",
+        "overdue_override_reason": "Acordo de pagamento combinado",
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai encaixe lançado pelo ADMIN já como CONCLUIDO: auditoria, datas de visita e lead → paciente: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-20T11:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-20T11:00:00.000Z,
+        "status": "CONCLUIDO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "prisma.auditLog.create",
+    {
+      "data": {
+        "action": "CRIADO",
+        "actor_user_id": "recepcao-1",
+        "entity": "AGENDA_EVENTO",
+        "entity_id": "evento-1",
+        "meta_json": {
+          "after": {
+            "status": "CONCLUIDO",
+          },
+          "assigned_user_id": "dentista-1",
+          "before": null,
+          "patient_id": "paciente-1",
+          "start_at": "2026-10-20T11:00:00.000Z",
+        },
+        "tenant_id": "tenant-clinica-exemplo",
+      },
+    },
+  ],
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "prisma.patient.update",
+    {
+      "data": {
+        "first_visit_at": 2026-10-20T11:00:00.000Z,
+        "last_visit_at": 2026-10-20T11:00:00.000Z,
+      },
+      "where": {
+        "id": "paciente-1",
+      },
+    },
+  ],
+  "prisma.calendarEvent.findUnique {"id":"evento-1"}",
+  [
+    "leads.promoteToPatientIfEligible",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "agenda CONCLUIDO (evento evento-1)",
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-20T11:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-20T11:00:00.000Z,
+      "status": "CONCLUIDO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "20/10/2026",
+      "hora": "11:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai lembretes repetidos, por e-mail e push: dedup por (antecedência, canal); push não vai pra fila: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "EMAIL",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "PUSH",
+              "minutes_before": 30,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "EMAIL",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai recepção encaixa já como COMPARECEU (Chegou): auditoria e lead → paciente, sem datas de visita: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-20T11:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-20T11:00:00.000Z,
+        "status": "COMPARECEU",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "prisma.auditLog.create",
+    {
+      "data": {
+        "action": "CRIADO",
+        "actor_user_id": "recepcao-1",
+        "entity": "AGENDA_EVENTO",
+        "entity_id": "evento-1",
+        "meta_json": {
+          "after": {
+            "status": "COMPARECEU",
+          },
+          "assigned_user_id": "dentista-1",
+          "before": null,
+          "patient_id": "paciente-1",
+          "start_at": "2026-10-20T11:00:00.000Z",
+        },
+        "tenant_id": "tenant-clinica-exemplo",
+      },
+    },
+  ],
+  "prisma.calendarEvent.findUnique {"id":"evento-1"}",
+  [
+    "leads.promoteToPatientIfEligible",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "agenda COMPARECEU (evento evento-1)",
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-20T11:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-20T11:00:00.000Z,
+      "status": "COMPARECEU",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "20/10/2026",
+      "hora": "11:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai recorrência semanal até 17/11: 3 filhos com os lembretes do pai, cada um com seus jobs: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": 2026-11-17T23:59:00.000Z,
+        "recurrence_rule": "WEEKLY",
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "RETORNO de exemplo",
+        "type": "RETORNO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "RETORNO de exemplo",
+      "type": "RETORNO",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "RETORNO",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "RETORNO de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-11-03T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "parent_event_id": "evento-1",
+        "priority": "NORMAL",
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-11-03T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "RETORNO de exemplo",
+        "type": "RETORNO",
+      },
+      "include": {
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-11-10T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "parent_event_id": "evento-1",
+        "priority": "NORMAL",
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-11-10T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "RETORNO de exemplo",
+        "type": "RETORNO",
+      },
+      "include": {
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-11-17T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "parent_event_id": "evento-1",
+        "priority": "NORMAL",
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-11-17T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "RETORNO de exemplo",
+        "type": "RETORNO",
+      },
+      "include": {
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-2-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-3-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-1",
+      "reminderId": "evento-filho-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 1130400000,
+      "jobId": "reminder-evento-filho-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-2",
+      "reminderId": "evento-filho-2-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 1735200000,
+      "jobId": "reminder-evento-filho-2-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-3",
+      "reminderId": "evento-filho-3-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 2340000000,
+      "jobId": "reminder-evento-filho-3-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-2-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-3-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-1",
+      "reminderId": "evento-filho-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 1213200000,
+      "jobId": "reminder-evento-filho-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-2",
+      "reminderId": "evento-filho-2-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 1818000000,
+      "jobId": "reminder-evento-filho-2-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-3",
+      "reminderId": "evento-filho-3-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 2422800000,
+      "jobId": "reminder-evento-filho-3-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-2-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-filho-3-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-1",
+      "reminderId": "evento-filho-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 1215900000,
+      "jobId": "reminder-evento-filho-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-2",
+      "reminderId": "evento-filho-2-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 1820700000,
+      "jobId": "reminder-evento-filho-2-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-filho-3",
+      "reminderId": "evento-filho-3-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 2425500000,
+      "jobId": "reminder-evento-filho-3-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) caminhos que mudam o que sai retroativo (hoje 08:00, já passou): sem jobs de lembrete; o WhatsApp é pedido e o e-mail ainda sai: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-20T08:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-20T08:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-20T08:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-20T08:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "20/10/2026",
+      "hora": "08:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) AUDIENCIA: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "AUDIENCIA de exemplo",
+        "type": "AUDIENCIA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "AUDIENCIA de exemplo",
+      "type": "AUDIENCIA",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "notify-hearing-scheduled",
+    {
+      "eventId": "evento-1",
+    },
+    {
+      "attempts": 3,
+      "backoff": {
+        "delay": 5000,
+        "type": "exponential",
+      },
+      "delay": 60000,
+      "jobId": "hearing-notify-evento-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) BLOQUEIO: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "BLOQUEIO de exemplo",
+        "type": "BLOQUEIO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "BLOQUEIO de exemplo",
+      "type": "BLOQUEIO",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) CONSULTA: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "CONSULTA de exemplo",
+        "type": "CONSULTA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "CONSULTA de exemplo",
+      "type": "CONSULTA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "CONSULTA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "CONSULTA de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) ORTODONTIA: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "ORTODONTIA de exemplo",
+        "type": "ORTODONTIA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "ORTODONTIA de exemplo",
+      "type": "ORTODONTIA",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"ORTO_ORDEM_CHEGADA_tenant-clinica-exemplo"}",
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "ORTODONTIA",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "ORTODONTIA de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) OUTRO: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "OUTRO de exemplo",
+        "type": "OUTRO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "OUTRO de exemplo",
+      "type": "OUTRO",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) PERICIA: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "PERICIA de exemplo",
+        "type": "PERICIA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "PERICIA de exemplo",
+      "type": "PERICIA",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "notify-hearing-scheduled",
+    {
+      "eventId": "evento-1",
+    },
+    {
+      "attempts": 3,
+      "backoff": {
+        "delay": 5000,
+        "type": "exponential",
+      },
+      "delay": 60000,
+      "jobId": "hearing-notify-evento-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) PRAZO: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "PRAZO de exemplo",
+        "type": "PRAZO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "PRAZO de exemplo",
+      "type": "PRAZO",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) PROCEDIMENTO: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "PROCEDIMENTO de exemplo",
+        "type": "PROCEDIMENTO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "PROCEDIMENTO de exemplo",
+      "type": "PROCEDIMENTO",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "PROCEDIMENTO",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "PROCEDIMENTO de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) RETORNO: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "RETORNO de exemplo",
+        "type": "RETORNO",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "RETORNO de exemplo",
+      "type": "RETORNO",
+    },
+  ],
+  "prisma.globalSetting.findUnique {"key":"APPOINTMENT_CONFIRMATION_ENABLED_tenant-clinica-exemplo"}",
+  "prisma.patient.findUnique {"id":"paciente-1"}",
+  [
+    "agenda.sendAppointmentEventWhatsapp",
+    {
+      "dentista": "Dra. Ana Exemplo Souza",
+      "evento": "evento-1",
+      "lead_is_client": true,
+      "start_at": 2026-10-27T14:00:00.000Z,
+      "status": "AGENDADO",
+      "type": "RETORNO",
+    },
+    "paciente-1",
+    "lead-1",
+    "tenant-clinica-exemplo",
+    "created",
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "email.dispatch",
+    "agendamento_criado",
+    "tenant-clinica-exemplo",
+    "paciente@exemplo.test",
+    {
+      "data": "27/10/2026",
+      "hora": "14:00",
+      "paciente_nome": "Maria Exemplo da Silva",
+      "profissional_nome": "Dra. Ana Exemplo Souza",
+      "titulo": "RETORNO de exemplo",
+    },
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos de CalendarService.create por tipo de evento (F1) um retrato por tipo (paciente da clínica, padrões da Central, 3 lembretes da tela) TAREFA: efeitos em ordem 1`] = `
+[
+  "prisma.patient.findUnique {"lead_id":"lead-1"}",
+  "prisma.globalSetting.findUnique {"key":"BLOCK_SCHED_ON_OVERDUE_tenant-clinica-exemplo"}",
+  [
+    "prisma.calendarEvent.create",
+    {
+      "data": {
+        "all_day": false,
+        "appointment_type_id": undefined,
+        "assigned_user_id": "dentista-1",
+        "color": undefined,
+        "conversation_id": undefined,
+        "created_by_id": "recepcao-1",
+        "description": "Observação de exemplo",
+        "end_at": 2026-10-27T14:30:00.000Z,
+        "lead_id": "lead-1",
+        "location": undefined,
+        "overdue_override_at": null,
+        "overdue_override_by_user_id": null,
+        "overdue_override_reason": null,
+        "patient_id": "paciente-1",
+        "priority": "NORMAL",
+        "recurrence_days": [],
+        "recurrence_end": null,
+        "recurrence_rule": undefined,
+        "reminders": {
+          "create": [
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 1440,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 60,
+            },
+            {
+              "channel": "WHATSAPP",
+              "minutes_before": 15,
+            },
+          ],
+        },
+        "start_at": 2026-10-27T14:00:00.000Z,
+        "status": "AGENDADO",
+        "tenant_id": "tenant-clinica-exemplo",
+        "title": "TAREFA de exemplo",
+        "type": "TAREFA",
+      },
+      "include": {
+        "assigned_user": {
+          "select": {
+            "id": true,
+            "name": true,
+          },
+        },
+        "lead": {
+          "select": {
+            "id": true,
+            "is_client": true,
+            "name": true,
+            "phone": true,
+          },
+        },
+        "reminders": true,
+      },
+    },
+  ],
+  [
+    "socket.emitCalendarUpdate",
+    "dentista-1",
+    {
+      "action": "created",
+      "eventId": "evento-1",
+      "start_at": "2026-10-27T14:00:00.000Z",
+      "title": "TAREFA de exemplo",
+      "type": "TAREFA",
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-1",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-1",
+    },
+    {
+      "attempts": 1,
+      "delay": 525600000,
+      "jobId": "reminder-evento-1-lembrete-1",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-2",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-2",
+    },
+    {
+      "attempts": 1,
+      "delay": 608400000,
+      "jobId": "reminder-evento-1-lembrete-2",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+  [
+    "fila.calendar-reminders.getJob",
+    "reminder-evento-1-lembrete-3",
+  ],
+  [
+    "fila.calendar-reminders.add",
+    "send-reminder",
+    {
+      "channel": "WHATSAPP",
+      "eventId": "evento-1",
+      "reminderId": "evento-1-lembrete-3",
+    },
+    {
+      "attempts": 1,
+      "delay": 611100000,
+      "jobId": "reminder-evento-1-lembrete-3",
+      "removeOnComplete": true,
+      "removeOnFail": 50,
+    },
+  ],
+]
+`;

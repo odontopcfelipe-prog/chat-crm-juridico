@@ -1,0 +1,1085 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) ações manuais "Mover setor → Clínica" (ConversationsService.moveToSector): troca inbox/chip, IA assume e marca is_client (sem FINALIZADO): efeitos em ordem 1`] = `
+[
+  "prisma.conversation.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  "prisma.installment.findFirst",
+  "prisma.financialTransaction.findFirst",
+  "prisma.instance.findFirst",
+  "prisma.globalSetting.findUnique",
+  "prisma.tenantSetting.findUnique",
+  "prisma.globalSetting.findUnique",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "ai_mode": true,
+        "ai_mode_disabled_at": null,
+        "ai_mode_source": "MANUAL",
+        "assigned_user_id": null,
+        "inbox_id": "inbox-clinica",
+        "instance_name": "chip-clinica-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) ações manuais "Promover a cliente" (LeadsController.promoteToClient) de lead nunca agendado: garante a ficha, promove e grava o operador como CS: efeitos em ordem 1`] = `
+[
+  "prisma.lead.findUnique",
+  [
+    "patients.convertFromLead",
+    "lead-1",
+    "tenant-clinica-exemplo",
+  ],
+  "prisma.patient.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  "prisma.installment.findFirst",
+  "prisma.financialTransaction.findFirst",
+  [
+    "prisma.lead.updateMany",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "cs_user_id": "operador-1",
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+        "is_client": false,
+      },
+    },
+  ],
+  "prisma.followupEnrollment.findMany",
+  [
+    "prisma.followupEnrollment.updateMany",
+    {
+      "data": {
+        "paused_reason": "Lead virou paciente",
+        "status": "CANCELADO",
+      },
+      "where": {
+        "id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.followupMessage.updateMany",
+    {
+      "data": {
+        "status": "REJEITADO",
+      },
+      "where": {
+        "enrollment_id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+        "status": "PENDENTE_APROVACAO",
+      },
+    },
+  ],
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.pipelineStage.findFirst",
+  "prisma.pipelineStage.findUnique",
+  "prisma.conversation.findFirst",
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "cs_user_id": "atendente-comercial-1",
+        "is_client": true,
+        "stage": "FINALIZADO",
+        "stage_entered_at": 2026-10-20T15:00:00.000Z,
+        "stage_id": "etapa-ganho",
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.leadStageHistory.create",
+    {
+      "data": {
+        "actor_id": "operador-1",
+        "from_stage": "REUNIAO_AGENDADA",
+        "lead_id": "lead-1",
+        "loss_reason": null,
+        "to_stage": "FINALIZADO",
+      },
+    },
+  ],
+  "prisma.aiMemory.findUnique",
+  [
+    "prisma.conversation.updateMany",
+    {
+      "data": {
+        "ai_mode": true,
+        "ai_mode_disabled_at": null,
+        "ai_mode_source": "POS_VENDA",
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "patients.convertFromLead",
+    "lead-1",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "automations.onStageChange",
+    "lead-1",
+    "FINALIZADO",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "followup.autoEnrollByStage",
+    "lead-1",
+    "FINALIZADO",
+  ],
+  [
+    "prisma.aiMemory.create",
+    {
+      "data": {
+        "facts_json": {
+          "crm_timeline": [
+            {
+              "date": "2026-10-20",
+              "from": "REUNIAO_AGENDADA",
+              "to": "FINALIZADO",
+            },
+          ],
+        },
+        "lead_id": "lead-1",
+        "summary": "[CRM 2026-10-20] Reunião Agendada → Finalizado",
+      },
+    },
+  ],
+  "prisma.instance.findFirst",
+  "prisma.conversation.findFirst",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "assigned_user_id": null,
+        "inbox_id": "inbox-clinica",
+        "instance_name": "chip-clinica-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) chip Clínica: o contato escreve no número da clínica (webhook) contato nunca agendado escreve no chip Clínica → vira paciente (só is_client/became_client_at): efeitos em ordem 1`] = `
+[
+  [
+    "inboxes.findByInstanceName",
+    "chip-clinica-exemplo",
+  ],
+  [
+    "adminBot.isEnabled",
+  ],
+  [
+    "leads.upsert",
+    {
+      "name": "Paciente Exemplo",
+      "origin": "whatsapp",
+      "phone": "5582900000001",
+      "tenant": {
+        "connect": {
+          "id": "tenant-clinica-exemplo",
+        },
+      },
+    },
+    "inbox-clinica",
+  ],
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  "prisma.installment.findFirst",
+  "prisma.financialTransaction.findFirst",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  "prisma.conversation.findFirst",
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) chip Clínica: o contato escreve no número da clínica (webhook) lead agendado sem comparecer/pagar escreve no chip Clínica → segue LEAD: efeitos em ordem 1`] = `
+[
+  [
+    "inboxes.findByInstanceName",
+    "chip-clinica-exemplo",
+  ],
+  [
+    "adminBot.isEnabled",
+  ],
+  [
+    "leads.upsert",
+    {
+      "name": "Paciente Exemplo",
+      "origin": "whatsapp",
+      "phone": "5582900000001",
+      "tenant": {
+        "connect": {
+          "id": "tenant-clinica-exemplo",
+        },
+      },
+    },
+    "inbox-clinica",
+  ],
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  "prisma.installment.findFirst",
+  "prisma.financialTransaction.findFirst",
+  "prisma.conversation.findFirst",
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) espelho: paciente volta a ser lead LeadsService.demoteLeadById: is_client=false, sai do ganho, conversa volta pro Comercial, IA POS_VENDA → COMERCIAL: efeitos em ordem 1`] = `
+[
+  "prisma.lead.findUnique",
+  "prisma.pipelineStage.findMany",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": null,
+        "is_client": false,
+        "stage": "NEGOCIACAO",
+        "stage_entered_at": 2026-10-20T15:00:00.000Z,
+        "stage_id": "etapa-orcamento",
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  "prisma.instance.findFirst",
+  "prisma.conversation.findFirst",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "assigned_user_id": null,
+        "inbox_id": "inbox-comercial",
+        "instance_name": "chip-comercial-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "prisma.conversation.updateMany",
+    {
+      "data": {
+        "ai_mode_source": "COMERCIAL",
+      },
+      "where": {
+        "ai_mode_source": "POS_VENDA",
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) gatilhos automáticos (pagou / compareceu) agendou mas não compareceu nem pagou: segue LEAD — só leituras, nada gravado: leituras da regra compareceu-ou-pagou, com filtros 1`] = `
+[
+  [
+    "prisma.lead.findUnique",
+    {
+      "select": {
+        "id": true,
+        "is_client": true,
+        "stage": true,
+        "tenant_id": true,
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.patient.findMany",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.calendarEvent.findFirst",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "OR": [
+          {
+            "lead_id": "lead-1",
+          },
+          {
+            "patient_id": {
+              "in": [
+                "paciente-1",
+              ],
+            },
+          },
+        ],
+        "type": {
+          "in": [
+            "CONSULTA",
+            "PROCEDIMENTO",
+            "RETORNO",
+            "ORTODONTIA",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.calendarEvent.findFirst",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "OR": [
+          {
+            "lead_id": "lead-1",
+          },
+          {
+            "patient_id": {
+              "in": [
+                "paciente-1",
+              ],
+            },
+          },
+        ],
+        "status": {
+          "in": [
+            "COMPARECEU",
+            "EM_ATENDIMENTO",
+            "CONCLUIDO",
+          ],
+        },
+        "type": {
+          "in": [
+            "CONSULTA",
+            "PROCEDIMENTO",
+            "RETORNO",
+            "ORTODONTIA",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.paymentGatewayCustomer.findMany",
+    {
+      "select": {
+        "external_id": true,
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.paymentGatewayCharge.findFirst",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "patient_id": {
+                  "in": [
+                    "paciente-1",
+                  ],
+                },
+              },
+              {
+                "treatment_plan": {
+                  "patient_id": {
+                    "in": [
+                      "paciente-1",
+                    ],
+                  },
+                },
+              },
+              {
+                "installment": {
+                  "patient_id": {
+                    "in": [
+                      "paciente-1",
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+          {
+            "OR": [
+              {
+                "status": {
+                  "in": [
+                    "RECEIVED",
+                    "CONFIRMED",
+                    "RECEIVED_IN_CASH",
+                  ],
+                },
+              },
+              {
+                "received_in_cash": true,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ],
+  [
+    "prisma.installment.findFirst",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "patient_id": {
+          "in": [
+            "paciente-1",
+          ],
+        },
+        "status": {
+          "in": [
+            "PAGA",
+            "PARCIAL",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.financialTransaction.findFirst",
+    {
+      "select": {
+        "id": true,
+      },
+      "where": {
+        "lead_id": "lead-1",
+        "status": "PAGO",
+        "type": "RECEITA",
+      },
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) gatilhos automáticos (pagou / compareceu) compareceu (CalendarService.autoPromoteFromAttendance): mesmo núcleo do pagou: efeitos em ordem 1`] = `
+[
+  "prisma.calendarEvent.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  [
+    "prisma.lead.updateMany",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+        "is_client": false,
+      },
+    },
+  ],
+  "prisma.followupEnrollment.findMany",
+  [
+    "prisma.followupEnrollment.updateMany",
+    {
+      "data": {
+        "paused_reason": "Lead virou paciente",
+        "status": "CANCELADO",
+      },
+      "where": {
+        "id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.followupMessage.updateMany",
+    {
+      "data": {
+        "status": "REJEITADO",
+      },
+      "where": {
+        "enrollment_id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+        "status": "PENDENTE_APROVACAO",
+      },
+    },
+  ],
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.pipelineStage.findFirst",
+  "prisma.pipelineStage.findUnique",
+  "prisma.conversation.findFirst",
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "cs_user_id": "atendente-comercial-1",
+        "is_client": true,
+        "stage": "FINALIZADO",
+        "stage_entered_at": 2026-10-20T15:00:00.000Z,
+        "stage_id": "etapa-ganho",
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.leadStageHistory.create",
+    {
+      "data": {
+        "actor_id": null,
+        "from_stage": "REUNIAO_AGENDADA",
+        "lead_id": "lead-1",
+        "loss_reason": null,
+        "to_stage": "FINALIZADO",
+      },
+    },
+  ],
+  "prisma.aiMemory.findUnique",
+  [
+    "prisma.conversation.updateMany",
+    {
+      "data": {
+        "ai_mode": true,
+        "ai_mode_disabled_at": null,
+        "ai_mode_source": "POS_VENDA",
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "patients.convertFromLead",
+    "lead-1",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "automations.onStageChange",
+    "lead-1",
+    "FINALIZADO",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "followup.autoEnrollByStage",
+    "lead-1",
+    "FINALIZADO",
+  ],
+  [
+    "prisma.aiMemory.create",
+    {
+      "data": {
+        "facts_json": {
+          "crm_timeline": [
+            {
+              "date": "2026-10-20",
+              "from": "REUNIAO_AGENDADA",
+              "to": "FINALIZADO",
+            },
+          ],
+        },
+        "lead_id": "lead-1",
+        "summary": "[CRM 2026-10-20] Reunião Agendada → Finalizado",
+      },
+    },
+  ],
+  "prisma.instance.findFirst",
+  "prisma.conversation.findFirst",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "assigned_user_id": null,
+        "inbox_id": "inbox-clinica",
+        "instance_name": "chip-clinica-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) gatilhos automáticos (pagou / compareceu) dois gatilhos juntos (PIX CONFIRMED + RECEIVED): quem perde o claim para no claim: efeitos em ordem 1`] = `
+[
+  "prisma.lead.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  [
+    "prisma.lead.updateMany",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+        "is_client": false,
+      },
+    },
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) gatilhos automáticos (pagou / compareceu) pagou no Asaas (PaymentGatewayService.promoteLeadFromCharge): promove, cancela follow-up de lead, FINALIZADO, IA pós-venda, conversa pra Clínica: efeitos em ordem 1`] = `
+[
+  "prisma.paymentGatewayCharge.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.paymentGatewayCharge.findFirst",
+  [
+    "prisma.lead.updateMany",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+        "is_client": false,
+      },
+    },
+  ],
+  "prisma.followupEnrollment.findMany",
+  [
+    "prisma.followupEnrollment.updateMany",
+    {
+      "data": {
+        "paused_reason": "Lead virou paciente",
+        "status": "CANCELADO",
+      },
+      "where": {
+        "id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.followupMessage.updateMany",
+    {
+      "data": {
+        "status": "REJEITADO",
+      },
+      "where": {
+        "enrollment_id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+        "status": "PENDENTE_APROVACAO",
+      },
+    },
+  ],
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.pipelineStage.findFirst",
+  "prisma.pipelineStage.findUnique",
+  "prisma.conversation.findFirst",
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "cs_user_id": "atendente-comercial-1",
+        "is_client": true,
+        "stage": "FINALIZADO",
+        "stage_entered_at": 2026-10-20T15:00:00.000Z,
+        "stage_id": "etapa-ganho",
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.leadStageHistory.create",
+    {
+      "data": {
+        "actor_id": null,
+        "from_stage": "REUNIAO_AGENDADA",
+        "lead_id": "lead-1",
+        "loss_reason": null,
+        "to_stage": "FINALIZADO",
+      },
+    },
+  ],
+  "prisma.aiMemory.findUnique",
+  [
+    "prisma.conversation.updateMany",
+    {
+      "data": {
+        "ai_mode": true,
+        "ai_mode_disabled_at": null,
+        "ai_mode_source": "POS_VENDA",
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "patients.convertFromLead",
+    "lead-1",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "automations.onStageChange",
+    "lead-1",
+    "FINALIZADO",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "followup.autoEnrollByStage",
+    "lead-1",
+    "FINALIZADO",
+  ],
+  [
+    "prisma.aiMemory.create",
+    {
+      "data": {
+        "facts_json": {
+          "crm_timeline": [
+            {
+              "date": "2026-10-20",
+              "from": "REUNIAO_AGENDADA",
+              "to": "FINALIZADO",
+            },
+          ],
+        },
+        "lead_id": "lead-1",
+        "summary": "[CRM 2026-10-20] Reunião Agendada → Finalizado",
+      },
+    },
+  ],
+  "prisma.instance.findFirst",
+  "prisma.conversation.findFirst",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "assigned_user_id": null,
+        "inbox_id": "inbox-clinica",
+        "instance_name": "chip-clinica-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+]
+`;
+
+exports[`retrato: efeitos da promoção lead → paciente (F1) gatilhos automáticos (pagou / compareceu) receita paga no Financeiro, contato SEM ficha (FinanceiroService.promoteLeadIfPaidReceita): promove e cria a ficha: efeitos em ordem 1`] = `
+[
+  "prisma.lead.findUnique",
+  "prisma.patient.findMany",
+  "prisma.calendarEvent.findFirst",
+  "prisma.calendarEvent.findFirst",
+  "prisma.paymentGatewayCustomer.findMany",
+  "prisma.financialTransaction.findFirst",
+  [
+    "prisma.lead.updateMany",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "is_client": true,
+      },
+      "where": {
+        "id": "lead-1",
+        "is_client": false,
+      },
+    },
+  ],
+  "prisma.followupEnrollment.findMany",
+  [
+    "prisma.followupEnrollment.updateMany",
+    {
+      "data": {
+        "paused_reason": "Lead virou paciente",
+        "status": "CANCELADO",
+      },
+      "where": {
+        "id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+      },
+    },
+  ],
+  [
+    "prisma.followupMessage.updateMany",
+    {
+      "data": {
+        "status": "REJEITADO",
+      },
+      "where": {
+        "enrollment_id": {
+          "in": [
+            "inscricao-lead-1",
+            "inscricao-lead-2",
+          ],
+        },
+        "status": "PENDENTE_APROVACAO",
+      },
+    },
+  ],
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.pipelineStage.findFirst",
+  "prisma.pipelineStage.findUnique",
+  "prisma.conversation.findFirst",
+  "prisma.lead.findUnique",
+  "prisma.lead.findUnique",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.lead.update",
+    {
+      "data": {
+        "became_client_at": 2026-10-20T15:00:00.000Z,
+        "cs_user_id": "atendente-comercial-1",
+        "is_client": true,
+        "stage": "FINALIZADO",
+        "stage_entered_at": 2026-10-20T15:00:00.000Z,
+        "stage_id": "etapa-ganho",
+      },
+      "where": {
+        "id": "lead-1",
+      },
+    },
+  ],
+  [
+    "prisma.leadStageHistory.create",
+    {
+      "data": {
+        "actor_id": null,
+        "from_stage": "REUNIAO_AGENDADA",
+        "lead_id": "lead-1",
+        "loss_reason": null,
+        "to_stage": "FINALIZADO",
+      },
+    },
+  ],
+  "prisma.aiMemory.findUnique",
+  [
+    "prisma.conversation.updateMany",
+    {
+      "data": {
+        "ai_mode": true,
+        "ai_mode_disabled_at": null,
+        "ai_mode_source": "POS_VENDA",
+      },
+      "where": {
+        "lead_id": "lead-1",
+      },
+    },
+  ],
+  [
+    "patients.convertFromLead",
+    "lead-1",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "automations.onStageChange",
+    "lead-1",
+    "FINALIZADO",
+    "tenant-clinica-exemplo",
+  ],
+  [
+    "followup.autoEnrollByStage",
+    "lead-1",
+    "FINALIZADO",
+  ],
+  [
+    "prisma.aiMemory.create",
+    {
+      "data": {
+        "facts_json": {
+          "crm_timeline": [
+            {
+              "date": "2026-10-20",
+              "from": "REUNIAO_AGENDADA",
+              "to": "FINALIZADO",
+            },
+          ],
+        },
+        "lead_id": "lead-1",
+        "summary": "[CRM 2026-10-20] Reunião Agendada → Finalizado",
+      },
+    },
+  ],
+  "prisma.instance.findFirst",
+  "prisma.conversation.findFirst",
+  "prisma.conversation.findFirst",
+  [
+    "prisma.conversation.update",
+    {
+      "data": {
+        "assigned_user_id": null,
+        "inbox_id": "inbox-clinica",
+        "instance_name": "chip-clinica-exemplo",
+      },
+      "where": {
+        "id": "conversa-1",
+      },
+    },
+  ],
+  [
+    "socket.emitConversationsUpdate",
+    "tenant-clinica-exemplo",
+  ],
+]
+`;
