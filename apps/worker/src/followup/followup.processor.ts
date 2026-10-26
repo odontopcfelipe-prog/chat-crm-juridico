@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FollowupService } from './followup.service';
 import axios from 'axios';
-import { isLabTenant } from '@crm/shared';
+import { algumLab, getLabTenantIds, isLabTenant } from '@crm/shared';
 // Null-safe: `NOT { inbox: { purpose: 'FINANCEIRO' } }` descarta caixa com purpose NULL
 // (clínica legada de 1 chip) — o filtro da reativação inclui esses casos.
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
@@ -13,6 +13,7 @@ import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
 /** Sem chip: cai no MESMO registro de falha de quando a Evolution recusava o chip vazio/morto. */
 const SEM_CHIP_PROPRIO = 'Clínica sem chip próprio — o chip padrão do servidor está vazio ou é de outra clínica';
+const LAB_SEM_DISPARO = 'Laboratório: sem disparo em massa';
 
 @Processor('followup-jobs')
 export class FollowupProcessor extends WorkerHost {
@@ -353,16 +354,6 @@ export class FollowupProcessor extends WorkerHost {
     const item = await this.prisma.broadcastItem.findUnique({ where: { id: itemId } });
     if (!item || item.status !== 'PENDENTE') return;
 
-    // F2 [LAB-GATE] — disparo em massa legado (texto do operador ou gerado pela IA com
-    // prompt de outro ramo): de laboratório não sai e não chama a IA. O item fica como
-    // falha (o disparo não espera por ele). Clínica: nenhum id casa e segue igual.
-    if (await isLabTenant(this.prisma, broadcast.tenant_id, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] broadcast — disparo ${broadcastId} é de laboratório: item ${itemId} não sai`);
-      await this.prisma.broadcastItem.update({ where: { id: itemId }, data: { status: 'FALHOU', error: 'Laboratório: sem disparo em massa' } });
-      await this.prisma.broadcastJob.update({ where: { id: broadcastId }, data: { failed_count: { increment: 1 } } });
-      return;
-    }
-
     // Load event + lead + case context
     const event = item.event_id ? await this.prisma.calendarEvent.findUnique({
       where: { id: item.event_id },
@@ -379,6 +370,16 @@ export class FollowupProcessor extends WorkerHost {
     }
 
     try {
+      // F2 [LAB-GATE] — disparo em massa legado (texto do operador ou gerado pela IA com
+      // prompt de outro ramo): para contato de laboratório não sai e não chama a IA. Olha
+      // a conta do disparo E a do contato (disparo sem conta lista contatos de todas). O
+      // catch marca o item como falha e a contagem abaixo conclui o disparo. Clínica:
+      // nenhum id casa e segue igual.
+      if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [broadcast.tenant_id, lead.tenant_id])) {
+        this.logger.log(`[LAB-GATE] broadcast — item ${itemId} do disparo ${broadcastId} é de laboratório: não sai`);
+        throw new Error(LAB_SEM_DISPARO);
+      }
+
       // COMUNICADO: usa mensagem fixa do custom_prompt (sem IA)
       // Outros tipos: gera mensagem personalizada com IA
       let text: string;

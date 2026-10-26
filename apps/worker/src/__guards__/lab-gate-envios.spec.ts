@@ -596,7 +596,7 @@ describe('Sequências de follow-up (processador) — laboratório não gera text
 // ─── disparo em massa legado ────────────────────────────────────────────────
 
 describe('Disparo em massa legado — o de laboratório não sai nem chama a IA', () => {
-  function montar(labs: string[], tenant: string) {
+  function montar(labs: string[], tenant: string | null, contato: string = tenant as string) {
     __limparCacheLabTenants();
     reiniciarEvolution();
     const prisma: any = {
@@ -610,7 +610,7 @@ describe('Disparo em massa legado — o de laboratório não sai nem chama a IA'
         update: jest.fn(async () => ({})),
         count: jest.fn(async () => 0),
       },
-      lead: { findUnique: jest.fn(async () => ({ id: 'lead-1', tenant_id: tenant, name: 'Maria Exemplo', phone: TEL[tenant] })) },
+      lead: { findUnique: jest.fn(async () => ({ id: 'lead-1', tenant_id: contato, name: 'Maria Exemplo', phone: TEL[contato] })) },
       conversation: { findFirst: jest.fn(async () => ({ id: 'conv-1', instance_name: 'chip-comercial' })), update: jest.fn(async () => ({})) },
       message: { create: jest.fn(async () => ({})) },
     };
@@ -644,14 +644,41 @@ describe('Disparo em massa legado — o de laboratório não sai nem chama a IA'
     }
   });
 
-  it('laboratório: não envia, não chama a IA e o item fica como falha', async () => {
+  it('laboratório: não envia, não chama a IA, o item fica como falha e o disparo é concluído', async () => {
     for (const prompt of ['Oi {{nome}}!', undefined]) {
       const m = montar([LAB], LAB);
       await m.proc.process(job(prompt));
       expect(axios.post).not.toHaveBeenCalled();
       expect(m.proc.generateBroadcastMessage).not.toHaveBeenCalled();
       expect(m.prisma.broadcastItem.update.mock.calls.map((c: any[]) => c[0].data.status)).toEqual(['FALHOU']);
+      expect(m.prisma.broadcastItem.update.mock.calls[0][0].data.error).toBe('Laboratório: sem disparo em massa');
+      const disparo = m.prisma.broadcastJob.update.mock.calls.map((c: any[]) => c[0].data);
+      expect(disparo[0]).toEqual({ failed_count: { increment: 1 } });
+      expect(disparo[1]).toMatchObject({ status: 'CONCLUIDO' });
     }
+  });
+
+  it('disparo sem conta com contato do laboratório: não sai nem chama a IA', async () => {
+    for (const prompt of ['Oi {{nome}}!', undefined]) {
+      const m = montar([LAB], null, LAB);
+      await m.proc.process(job(prompt));
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(m.proc.generateBroadcastMessage).not.toHaveBeenCalled();
+      expect(m.prisma.broadcastItem.update.mock.calls.map((c: any[]) => c[0].data.status)).toEqual(['FALHOU']);
+    }
+  });
+
+  it('disparo do laboratório com contato legado sem conta: não sai', async () => {
+    const m = montar([LAB], LAB, null as any);
+    await m.proc.process(job('Oi {{nome}}!'));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(m.prisma.broadcastItem.update.mock.calls.map((c: any[]) => c[0].data.status)).toEqual(['FALHOU']);
+  });
+
+  it('disparo sem conta com contato de clínica: sai como hoje', async () => {
+    const m = montar([LAB], null, CLINICA);
+    await m.proc.process(job('Oi {{nome}}!'));
+    expect(postsDe()).toEqual([[`${EVO}/message/sendText/chip-comercial`, { number: TEL[CLINICA], text: 'Oi Maria!' }]]);
   });
 });
 

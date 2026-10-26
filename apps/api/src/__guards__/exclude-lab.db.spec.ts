@@ -54,6 +54,19 @@ descrever('excludeLabWhere no Postgres do CI', () => {
     expect(achados.map((l) => l.id)).toEqual([criados.leads[0]]);
   });
 
+  // F2 parte 2a: formas usadas dentro de relação/agrupamento no worker.
+  it('inscrição de follow-up filtrada pelo contato (relação lead) roda sem erro', async () => {
+    const where = { status: 'ATIVO', lead: excludeLabWhere('lead', {}, LAB_FALSO) };
+    await expect(prisma.followupEnrollment.findMany({ where, take: 1 })).resolves.toBeInstanceOf(Array);
+  });
+
+  it('cobrança agrupada (groupBy) com o filtro roda sem erro', async () => {
+    const where = excludeLabWhere('paymentGatewayCharge', { status: 'PENDING' }, LAB_FALSO);
+    await expect(
+      (prisma.paymentGatewayCharge as any).groupBy({ by: ['tenant_id'], where, _count: { _all: true } }),
+    ).resolves.toBeInstanceOf(Array);
+  });
+
   it('a tabela nova existe e começa vazia', async () => {
     await expect(prisma.tenantBusinessProfile.count()).resolves.toBe(0);
   });
