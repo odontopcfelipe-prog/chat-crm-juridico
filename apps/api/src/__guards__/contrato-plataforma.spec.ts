@@ -216,6 +216,12 @@ describe('Dados fixos dos contratos por conta', () => {
       expect(JSON.parse(store.get(`CONTRACT_CONFIG_${A}`)!)).toEqual({ ...DADOS_GLOBAIS, advogado2_nome: '', foro: '42' });
     });
 
+    it('campo nulo limpa o valor (vira texto vazio); campo ausente mantém', async () => {
+      const { ctl, store } = montar({ [`CONTRACT_CONFIG_${A}`]: JSON.stringify({ ...DADOS_GLOBAIS, foro: 'Foro antigo' }) });
+      await ctl.setContract(req(ADMIN_A), { foro: null, advogado1_nome: 'Dra. Nova' } as any);
+      expect(JSON.parse(store.get(`CONTRACT_CONFIG_${A}`)!)).toEqual({ ...DADOS_GLOBAIS, foro: '', advogado1_nome: 'Dra. Nova' });
+    });
+
     it('texto longo é cortado, não recusado', async () => {
       const { ctl, store } = montar({});
       await ctl.setContract(req(ADMIN_A), { foro: 'x'.repeat(5000) });
