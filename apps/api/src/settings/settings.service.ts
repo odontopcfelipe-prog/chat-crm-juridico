@@ -15,6 +15,15 @@ import {
 } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/crypto.util';
+import { lerConfigDaClinicaSemErro } from './config-da-clinica';
+import {
+  CANNED_RESPONSES_KEY,
+  CRM_CONFIG_KEY,
+  normalizarStagnationDays,
+  sanearRespostasRapidas,
+  stagnationDaysEfetivo,
+  type RespostaRapida,
+} from './crc-config';
 import {
   POS_VENDA_SKILL,
   POS_VENDA_INTENTS,
@@ -1787,29 +1796,33 @@ export class SettingsService {
     });
   }
 
-  // ─── CRM Config ────────────────────────────────────────────────
-  async getCrmConfig(): Promise<{ stagnationDays: number }> {
-    const raw = await this.get('CRM_CONFIG');
-    if (!raw) return { stagnationDays: 3 };
-    try { return { stagnationDays: 3, ...JSON.parse(raw) }; } catch { return { stagnationDays: 3 }; }
+  // ─── CRM Config (POR CLÍNICA: CRM_CONFIG_<conta>) ────────────────
+  /** Dias de lead parado da conta (sem conta: a global antiga). Só {stagnationDays}. */
+  async getCrmConfig(tenantId?: string | null): Promise<{ stagnationDays: number }> {
+    const raw = await lerConfigDaClinicaSemErro(this.prisma, CRM_CONFIG_KEY, tenantId, (m) => this.logger.warn(m));
+    return { stagnationDays: stagnationDaysEfetivo(raw) };
   }
 
-  async setCrmConfig(config: { stagnationDays?: number }): Promise<void> {
-    const current = await this.getCrmConfig();
-    const merged = { ...current, ...config };
-    if (merged.stagnationDays !== undefined) merged.stagnationDays = Math.max(1, Math.round(merged.stagnationDays));
-    await this.set('CRM_CONFIG', JSON.stringify(merged));
+  /**
+   * Grava os dias de lead parado em `chave` (a da conta — chaveDeGravacaoDaClinica).
+   * Do corpo, só stagnationDays (1..90); inválido ou ausente mantém o atual.
+   */
+  async setCrmConfig(chave: string, config: { stagnationDays?: unknown } | null | undefined): Promise<void> {
+    const dias = normalizarStagnationDays(config?.stagnationDays);
+    if (dias === null) return;
+    await this.set(chave, JSON.stringify({ stagnationDays: dias }));
   }
 
-  // ─── Canned Responses ─────────────────────────────────────────
-  async getCannedResponses(): Promise<{ id: string; label: string; text: string }[]> {
-    const raw = await this.get('CANNED_RESPONSES');
-    if (!raw) return [];
-    try { return JSON.parse(raw); } catch { return []; }
+  // ─── Canned Responses (POR CLÍNICA: CANNED_RESPONSES_<conta>) ─────
+  /** Respostas rápidas da conta (sem conta: a global antiga), saneadas para o inbox. */
+  async getCannedResponses(tenantId?: string | null): Promise<RespostaRapida[]> {
+    const raw = await lerConfigDaClinicaSemErro(this.prisma, CANNED_RESPONSES_KEY, tenantId, (m) => this.logger.warn(m));
+    return raw ? sanearRespostasRapidas(raw) : [];
   }
 
-  async setCannedResponses(responses: { id: string; label: string; text: string }[]): Promise<void> {
-    await this.set('CANNED_RESPONSES', JSON.stringify(responses));
+  /** Grava a lista (já validada) em `chave` (a da conta — chaveDeGravacaoDaClinica). */
+  async setCannedResponses(chave: string, responses: RespostaRapida[]): Promise<void> {
+    await this.set(chave, JSON.stringify(responses));
   }
 
   async getWhatsAppConfig(tenantId?: string | null) {

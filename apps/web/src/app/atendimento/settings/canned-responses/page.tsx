@@ -222,7 +222,7 @@ export default function CannedResponsesPage() {
         {/* Footer tip */}
         <div className="px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[11px] text-muted-foreground">
-            💡 No chat, digite <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">/</kbd> seguido de uma palavra-chave para filtrar as respostas disponíveis. As respostas são compartilhadas entre todos os agentes.
+            💡 No chat, digite <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">/</kbd> seguido de uma palavra-chave para filtrar as respostas disponíveis. As respostas são compartilhadas entre a equipe da sua clínica.
           </p>
         </div>
       </div>

@@ -27,6 +27,8 @@ import {
   trocarLinhaMemoryBatch,
   validarValorChaveClinica,
 } from './settings-scope';
+import { chaveDeGravacaoDaClinica, contaDoUsuario } from './config-da-clinica';
+import { CANNED_RESPONSES_KEY, CRM_CONFIG_KEY, validarRespostasRapidas } from './crc-config';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
@@ -650,31 +652,39 @@ export class SettingsController {
     return { ok: true };
   }
 
-  // ─── CRM Config ───────────────────────────────────────
+  // ─── CRM Config (POR CLÍNICA) ─────────────────────────
+  // Dias de "lead parado" do aviso do CRM: cada clínica com o seu. A clínica que
+  // já existia vê o valor antigo até salvar o dela; conta nova começa no padrão.
 
   @Get('crm-config')
-  async getCrmConfig() {
-    return this.settingsService.getCrmConfig();
+  async getCrmConfig(@Request() req: any) {
+    return this.settingsService.getCrmConfig(contaDoUsuario(req.user));
   }
 
   @Patch('crm-config')
   @Roles('ADMIN')
-  async setCrmConfig(@Body() body: { stagnationDays?: number }) {
-    await this.settingsService.setCrmConfig(body);
+  async setCrmConfig(@Request() req: any, @Body() body: { stagnationDays?: number }) {
+    const chave = chaveDeGravacaoDaClinica(CRM_CONFIG_KEY, req.user);
+    await this.settingsService.setCrmConfig(chave, body);
     return { ok: true };
   }
 
-  // ─── Canned Responses ─────────────────────────────────
+  // ─── Canned Responses (POR CLÍNICA) ───────────────────
+  // Menu "/" do inbox: a lista é da clínica (GET aberto a quem está logado — a
+  // recepção usa no inbox). A clínica que já existia vê a lista antiga até salvar
+  // a dela; conta nova começa vazia.
 
   @Get('canned-responses')
-  async getCannedResponses() {
-    return this.settingsService.getCannedResponses();
+  async getCannedResponses(@Request() req: any) {
+    return this.settingsService.getCannedResponses(contaDoUsuario(req.user));
   }
 
   @Patch('canned-responses')
   @Roles('ADMIN')
-  async setCannedResponses(@Body() body: { responses: { id: string; label: string; text: string }[] }) {
-    await this.settingsService.setCannedResponses(body.responses || []);
+  async setCannedResponses(@Request() req: any, @Body() body: { responses: { id: string; label: string; text: string }[] }) {
+    const chave = chaveDeGravacaoDaClinica(CANNED_RESPONSES_KEY, req.user);
+    const lista = validarRespostasRapidas(body?.responses);
+    await this.settingsService.setCannedResponses(chave, lista);
     return { ok: true };
   }
 

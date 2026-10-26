@@ -1183,7 +1183,10 @@ export default function Dashboard() {
   // Canned responses — fetch once on mount (não depende do inbox)
   useEffect(() => {
     api.get('/settings/canned-responses', { _silent401: true } as any)
-      .then(r => setCannedResponsesState(r.data || []))
+      // Só itens com atalho e texto (um valor malformado não derruba o menu '/').
+      .then(r => setCannedResponsesState(
+        Array.isArray(r.data) ? r.data.filter((i: any) => typeof i?.label === 'string' && typeof i?.text === 'string') : [],
+      ))
       .catch(() => {});
   }, []);
 
