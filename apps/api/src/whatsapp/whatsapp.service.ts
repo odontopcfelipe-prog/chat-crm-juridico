@@ -4,6 +4,7 @@ import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toBrazilWhatsappNumber } from '@crm/shared';
 import * as crypto from 'crypto';
+import { chipPadraoDaClinica } from './env-chip';
 
 // Onda 17.61 — fallback do 9º dígito do celular BR. Vários DDDs (ex.: 82/Nordeste)
 // têm o número registrado no WhatsApp SEM o 9 extra, mas o sistema às vezes guarda
@@ -79,6 +80,8 @@ export class WhatsappService {
    *   2. GlobalSetting (via WhatsAppConfig) — fallback compartilhado
    *   3. env vars EVOLUTION_INSTANCE_NAME, EVOLUTION_API_KEY, EVOLUTION_BASE_URL
    *   4. Default 'whatsapp'
+   * F0b — o envio sem chip NÃO usa mais o instanceName daqui (chip padrão de
+   * qualquer clínica): ver chipPadraoDaClinica (env-chip.ts). URL/chave seguem.
    */
   async resolveEvolutionConfig(tenantId?: string | null): Promise<{
     apiUrl: string;
@@ -159,20 +162,24 @@ export class WhatsappService {
   // --- MENSAGENS ---
 
   /**
-   * Onda 17.32.84 — Aceita tenantId opcional. Quando passado, usa
-   * a instancia Evolution DO TENANT (TenantSetting{EVOLUTION_INSTANCE_NAME}).
-   * Sem tenantId, mantem comportamento legacy.
+   * F0b — envio/ação SEM chip que não tem chip da própria clínica: não chama a
+   * Evolution e devolve o MESMO 404 que ela dava pro chip inexistente ('whatsapp'),
+   * pra todo chamador cair no ramo de falha de hoje (evolutionSendFailed/wasSent =
+   * falha; describeEvolutionFailure = "chip do WhatsApp não encontrado").
+   */
+  private semChip(contexto: string) {
+    return { statusCode: 404, error: `sem chip desta clínica (${contexto}) — não enviado`, semChip: true };
+  }
+
+  /**
+   * Onda 17.32.84 — Aceita tenantId opcional (a config da Evolution DO TENANT).
+   * F0b — sem chip: o override legado DA clínica ou o chip padrão do servidor só
+   * se ela for a dona dele (env-chip.ts); sem clínica, não envia.
    */
   async sendText(number: string, text: string, instanceName?: string, quoted?: { key: { remoteJid: string; fromMe: boolean; id: string }; message: { conversation: string } }, tenantId?: string | null) {
-    let targetInstance = instanceName;
-    if (!targetInstance) {
-      if (tenantId) {
-        const cfg = await this.resolveEvolutionConfig(tenantId);
-        targetInstance = cfg.instanceName;
-      } else {
-        targetInstance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
-      }
-    }
+    // Guarda ANTES de consultar o número (chat/whatsappNumbers) pelo chip.
+    const targetInstance = instanceName || (await chipPadraoDaClinica(this.prisma, tenantId, 'sendText'));
+    if (!targetInstance) return this.semChip('sendText');
     // Onda 17.56 — garante o codigo do pais (55) pra numero BR salvo sem DDI.
     // Cirurgico/idempotente: JID e numero ja-com-DDI passam intactos.
     const primary = toBrazilWhatsappNumber(number);
@@ -220,8 +227,11 @@ export class WhatsappService {
     }
   }
 
+  // F0b — ações sobre mensagem (apagar, editar, reagir, lida, digitando): sem chip
+  // = não chama (antes caía no chip padrão do servidor, de outra clínica).
   async deleteForEveryone(instanceName: string, remoteJid: string, externalMessageId: string, fromMe: boolean) {
-    const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('deleteForEveryone');
+    const targetInstance = instanceName;
     return this.request('DELETE', `chat/deleteMessageForEveryone/${targetInstance}`, {
       id: externalMessageId,
       remoteJid,
@@ -230,7 +240,8 @@ export class WhatsappService {
   }
 
   async editMessage(instanceName: string, number: string, externalMessageId: string, newText: string) {
-    const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('editMessage');
+    const targetInstance = instanceName;
     const remoteJid = `${number}@s.whatsapp.net`;
     return this.request('POST', `chat/updateMessage/${targetInstance}`, {
       number,
@@ -262,7 +273,9 @@ export class WhatsappService {
      *  sem ele, o comportamento antigo (config global) segue igual pra quem já chama. */
     tenantId?: string | null,
   ) {
-    const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    // F0b — mesma regra do sendText; guarda ANTES de consultar o número pelo chip.
+    const targetInstance = instanceName || (await chipPadraoDaClinica(this.prisma, tenantId, 'sendMedia'));
+    if (!targetInstance) return this.semChip('sendMedia');
 
     // 9º dígito BR: resolve a variante (com/sem o 9) que EXISTE no WhatsApp, igual
     // ao sendText (Onda 17.62). Sem isso, mídia/documento (ex.: boleto em PDF) ia
@@ -318,7 +331,8 @@ export class WhatsappService {
     instanceName?: string,
     footerText?: string,
   ) {
-    const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('sendList');
+    const targetInstance = instanceName;
     return this.request('POST', `message/sendList/${targetInstance}`, {
       number: toBrazilWhatsappNumber(number),
       title,
@@ -332,19 +346,22 @@ export class WhatsappService {
   // --- REAÇÕES ---
 
   async sendReaction(instanceName: string, key: { remoteJid: string; fromMe: boolean; id: string }, emoji: string) {
-    const inst = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('sendReaction');
+    const inst = instanceName;
     return this.request('POST', `message/sendReaction/${inst}`, { key, reaction: emoji });
   }
 
   // --- PRESENÇA & LEITURA ---
 
   async markAsRead(instanceName: string, readMessages: { remoteJid: string; fromMe: false; id: string }[]) {
-    const inst = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('markAsRead');
+    const inst = instanceName;
     return this.request('POST', `chat/markMessageAsRead/${inst}`, { readMessages });
   }
 
   async sendPresence(instanceName: string, number: string, presence: 'composing' | 'recording' | 'paused') {
-    const inst = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+    if (!instanceName) return this.semChip('sendPresence');
+    const inst = instanceName;
     return this.request('POST', `chat/sendPresence/${inst}`, {
       number,
       options: { delay: 2000, presence },
