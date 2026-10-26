@@ -13,7 +13,7 @@ import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
 /** Sem chip: cai no MESMO registro de falha de quando a Evolution recusava o chip vazio/morto. */
 const SEM_CHIP_PROPRIO = 'Clínica sem chip próprio — o chip padrão do servidor está vazio ou é de outra clínica';
-const LAB_SEM_DISPARO = 'Laboratório: sem disparo em massa';
+const SEM_DISPARO_DE_LAB = 'Laboratório: sem disparo em massa';
 
 @Processor('followup-jobs')
 export class FollowupProcessor extends WorkerHost {
@@ -377,7 +377,7 @@ export class FollowupProcessor extends WorkerHost {
       // nenhum id casa e segue igual.
       if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [broadcast.tenant_id, lead.tenant_id])) {
         this.logger.log(`[LAB-GATE] broadcast — item ${itemId} do disparo ${broadcastId} é de laboratório: não sai`);
-        throw new Error(LAB_SEM_DISPARO);
+        throw new Error(SEM_DISPARO_DE_LAB);
       }
 
       // COMUNICADO: usa mensagem fixa do custom_prompt (sem IA)
