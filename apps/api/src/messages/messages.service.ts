@@ -401,7 +401,9 @@ export class MessagesService {
     if (sendStatus === 'erro') {
       this.chatGateway.emitNewMessage(convo.id, msg);
       this.chatGateway.emitConversationsUpdate(null);
-      throw new BadRequestException('Falha ao enviar mensagem via WhatsApp');
+      // Motivo da recusa no aviso (ex.: "este número não tem WhatsApp"): sem ele, número
+      // errado no cadastro parecia chip caído para quem atende.
+      throw new BadRequestException(`Mensagem não enviada: ${describeEvolutionFailure(externalMsg)}`);
     }
 
     // 3. Update Convo

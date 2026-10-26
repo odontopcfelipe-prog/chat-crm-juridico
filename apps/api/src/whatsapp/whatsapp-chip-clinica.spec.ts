@@ -283,7 +283,7 @@ describe('quem chama: chat do operador sem chip fica com o MESMO registro de fal
     const messages = new MessagesService(prisma, whatsapp, gateway, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     await expect(messages.sendMessage('conv-1', 'oi')).rejects.toThrow(
-      new BadRequestException('Falha ao enviar mensagem via WhatsApp'),
+      new BadRequestException('Mensagem não enviada: chip do WhatsApp não encontrado — confira a conexão do número'),
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(criadas).toEqual([expect.objectContaining({ status: 'erro', text: 'oi', direction: 'out' })]);

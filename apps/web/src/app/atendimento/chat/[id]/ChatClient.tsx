@@ -410,9 +410,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           return [...prev, res.data];
         });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Falha ao enviar mensagem', e);
-      showError('Falha ao enviar mensagem. Tente novamente.');
+      showError(e?.response?.data?.message || 'Falha ao enviar mensagem. Tente novamente.');
       setText(msgText);
     } finally {
       setSending(false);
