@@ -31,13 +31,13 @@ import {
 import { SEM_CONTA_MSG, chaveDeGravacaoDaClinica, contaDoUsuario, ehSuperAdmin } from './config-da-clinica';
 import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, camposDePlataformaEnviados, normalizarCooldown, type CorpoAiConfig } from './ia-config';
 import { CONTRACT_CONFIG_KEY, escolherCamposContrato, urlPublicaAceita } from './contrato-config';
+import { CANNED_RESPONSES_KEY, CRM_CONFIG_KEY, validarRespostasRapidas } from './crc-config';
 
 /** 403 da escrita de skills (instruções da IA), que são da plataforma. */
 const SKILLS_PLATAFORMA_MSG = 'Skills da IA são mantidas pela plataforma — somente o administrador do sistema pode alterar.';
 
 /** 403 de configuração da plataforma pedida por quem não é administrador do sistema. */
 const SO_PLATAFORMA_MSG = 'Configuração da plataforma — somente o administrador do sistema pode alterar.';
-import { CANNED_RESPONSES_KEY, CRM_CONFIG_KEY, validarRespostasRapidas } from './crc-config';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
