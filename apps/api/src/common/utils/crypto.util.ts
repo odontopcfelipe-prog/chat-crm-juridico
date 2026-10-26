@@ -55,6 +55,9 @@ export const SENSITIVE_KEYS = new Set([
   'GDRIVE_OAUTH_CLIENT_ID',
   'GDRIVE_OAUTH_CLIENT_SECRET',
   'GDRIVE_OAUTH_REFRESH_TOKEN',
+  // JSON da service account do Google Analytics (tem a private_key). A já
+  // guardada em base64 puro segue lida: o analytics aceita os dois formatos.
+  'GA4_SERVICE_ACCOUNT_B64',
 ]);
 
 /**
@@ -63,7 +66,7 @@ export const SENSITIVE_KEYS = new Set([
  * Nenhuma chave gravada antes desta lista começa com estes prefixos (as globais
  * casam pelo nome exato acima), então o comportamento delas não muda.
  */
-export const SENSITIVE_KEY_PREFIXES_POR_CONTA: readonly string[] = ['nfse_api_key_'];
+export const SENSITIVE_KEY_PREFIXES_POR_CONTA: readonly string[] = ['nfse_api_key_', 'GA4_SERVICE_ACCOUNT_B64_'];
 
 export function isSensitiveKey(key: string): boolean {
   if (SENSITIVE_KEYS.has(key)) return true;

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
+import { abrirCredencialGa4, gravarGa4, lerGa4DaConta } from './ga4-config';
 
 export class TrackEventDto {
   page_path: string;
@@ -21,40 +22,27 @@ export class AnalyticsService {
 
   constructor(private prisma: PrismaService) {}
 
-  // ── Helpers para globalSetting ────────────────────────────────────────────
+  private readonly avisar = (msg: string) => this.logger.warn(msg);
 
-  private async getSetting(key: string): Promise<string | null> {
-    const row = await this.prisma.globalSetting.findUnique({ where: { key } });
-    return row?.value || null;
-  }
+  // ── GA4 Config (banco, por clínica — ver ga4-config.ts) ────────────────────
 
-  private async upsertSetting(key: string, value: string): Promise<void> {
-    await this.prisma.globalSetting.upsert({
-      where: { key },
-      update: { value },
-      create: { key, value },
-    });
-  }
-
-  // ── GA4 Config (banco) ────────────────────────────────────────────────────
-
-  async getGa4Config(): Promise<{ isConfigured: boolean; propertyId: string | null }> {
-    const propertyId = await this.getSetting('GA4_PROPERTY_ID');
-    const b64 = await this.getSetting('GA4_SERVICE_ACCOUNT_B64');
+  /** Status do GA4 da conta. A credencial nunca volta (só "configurado sim/não"). */
+  async getGa4Config(
+    tenantId?: string | null,
+  ): Promise<{ isConfigured: boolean; propertyId: string | null }> {
+    const ga4 = await lerGa4DaConta(this.prisma, tenantId, this.avisar);
     // Remove o prefixo "properties/" para mostrar só o número na UI
-    const numericId = propertyId ? propertyId.replace('properties/', '') : null;
-    return { isConfigured: !!(propertyId && b64), propertyId: numericId };
+    const numericId = ga4.propertyId ? ga4.propertyId.replace('properties/', '') : null;
+    return { isConfigured: !!(ga4.propertyId && ga4.credencialGuardada), propertyId: numericId };
   }
 
-  async saveGa4Config(propertyId: string, serviceAccountJson: string): Promise<void> {
-    // Valida o JSON (lança se inválido)
-    JSON.parse(serviceAccountJson);
-    const b64 = Buffer.from(serviceAccountJson).toString('base64');
-    const fullPropertyId = propertyId.startsWith('properties/')
-      ? propertyId
-      : `properties/${propertyId}`;
-    await this.upsertSetting('GA4_PROPERTY_ID', fullPropertyId);
-    await this.upsertSetting('GA4_SERVICE_ACCOUNT_B64', b64);
+  /** Salva o GA4 de quem está logado (na conta dele; ver gravarGa4). */
+  async saveGa4Config(
+    user: { roles?: unknown; tenant_id?: unknown } | null | undefined,
+    propertyId: unknown,
+    serviceAccountJson: unknown,
+  ): Promise<void> {
+    await gravarGa4(this.prisma, user, propertyId, serviceAccountJson);
   }
 
   // ── LP Tracking ───────────────────────────────────────────────────────────
@@ -213,10 +201,15 @@ export class AnalyticsService {
 
   // ── GA4 Data API ──────────────────────────────────────────────────────────
 
-  async getGa4Summary() {
-    // Prioridade: banco → env var
-    const propertyId = (await this.getSetting('GA4_PROPERTY_ID')) || process.env.GA4_PROPERTY_ID;
-    const b64 = (await this.getSetting('GA4_SERVICE_ACCOUNT_B64')) || process.env.GA4_SERVICE_ACCOUNT_B64;
+  async getGa4Summary(tenantId?: string | null) {
+    // O par da conta; a conta que herda a configuração antiga segue como antes
+    // (banco → env var); conta nova ou laboratório sem o par próprio: nada.
+    const ga4 = await lerGa4DaConta(this.prisma, tenantId, this.avisar);
+    const herdada = ga4.origem === 'herdada';
+    const propertyId = ga4.propertyId || (herdada ? process.env.GA4_PROPERTY_ID : null);
+    const b64 =
+      abrirCredencialGa4(ga4.credencialGuardada, this.avisar) ||
+      (herdada ? process.env.GA4_SERVICE_ACCOUNT_B64 : null);
 
     if (!propertyId || !b64) return null;
 

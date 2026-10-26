@@ -7,6 +7,7 @@ import {
   ExternalLink, AlertCircle, Search, SlidersHorizontal, MessageCircle, TrendingDown,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 
 /* ──────────────────────────────────────────────────────────────
    Tipos
@@ -317,6 +318,10 @@ function Ga4Panel({ data }: { data: Ga4Summary }) {
    Página principal
 ────────────────────────────────────────────────────────────── */
 export default function AnalyticsDashboard() {
+  // O GA4 é da clínica e só o administrador dela configura (a API recusa os
+  // demais); quem só vê o Marketing vê os números, sem o formulário.
+  const { isAdmin, isSuperAdmin } = useRole();
+  const podeConfigurarGa4 = isAdmin || isSuperAdmin;
   const [pages, setPages]               = useState<PageStat[]>([]);
   const [loading, setLoading]           = useState(true);
   const [selected, setSelected]         = useState<PageDetail | null>(null);
@@ -349,6 +354,7 @@ export default function AnalyticsDashboard() {
       .catch(console.error);
 
   const handleSaveGa4Config = async () => {
+    if (!podeConfigurarGa4) return;
     if (!ga4PropertyId.trim()) { setGa4ConfigError('Informe o Property ID.'); return; }
     if (!ga4JsonText.trim())   { setGa4ConfigError('Cole o JSON da Service Account.'); return; }
     try { JSON.parse(ga4JsonText); } catch { setGa4ConfigError('JSON inválido. Verifique o arquivo copiado.'); return; }
@@ -527,7 +533,9 @@ export default function AnalyticsDashboard() {
                   <Ga4Panel data={ga4} />
                 ) : (
                   <p className="text-xs text-muted-foreground py-2">
-                    Configure as credenciais GA4 abaixo para ver os dados do site.
+                    {podeConfigurarGa4
+                      ? 'Configure as credenciais GA4 abaixo para ver os dados do site.'
+                      : 'O Google Analytics da clínica ainda não foi configurado — fale com o administrador da clínica.'}
                   </p>
                 )}
               </div>
@@ -535,7 +543,8 @@ export default function AnalyticsDashboard() {
           )}
         </div>
 
-        {/* Configuração GA4 — colapsável */}
+        {/* Configuração GA4 — colapsável; só o administrador da clínica */}
+        {podeConfigurarGa4 && (
         <div className="shrink-0 border-t border-border">
           <button
             onClick={() => setShowGa4Config((v) => !v)}
@@ -630,6 +639,7 @@ export default function AnalyticsDashboard() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* ── Painel de Detalhe da LP selecionada ── */}
