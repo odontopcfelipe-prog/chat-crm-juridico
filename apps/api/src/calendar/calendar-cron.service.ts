@@ -4,6 +4,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { CalendarService } from './calendar.service';
 
+/**
+ * Conta dona de uma chave do resumo diário do dentista (`DENTIST_DAILY_SUMMARY_<id>`),
+ * ou null para a chave sem conta e para sufixo vazio, 'undefined' ou 'null'.
+ */
+export function contaDaChaveResumoDentista(key: string): string | null {
+  const PREFIXO = 'DENTIST_DAILY_SUMMARY_';
+  if (!key.startsWith(PREFIXO)) return null;
+  const id = key.slice(PREFIXO.length).trim();
+  if (!id || id === 'undefined' || id === 'null') return null;
+  return id;
+}
+
 @Injectable()
 export class CalendarCronService {
   private readonly logger = new Logger(CalendarCronService.name);
@@ -125,14 +137,18 @@ export class CalendarCronService {
         const sendHH = String(cfg.send_at || '08:00').split(':')[0].padStart(2, '0');
         if (sendHH !== maceioHH) continue;
 
-        // Extrai tenant_id da chave (DENTIST_DAILY_SUMMARY_<tenant>)
-        const tenantId = s.key === 'DENTIST_DAILY_SUMMARY'
-          ? undefined
-          : s.key.replace(/^DENTIST_DAILY_SUMMARY_/, '');
+        // Extrai tenant_id da chave (DENTIST_DAILY_SUMMARY_<tenant>). O resumo é POR
+        // CLÍNICA: a chave sem conta (legado) e sufixo vazio/'undefined'/'null' são
+        // ignorados — nunca dispara para os dentistas de todas as contas.
+        const tenantId = contaDaChaveResumoDentista(s.key);
+        if (!tenantId) {
+          this.logger.warn(`[CRON] ${s.key} sem conta ignorada — cada clínica usa DENTIST_DAILY_SUMMARY_<conta>`);
+          continue;
+        }
 
         try {
           await this.calendarService.sendDentistDailySummaryNow(tenantId);
-          this.logger.log(`[CRON] Resumo diario disparado pra tenant ${tenantId || 'global'} (${currentHHMM})`);
+          this.logger.log(`[CRON] Resumo diario disparado pra tenant ${tenantId} (${currentHHMM})`);
         } catch (e: any) {
           this.logger.error(`[CRON] Erro no resumo diario tenant ${tenantId}: ${e.message}`);
         }

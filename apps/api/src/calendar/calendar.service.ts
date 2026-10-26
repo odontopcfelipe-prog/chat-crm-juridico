@@ -15,6 +15,7 @@ import {
   DEFAULT_RETORNO_TEMPLATES,
   RETORNO_FAMILIA_TEXTO,
   recebeDisparoEquipe,
+  DEFAULT_DENTIST_DAILY_SUMMARY,
 } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
@@ -2035,8 +2036,10 @@ export class CalendarService {
   // Diferente dos reminders por evento — sao consolidados num so disparo.
 
   async getDentistDailySummaryConfig(tenant_id?: string) {
-    const { DEFAULT_DENTIST_DAILY_SUMMARY } = await import('@crm/shared');
-    const key = tenant_id ? `DENTIST_DAILY_SUMMARY_${tenant_id}` : 'DENTIST_DAILY_SUMMARY';
+    // O resumo é POR CLÍNICA: sem conta, o padrão (a chave global sem conta é legado
+    // e não vale para ninguém).
+    if (!tenant_id) return DEFAULT_DENTIST_DAILY_SUMMARY;
+    const key = `DENTIST_DAILY_SUMMARY_${tenant_id}`;
     try {
       const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
       if (!setting?.value) return DEFAULT_DENTIST_DAILY_SUMMARY;
@@ -2052,6 +2055,9 @@ export class CalendarService {
     tenant_id: string | undefined,
     config: { enabled?: boolean; send_at?: string; channel?: string; template?: string },
   ) {
+    if (!tenant_id) {
+      throw new BadRequestException('tenant_id ausente — o resumo do dentista é por clínica');
+    }
     if (config.send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.send_at)) {
       throw new BadRequestException('send_at deve estar no formato HH:MM');
     }
@@ -2066,7 +2072,7 @@ export class CalendarService {
         throw new BadRequestException('template ultrapassa 2000 caracteres');
       }
     }
-    const key = tenant_id ? `DENTIST_DAILY_SUMMARY_${tenant_id}` : 'DENTIST_DAILY_SUMMARY';
+    const key = `DENTIST_DAILY_SUMMARY_${tenant_id}`;
     const current = await this.getDentistDailySummaryConfig(tenant_id);
     const merged = { ...current, ...config };
     await this.prisma.globalSetting.upsert({
@@ -2678,6 +2684,10 @@ export class CalendarService {
    * manual "Enviar agora" da UI.
    */
   async sendDentistDailySummaryNow(tenant_id?: string) {
+    // Por CLÍNICA: sem conta não há "todos os dentistas de todas as contas".
+    if (!tenant_id) {
+      throw new BadRequestException('tenant_id ausente — o resumo do dentista é por clínica');
+    }
     const config = await this.getDentistDailySummaryConfig(tenant_id);
 
     // Janela do DIA DE MACEIÓ no formato naive-UTC da agenda (start_at = hora local
@@ -2693,7 +2703,8 @@ export class CalendarService {
     // ADMIN (ex.: Dra. Suellen) não recebia o resumo da PRÓPRIA agenda do dia.
     const dentists = await this.prisma.user.findMany({
       where: {
-        ...(tenant_id ? { tenant_id } : {}),
+        // Sempre a conta (WhatsApp e PUSH): nunca dentista de outra clínica.
+        tenant_id,
         OR: [
           { roles: { has: 'DENTIST' } },
           { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
