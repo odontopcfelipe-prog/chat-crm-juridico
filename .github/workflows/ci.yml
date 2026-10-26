@@ -71,7 +71,13 @@ jobs:
           npm run build -w @crm/shared
 
       - name: Schema só-aditivo (nada de DROP / troca de tipo / NOT NULL)
-        run: bash scripts/ci/check-schema-expand-only.sh "${{ github.event.before || github.event.pull_request.base.sha || '' }}"
+        # Em PR a base é a do PR (o `before` de um synchronize é só o push anterior).
+        run: bash scripts/ci/check-schema-expand-only.sh "${{ github.event.pull_request.base.sha || github.event.before || '' }}"
+
+      - name: Textos da clínica intactos (pickBt)
+        run: |
+          node scripts/ci/check-pick-literals.selftest.mjs
+          node scripts/ci/check-pick-literals.mjs "${{ github.event.pull_request.base.sha || github.event.before || '' }}"
 
       - name: Schema aplica num Postgres 15 + pgvector
         working-directory: packages/shared

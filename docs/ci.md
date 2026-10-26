@@ -10,6 +10,7 @@ imagens em paralelo. Um CI vermelho é um aviso para não colar o
 | Passo | Pega o quê |
 |---|---|
 | Schema só-aditivo (`scripts/ci/check-schema-expand-only.sh`) | `DROP TABLE`, `DROP COLUMN`, troca de tipo, `SET NOT NULL`, `RENAME`. A API aplica o schema no boot com `db push --accept-data-loss`, então isso iria direto para produção apagando dado. Coluna e índice novos só geram aviso. |
+| Textos da clínica intactos (`scripts/ci/check-pick-literals.mjs` + selftest) | em arquivo que usa `pickBt`/`const LAB_*`: qualquer texto da clínica que mudou (letra, espaço, entidade do JSX) — o 1º argumento do `pickBt` é o texto de hoje e não muda. Também barra texto de laboratório com vocabulário clínico (paciente, consulta, prontuário…). Arquivo sem `pickBt`/`LAB_` não é checado. |
 | Schema aplica num Postgres 15 + pgvector | schema que não sobe (tipo inválido, relação quebrada). |
 | Tipos da API e do worker (`tsc --noEmit`) | erro de tipo, inclusive nos specs (o `nest build` não olha os specs e o `ts-jest` não confere tipos). |
 | Build (`nest build`) | o mesmo build da imagem. |
@@ -24,6 +25,12 @@ imagens em paralelo. Um CI vermelho é um aviso para não colar o
 - **Schema bloqueado:** se a mudança destrutiva for de propósito, ponha no
   commit uma linha `schema-destrutivo: <motivo>`. Antes de publicar, faça
   backup do banco: o boot da API vai aplicar a mudança.
+- **Texto da clínica mudou (pickBt):** se foi de propósito (correção pedida
+  pela clínica), ponha no commit uma linha `texto-clinica: <motivo>`. Texto de
+  laboratório com vocabulário clínico não tem escape: troque a palavra.
+- **Retrato (`__guards__/*.snap`) mudou:** é o que a clínica envia ou vê. Se
+  foi de propósito, `npx jest <spec> -u` no app e commite o `.snap` junto,
+  dizendo no commit o que mudou para as clínicas.
 - **Grafo de injeção:** use `forwardRef(() => X)` nos dois lados (no
   `@Inject` e no `imports` do módulo) ou tire a dependência cruzada.
 - **Teste quebrado sem relação com a sua mudança:** registre em
