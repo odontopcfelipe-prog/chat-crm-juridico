@@ -7,10 +7,12 @@ import {
   escolherChipPaciente,
   chipPacienteOuLegado,
   soTemChipFinanceiro,
+  contaLegada,
+  contaDaChavePostCare,
+  POST_CARE_CONFIG_KEY,
+  POST_CARE_CONFIG_PREFIX,
 } from '@crm/shared';
 import axios from 'axios';
-
-const POST_CARE_KEY = 'POST_CARE_CONFIG';
 
 interface PostCareConfig {
   enabled: boolean;
@@ -45,6 +47,12 @@ const DEFAULT_CONFIG: PostCareConfig = {
   send_apology_on_negative: true,
 };
 
+/** Config de cada conta num tick + filtro das contas ligadas para as consultas. */
+interface PlanoPostCare {
+  cfgFor(tenantId: string): Promise<PostCareConfig>;
+  filtroConta: Record<string, unknown>;
+}
+
 @Injectable()
 export class PostCareCronService implements OnModuleInit {
   private readonly logger = new Logger(PostCareCronService.name);
@@ -61,11 +69,13 @@ export class PostCareCronService implements OnModuleInit {
   @Cron('*/10 * * * *', { timeZone: 'America/Maceio' })
   async tick() {
     try {
-      const cfg = await this.getConfig();
-      if (!cfg.enabled) return;
+      // Config POR CONTA (POST_CARE_CONFIG_<tenantId>); conta legada sem a própria
+      // herda a global antiga; conta nova sem a própria fica no padrão.
+      const plano = await this.montarPlano();
+      if (!plano) return;
 
-      const created = await this.scanCompletedAppointments(cfg);
-      const sent = await this.dispatchPendingSurveys(cfg);
+      const created = await this.scanCompletedAppointments(plano);
+      const sent = await this.dispatchPendingSurveys(plano);
       if (created || sent) {
         this.logger.log(`[PostCare] Tick: ${created} criada(s), ${sent} enviada(s)`);
       }
@@ -74,9 +84,54 @@ export class PostCareCronService implements OnModuleInit {
     }
   }
 
+  /**
+   * Config de cada conta neste tick + o filtro de contas ligadas para as consultas
+   * (uma conta desligada não pode "entupir" o take das outras). null = nenhuma
+   * conta ligada (o mesmo "não faz nada" de quando a global estava desligada).
+   */
+  private async montarPlano(): Promise<PlanoPostCare | null> {
+    const legada = await this.getConfig();
+    const linhas: Array<{ key: string; value: string | null }> =
+      (await this.prisma.globalSetting.findMany({
+        where: { key: { startsWith: POST_CARE_CONFIG_PREFIX } },
+        select: { key: true, value: true },
+      })) ?? [];
+    const proprias = new Map<string, PostCareConfig>();
+    for (const l of linhas) {
+      const t = contaDaChavePostCare(l.key);
+      if (t) proprias.set(t, this.parseConfig(l.value));
+    }
+
+    const cache = new Map<string, PostCareConfig>();
+    const cfgFor = async (tenantId: string): Promise<PostCareConfig> => {
+      const pronta = proprias.get(tenantId) ?? cache.get(tenantId);
+      if (pronta) return pronta;
+      const legadaDaConta = await contaLegada(this.prisma, tenantId, (m) => this.logger.warn(m));
+      const cfg = legadaDaConta ? legada : { ...DEFAULT_CONFIG };
+      cache.set(tenantId, cfg);
+      return cfg;
+    };
+
+    if (legada.enabled && DEFAULT_CONFIG.enabled) {
+      // Quem não tem a própria está ligado (legada herda a global ligada; nova, o padrão).
+      const desligadas = [...proprias].filter(([, c]) => !c.enabled).map(([t]) => t);
+      return { cfgFor, filtroConta: desligadas.length ? { tenant_id: { notIn: desligadas } } : {} };
+    }
+
+    // Global antiga desligada: só as contas com a própria ligada e as contas novas
+    // sem a própria (padrão) entram.
+    const ligadas = new Set([...proprias].filter(([, c]) => c.enabled).map(([t]) => t));
+    const contas: Array<{ id: string }> = (await this.prisma.tenant.findMany({ select: { id: true } })) ?? [];
+    for (const { id } of contas) {
+      if (!proprias.has(id) && (await cfgFor(id)).enabled) ligadas.add(id);
+    }
+    if (!ligadas.size) return null;
+    return { cfgFor, filtroConta: { tenant_id: { in: [...ligadas] } } };
+  }
+
   // ─── Scan: cria survey PENDING para consultas concluidas sem survey ─────────
 
-  private async scanCompletedAppointments(cfg: PostCareConfig): Promise<number> {
+  private async scanCompletedAppointments(plano: PlanoPostCare): Promise<number> {
     const since = new Date();
     since.setDate(since.getDate() - 1);
 
@@ -87,6 +142,7 @@ export class PostCareCronService implements OnModuleInit {
         updated_at: { gte: since },
         post_care_survey: null,
         patient_id: { not: null },
+        ...plano.filtroConta,
       },
       select: {
         id: true, tenant_id: true, patient_id: true, assigned_user_id: true,
@@ -98,6 +154,8 @@ export class PostCareCronService implements OnModuleInit {
     let created = 0;
     for (const ev of events) {
       if (!ev.tenant_id || !ev.patient_id) continue;
+      const cfg = await plano.cfgFor(ev.tenant_id);
+      if (!cfg.enabled) continue;
       const baseAt = ev.end_at || ev.start_at;
       const triggerAt = new Date(baseAt.getTime() + cfg.delay_hours * 60 * 60 * 1000);
       try {
@@ -126,10 +184,10 @@ export class PostCareCronService implements OnModuleInit {
 
   // ─── Dispatch: envia surveys PENDING com trigger_at vencido ─────────────────
 
-  private async dispatchPendingSurveys(cfg: PostCareConfig): Promise<number> {
+  private async dispatchPendingSurveys(plano: PlanoPostCare): Promise<number> {
     const now = new Date();
     const surveys = await (this.prisma as any).postCareSurvey.findMany({
-      where: { status: 'PENDING', trigger_at: { lte: now } },
+      where: { status: 'PENDING', trigger_at: { lte: now }, ...plano.filtroConta },
       orderBy: { trigger_at: 'asc' },
       take: 30,
       include: {
@@ -140,6 +198,11 @@ export class PostCareCronService implements OnModuleInit {
 
     let sent = 0;
     for (const s of surveys) {
+      const contaDaPesquisa: string | null = s.tenant_id ?? s.patient?.tenant_id ?? null;
+      const cfg = contaDaPesquisa ? await plano.cfgFor(contaDaPesquisa) : { ...DEFAULT_CONFIG };
+      // Conta desligada: fica PENDING, como com o robô desligado. (Sem conta segue
+      // como antes: o envio recusa e a pesquisa vira FAILED.)
+      if (contaDaPesquisa && !cfg.enabled) continue;
       if (!s.patient.phone) {
         await (this.prisma as any).postCareSurvey.update({
           where: { id: s.id },
@@ -180,13 +243,18 @@ export class PostCareCronService implements OnModuleInit {
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
+  /** Global antiga (sem conta) — a reserva das contas legadas. */
   private async getConfig(): Promise<PostCareConfig> {
     const row = await this.prisma.globalSetting.findUnique({
-      where: { key: POST_CARE_KEY },
+      where: { key: POST_CARE_CONFIG_KEY },
     });
-    if (!row?.value) return { ...DEFAULT_CONFIG };
+    return this.parseConfig(row?.value);
+  }
+
+  private parseConfig(value: string | null | undefined): PostCareConfig {
+    if (!value) return { ...DEFAULT_CONFIG };
     try {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(row.value) };
+      return { ...DEFAULT_CONFIG, ...JSON.parse(value) };
     } catch {
       return { ...DEFAULT_CONFIG };
     }

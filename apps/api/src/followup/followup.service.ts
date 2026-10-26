@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL } from '@crm/shared';
 import OpenAI from 'openai';
+import { gravarPostCareConfigDaConta, lerPostCareConfigBruta } from '../post-care/post-care-config';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -127,7 +128,8 @@ export class FollowupService {
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
-      this.prisma.globalSetting.findUnique({ where: { key: 'POST_CARE_CONFIG' } }),
+      // Pesquisa pós-atendimento: config DA CONTA (conta legada herda a global antiga).
+      lerPostCareConfigBruta(this.prisma, tenantId, (m) => this.logger.warn(m)),
       this.prisma.globalSetting.findUnique({ where: { key: `DENTIST_DAILY_SUMMARY_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BIRTHDAY_GREETING_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` } }),
@@ -188,7 +190,7 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
-    const posCfg = this.parseJson(posSetting?.value);
+    const posCfg = posSetting;
     const dentCfg = this.parseJson(dentSetting?.value);
     const birthdayCfg = this.parseJson(birthdaySetting?.value);
 
@@ -845,9 +847,13 @@ export class FollowupService {
       case 'lembrete':
         await mergeJson(`REMINDER_CONFIG_${tenantId}`, { enabled });
         break;
-      case 'pos':
-        await mergeJson('POST_CARE_CONFIG', { enabled });
+      case 'pos': {
+        // Grava SÓ na chave da conta, sobre a config que a conta estava vendo (com a
+        // herança da global antiga): o 1º toggle não perde texto, estilo nem atraso.
+        const base = (await lerPostCareConfigBruta(this.prisma, tenantId, (m) => this.logger.warn(m))) ?? {};
+        await gravarPostCareConfigDaConta(this.prisma, tenantId, { ...base, enabled });
         break;
+      }
       case 'dentista':
         await mergeJson(`DENTIST_DAILY_SUMMARY_${tenantId}`, { enabled });
         break;

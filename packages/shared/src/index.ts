@@ -51,3 +51,5 @@ export * from './business-type';
 export * from './lab-tenants';
 // Configuração por conta na GlobalSetting: reserva na global antiga só para contas legadas
 export * from './conta-legada';
+// Pesquisa pós-atendimento (NPS): chave da configuração por conta
+export * from './post-care-config';

@@ -5,8 +5,7 @@ import {
   PostCareConfig, DEFAULT_CONFIG, analyzeSentiment, renderInitialMessage,
   renderThanks, renderApology, InitialChoice,
 } from './post-care-templates';
-
-const SETTINGS_KEY = 'POST_CARE_CONFIG';
+import { escolherCamposPostCare, gravarPostCareConfigDaConta, lerPostCareConfigBruta } from './post-care-config';
 
 @Injectable()
 export class PostCareService {
@@ -17,26 +16,37 @@ export class PostCareService {
     private settings: SettingsService,
   ) {}
 
-  // ─── Config (settings global key/value) ─────────────────────────────────────
+  // ─── Config (GlobalSetting POR CONTA: POST_CARE_CONFIG_<tenantId>) ──────────
 
-  async getConfig(): Promise<PostCareConfig> {
-    const raw = await this.settings.get(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_CONFIG };
+  /**
+   * Config da conta: a chave da conta; sem ela, a global antiga se a conta for
+   * legada; senão o padrão. Sem conta: a global antiga (como antes).
+   */
+  async getConfig(tenantId?: string | null): Promise<PostCareConfig> {
+    let raw: Record<string, any> | null = null;
     try {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-    } catch {
-      return { ...DEFAULT_CONFIG };
+      raw = await lerPostCareConfigBruta(this.prisma, tenantId, (m) => this.logger.warn(m));
+    } catch (e: any) {
+      // Como antes (settings.get): erro de leitura = padrão.
+      this.logger.error(`Erro ao buscar POST_CARE_CONFIG (tenant ${tenantId ?? '-'}): ${e?.message}`);
     }
+    return raw ? { ...DEFAULT_CONFIG, ...raw } : { ...DEFAULT_CONFIG };
   }
 
-  async updateConfig(patch: Partial<PostCareConfig>): Promise<PostCareConfig> {
-    const current = await this.getConfig();
-    const next = { ...current, ...patch };
+  /**
+   * Grava SÓ na chave da conta. A base é a config que a conta estava vendo (com a
+   * herança da global antiga), então o 1º salvamento não perde nada. Do corpo, só
+   * os 8 campos conhecidos (o resto é ignorado: a tela manda o objeto inteiro).
+   */
+  async updateConfig(tenantId: string | null | undefined, patch: unknown): Promise<PostCareConfig> {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const current = await this.getConfig(tenantId);
+    const next = { ...current, ...escolherCamposPostCare(patch) };
     if (next.delay_hours < 1) next.delay_hours = 1;
     if (next.delay_hours > 48) next.delay_hours = 48;
     const validChoices: InitialChoice[] = ['descontraido', 'formal', 'breve', 'custom'];
     if (!validChoices.includes(next.initial_choice)) next.initial_choice = 'descontraido';
-    await this.settings.set(SETTINGS_KEY, JSON.stringify(next));
+    await gravarPostCareConfigDaConta(this.prisma, tenantId, next as unknown as Record<string, unknown>);
     return next;
   }
 
@@ -120,6 +130,7 @@ export class PostCareService {
   async ensureSurveyForAppointment(
     appointmentId: string,
     cfg?: PostCareConfig,
+    escopoTenantId?: string | null,
   ): Promise<{ survey_id: string; created: boolean } | null> {
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: appointmentId },
@@ -129,10 +140,13 @@ export class PostCareService {
       },
     });
     if (!event || !event.tenant_id || !event.patient_id) return null;
+    // Chamada de uma conta (test-send): consulta de OUTRA conta não cria nada —
+    // mesma resposta da consulta inexistente.
+    if (escopoTenantId && event.tenant_id !== escopoTenantId) return null;
     if (event.status !== 'CONCLUIDO') return null;
     if (event.type !== 'CONSULTA') return null; // so consultas
 
-    const config = cfg || (await this.getConfig());
+    const config = cfg || (await this.getConfig(event.tenant_id));
     if (!config.enabled) return null;
 
     // Ja existe?
@@ -204,7 +218,7 @@ export class PostCareService {
     });
 
     let escalated = false;
-    const config = await this.getConfig();
+    const config = await this.getConfig(tenantId);
 
     if (sentiment === 'NEGATIVE') {
       escalated = await this.escalateToAdmins(tenantId, survey.id, text);
@@ -362,7 +376,7 @@ export class PostCareService {
     });
     if (!survey || !survey.patient.phone) return null;
 
-    const cfg = await this.getConfig();
+    const cfg = await this.getConfig(survey.tenant_id);
     const firstName = survey.patient.name.split(' ')[0];
     const dentistName = survey.dentist?.name
       ? `Dr(a). ${survey.dentist.name.split(' ').slice(0, 2).join(' ')}`

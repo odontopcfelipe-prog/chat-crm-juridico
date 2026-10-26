@@ -42,9 +42,10 @@ export class PostCareController {
     return this.service.getStats(tenantId, n > 0 && n <= 365 ? n : 30);
   }
 
+  /** Config da CONTA do usuário (com a herança da global antiga para conta legada). */
   @Get('config')
-  getConfig() {
-    return this.service.getConfig().then((cfg) => ({
+  getConfig(@Request() req: any) {
+    return this.service.getConfig(req.user?.tenant_id).then((cfg) => ({
       ...cfg,
       // expoe as opcoes pra UI sem precisar do front conhecer
       _meta: {
@@ -54,17 +55,25 @@ export class PostCareController {
     }));
   }
 
+  /**
+   * Grava na chave da CONTA do usuário (nunca na global antiga). Sem classe/DTO de
+   * propósito: a tela manda o objeto inteiro do GET; o service escolhe os 8 campos
+   * e ignora o resto.
+   */
   @Patch('config')
   @Roles('ADMIN')
-  updateConfig(@Body() patch: Partial<PostCareConfig>) {
-    return this.service.updateConfig(patch);
+  updateConfig(@Request() req: any, @Body() patch: Partial<PostCareConfig>) {
+    return this.service.updateConfig(req.user?.tenant_id, patch);
   }
 
-  /** Gatilho manual — util pra testar sem esperar 2h. */
+  /** Gatilho manual — util pra testar sem esperar 2h. Só consulta da própria conta. */
   @Post('test-send')
   @Roles('ADMIN')
-  testSend(@Body() body: { appointment_id: string }) {
+  testSend(@Request() req: any, @Body() body: { appointment_id: string }) {
     if (!body?.appointment_id) throw new BadRequestException('appointment_id obrigatorio');
-    return this.service.ensureSurveyForAppointment(body.appointment_id);
+    const tenantId = req.user?.tenant_id;
+    const isSuper = Array.isArray(req.user?.roles) && req.user.roles.includes('SUPER_ADMIN');
+    if (!tenantId && !isSuper) throw new BadRequestException('tenant_id ausente');
+    return this.service.ensureSurveyForAppointment(body.appointment_id, undefined, tenantId);
   }
 }
