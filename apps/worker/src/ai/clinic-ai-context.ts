@@ -7,6 +7,7 @@ import {
   formatClinicHours,
   formatTenantAddress,
   isAiChipPurpose,
+  isLabTenant,
   normalizeAiChipProfile,
   normalizeClinicHours,
   type AiChipProfile,
@@ -109,12 +110,14 @@ export async function loadClinicAiContext(
  * Chip sem função = só o kill switch. Usado por jobs que NÃO passam pelo webhook
  * (ex.: 2ª tentativa de agendamento, agendada pelo próprio worker). Erro de leitura
  * de uma chave = ignora aquela chave (cai na seguinte).
+ * Laboratório: sempre false (F2 — laboratório não tem IA, seja qual for a chave).
  */
 export async function isChipAiEnabledForClinic(
   prisma: any,
   tenantId: string | null | undefined,
   purpose: string | null | undefined,
 ): Promise<boolean> {
+  if (await isLabTenant(prisma, tenantId)) return false;
   const kill = await prisma.globalSetting.findUnique({ where: { key: 'WHATSAPP_AI_ENABLED' } }).catch(() => null);
   const master = (kill?.value ?? 'true') !== 'false';
   if (!purpose) return master;

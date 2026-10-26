@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { getLabTenantIds, withoutLabTenants } from '@crm/shared';
 import {
   ORG_PROFILE_CONSOLIDATION_PROMPT,
   ORG_PROFILE_INCREMENTAL_PROMPT,
@@ -67,7 +68,12 @@ export class OrgProfileConsolidationProcessor {
    * desde a ultima incorporacao. Se nao houver mudancas, summary permanece igual.
    */
   async consolidateAll(): Promise<{ tenants: number; skipped: number; changed: number }> {
-    const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
+    // F2 [LAB-GATE] — laboratório não tem perfil de organização feito por IA.
+    const tenants = withoutLabTenants(
+      await this.prisma.tenant.findMany({ select: { id: true } }),
+      await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)),
+      (t) => t.id,
+    );
     const manuallyEdited = await this.prisma.organizationProfile.findMany({
       where: { manually_edited_at: { not: null } },
       select: { tenant_id: true },

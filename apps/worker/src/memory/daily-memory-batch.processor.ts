@@ -8,7 +8,7 @@ import { SettingsService } from '../settings/settings.service';
 import { EmbeddingService } from './embedding.service';
 import { MemoryRetrievalService } from './memory-retrieval.service';
 import { BATCH_EXTRACTION_PROMPT } from './memory-prompts';
-import { screenExtractedOrgMemory } from '@crm/shared';
+import { getLabTenantIds, screenExtractedOrgMemory, withoutLabTenants } from '@crm/shared';
 
 const DEFAULT_BATCH_SIZE = 30;
 const MIN_MESSAGE_LEN = 3;
@@ -82,7 +82,12 @@ export class DailyMemoryBatchProcessor {
     }
 
     this.logger.log('=== Inicio da extracao diaria de memorias ===');
-    const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
+    // F2 [LAB-GATE] — laboratório não tem memória de IA.
+    const tenants = withoutLabTenants(
+      await this.prisma.tenant.findMany({ select: { id: true } }),
+      await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)),
+      (t) => t.id,
+    );
     const today = new Date().toISOString().split('T')[0];
 
     for (const tenant of tenants) {

@@ -12,8 +12,10 @@ import {
   EXCLUI_LAB_FORMA,
   Prisma,
   __limparCacheLabTenants,
+  algumLab,
   excludeLabWhere,
   getLabTenantIds,
+  isLabTenant,
   isLabTenantCached,
   withoutLabTenants,
 } from '@crm/shared';
@@ -139,6 +141,30 @@ describe('com um laboratório', () => {
     expect(excludeLabWhere('patient', where, labs)).toEqual({ AND: [{ status: 'ATIVO' }, { tenant_id: { notIn: [LAB] } }] });
     expect(excludeLabWhere('quote', undefined, labs)).toEqual({ AND: [{}, { patient: { tenant_id: { notIn: [LAB] } } }] });
     expect(where).toEqual(copia);
+  });
+});
+
+describe('isLabTenant e algumLab (F2)', () => {
+  it('isLabTenant: sem id não consulta; com id usa o mesmo cache', async () => {
+    const { prisma, findMany } = prismaFalso([{ tenant_id: LAB }]);
+    for (const vazio of [null, undefined, '', 42, {}]) expect(await isLabTenant(prisma, vazio)).toBe(false);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(await isLabTenant(prisma, LAB)).toBe(true);
+    expect(await isLabTenant(prisma, 'clinica')).toBe(false);
+    expect(findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('isLabTenant: banco falhou sem nunca ter carregado = clínica, sem lançar', async () => {
+    const { prisma } = prismaFalso(new Error('db fora'));
+    expect(await isLabTenant(prisma, LAB, () => undefined)).toBe(false);
+  });
+
+  it('algumLab: sem laboratório é false; null/undefined/texto vazio contam como clínica', () => {
+    expect(algumLab(new Set(), [LAB])).toBe(false);
+    const labs = new Set([LAB]);
+    expect(algumLab(labs, [null, undefined, '', 'clinica'])).toBe(false);
+    expect(algumLab(labs, [null, LAB])).toBe(true);
+    expect(algumLab(labs, [])).toBe(false);
   });
 });
 

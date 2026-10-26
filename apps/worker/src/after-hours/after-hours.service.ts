@@ -3,6 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   computeBusinessHoursStatus,
+  getLabTenantIds,
+  withoutLabTenants,
   isAfterHoursAiEnabled,
   loadBusinessHoursSettings,
   loadOfficeHoursValues,
@@ -55,6 +57,8 @@ export class AfterHoursService {
       this.logger.error(`[AfterHours] Falha ao listar clínicas: ${e.message}`);
       return;
     }
+    // F2 [LAB-GATE] — laboratório não liga IA fora do expediente.
+    tenants = withoutLabTenants(tenants, await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), (t) => t.id);
     for (const t of tenants) await this.tickTenant(t.id);
     // Conversas legadas sem clínica: regra global (como antes).
     await this.tickTenant(null);

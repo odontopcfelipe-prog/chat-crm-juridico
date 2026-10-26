@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { excludeLabWhere, getLabTenantIds } from '@crm/shared';
 
 /**
  * Reativa automaticamente o ai_mode em conversas onde a IA ficou desligada
@@ -27,9 +28,12 @@ export class AiReactivationCronService {
     try {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
+      // F2 [LAB-GATE] — laboratório não tem IA para religar (fica fora da busca).
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+
       // Busca conversas candidatas: ai_mode desligado há 24h+ em conversas abertas
       const candidates = await this.prisma.conversation.findMany({
-        where: {
+        where: excludeLabWhere('conversation', {
           ai_mode: false,
           ai_mode_disabled_at: { lt: twentyFourHoursAgo },
           status: { notIn: ['FECHADO'] },
@@ -44,7 +48,7 @@ export class AiReactivationCronService {
           ai_mode_source: { not: 'MANUAL' },
           // Apenas conversas com lead ativo (não PERDIDO/FINALIZADO)
           lead: { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } },
-        },
+        }, labs),
         select: {
           id: true,
           assigned_user_id: true,

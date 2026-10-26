@@ -24,6 +24,8 @@ import {
   nonPatientCategoryLabel,
   naoPacienteTriageKey,
   NAO_PACIENTE_ANEXO_JANELA_MS,
+  getLabTenantIds,
+  algumLab,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
@@ -117,6 +119,11 @@ export class EvolutionService implements OnApplicationBootstrap {
     private mediaDownloadService: MediaDownloadService,
     private postCareService: PostCareService,
   ) {}
+
+  /** F2 — algum destes ids é de laboratório? Sem laboratório cadastrado: false (cache de 60 s). */
+  private async contaDeLaboratorio(ids: readonly unknown[]): Promise<boolean> {
+    return algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), ids);
+  }
 
   /**
    * Verifica se a mensagem recebida eh resposta a uma pesquisa pos-atendimento.
@@ -231,7 +238,11 @@ export class EvolutionService implements OnApplicationBootstrap {
         const sessionKey = `${instanceName}:${phone}`;
         if (this.adminBotService.isAdminCommand(sessionKey, messageContentCheck)) {
           const adminUser = await this.adminBotService.findAdminByPhone(phone, effectiveTenantId);
-          if (adminUser && instanceName) {
+          // F2 [LAB-GATE] — laboratório não tem robô de admin: a mensagem segue como a
+          // de qualquer contato (igual ao robô desligado).
+          const roboDeLab = !!adminUser && (await this.contaDeLaboratorio([effectiveTenantId, adminUser.tenant_id]));
+          if (roboDeLab) this.logger.log(`[LAB-GATE] admin-bot — mensagem de ${phone} em laboratório segue como contato`);
+          if (adminUser && instanceName && !roboDeLab) {
             this.logger.log(`[ADMIN-BOT] Comando do admin ${phone} interceptado: "${messageContentCheck.substring(0, 60)}"`);
             await this.adminBotService.handle(
               instanceName,
@@ -738,6 +749,7 @@ export class EvolutionService implements OnApplicationBootstrap {
         const master = (killSwitch?.value ?? 'true') !== 'false';
         let aiEnabled = master;
         let chipPurpose: string | null = null;
+        let chipTenantId: string | null = null;
         // Liga/desliga e tempo de resposta são POR CLÍNICA (perfil da IA em
         // Ajustes › IA): a clínica é a da conversa — nunca mistura clínicas.
         let convTenantId: string | null = conv.tenant_id ?? effectiveTenantId ?? lead.tenant_id ?? null;
@@ -747,6 +759,7 @@ export class EvolutionService implements OnApplicationBootstrap {
             select: { purpose: true, tenant_id: true },
           });
           chipPurpose = inst?.purpose || null;
+          chipTenantId = inst?.tenant_id ?? null;
           // Conversa/inbox/lead legados sem clínica: o dono do chip decide.
           convTenantId = conv.tenant_id ?? effectiveTenantId ?? inst?.tenant_id ?? lead.tenant_id ?? null;
           if (chipPurpose) {
@@ -771,6 +784,12 @@ export class EvolutionService implements OnApplicationBootstrap {
               aiEnabled = flag?.value != null ? flag.value !== 'false' : master;
             }
           }
+        }
+        // F2 [LAB-GATE] — laboratório não tem IA, seja qual for a chave. Clínica: nenhum
+        // id casa e vale a decisão acima.
+        if (aiEnabled && (await this.contaDeLaboratorio([convTenantId, conv.tenant_id, lead.tenant_id, chipTenantId]))) {
+          aiEnabled = false;
+          this.logger.log(`[LAB-GATE] ai — conv ${conv.id} é de laboratório: a IA não responde`);
         }
         if (!aiEnabled) {
           this.logger.log(

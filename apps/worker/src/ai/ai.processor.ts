@@ -20,6 +20,8 @@ import {
   naoPacienteTriageKey,
   nonPatientCategoryLabel,
   desligouDisparoEquipe,
+  getLabTenantIds,
+  algumLab,
 } from '@crm/shared';
 import { sendAdminAlert } from '../admin-alerts/admin-alert';
 import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
@@ -851,6 +853,22 @@ export class AiProcessor extends WorkerHost {
       this.logger.warn(`[AI][NÃO-PACIENTE] API não devolveu o arquivo da msg ${msg.id}: ${e?.message}`);
     }
     return null;
+  }
+
+  /**
+   * A conversa é de um laboratório? Olha a conta da conversa, a do contato e a do
+   * chip. Sem laboratório cadastrado, responde false sem consultar o banco (o
+   * conjunto de laboratórios vem do cache de 60 s).
+   */
+  private async conversaDeLaboratorio(convo: any): Promise<boolean> {
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!labs.size) return false;
+    if (algumLab(labs, [convo?.tenant_id, convo?.lead?.tenant_id])) return true;
+    if (!convo?.instance_name) return false;
+    const inst = await this.prisma.instance
+      .findFirst({ where: { name: convo.instance_name }, select: { tenant_id: true } })
+      .catch(() => null);
+    return algumLab(labs, [inst?.tenant_id]);
   }
 
   /** Envio WhatsApp cru via Evolution com checagem de entrega REAL (estilo wasSent). */
@@ -1911,6 +1929,14 @@ export class AiProcessor extends WorkerHost {
       // entries e atualizando LeadProfile automaticamente.
       if (!convo.ai_mode) {
         if (isSchedulingRetry) this.logger.log(`[AI-RETRY] Job ${job.id} abortado — IA desligada na conversa ${conversation_id} (humano atende)`);
+        return;
+      }
+
+      // 3a'. F2 [LAB-GATE] — laboratório não tem IA em nenhuma camada: resposta,
+      // memória do atendente, 2ª tentativa, fora do expediente e chat de teste passam
+      // todos por aqui. Clínica: nenhum id casa e o job segue como sempre.
+      if (await this.conversaDeLaboratorio(convo)) {
+        this.logger.log(`[LAB-GATE] ai — job ${job.id} (conv ${conversation_id}) é de laboratório: a IA não roda`);
         return;
       }
 

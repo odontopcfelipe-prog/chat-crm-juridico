@@ -110,6 +110,11 @@ O cadastro vai ganhar um segundo tipo de tenant (laboratório de prótese). Isto
   Porquê: só o `onDelete: Cascade` da relação apaga junto; a exclusão de tenant, quando vier, precisa da lista desses models.
 - `/lab` do web (`apps/web/src/app/lab/*`) é sandbox de teste visual, pública e sem dado.
   Porquê: não é o produto laboratório; nada do produto nem dado real vai ali.
+- Automatismo novo (cron, fila, webhook) que fala com contato ou chama a IA pergunta se a
+  conta é laboratório (`isLabTenant`, `algumLab`, `withoutLabTenants`, `excludeLabWhere`
+  de `@crm/shared`) e, se for, para com log `[LAB-GATE] <nome>`. A IA do laboratório fica
+  desligada em todas as camadas; o freio definitivo é o de `AiProcessor.process`.
+  Porquê: conta de laboratório que passa por um automatismo de clínica recebe texto, IA e configuração de clínica.
 
 ## Testes
 

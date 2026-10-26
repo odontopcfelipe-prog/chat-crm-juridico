@@ -1,6 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import { isLabTenant } from '@crm/shared';
+import { PrismaService } from '../prisma/prisma.service';
 import { DailyMemoryBatchProcessor } from './daily-memory-batch.processor';
 import { ProfileConsolidationProcessor } from './profile-consolidation.processor';
 import { OrgProfileConsolidationProcessor } from './org-profile-consolidation.processor';
@@ -22,6 +24,8 @@ import { OrgProfileConsolidationProcessor } from './org-profile-consolidation.pr
  *   - consolidate-profiles-after-batch         → ProfileConsolidationProcessor
  *   - consolidate-profile                      → ProfileConsolidationProcessor
  *   - consolidate-org-profile                  → OrgProfileConsolidationProcessor
+ *
+ * Laboratório (F2): nenhum job dele roda — a conta vem em job.data.tenant_id.
  */
 @Injectable()
 @Processor('memory-jobs')
@@ -29,6 +33,7 @@ export class MemoryJobsProcessor extends WorkerHost {
   private readonly logger = new Logger(MemoryJobsProcessor.name);
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly batch: DailyMemoryBatchProcessor,
     private readonly profile: ProfileConsolidationProcessor,
     private readonly orgProfile: OrgProfileConsolidationProcessor,
@@ -37,6 +42,13 @@ export class MemoryJobsProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<any> {
+    // F2 [LAB-GATE] — laboratório não tem memória de IA (extração e perfis).
+    const tenantId = (job.data as { tenant_id?: unknown } | undefined)?.tenant_id;
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] memory — job ${job.name} de laboratório ignorado`);
+      return null;
+    }
+
     switch (job.name) {
       case 'daily-batch-extract':
       case 'manual-extract':

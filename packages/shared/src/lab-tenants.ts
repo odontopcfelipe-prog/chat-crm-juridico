@@ -70,6 +70,29 @@ async function carregar(prisma: PrismaLab, avisar: (msg: string) => void): Promi
 }
 
 /**
+ * A conta é laboratório? Usa o mesmo cache de 60 s. Sem id (null, '', não-texto)
+ * responde false sem consultar nada. Nunca rejeita.
+ */
+export async function isLabTenant(
+  prisma: PrismaLab,
+  tenantId: unknown,
+  avisar?: (msg: string) => void,
+): Promise<boolean> {
+  if (typeof tenantId !== 'string' || tenantId === '') return false;
+  const ids = await getLabTenantIds(prisma, avisar);
+  return ids.has(tenantId);
+}
+
+/**
+ * Algum destes ids é de laboratório? Sem laboratório cadastrado, false sem olhar
+ * os ids. null/undefined/'' contam como clínica.
+ */
+export function algumLab(labIds: ReadonlySet<string>, ids: readonly unknown[]): boolean {
+  if (!labIds.size) return false;
+  return ids.some((t) => typeof t === 'string' && labIds.has(t));
+}
+
+/**
  * Síncrono: a conta está no último conjunto carregado por getLabTenantIds?
  * Sem carga ainda (ou id vazio) = false, ou seja, clínica.
  */

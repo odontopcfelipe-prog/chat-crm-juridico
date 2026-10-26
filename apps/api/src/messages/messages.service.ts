@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed, describeEvolutionFailure } from '../whatsapp/whatsapp.service';
-import { toBrazilWhatsappNumber, brazilPhoneMatchVariants } from '@crm/shared';
+import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, getLabTenantIds, algumLab } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { MediaS3Service } from '../media/s3.service';
 import { FileStorageService } from '../media/filesystem.service';
@@ -233,8 +233,13 @@ export class MessagesService {
   }
 
   /** Enfileira job para atualizar a Long Memory após mensagem do operador.
-   *  Debounce de 15s com job ID fixo para acumular mensagens rápidas. */
-  private async enqueueMemoryUpdate(conversationId: string, leadId: string) {
+   *  Debounce de 15s com job ID fixo para acumular mensagens rápidas.
+   *  `contas` = conta da conversa e do contato: laboratório não tem IA (F2). */
+  private async enqueueMemoryUpdate(conversationId: string, leadId: string, contas: readonly unknown[] = []) {
+    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), contas)) {
+      this.logger.log(`[LAB-GATE] ai — memory-op da conv ${conversationId} (laboratório) não enfileirado`);
+      return;
+    }
     const jobId = `memory-op-${conversationId}`;
     const existing = await this.aiQueue.getJob(jobId);
     if (existing) {
@@ -406,7 +411,7 @@ export class MessagesService {
     });
 
     // 4. Atualizar memória com mensagem do operador (debounce 15s)
-    this.enqueueMemoryUpdate(convo.id, convo.lead_id).catch((e) =>
+    this.enqueueMemoryUpdate(convo.id, convo.lead_id, [convo.tenant_id, convo.lead?.tenant_id]).catch((e) =>
       this.logger.error(`Erro ao enfileirar memory-op: ${e.message}`),
     );
 
@@ -522,7 +527,7 @@ export class MessagesService {
 
     // 7. Atualizar memória com áudio do operador (debounce 15s)
     if (audioSendStatus !== 'erro') {
-      this.enqueueMemoryUpdate(convo.id, convo.lead_id).catch((e) =>
+      this.enqueueMemoryUpdate(convo.id, convo.lead_id, [convo.tenant_id, convo.lead?.tenant_id]).catch((e) =>
         this.logger.error(`Erro ao enfileirar memory-op (audio): ${e.message}`),
       );
     }
@@ -605,7 +610,7 @@ export class MessagesService {
     });
 
     // Atualizar memória com arquivo do operador (debounce 15s)
-    this.enqueueMemoryUpdate(convo.id, convo.lead_id).catch((e) =>
+    this.enqueueMemoryUpdate(convo.id, convo.lead_id, [convo.tenant_id, convo.lead?.tenant_id]).catch((e) =>
       this.logger.error(`Erro ao enfileirar memory-op (file): ${e.message}`),
     );
 
@@ -828,7 +833,7 @@ export class MessagesService {
    * com motivo claro (+ mayHaveBeenDelivered pra quem chama travar reenvio).
    */
   private async dispatchToPatient(
-    convo: { id: string; lead_id: string },
+    convo: { id: string; lead_id: string; tenant_id?: string | null; lead?: { tenant_id?: string | null } | null },
     chips: Array<{ name: string; purpose: 'CLINICA' | 'COMERCIAL' }>,
     msgId: string,
     label: string,
@@ -857,7 +862,7 @@ export class MessagesService {
           await this.prisma.message.update({ where: { id: msgId }, data: { instance_name: chip.name } }).catch(() => {});
         }
         await this.prisma.conversation.update({ where: { id: convo.id }, data: { last_message_at: new Date() } });
-        this.enqueueMemoryUpdate(convo.id, convo.lead_id).catch((e) =>
+        this.enqueueMemoryUpdate(convo.id, convo.lead_id, [convo.tenant_id, convo.lead?.tenant_id]).catch((e) =>
           this.logger.error(`Erro ao enfileirar memory-op (patient send): ${e.message}`),
         );
         const sent = await this.prisma.message.findUnique({ where: { id: msgId }, include: { media: true } });

@@ -87,6 +87,10 @@ function gravador(efeitos: Efeito[], respostas: Record<string, (args: any) => an
                 if (typeof metodo !== 'string' || metodo === 'then') return undefined;
                 return async (args: any) => {
                   const op = `${modelo}.${metodo}`;
+                  // F2: ler a lista de laboratórios (cache de 60 s, só leitura) não é
+                  // efeito da clínica e fica fora do retrato; qualquer OUTRA operação
+                  // em TenantBusinessProfile aparece normalmente.
+                  if (op === 'tenantBusinessProfile.findMany') return [];
                   efeitos.push([`${prefixo}${op}`, args]);
                   const r = respostas[op];
                   if (r) return r(args);
