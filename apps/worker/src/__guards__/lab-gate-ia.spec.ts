@@ -278,9 +278,31 @@ describe('MemoryJobs — job de laboratório não roda', () => {
   }
   const nomes = ['daily-batch-extract', 'manual-extract', 'consolidate-profiles-after-batch', 'consolidate-profile', 'consolidate-org-profile', 'rebuild-org-profile'];
 
-  it.each(nomes)('clínica: %s é roteado como antes', async (nome) => {
-    const { proc } = montar([LAB]);
-    expect(await proc.process({ name: nome, data: { tenant_id: CLINICA } } as any)).not.toBeNull();
+  const rotas: Array<[string, string, string, string]> = [
+    // [job, processador, método, resposta do mock]
+    ['daily-batch-extract', 'batch', 'processTenantBatch', 'batch'],
+    ['manual-extract', 'batch', 'processTenantBatch', 'batch'],
+    ['consolidate-profiles-after-batch', 'profile', 'consolidateAfterBatch', 'after'],
+    ['consolidate-profile', 'profile', 'consolidateSingle', 'single'],
+    ['consolidate-org-profile', 'org', 'consolidateSingle', 'org'],
+    ['rebuild-org-profile', 'org', 'rebuildFromScratch', 'rebuild'],
+  ];
+
+  it.each(rotas)('clínica: %s vai para %s.%s, como antes', async (nome, dono, metodo, resposta) => {
+    const m: any = montar([LAB]);
+    const job: any = { name: nome, data: { tenant_id: CLINICA } };
+    expect(await m.proc.process(job)).toBe(resposta);
+    const todos = [
+      m.batch.processTenantBatch,
+      m.profile.consolidateAfterBatch,
+      m.profile.consolidateSingle,
+      m.org.consolidateSingle,
+      m.org.rebuildFromScratch,
+    ];
+    for (const f of todos) {
+      if (f === m[dono][metodo]) expect(f).toHaveBeenCalledWith(job);
+      else expect(f).not.toHaveBeenCalled();
+    }
   });
 
   it.each(nomes)('laboratório: %s não chega ao processador', async (nome) => {

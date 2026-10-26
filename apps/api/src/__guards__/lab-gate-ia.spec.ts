@@ -75,11 +75,20 @@ function autoMockModelo(metodos: Record<string, any>, modelo: string): any {
 
 // ─── webhook ────────────────────────────────────────────────────────────────
 
-function montarWebhook(opts: { labs: string[]; conta: string; adminDoBot?: { id: string; tenant_id: string } | null }) {
+type IdsWebhook = { conv?: string | null; inbox?: string | null; lead?: string | null; chip?: string | null };
+
+/** `conta` vale para conversa, inbox, contato e chip; `ids` troca algum deles (legado/misto). */
+function montarWebhook(opts: {
+  labs: string[];
+  conta: string;
+  ids?: IdsWebhook;
+  adminDoBot?: { id: string; tenant_id: string } | null;
+}) {
   const { labs, conta } = opts;
+  const id = (k: keyof IdsWebhook) => (opts.ids && k in opts.ids ? (opts.ids[k] ?? null) : conta);
   const conv = {
     id: 'conv-1',
-    tenant_id: conta,
+    tenant_id: id('conv'),
     lead_id: 'lead-1',
     ai_mode: true,
     status: 'ABERTO',
@@ -89,7 +98,7 @@ function montarWebhook(opts: { labs: string[]; conta: string; adminDoBot?: { id:
   };
   const prisma = prismaFalso(labs, {
     conversation: { findFirst: jest.fn(async () => conv), findUnique: jest.fn(async () => conv) },
-    instance: { findFirst: jest.fn(async () => ({ purpose: 'COMERCIAL', tenant_id: conta, name: 'chip-1' })) },
+    instance: { findFirst: jest.fn(async () => ({ purpose: 'COMERCIAL', tenant_id: id('chip'), name: 'chip-1' })) },
     globalSetting: {
       findUnique: jest.fn(async ({ where }: any) => (where.key === 'AI_ENABLED_COMERCIAL' ? { value: 'true' } : null)),
     },
@@ -101,10 +110,10 @@ function montarWebhook(opts: { labs: string[]; conta: string; adminDoBot?: { id:
   });
   const aiQueue = { getJob: jest.fn(async () => null), add: jest.fn(async () => ({})) };
   const leads = autoMock({
-    upsert: jest.fn(async () => ({ id: 'lead-1', phone: '5582900000001', tenant_id: conta, stage: 'NOVO', is_client: false })),
+    upsert: jest.fn(async () => ({ id: 'lead-1', phone: '5582900000001', tenant_id: id('lead'), stage: 'NOVO', is_client: false })),
   });
   const inboxes = autoMock({
-    findByInstanceName: jest.fn(async () => ({ inbox_id: 'inbox-1', tenant_id: conta, purpose: 'COMERCIAL', name: 'chip-1' })),
+    findByInstanceName: jest.fn(async () => ({ inbox_id: 'inbox-1', tenant_id: id('inbox'), purpose: 'COMERCIAL', name: 'chip-1' })),
     getNextAssignee: jest.fn(async () => null),
   });
   const gateway = autoMock({ getOnlineUserIds: jest.fn(() => []) });
@@ -166,6 +175,34 @@ describe('webhook — a IA responde só na clínica', () => {
     expect(jobsDaIa(aiQueue)).toHaveLength(0);
     expect(aiQueue.add.mock.calls.filter((c: any[]) => c[0] === 'process_ai_response')).toHaveLength(0);
   });
+
+  const LEGADO = { conv: null, inbox: null, lead: null } as const;
+
+  it('legado sem conta (conversa, inbox e contato), chip de clínica: enfileira como hoje', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: CLINICA, ids: { ...LEGADO, chip: CLINICA } });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(1);
+  });
+
+  it('legado sem conta (conversa, inbox e contato), chip do laboratório: não enfileira', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: CLINICA, ids: { ...LEGADO, chip: LAB } });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
+
+  // Dado cruzado (não deveria existir): conversa, inbox e chip da clínica com o
+  // contato marcado como laboratório. Na dúvida, a IA não responde.
+  it('dado cruzado — conversa da clínica, contato do laboratório: não enfileira', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: CLINICA, ids: { lead: LAB } });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
+
+  it('conversa e chip sem conta, contato do laboratório: não enfileira', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: CLINICA, ids: { conv: null, inbox: null, chip: null, lead: LAB } });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
 });
 
 describe('webhook — robô de admin', () => {
@@ -190,6 +227,41 @@ describe('webhook — robô de admin', () => {
     await evo.handleMessagesUpsert(payload);
     expect(adminBot.handle).not.toHaveBeenCalled();
     expect(prisma.message.create).toHaveBeenCalled();
+  });
+
+  // Inbox legada sem conta: o admin é procurado em todas as contas, e o único sinal
+  // de laboratório é a conta do próprio admin.
+  it('inbox legada sem conta + admin de clínica: o robô atende como hoje', async () => {
+    const { evo, adminBot, payload } = montarWebhook({
+      labs: [LAB],
+      conta: CLINICA,
+      ids: { inbox: null },
+      adminDoBot: { id: 'adm-1', tenant_id: CLINICA },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(adminBot.handle).toHaveBeenCalledWith('chip-1', '5582900000001', 'oi, tudo bem?', 'adm-1', CLINICA);
+  });
+
+  it('inbox legada sem conta + admin de laboratório: o robô não atende', async () => {
+    const { evo, adminBot, prisma, payload } = montarWebhook({
+      labs: [LAB],
+      conta: CLINICA,
+      ids: { inbox: null },
+      adminDoBot: { id: 'adm-lab', tenant_id: LAB },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(adminBot.handle).not.toHaveBeenCalled();
+    expect(prisma.message.create).toHaveBeenCalled();
+  });
+
+  it('inbox do laboratório + admin de outra conta: o robô não atende', async () => {
+    const { evo, adminBot, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      adminDoBot: { id: 'adm-1', tenant_id: CLINICA },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(adminBot.handle).not.toHaveBeenCalled();
   });
 });
 
