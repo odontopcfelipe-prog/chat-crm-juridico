@@ -109,12 +109,15 @@ export class GoogleDriveService {
    * Gera URL de autorização para o admin conectar sua conta Google.
    * Escopos idênticos aos que o n8n usa para Google Docs/Drive.
    */
-  async getOAuthUrl(): Promise<string> {
+  async getOAuthUrl(state: string): Promise<string> {
     const oauth2Client = await this.getOAuth2Client();
 
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',       // Obter refresh_token
       prompt: 'consent',            // Forçar tela de consentimento (garante refresh_token)
+      // Assinado (oauth-state.ts) e conferido no callback: só grava a conta Google
+      // se o retorno vier de um fluxo aberto pelo administrador do sistema.
+      state,
       scope: [
         'https://www.googleapis.com/auth/drive',
         'https://www.googleapis.com/auth/documents',

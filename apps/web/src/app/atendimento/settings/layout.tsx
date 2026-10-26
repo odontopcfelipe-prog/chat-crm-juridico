@@ -116,12 +116,19 @@ const adminOnlyPaths = new Set([
   '/atendimento/settings/nota-fiscal',
 ]);
 
+// Integrações da PLATAFORMA (uma só para todas as clínicas): só o administrador do
+// sistema (SUPER_ADMIN) vê no menu. A API também recusa as alterações dos outros.
+const superAdminOnlyPaths = new Set([
+  '/atendimento/settings/google-drive',
+]);
+
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAdmin } = useRole();
+  const { isAdmin, isSuperAdmin } = useRole();
 
-  const isItemVisible = (href: string) => isAdmin || !adminOnlyPaths.has(href);
+  const isItemVisible = (href: string) =>
+    (isAdmin || !adminOnlyPaths.has(href)) && (isSuperAdmin || !superAdminOnlyPaths.has(href));
   const isActive = (href: string) => pathname === href;
 
   return (

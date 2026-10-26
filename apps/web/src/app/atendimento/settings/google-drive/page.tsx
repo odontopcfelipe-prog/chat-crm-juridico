@@ -24,6 +24,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 
 interface DriveConfig {
   configured: boolean;
@@ -48,6 +49,7 @@ interface DriveFile {
 
 export default function GoogleDriveSettingsPage() {
   const searchParams = useSearchParams();
+  const { isSuperAdmin } = useRole();
   const [config, setConfig] = useState<DriveConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -237,6 +239,46 @@ export default function GoogleDriveSettingsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // A integração é da PLATAFORMA (uma só para todas as clínicas): quem não é o
+  // administrador do sistema vê só o status, sem formulários nem botões. A API
+  // também recusa as alterações e não manda ids nem o e-mail da conta Google.
+  if (!isSuperAdmin) {
+    return (
+      <div className="h-full overflow-y-auto max-w-3xl mx-auto p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-blue-500/10 rounded-xl">
+            <HardDrive className="w-6 h-6 text-blue-500" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-foreground">Google Drive</h1>
+            <p className="text-sm text-muted-foreground">
+              Integração da plataforma — gerenciada pelo administrador do sistema
+            </p>
+          </div>
+        </div>
+        <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+          config?.configured
+            ? 'bg-emerald-500/5 border-emerald-500/20'
+            : 'bg-amber-500/5 border-amber-500/20'
+        }`}>
+          {config?.configured ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+          )}
+          <div>
+            <p className={`text-sm font-medium ${config?.configured ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+              {config?.configured ? 'Google Drive configurado e ativo' : 'Google Drive não configurado'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Para mudar esta integração, fale com o administrador do sistema.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
