@@ -234,6 +234,7 @@ exports[`retrato: efeitos da promoção lead → paciente (F1) chip Clínica: o 
   ],
   [
     "adminBot.isEnabled",
+    "tenant-clinica-exemplo",
   ],
   [
     "leads.upsert",
@@ -280,6 +281,7 @@ exports[`retrato: efeitos da promoção lead → paciente (F1) chip Clínica: o 
   ],
   [
     "adminBot.isEnabled",
+    "tenant-clinica-exemplo",
   ],
   [
     "leads.upsert",

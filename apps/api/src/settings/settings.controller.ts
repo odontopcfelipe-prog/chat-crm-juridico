@@ -27,7 +27,8 @@ import {
   trocarLinhaMemoryBatch,
   validarValorChaveClinica,
 } from './settings-scope';
-import { chaveDeGravacaoDaClinica, contaDoUsuario } from './config-da-clinica';
+import { SEM_CONTA_MSG, chaveDeGravacaoDaClinica, contaDoUsuario, ehSuperAdmin } from './config-da-clinica';
+import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, camposDePlataformaEnviados, normalizarCooldown, type CorpoAiConfig } from './ia-config';
 import { CANNED_RESPONSES_KEY, CRM_CONFIG_KEY, validarRespostasRapidas } from './crc-config';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
@@ -308,28 +309,65 @@ export class SettingsController {
     return { message: 'Configurações atualizadas com sucesso' };
   }
 
+  /**
+   * Ajustes IA › "Conectar a IA". Liga/desliga por chip, robô de comando e tempo de
+   * resposta padrão são DA CLÍNICA de quem está logado. A chave OpenAI (mesmo
+   * mascarada) só volta para o administrador do sistema; a clínica vê só os
+   * sim/não (isConfigured...). Nunca 403: a tela carrega tudo num Promise.all.
+   */
   @Get('ai-config')
   @Roles('ADMIN')
   async getAiConfig(@Request() req: any) {
-    // Liga/desliga por chip (aiChip) é DA CLÍNICA de quem está logado.
-    const config = await this.settingsService.getAiConfig(req.user?.tenant_id ?? null);
-    return { ...config, apiKey: maskApiKey(config.apiKey) };
+    const config = await this.settingsService.getAiConfig(contaDoUsuario(req.user));
+    return { ...config, apiKey: ehSuperAdmin(req.user) ? maskApiKey(config.apiKey) : null };
   }
 
+  /**
+   * Salva "Conectar a IA".
+   *  - Campos da PLATAFORMA (chaves, modelo padrão, DJEN, liga/desliga geral
+   *    antigo): só o administrador do sistema grava, na configuração global. De
+   *    outro usuário são ignorados (aviso no log e lista `ignorados` na resposta) —
+   *    o salvamento da clínica continua respondendo 200.
+   *  - Campos DA CLÍNICA (tempo de resposta padrão, robô de comando): gravam na
+   *    chave da conta de quem salva (inclusive o dono logado numa clínica); o
+   *    administrador do sistema sem conta grava a global antiga; sem conta e sem
+   *    esse papel, 403.
+   */
   @Post('ai-config')
   @Roles('ADMIN')
-  async setAiConfig(@Body() data: { apiKey?: string; adminKey?: string; anthropicApiKey?: string; defaultModel?: string; djenModel?: string; djenPrompt?: string; djenNotifyTemplate?: string; adminBotEnabled?: boolean; whatsappAiEnabled?: boolean; cooldownSeconds?: number }) {
-    if (data.apiKey)    await this.settingsService.setAiConfig(data.apiKey);
-    if (data.adminKey)  await this.settingsService.setAdminKey(data.adminKey);
-    if (data.anthropicApiKey) await this.settingsService.upsert('ANTHROPIC_API_KEY', data.anthropicApiKey);
-    if (data.defaultModel) await this.settingsService.setDefaultModel(data.defaultModel);
-    if (data.djenModel)    await this.settingsService.setDjenModel(data.djenModel);
-    if (data.djenPrompt !== undefined) await this.settingsService.setDjenPrompt(data.djenPrompt);
-    if (data.djenNotifyTemplate !== undefined) await this.settingsService.setDjenNotifyTemplate(data.djenNotifyTemplate);
-    if (data.adminBotEnabled !== undefined) await this.settingsService.setAdminBotEnabled(data.adminBotEnabled);
-    if (data.whatsappAiEnabled !== undefined) await this.settingsService.setWhatsappAiEnabled(data.whatsappAiEnabled);
-    if (data.cooldownSeconds !== undefined) await this.settingsService.setCooldownSeconds(Number(data.cooldownSeconds));
-    return { message: 'Configurações de IA salvas com sucesso' };
+  async setAiConfig(@Request() req: any, @Body() data: CorpoAiConfig) {
+    const corpo: CorpoAiConfig = data && typeof data === 'object' ? data : {};
+    const isSuper = ehSuperAdmin(req.user);
+
+    // 1. Decide tudo antes de gravar (nada pela metade).
+    const temTempo = corpo.cooldownSeconds !== undefined && corpo.cooldownSeconds !== null;
+    const temRobo = corpo.adminBotEnabled !== undefined && corpo.adminBotEnabled !== null;
+    const segundos = temTempo ? normalizarCooldown(corpo.cooldownSeconds) : null;
+    const chaveTempo = temTempo ? chaveDeGravacaoDaClinica(AI_COOLDOWN_KEY, req.user) : null;
+    const chaveRobo = temRobo ? chaveDeGravacaoDaClinica(ADMIN_BOT_KEY, req.user) : null;
+    const ignorados = isSuper ? [] : camposDePlataformaEnviados(corpo);
+    if (ignorados.length) {
+      this.logger.warn(
+        `[ai-config] campos da plataforma ignorados (usuário ${req.user?.id ?? '?'} sem SUPER_ADMIN): ${ignorados.join(', ')}`,
+      );
+    }
+
+    // 2. Plataforma: só o administrador do sistema (como antes).
+    if (isSuper) {
+      if (corpo.apiKey)    await this.settingsService.setAiConfig(corpo.apiKey);
+      if (corpo.adminKey)  await this.settingsService.setAdminKey(corpo.adminKey);
+      if (corpo.anthropicApiKey) await this.settingsService.upsert('ANTHROPIC_API_KEY', corpo.anthropicApiKey);
+      if (corpo.defaultModel) await this.settingsService.setDefaultModel(corpo.defaultModel);
+      if (corpo.djenModel)    await this.settingsService.setDjenModel(corpo.djenModel);
+      if (corpo.djenPrompt !== undefined) await this.settingsService.setDjenPrompt(corpo.djenPrompt);
+      if (corpo.djenNotifyTemplate !== undefined) await this.settingsService.setDjenNotifyTemplate(corpo.djenNotifyTemplate);
+      if (corpo.whatsappAiEnabled !== undefined) await this.settingsService.setWhatsappAiEnabled(corpo.whatsappAiEnabled);
+    }
+
+    // 3. Clínica: na chave da conta.
+    if (chaveRobo) await this.settingsService.setAdminBotEnabled(!!corpo.adminBotEnabled, chaveRobo);
+    if (chaveTempo && segundos !== null) await this.settingsService.setCooldownSeconds(segundos, chaveTempo);
+    return { message: 'Configurações de IA salvas com sucesso', ignorados };
   }
 
   // Valores que a IA pode falar no WhatsApp — POR CLÍNICA (TenantSetting
@@ -404,11 +442,14 @@ export class SettingsController {
   }
 
   // Onda 18.20 — liga/desliga a IA de UM chip (Comercial/Clínica/Financeiro).
-  // POR CLÍNICA: grava só na clínica do JWT (sem tenant = global, legado).
+  // POR CLÍNICA: grava só na clínica do JWT. Sem conta: só o administrador do
+  // sistema grava a reserva global antiga; os demais recebem 403.
   @Post('ai-chip-toggle')
   @Roles('ADMIN')
   async setAiChipToggle(@Request() req: any, @Body() body: { purpose: string; enabled: boolean }) {
-    await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled, req.user?.tenant_id ?? null);
+    const tenantId = contaDoUsuario(req.user);
+    if (!tenantId && !ehSuperAdmin(req.user)) throw negarPermissao(SEM_CONTA_MSG);
+    await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled, tenantId);
     return { ok: true, purpose: body?.purpose, enabled: !!body?.enabled };
   }
 
@@ -612,10 +653,16 @@ export class SettingsController {
     res.send(buffer);
   }
 
+  /**
+   * Custos de IA: o administrador do sistema vê a plataforma (todas as contas e a
+   * organização OpenAI), como antes; os demais veem só o consumo da própria
+   * clínica (sem conta: zerado, nunca 403).
+   */
   @Get('ai-costs')
   @Roles('ADMIN')
-  async getAiCosts() {
-    return this.settingsService.getAiCosts();
+  async getAiCosts(@Request() req: any) {
+    if (ehSuperAdmin(req.user)) return this.settingsService.getAiCosts({ tipo: 'plataforma' });
+    return this.settingsService.getAiCosts({ tipo: 'clinica', tenantId: contaDoUsuario(req.user) });
   }
 
   // ─── Clicksign ────────────────────────────────────────

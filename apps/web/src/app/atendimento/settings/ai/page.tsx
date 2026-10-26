@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 import { AiPriceTableCard } from './AiPriceTableCard';
 import { AiClinicInfoCard } from './AiClinicInfoCard';
 import { AiChipProfileEditor } from './AiChipProfileEditor';
@@ -97,6 +98,19 @@ const TEMPLATE_VARS = [
   { key: '{{memory_block}}', desc: 'Bloco completo das 3 camadas juntas (office + profile + episódios). Use quando quiser injetar tudo de uma vez' },
 ];
 
+/** O usuário logado está ligado a uma clínica? (tenant_id do token, como o useRole lê os papéis) */
+function usuarioTemClinica(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return false;
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload?.tenant_id === 'string' && payload.tenant_id !== '';
+  } catch {
+    return false;
+  }
+}
+
 /** Extrai a chave sem as chaves duplas — "{{business_hours_info}}" → "business_hours_info" */
 const bareVarKey = (k: string) => k.replace(/^\{\{|\}\}$/g, '');
 
@@ -182,6 +196,10 @@ Nosso advogado já foi notificado e está acompanhando. Se tiver dúvidas, pode 
 André Lustosa Advogados`;
 
 export default function AiSettingsPage() {
+  // Chaves, modelo padrão e DJEN são da PLATAFORMA: só o administrador do sistema
+  // vê e grava. Robô de comando e tempo de resposta são da clínica do usuário.
+  const { isSuperAdmin } = useRole();
+  const temClinica = useMemo(() => usuarioTemClinica(), []);
   // Config global
   const [apiKey, setApiKey] = useState('');
   const [adminKey, setAdminKey] = useState('');
@@ -194,7 +212,6 @@ export default function AiSettingsPage() {
   const [djenNotifyTemplateIsCustom, setDjenNotifyTemplateIsCustom] = useState(false);
   const [showDjenNotifyTemplate, setShowDjenNotifyTemplate] = useState(false);
   const [adminBotEnabled, setAdminBotEnabled] = useState(true);
-  const [whatsappAiEnabled, setWhatsappAiEnabled] = useState(true);
   // Onda 18.20 — liberação de IA por chip (default ON)
   const [aiChip, setAiChip] = useState<Record<AiChipId, boolean>>({ COMERCIAL: true, CLINICA: true, FINANCEIRO: true });
   const [savingChip, setSavingChip] = useState<AiChipId | null>(null);
@@ -270,7 +287,6 @@ export default function AiSettingsPage() {
       setDjenNotifyTemplate(configRes.data.djenNotifyTemplate || DEFAULT_DJEN_NOTIFY_TEMPLATE);
       setDjenNotifyTemplateIsCustom(configRes.data.djenNotifyTemplateIsCustom ?? false);
       setAdminBotEnabled(configRes.data.adminBotEnabled ?? true);
-      setWhatsappAiEnabled(configRes.data.whatsappAiEnabled ?? true);
       if (configRes.data.aiChip) setAiChip(configRes.data.aiChip);
       setCooldownSeconds(configRes.data.cooldownSeconds ?? 8);
       setSkills(skillsRes.data);
@@ -327,14 +343,19 @@ export default function AiSettingsPage() {
       // Isso garante que atualizações futuras do default no código sejam aplicadas automaticamente
       const effectiveDjenPrompt = djenPrompt === DEFAULT_DJEN_PROMPT ? '' : djenPrompt;
       const effectiveDjenNotifyTemplate = djenNotifyTemplate === DEFAULT_DJEN_NOTIFY_TEMPLATE ? '' : djenNotifyTemplate;
-      const payload: any = { defaultModel, djenModel, djenPrompt: effectiveDjenPrompt, djenNotifyTemplate: effectiveDjenNotifyTemplate, adminBotEnabled, whatsappAiEnabled, cooldownSeconds };
-      if (apiKey.trim())       payload.apiKey         = apiKey.trim();
-      if (adminKey.trim())     payload.adminKey       = adminKey.trim();
-      if (anthropicKey.trim()) payload.anthropicApiKey = anthropicKey.trim();
+      // Clínica: só o que é dela (robô e tempo). Administrador do sistema: também
+      // chaves, modelo e DJEN. O liga/desliga geral antigo (whatsappAiEnabled) não
+      // tem botão na tela e não é mais reenviado.
+      const payload: any = isSuperAdmin
+        ? { defaultModel, djenModel, djenPrompt: effectiveDjenPrompt, djenNotifyTemplate: effectiveDjenNotifyTemplate, adminBotEnabled, cooldownSeconds }
+        : { adminBotEnabled, cooldownSeconds };
+      if (isSuperAdmin && apiKey.trim())       payload.apiKey         = apiKey.trim();
+      if (isSuperAdmin && adminKey.trim())     payload.adminKey       = adminKey.trim();
+      if (isSuperAdmin && anthropicKey.trim()) payload.anthropicApiKey = anthropicKey.trim();
       await api.post('/settings/ai-config', payload);
-      if (apiKey.trim())       setIsConfigured(true);
-      if (adminKey.trim())     setIsAdminKeyConfigured(true);
-      if (anthropicKey.trim()) setIsAnthropicKeyConfigured(true);
+      if (payload.apiKey)          setIsConfigured(true);
+      if (payload.adminKey)        setIsAdminKeyConfigured(true);
+      if (payload.anthropicApiKey) setIsAnthropicKeyConfigured(true);
       setIsEditingKey(false);
       setIsEditingAdminKey(false);
       setIsEditingAnthropicKey(false);
@@ -607,7 +628,11 @@ export default function AiSettingsPage() {
           n={1}
           id="etapa-conectar"
           title="Conectar a IA"
-          description="Cadastre a chave da OpenAI (ou da Anthropic) e escolha o modelo padrão. Sem isso a IA não responde."
+          description={
+            isSuperAdmin
+              ? 'Cadastre a chave da OpenAI (ou da Anthropic) e escolha o modelo padrão. Sem isso a IA não responde.'
+              : 'A conexão com a IA (chaves e modelo) é da plataforma e fica com o administrador do sistema. Aqui você ajusta o robô de comando e o tempo de resposta da sua clínica.'
+          }
           status={loading ? 'checking' : setupSteps[0].status}
         >
           {/* ── Config Global ── */}
@@ -618,8 +643,10 @@ export default function AiSettingsPage() {
                   <KeyRound size={16} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-foreground">Configuração Global</h4>
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">API Key + Modelo padrão</p>
+                  <h4 className="text-sm font-bold text-foreground">{isSuperAdmin ? 'Configuração Global' : 'Configuração da clínica'}</h4>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                    {isSuperAdmin ? 'API Key + Modelo padrão' : 'Robô de comando + tempo de resposta'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -630,6 +657,19 @@ export default function AiSettingsPage() {
               </div>
             ) : (
               <div className="p-5 space-y-4">
+                {/* Clínica: só o status da conexão (as chaves e o modelo são da plataforma) */}
+                {!isSuperAdmin && (
+                  <div className="flex items-center justify-between text-xs bg-muted/30 rounded-xl px-4 py-2.5">
+                    <span className="text-muted-foreground">Conexão com a IA — gerenciada pela plataforma</span>
+                    {isConfigured || isAnthropicKeyConfigured ? (
+                      <span className="flex items-center gap-1.5 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> ATIVA</span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-amber-500 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> PENDENTE</span>
+                    )}
+                  </div>
+                )}
+
+                {isSuperAdmin && (<>
                 {/* Modelo padrão (sempre visível) */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Modelo padrão (Chat / Skills)</label>
@@ -768,6 +808,8 @@ export default function AiSettingsPage() {
                   )}
                 </div>
 
+                </>)}
+
                 {/* Admin Command Bot */}
                 <div className="flex items-center justify-between py-1">
                   <div className="space-y-0.5">
@@ -775,7 +817,7 @@ export default function AiSettingsPage() {
                       <span>🤖</span> Bot de Comando Admin (WhatsApp)
                     </label>
                     <p className="text-[11px] text-muted-foreground">
-                      Permite controlar o CRC enviando mensagens para o número do escritório.
+                      Permite controlar o CRC enviando mensagens para o número do escritório.{temClinica ? ' Vale para a sua clínica.' : ''}
                       {!adminBotEnabled && <span className="text-sky-400 font-semibold ml-1">Desativado — admins serão atendidos como clientes normais.</span>}
                     </p>
                   </div>
@@ -806,10 +848,14 @@ export default function AiSettingsPage() {
                     <span>0s</span><span>60s</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Usado nos chips que não definem o próprio tempo. A IA espera o paciente parar de escrever por esse tempo antes de responder. Atenção: este padrão vale para TODAS as clínicas do sistema; para mudar só a sua, defina o tempo dentro do chip.
+                    Usado nos chips que não definem o próprio tempo. A IA espera o paciente parar de escrever por esse tempo antes de responder.{' '}
+                    {temClinica
+                      ? 'Vale para a sua clínica; para mudar só um chip, defina o tempo dentro dele.'
+                      : 'Seu usuário não está ligado a uma clínica: este é o padrão antigo, usado pelas clínicas que já existiam e ainda não salvaram o delas.'}
                   </p>
                 </div>
 
+                {isSuperAdmin && (<>
                 {/* ── API Key (regular) ── */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -939,6 +985,8 @@ export default function AiSettingsPage() {
                     </div>
                   )}
                 </div>
+
+                </>)}
 
                 <div className="flex justify-end pt-1">
                   <button

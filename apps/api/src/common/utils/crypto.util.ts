@@ -42,6 +42,9 @@ export function decryptValue(ciphertext: string): string {
 export const SENSITIVE_KEYS = new Set([
   'OPENAI_API_KEY',
   'OPENAI_ADMIN_KEY',
+  // Gravada criptografada a partir de agora; a já guardada em texto segue lida
+  // (get() da API e decryptIfNeeded do worker aceitam os dois).
+  'ANTHROPIC_API_KEY',
   'EVOLUTION_GLOBAL_APIKEY',
   'SMTP_PASS',
   'GOOGLE_TTS_API_KEY',

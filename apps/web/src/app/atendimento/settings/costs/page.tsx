@@ -31,6 +31,8 @@ interface TypeLocal   { call_type: string; cost_usd: number; total_tokens: numbe
 interface DayLocal    { date: string; cost_usd: number; total_tokens: number; calls: number; }
 
 interface AiCosts {
+  /** 'clinica' = só o consumo da clínica do usuário; 'plataforma' = todas (administrador do sistema). */
+  escopo?: 'plataforma' | 'clinica';
   usd_to_brl: number;
   openai:    OpenAiData;
   today:     LocalSummary;
@@ -135,6 +137,8 @@ export default function AiCostsPage() {
   const last7Days  = data.last7Days ?? [];
   const localModels = data.byModel ?? [];
 
+  // Clínica: só a estimativa do consumo dela (o custo da organização OpenAI é da plataforma).
+  const daClinica   = data.escopo === 'clinica';
   const hasOpenAi   = openai.configured && !openai.error && openai.month_usd !== null;
   const openaiDays  = hasOpenAi && (openai.last7Days?.length ?? 0) > 0 ? openai.last7Days! : null;
   const openaiModels = hasOpenAi && (openai.byModel?.length ?? 0) > 0 ? openai.byModel! : null;
@@ -150,16 +154,20 @@ export default function AiCostsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Custos de IA</h1>
           <p className="text-[13px] text-muted-foreground mt-1">
-            {hasOpenAi
-              ? 'Valores reais cobrados pela OpenAI (Admin Key ativa).'
-              : 'Configure a Admin Key em Ajustes IA para ver valores exatos da OpenAI.'}
+            {daClinica
+              ? 'Estimativa do consumo de IA da sua clínica (pelas chamadas registradas no sistema).'
+              : hasOpenAi
+                ? 'Valores reais cobrados pela OpenAI (Admin Key ativa).'
+                : 'Configure a Admin Key em Ajustes IA para ver valores exatos da OpenAI.'}
           </p>
         </div>
         <div className="flex items-center gap-2 mt-1">
-          <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors px-2 py-1.5 rounded-lg hover:bg-muted/50">
-            Ver na OpenAI <ExternalLink size={11} />
-          </a>
+          {!daClinica && (
+            <a href="https://platform.openai.com/usage" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors px-2 py-1.5 rounded-lg hover:bg-muted/50">
+              Ver na OpenAI <ExternalLink size={11} />
+            </a>
+          )}
           <button onClick={fetchData}
             className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
             title="Atualizar">
@@ -170,8 +178,8 @@ export default function AiCostsPage() {
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 flex flex-col gap-6">
 
-        {/* ── Admin Key não configurada ────────────────────────────────── */}
-        {!openai.configured && (
+        {/* ── Admin Key não configurada (só a plataforma usa) ─────────── */}
+        {!daClinica && !openai.configured && (
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3">
             <AlertTriangle size={16} className="text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1">

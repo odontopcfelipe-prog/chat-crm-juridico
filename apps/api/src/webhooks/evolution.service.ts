@@ -28,6 +28,8 @@ import {
   algumLab,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
+import { lerConfigDaClinica } from '../settings/config-da-clinica';
+import { AI_COOLDOWN_KEY, cooldownEfetivo } from '../settings/ia-config';
 import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
 import { ackSobe, parseEvolutionAck } from './evolution-ack';
 
@@ -234,7 +236,8 @@ export class EvolutionService implements OnApplicationBootstrap {
       // ── Admin Command Bot ──────────────────────────────────────────────────
       // Mensagens vindas de um admin/dentista do sistema são interceptadas aqui
       // para serem processadas como comandos CRM via IA (function calling).
-      if (!isFromMe && messageContentCheck && await this.adminBotService.isEnabled()) {
+      // Liga/desliga do robô é DA CLÍNICA dona do chip (effectiveTenantId).
+      if (!isFromMe && messageContentCheck && await this.adminBotService.isEnabled(effectiveTenantId)) {
         const sessionKey = `${instanceName}:${phone}`;
         if (this.adminBotService.isAdminCommand(sessionKey, messageContentCheck)) {
           const adminUser = await this.adminBotService.findAdminByPhone(phone, effectiveTenantId);
@@ -798,8 +801,9 @@ export class EvolutionService implements OnApplicationBootstrap {
         } else {
         try {
           // Tempo de resposta (debounce) do CHIP na clínica: perfil da IA
-          // (TenantSetting AI_PROFILE_<P>.responseDelaySec). null = padrão global
-          // (GlobalSetting AI_COOLDOWN_SECONDS, padrão 8s) — regra antiga.
+          // (TenantSetting AI_PROFILE_<P>.responseDelaySec). null = tempo padrão DA
+          // CLÍNICA (AI_COOLDOWN_SECONDS_<conta>; a clínica que já existia herda o
+          // padrão antigo até salvar o dela; conta nova: 8s).
           // Chip sem função (legado, 1 chip só) usa o perfil COMERCIAL — mesma regra do worker.
           let profileDelaySec: number | null = null;
           const profilePurpose = isAiChipPurpose(chipPurpose) ? chipPurpose : 'COMERCIAL';
@@ -816,11 +820,10 @@ export class EvolutionService implements OnApplicationBootstrap {
           if (profileDelaySec !== null) {
             debounceMs = profileDelaySec * 1000;
           } else {
-            const cooldownRaw = await this.prisma.globalSetting.findUnique({
-              where: { key: 'AI_COOLDOWN_SECONDS' },
-            });
-            const cooldownSeconds = cooldownRaw?.value ? parseInt(cooldownRaw.value, 10) : 8;
-            debounceMs = (isNaN(cooldownSeconds) ? 8 : Math.max(0, cooldownSeconds)) * 1000;
+            const cooldownRaw = await lerConfigDaClinica(this.prisma, AI_COOLDOWN_KEY, convTenantId, (m) =>
+              this.logger.warn(m),
+            ).catch(() => null);
+            debounceMs = Math.max(0, cooldownEfetivo(cooldownRaw)) * 1000;
           }
           const jobId = `ai-debounce-${conv.id}`;
 

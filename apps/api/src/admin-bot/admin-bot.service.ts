@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { lerConfigDaClinica } from '../settings/config-da-clinica';
+import { ADMIN_BOT_KEY, adminBotEfetivo } from '../settings/ia-config';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { TasksService } from '../tasks/tasks.service';
 import { CalendarService } from '../calendar/calendar.service';
@@ -31,7 +33,8 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   private readonly sessions = new Map<string, AdminBotSession>();
   private openai: OpenAI | null = null;
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private enabledCache: { value: boolean; expiry: number } | null = null;
+  /** Liga/desliga do robô POR CLÍNICA (cache de 60 s por conta; '' = sem conta). */
+  private readonly enabledCache = new Map<string, { value: boolean; expiry: number }>();
 
   /** Palavras-chave que identificam intenção de comando admin */
   private static readonly COMMAND_KEYWORDS = [
@@ -105,21 +108,28 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
    * Detecta se o texto parece ser um comando administrativo.
    * Retorna true se já há sessão ativa (conversa em andamento) ou se contém palavras-chave.
    */
-  /** Verifica se o Admin Bot está habilitado no banco (cache de 60s) */
-  async isEnabled(): Promise<boolean> {
+  /**
+   * O robô de comando está ligado NA CLÍNICA dona do chip? (cache de 60 s por
+   * conta). A chave da clínica (ADMIN_BOT_ENABLED_<conta>); sem ela, a clínica
+   * que já existia segue o liga/desliga antigo; conta nova: ligado (padrão).
+   * Sem conta: o liga/desliga antigo, como antes.
+   */
+  async isEnabled(tenantId?: string | null): Promise<boolean> {
+    const conta = typeof tenantId === 'string' ? tenantId : '';
     const now = Date.now();
-    if (this.enabledCache && now < this.enabledCache.expiry) {
-      return this.enabledCache.value;
+    const guardado = this.enabledCache.get(conta);
+    if (guardado && now < guardado.expiry) {
+      return guardado.value;
     }
-    const row = await this.prisma.globalSetting.findUnique({ where: { key: 'ADMIN_BOT_ENABLED' } });
-    const value = row?.value !== 'false'; // padrão: habilitado
-    this.enabledCache = { value, expiry: now + 60_000 };
+    const raw = await lerConfigDaClinica(this.prisma, ADMIN_BOT_KEY, conta || null, (m) => this.logger.warn(m));
+    const value = adminBotEfetivo(raw); // padrão: habilitado
+    this.enabledCache.set(conta, { value, expiry: now + 60_000 });
     return value;
   }
 
-  /** Invalida o cache de enabled (usado ao salvar a config) */
+  /** Invalida o cache de enabled (todas as contas) */
   clearEnabledCache() {
-    this.enabledCache = null;
+    this.enabledCache.clear();
   }
 
   isAdminCommand(sessionKey: string, text: string): boolean {

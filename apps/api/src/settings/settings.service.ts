@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/crypto.util';
 import { lerConfigDaClinicaSemErro } from './config-da-clinica';
+import { ADMIN_BOT_KEY, AI_COOLDOWN_KEY, adminBotEfetivo, cooldownEfetivo } from './ia-config';
 import {
   CANNED_RESPONSES_KEY,
   CRM_CONFIG_KEY,
@@ -1708,6 +1709,9 @@ O trabalho NÃO é tentar fechar a venda a qualquer custo. É:
 
 EM PORCELANA, MOCK-UP É O CORAÇÃO DO DIFERENCIAL — destaque sempre. Lead que aprova mock-up é lead que fica satisfeito por anos. Sophia NUNCA empurra, NUNCA promete cópia exata, NUNCA esconde irreversibilidade. Honestidade técnica + tom à altura = paciente premium fiel.`;
 
+/** Quem vê os custos de IA: a plataforma inteira ou uma conta. */
+export type EscopoCustosIa = { tipo: 'plataforma' } | { tipo: 'clinica'; tenantId: string | null };
+
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
@@ -1919,10 +1923,12 @@ export class SettingsService {
 
   /**
    * `tenantId` (opcional) = clínica de quem está na tela: o liga/desliga por chip
-   * (aiChip) passa a ser O DA CLÍNICA. Chamadores internos sem tenant (worker de
+   * (aiChip), o robô de comando (adminBotEnabled) e o tempo de resposta padrão
+   * (cooldownSeconds) são OS DA CLÍNICA. Chamadores internos sem tenant (worker de
    * lembretes, transcrição) só usam modelo/chaves e seguem na regra antiga.
    */
   async getAiConfig(tenantId?: string | null) {
+    const avisar = (m: string) => this.logger.warn(m);
     const apiKey = await this.get('OPENAI_API_KEY');
     const adminKey = await this.get('OPENAI_ADMIN_KEY');
     const anthropicKey = await this.get('ANTHROPIC_API_KEY');
@@ -1930,8 +1936,9 @@ export class SettingsService {
     const djenModel = (await this.get('DJEN_AI_MODEL')) || 'gpt-4.1-mini';
     const djenPrompt = await this.get('DJEN_SYSTEM_PROMPT');
     const djenNotifyTemplate = await this.get('DJEN_CLIENT_NOTIFY_TEMPLATE');
-    const adminBotEnabledRaw = await this.get('ADMIN_BOT_ENABLED');
-    const adminBotEnabled = adminBotEnabledRaw !== 'false';
+    // Robô de comando e tempo de resposta: os da clínica (a que já existia herda o
+    // valor antigo até salvar o dela). Erro de leitura = padrão, como antes.
+    const adminBotEnabled = adminBotEfetivo(await lerConfigDaClinicaSemErro(this.prisma, ADMIN_BOT_KEY, tenantId, avisar));
     const whatsappAiEnabledRaw = await this.get('WHATSAPP_AI_ENABLED');
     const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
     // Onda 18.21 — liberação de IA por chip. Migração suave: chip não setado
@@ -1939,8 +1946,7 @@ export class SettingsService {
     // continua desligada até ligar chip a chip. Agora POR CLÍNICA: a chave da
     // clínica (TenantSetting) vence; sem ela, cai na regra antiga.
     const aiChip = await this.getChipAiEnabledMap(tenantId, whatsappAiEnabled);
-    const cooldownRaw = await this.get('AI_COOLDOWN_SECONDS');
-    const cooldownSeconds = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
+    const cooldownSeconds = cooldownEfetivo(await lerConfigDaClinicaSemErro(this.prisma, AI_COOLDOWN_KEY, tenantId, avisar));
     return {
       apiKey: apiKey || process.env.OPENAI_API_KEY || null,
       isConfigured: !!(apiKey || process.env.OPENAI_API_KEY),
@@ -1955,12 +1961,13 @@ export class SettingsService {
       adminBotEnabled,
       whatsappAiEnabled,
       aiChip,
-      cooldownSeconds: isNaN(cooldownSeconds) ? 8 : cooldownSeconds,
+      cooldownSeconds,
     };
   }
 
-  async setCooldownSeconds(seconds: number): Promise<void> {
-    await this.set('AI_COOLDOWN_SECONDS', String(seconds));
+  /** `chave`: a da clínica (chaveDeGravacaoDaClinica); a global antiga só sem conta. */
+  async setCooldownSeconds(seconds: number, chave: string = AI_COOLDOWN_KEY): Promise<void> {
+    await this.set(chave, String(seconds));
   }
 
   async setAiConfig(apiKey: string) {
@@ -2008,8 +2015,9 @@ export class SettingsService {
     return val !== 'false'; // padrão: habilitado
   }
 
-  async setAdminBotEnabled(enabled: boolean): Promise<void> {
-    await this.set('ADMIN_BOT_ENABLED', enabled ? 'true' : 'false');
+  /** `chave`: a da clínica (chaveDeGravacaoDaClinica); a global antiga só sem conta. */
+  async setAdminBotEnabled(enabled: boolean, chave: string = ADMIN_BOT_KEY): Promise<void> {
+    await this.set(chave, enabled ? 'true' : 'false');
   }
 
   /** Kill switch global da IA no WhatsApp. Quando false, mensagens recebidas não disparam resposta automática. */
@@ -2274,7 +2282,8 @@ export class SettingsService {
         select: { key: true, value: true },
       }),
       this.getWhatsappAiEnabled(),
-      this.get('AI_COOLDOWN_SECONDS'),
+      // Tempo padrão DA CLÍNICA (o "Usar o padrão (Xs)" de cada chip). Erro = 8s.
+      lerConfigDaClinicaSemErro(this.prisma, AI_COOLDOWN_KEY, tenantId, (m) => this.logger.warn(m)),
     ]);
     if (!tenant) throw new NotFoundException('Clínica não encontrada');
 
@@ -2288,8 +2297,6 @@ export class SettingsService {
     (chips.FINANCEIRO as any).escalationRecipients = this.parseRecipientIds(
       settingOf(SettingsService.FIN_ESCALATION_USERS_KEY),
     );
-    const cooldown = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
-
     return {
       clinic: {
         ...tenant,
@@ -2302,7 +2309,7 @@ export class SettingsService {
         manuallyEdited: !!orgProfile?.manually_edited_at,
       },
       chips,
-      defaults: { cooldownSeconds: isNaN(cooldown) ? 8 : cooldown },
+      defaults: { cooldownSeconds: cooldownEfetivo(cooldownRaw) },
     };
   }
 
@@ -8112,7 +8119,14 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     if (data.language?.trim())       await this.set('TTS_LANGUAGE',       data.language.trim());
   }
 
-  async getAiCosts() {
+  /**
+   * Custos de IA.
+   *  - 'plataforma' (administrador do sistema): o consumo de todas as contas e,
+   *    com a Admin Key, o uso real da organização OpenAI — como antes.
+   *  - 'clinica': só o consumo (AiUsage) da conta; a organização OpenAI não é
+   *    consultada nem a Admin Key é lida. Sem conta: tudo zerado.
+   */
+  async getAiCosts(escopo: EscopoCustosIa = { tipo: 'plataforma' }) {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -8128,42 +8142,49 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     let byType:   any[] = [];
     let daily:    any[] = [];
 
-    try {
-      [todayAgg, monthAgg, byModel, byType, daily] = await Promise.all([
-        prismaAny.aiUsage.aggregate({
-          _sum: { cost_usd: true, total_tokens: true, prompt_tokens: true, completion_tokens: true },
-          _count: { id: true },
-          where: { created_at: { gte: startOfToday } },
-        }),
-        prismaAny.aiUsage.aggregate({
-          _sum: { cost_usd: true, total_tokens: true, prompt_tokens: true, completion_tokens: true },
-          _count: { id: true },
-          where: { created_at: { gte: startOfMonth } },
-        }),
-        prismaAny.aiUsage.groupBy({
-          by: ['model'],
-          _sum: { cost_usd: true, total_tokens: true },
-          _count: { id: true },
-          where: { created_at: { gte: startOfMonth } },
-          orderBy: { _sum: { cost_usd: 'desc' } },
-        }),
-        prismaAny.aiUsage.groupBy({
-          by: ['call_type'],
-          _sum: { cost_usd: true, total_tokens: true },
-          _count: { id: true },
-          where: { created_at: { gte: startOfMonth } },
-        }),
-        prismaAny.aiUsage.groupBy({
-          by: ['created_at'],
-          _sum: { cost_usd: true, total_tokens: true },
-          _count: { id: true },
-          where: { created_at: { gte: start7Days } },
-          orderBy: { created_at: 'asc' },
-        }),
-      ]);
-    } catch (e: any) {
-      // Tabela AiUsage ainda não existe — retorna zerados
-      this.logger.warn(`[getAiCosts] Prisma falhou (tabela pode não existir): ${e?.message}`);
+    // Filtro da conta (escopo 'clinica'); a plataforma soma todas as contas.
+    const daConta = escopo.tipo === 'clinica' ? { tenant_id: escopo.tenantId } : {};
+    const consultaUso = escopo.tipo === 'plataforma' || !!escopo.tenantId;
+
+    // Escopo da clínica sem conta: nada a somar (fica tudo zerado).
+    if (consultaUso) {
+      try {
+        [todayAgg, monthAgg, byModel, byType, daily] = await Promise.all([
+          prismaAny.aiUsage.aggregate({
+            _sum: { cost_usd: true, total_tokens: true, prompt_tokens: true, completion_tokens: true },
+            _count: { id: true },
+            where: { ...daConta, created_at: { gte: startOfToday } },
+          }),
+          prismaAny.aiUsage.aggregate({
+            _sum: { cost_usd: true, total_tokens: true, prompt_tokens: true, completion_tokens: true },
+            _count: { id: true },
+            where: { ...daConta, created_at: { gte: startOfMonth } },
+          }),
+          prismaAny.aiUsage.groupBy({
+            by: ['model'],
+            _sum: { cost_usd: true, total_tokens: true },
+            _count: { id: true },
+            where: { ...daConta, created_at: { gte: startOfMonth } },
+            orderBy: { _sum: { cost_usd: 'desc' } },
+          }),
+          prismaAny.aiUsage.groupBy({
+            by: ['call_type'],
+            _sum: { cost_usd: true, total_tokens: true },
+            _count: { id: true },
+            where: { ...daConta, created_at: { gte: startOfMonth } },
+          }),
+          prismaAny.aiUsage.groupBy({
+            by: ['created_at'],
+            _sum: { cost_usd: true, total_tokens: true },
+            _count: { id: true },
+            where: { ...daConta, created_at: { gte: start7Days } },
+            orderBy: { created_at: 'asc' },
+          }),
+        ]);
+      } catch (e: any) {
+        // Tabela AiUsage ainda não existe — retorna zerados
+        this.logger.warn(`[getAiCosts] Prisma falhou (tabela pode não existir): ${e?.message}`);
+      }
     }
 
     // Agrega últimos 7 dias por data (yyyy-mm-dd)
@@ -8185,8 +8206,8 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     // ── Cotação USD→BRL (paralelo) ────────────────────────────────────────────
     const usdToBrl = await this.fetchUsdToBrl();
 
-    // ── Dados reais da OpenAI (Admin Key) ────────────────────────────────────
-    const adminKey = await this.get('OPENAI_ADMIN_KEY');
+    // ── Dados reais da OpenAI (Admin Key) — só no escopo da plataforma ───────
+    const adminKey = escopo.tipo === 'plataforma' ? await this.get('OPENAI_ADMIN_KEY') : null;
 
     let openai: {
       configured:           boolean;
@@ -8296,6 +8317,7 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     }
 
     return {
+      escopo: escopo.tipo,
       usd_to_brl: usdToBrl,
       openai,
       today: {
