@@ -3181,9 +3181,15 @@ export class CalendarService {
       where.OR = [{ tenant_id: opts.tenant_id }, { tenant_id: null }];
     }
 
-    const events = await this.prisma.calendarEvent.findMany({
+    // Com laboratório cadastrado, o evento legado SEM conta é decidido pela conta do
+    // contato/paciente (mesma regra de eventoDeLaboratorio). Sem laboratório, a
+    // consulta é a de antes.
+    const include: any = labs.size
+      ? { reminders: { select: { minutes_before: true } }, lead: { select: { tenant_id: true } }, patient: { select: { tenant_id: true } } }
+      : { reminders: { select: { minutes_before: true } } };
+    const events: any[] = await this.prisma.calendarEvent.findMany({
       where: opts.tenant_id ? where : excludeLabWhere('calendarEvent', where, labs),
-      include: { reminders: { select: { minutes_before: true } } },
+      include,
       orderBy: { start_at: 'asc' },
     });
 
@@ -3192,7 +3198,11 @@ export class CalendarService {
     const created: { event_id: string; reminder_id: string; minutes_before: number }[] = [];
 
     for (const ev of events) {
-      const existing = new Set(ev.reminders.map((r) => r.minutes_before));
+      if (labs.size && !ev.tenant_id && algumLab(labs, [ev.lead?.tenant_id, ev.patient?.tenant_id])) {
+        this.logger.log(`[LAB-GATE] backfill-lembretes — evento ${ev.id} sem conta é de laboratório (pelo contato): sem lembrete`);
+        continue;
+      }
+      const existing = new Set(ev.reminders.map((r: { minutes_before: number }) => r.minutes_before));
       const toCreate = defaults.filter((m) => !existing.has(m));
       if (toCreate.length === 0) continue;
 

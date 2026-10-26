@@ -916,6 +916,23 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
     expect(lab.fila.add).not.toHaveBeenCalled();
   });
 
+  const PACIENTES: Record<string, string> = { 'pac-lab': LAB, 'pac-clinica': CLINICA };
+  const pacientes = { 'patient.findUnique': ({ where }: any) => ({ tenant_id: PACIENTES[where.id] ?? null }) };
+
+  it('criar sem conta no evento nem contato, paciente do laboratório: sem lembrete ao contato', async () => {
+    const lab = montar([LAB], pacientes, LEADS);
+    await lab.svc.create(evento(undefined, { lead_id: undefined, patient_id: 'pac-lab' }));
+    expect(lembretesCriados(lab)).toEqual([{ minutes_before: 30, channel: 'PUSH' }]);
+    expect(lab.fila.add).not.toHaveBeenCalled();
+    expect(lab.avisos).toEqual([]);
+  });
+
+  it('criar sem conta no evento nem contato, paciente de clínica com OUTRA conta laboratório: os lembretes de antes', async () => {
+    const clinica = montar([LAB], pacientes, LEADS);
+    await clinica.svc.create(evento(undefined, { lead_id: undefined, patient_id: 'pac-clinica' }));
+    expect(lembretesCriados(clinica)).toEqual(LEMBRETES);
+  });
+
   it('criar sem conta no evento, contato de clínica com OUTRA conta laboratório: os lembretes de antes', async () => {
     const clinica = montar([LAB], {}, LEADS);
     await clinica.svc.create(evento(undefined, { lead_id: 'lead-clinica' }));
@@ -1072,7 +1089,34 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
     expect(eventosComLembrete(a)).toEqual(['ev-clinica', 'ev-legado']);
     const d = montar([LAB], backfill);
     await d.svc.backfillReminders({ tenant_id: CLINICA });
-    expect(d.ops).toEqual(a.ops);
+    // Com laboratório cadastrado, a busca também traz a conta do contato/paciente
+    // (para o evento legado sem conta); o resto do rastro é o mesmo.
+    const semInclude = (ops: any[]) =>
+      ops.map(([o, args]: any[]) => (o === 'calendarEvent.findMany' ? [o, { ...args, include: undefined }] : [o, args]));
+    expect(semInclude(d.ops)).toEqual(semInclude(a.ops));
+    expect(a.de('calendarEvent.findMany')[0].include).toEqual({ reminders: { select: { minutes_before: true } } });
+    expect(d.de('calendarEvent.findMany')[0].include).toEqual({
+      reminders: { select: { minutes_before: true } },
+      lead: { select: { tenant_id: true } },
+      patient: { select: { tenant_id: true } },
+    });
+  });
+
+  it('backfill de lembretes, evento legado sem conta: o de contato/paciente do laboratório fica sem lembrete (ADMIN da clínica e SUPER_ADMIN)', async () => {
+    const LEGADOS = [
+      { id: 'ev-legado-clinica', tenant_id: null, start_at: new Date(INICIO), reminders: [], lead: { tenant_id: CLINICA }, patient: null },
+      { id: 'ev-legado-lead-lab', tenant_id: null, start_at: new Date(INICIO), reminders: [], lead: { tenant_id: LAB }, patient: null },
+      { id: 'ev-legado-pac-lab', tenant_id: null, start_at: new Date(INICIO), reminders: [], lead: null, patient: { tenant_id: LAB } },
+    ];
+    const fx = {
+      'calendarEvent.findMany': ({ where }: any) => LEGADOS.filter((e) => casa(where, e)),
+      'eventReminder.create': ({ data }: any) => ({ id: `lem-${data.event_id}-${data.minutes_before}` }),
+    };
+    for (const opcoes of [{ tenant_id: CLINICA }, {}]) {
+      const m = montar([LAB], fx);
+      await m.svc.backfillReminders(opcoes);
+      expect(eventosComLembrete(m)).toEqual(['ev-legado-clinica']);
+    }
   });
 
   it('backfill de lembretes, ADMIN do laboratório: nada lido nem criado (nem nos legados sem conta)', async () => {
