@@ -235,7 +235,7 @@ export class MessagesService {
   /** Enfileira job para atualizar a Long Memory após mensagem do operador.
    *  Debounce de 15s com job ID fixo para acumular mensagens rápidas.
    *  `contas` = conta da conversa e do contato: laboratório não tem IA (F2). */
-  private async enqueueMemoryUpdate(conversationId: string, leadId: string, contas: readonly unknown[] = []) {
+  private async enqueueMemoryUpdate(conversationId: string, leadId: string, contas: readonly unknown[]) {
     if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), contas)) {
       this.logger.log(`[LAB-GATE] ai — memory-op da conv ${conversationId} (laboratório) não enfileirado`);
       return;

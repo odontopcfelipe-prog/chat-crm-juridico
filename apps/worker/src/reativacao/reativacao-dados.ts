@@ -18,6 +18,7 @@ import {
   generalStageOf,
   loadOfficeHoursValues,
   findClinicHoliday,
+  getLabTenantIds,
   precosLiberados,
   reativacaoColunaKey,
   reativacaoEnvioKey,
@@ -54,6 +55,9 @@ export async function killSwitchLigado(prisma: PrismaService): Promise<boolean> 
  * Clínicas → colunas LIGADAS (GlobalSetting reativacaoColunaKey = 'true'). Lança se o
  * banco falhar: quem chama NÃO pode tratar "erro" como "tudo desligado" (o
  * planejador cancelaria os ciclos de todo mundo).
+ * Laboratório (F2) nunca aparece: a régua escreve com IA e texto de clínica. Sem
+ * coluna ligada, o planejador não cria ciclo, o redator não escreve, o despachante
+ * não envia e a faxina cancela o que houver.
  */
 export async function colunasLigadasPorClinica(prisma: PrismaService): Promise<Map<string, Set<ReativacaoColuna>>> {
   const prefixos = REATIVACAO_COLUNAS.map((c) => ({ coluna: c, prefixo: reativacaoColunaKey(c, '') }));
@@ -61,11 +65,13 @@ export async function colunasLigadasPorClinica(prisma: PrismaService): Promise<M
     where: { value: 'true', OR: prefixos.map((p) => ({ key: { startsWith: p.prefixo } })) },
     select: { key: true },
   });
+  const labs = await getLabTenantIds(prisma, (m) => console.warn(`${LOG} ${m}`));
   const out = new Map<string, Set<ReativacaoColuna>>();
   for (const r of rows) {
     const hit = prefixos.find((p) => r.key.startsWith(p.prefixo));
     const tenantId = hit ? r.key.slice(hit.prefixo.length) : '';
     if (!hit || !tenantId) continue;
+    if (labs.has(tenantId)) continue; // [LAB-GATE] reativacao
     if (!out.has(tenantId)) out.set(tenantId, new Set());
     out.get(tenantId)!.add(hit.coluna);
   }

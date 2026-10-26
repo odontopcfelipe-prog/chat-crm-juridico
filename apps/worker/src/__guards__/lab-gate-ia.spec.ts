@@ -19,6 +19,8 @@ import { AiReactivationCronService } from '../ai/ai-reactivation-cron.service';
 import { MemoryJobsProcessor } from '../memory/memory-jobs.processor';
 import { DailyMemoryBatchProcessor } from '../memory/daily-memory-batch.processor';
 import { OrgProfileConsolidationProcessor } from '../memory/org-profile-consolidation.processor';
+import { colunasLigadasPorClinica } from '../reativacao/reativacao-dados';
+import { reativacaoColunaKey } from '@crm/shared';
 
 const CLINICA = 'tenant-clinica';
 const OUTRA_CLINICA = 'tenant-clinica-2';
@@ -107,9 +109,23 @@ describe('AiProcessor — job de IA de laboratório para no freio', () => {
     expect(proc.autoTranscribeAudios).not.toHaveBeenCalled();
   });
 
+  // retryAfterMessageAt depois da última mensagem: a checagem própria da 2ª
+  // tentativa deixa passar — quem barra o laboratório é só o freio.
+  const retry = () => ({
+    conversation_id: 'conv-1',
+    schedulingRetry: true,
+    retryAfterMessageAt: new Date(Date.now() + 60_000).toISOString(),
+  });
+
+  it('2ª tentativa de agendamento de clínica: segue', async () => {
+    const { proc } = montarIa([LAB], conversa(CLINICA, CLINICA), CLINICA);
+    await rodar(proc, retry());
+    expect(proc.autoTranscribeAudios).toHaveBeenCalledTimes(1);
+  });
+
   it('2ª tentativa de agendamento de laboratório: para', async () => {
     const { proc } = montarIa([LAB], conversa(LAB, LAB));
-    await rodar(proc, { conversation_id: 'conv-1', schedulingRetry: true });
+    await rodar(proc, retry());
     expect(proc.autoTranscribeAudios).not.toHaveBeenCalled();
   });
 
@@ -213,6 +229,40 @@ describe('AiReactivation — laboratório fica fora da busca', () => {
     expect(where.AND).toHaveLength(2);
     expect(where.AND[0].ai_mode).toBe(false);
     expect(where.AND[1]).toEqual({ OR: [{ tenant_id: null }, { tenant_id: { notIn: [LAB] } }] });
+  });
+});
+
+// ─── régua de reativação de leads (planejador, redator com IA e envio) ──────
+
+describe('Régua de reativação — laboratório não tem coluna ligada', () => {
+  const ligada = (coluna: any, tenant: string) => ({ key: reativacaoColunaKey(coluna, tenant) });
+  function montar(labs: string[]) {
+    const findMany = jest.fn(async () => [
+      ligada('novo', CLINICA),
+      ligada('conversa', CLINICA),
+      ligada('novo', LAB),
+      ligada('orcamento', OUTRA_CLINICA),
+    ]);
+    return { prisma: { tenantBusinessProfile: perfis(labs), globalSetting: { findMany } } as any, findMany };
+  }
+  const comoObjeto = (m: Map<string, Set<string>>) =>
+    Object.fromEntries([...m].map(([t, s]) => [t, [...s].sort()]));
+
+  it('sem laboratório cadastrado: todas as contas, como antes', async () => {
+    const { prisma } = montar([]);
+    expect(comoObjeto(await colunasLigadasPorClinica(prisma))).toEqual({
+      [CLINICA]: ['conversa', 'novo'],
+      [LAB]: ['novo'],
+      [OUTRA_CLINICA]: ['orcamento'],
+    });
+  });
+
+  it('com laboratório: ele some (o planejador cancela, o redator não escreve, nada sai)', async () => {
+    const { prisma } = montar([LAB]);
+    expect(comoObjeto(await colunasLigadasPorClinica(prisma))).toEqual({
+      [CLINICA]: ['conversa', 'novo'],
+      [OUTRA_CLINICA]: ['orcamento'],
+    });
   });
 });
 
