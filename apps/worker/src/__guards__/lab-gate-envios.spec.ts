@@ -989,7 +989,10 @@ describe('Pesquisa pós-atendimento — laboratório não ganha pesquisa nem rec
     reiniciarEvolution();
     const prisma: any = {
       tenantBusinessProfile: perfis(labs),
-      globalSetting: { findUnique: jest.fn(async () => null) },
+      // Config da pesquisa por conta (POST_CARE_CONFIG_<conta>): nenhuma salva; as contas
+      // são antigas e herdam a global (ausente = padrão, ligada).
+      globalSetting: { findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      tenant: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => ({ created_at: new Date('2026-01-01T00:00:00.000Z') })) },
       calendarEvent: { findMany: jest.fn(async ({ where }: any) => comoBanco(eventos, where, (e) => e.tenant_id)) },
       postCareSurvey: {
         create: jest.fn(async () => ({})),
