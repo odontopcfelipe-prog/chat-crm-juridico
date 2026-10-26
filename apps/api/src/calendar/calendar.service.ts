@@ -19,6 +19,8 @@ import {
   getLabTenantIds,
   algumLab,
   excludeLabWhere,
+  podeLerGlobal,
+  DEFAULT_RECALL_TEMPLATE,
 } from '@crm/shared';
 // F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
 import { negarLaboratorio } from '../common/lab-gate.util';
@@ -2448,6 +2450,28 @@ export class CalendarService {
 
   /** Onda 17.56 — teste GENÉRICO: envia a mensagem de QUALQUER disparo (com dados
    *  de exemplo) pra um número, pra ver na hora se o WhatsApp da clínica entrega. */
+  /**
+   * Texto do recall para o teste da Central: o da conta (TenantSetting); senão o
+   * global (RECALL_MESSAGE_TEMPLATE); senão o padrão. F2 [LAB-GATE] — laboratório não
+   * herda o texto global das clínicas (fica o da conta dele ou o padrão).
+   */
+  private async textoRecallParaTeste(tenant_id: string | undefined): Promise<string> {
+    let tpl = DEFAULT_RECALL_TEMPLATE;
+    try {
+      const ts = tenant_id
+        ? await (this.prisma as any).tenantSetting.findUnique({
+            where: { tenant_id_key: { tenant_id, key: 'RECALL_MESSAGE_TEMPLATE' } },
+          })
+        : null;
+      if (ts?.value?.trim()) tpl = ts.value;
+      else if (await podeLerGlobal(this.prisma, tenant_id, 'RECALL_MESSAGE_TEMPLATE', (m) => this.logger.warn(m))) {
+        const gs = await this.prisma.globalSetting.findUnique({ where: { key: 'RECALL_MESSAGE_TEMPLATE' } });
+        if (gs?.value?.trim()) tpl = gs.value;
+      }
+    } catch { /* default */ }
+    return tpl;
+  }
+
   async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string, text?: string) {
     let num = (phone || '').replace(/\D/g, '');
     if (num.length < 10) {
@@ -2621,21 +2645,7 @@ export class CalendarService {
           break;
         }
         if (disparo === 'recall_preventivo') {
-          const { DEFAULT_RECALL_TEMPLATE } = await import('@crm/shared');
-          let tpl = DEFAULT_RECALL_TEMPLATE;
-          try {
-            const ts = tenant_id
-              ? await (this.prisma as any).tenantSetting.findUnique({
-                  where: { tenant_id_key: { tenant_id, key: 'RECALL_MESSAGE_TEMPLATE' } },
-                })
-              : null;
-            if (ts?.value?.trim()) tpl = ts.value;
-            else {
-              const gs = await this.prisma.globalSetting.findUnique({ where: { key: 'RECALL_MESSAGE_TEMPLATE' } });
-              if (gs?.value?.trim()) tpl = gs.value;
-            }
-          } catch { /* default */ }
-          msg = apply(tpl);
+          msg = apply(await this.textoRecallParaTeste(tenant_id));
           break;
         }
         // Agenda do Comercial: sem texto da tela, testa o texto SALVO (ou default).

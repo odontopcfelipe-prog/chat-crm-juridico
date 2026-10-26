@@ -28,6 +28,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
+  DEFAULT_RECALL_TEMPLATE,
   GLOBAIS_DA_PLATAFORMA,
   OFFICE_HOURS_KEYS,
   __limparCacheContaLegada,
@@ -43,6 +44,7 @@ import {
   podeLerGlobal,
 } from '@crm/shared';
 import { getTenantSetting, invalidateAllSettings } from '../tenants/tenant-settings.helper';
+import { CalendarService } from '../calendar/calendar.service';
 
 // ─── Dados de exemplo (repositório público: nada real) ───────────────────────
 const CLINICA = 'tenant-clinica';
@@ -206,6 +208,41 @@ function banco(e: Estado) {
 // ═════════════════════════════════════════════════════════════════════════════
 // Lista da plataforma (função pura)
 // ═════════════════════════════════════════════════════════════════════════════
+
+describe('Teste do recall na Central (texto) — laboratório não herda o texto global', () => {
+  const GLOBAL = 'Texto global de recall de uma clínica';
+  function montarRecall(labs: string[], propria: string | null) {
+    const prisma: any = {
+      tenantBusinessProfile: { findMany: jest.fn(async () => labs.map((tenant_id) => ({ tenant_id }))) },
+      tenantSetting: { findUnique: jest.fn(async () => (propria ? { value: propria } : null)) },
+      globalSetting: { findUnique: jest.fn(async () => ({ value: GLOBAL })) },
+    };
+    const svc: any = new CalendarService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return { svc, prisma };
+  }
+
+  it('clínica sem texto próprio: o global, como antes (mesmas leituras, com ou sem laboratório cadastrado)', async () => {
+    for (const labs of [[], [LAB]]) {
+      __limparCacheLabTenants();
+      const m = montarRecall(labs, null);
+      expect(await m.svc.textoRecallParaTeste(CLINICA)).toBe(GLOBAL);
+      expect(m.prisma.globalSetting.findUnique).toHaveBeenCalledWith({ where: { key: 'RECALL_MESSAGE_TEMPLATE' } });
+    }
+  });
+
+  it('laboratório sem texto próprio: o padrão do código, sem ler o global', async () => {
+    __limparCacheLabTenants();
+    const m = montarRecall([LAB], null);
+    expect(await m.svc.textoRecallParaTeste(LAB)).toBe(DEFAULT_RECALL_TEMPLATE);
+    expect(m.prisma.globalSetting.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('laboratório com texto próprio: o dele', async () => {
+    __limparCacheLabTenants();
+    const m = montarRecall([LAB], 'Texto do laboratório');
+    expect(await m.svc.textoRecallParaTeste(LAB)).toBe('Texto do laboratório');
+  });
+});
 
 describe('GLOBAIS_DA_PLATAFORMA — o que o laboratório pode ler da GlobalSetting', () => {
   it('IA (créditos e modelos), servidor Evolution, SMTP, Web Push e vigias de operação são da plataforma', () => {
