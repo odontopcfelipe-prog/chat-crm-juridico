@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
+import { isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 /**
  * MaintenanceService — gestao de tasks de manutencao/recall (Fase 25 Onda 5).
@@ -35,6 +37,12 @@ export class MaintenanceService {
     expectedRevisitAt: Date;
     createdByUserId?: string;
   }) {
+    // F2 [LAB-GATE] — revisão da aplicação estética (recall com WhatsApp + "Retornos
+    // pendentes") é de clínica: conta de laboratório não ganha. Clínica: só a leitura.
+    if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] revisao-estetica — conta ${params.tenantId} é laboratório: sem recall`);
+      return null;
+    }
     // Idempotencia: evita duplicar se reprocessar
     const existing = await this.prisma.maintenanceTask.findFirst({
       where: { esthetic_application_id: params.estheticApplicationId },
@@ -81,6 +89,12 @@ export class MaintenanceService {
     if (!params.defaultRevisitMonths || params.defaultRevisitMonths <= 0) {
       return null; // procedure sem revisita configurada — nada a fazer
     }
+    // F2 [LAB-GATE] — revisão por procedimento (recall com WhatsApp) é de clínica: o
+    // procedimento do laboratório com meses de revisão editados não gera. Clínica: só a leitura.
+    if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] revisao-procedimento — conta ${params.tenantId} é laboratório: sem recall`);
+      return null;
+    }
 
     const existing = await this.prisma.maintenanceTask.findFirst({
       where: { treatment_plan_item_id: params.treatmentPlanItemId },
@@ -125,6 +139,13 @@ export class MaintenanceService {
     completedAt?: Date;
     createdByUserId?: string;
   }) {
+    // F2 [LAB-GATE] — "Retorno pós-tratamento" (recall de 6 meses + "Retornos pendentes")
+    // é de clínica. Freio no consumidor: cobre concluir, último procedimento feito,
+    // finalizar paciente e o backfill. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] retorno-pos-tratamento — plano ${params.treatmentPlanId} é de laboratório: sem retorno`);
+      return null;
+    }
     const months = params.months && params.months > 0 ? params.months : 6;
     const marker = `[plan:${params.treatmentPlanId}]`;
     const existing = await this.prisma.maintenanceTask.findFirst({
@@ -200,6 +221,11 @@ export class MaintenanceService {
       notes?: string;
     },
   ) {
+    // F2 [LAB-GATE] — manutenção/recall manual (WhatsApp de revisão + "Retornos
+    // pendentes") é função de clínica: conta de laboratório recusa. Clínica: só a leitura.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Manutenção / retorno (recall)');
+    }
     const dueDate = new Date(dto.due_date);
     const task = await this.prisma.maintenanceTask.create({
       data: {

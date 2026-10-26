@@ -23,13 +23,15 @@ export class AutomationsController {
   update(
     @Param('id') id: string,
     @Body() body: { name?: string; trigger?: string; action?: string; action_value?: string; enabled?: boolean },
+    @Request() req: any,
   ) {
-    return this.automationsService.update(id, body);
+    // F2 [LAB-GATE] — a conta de quem chama: o laboratório só mexe nas regras dele.
+    return this.automationsService.update(id, body, req.user?.tenant_id);
   }
 
   @Delete(':id')
   @Roles('ADMIN')
-  remove(@Param('id') id: string) {
-    return this.automationsService.remove(id);
+  remove(@Param('id') id: string, @Request() req: any) {
+    return this.automationsService.remove(id, req.user?.tenant_id);
   }
 }

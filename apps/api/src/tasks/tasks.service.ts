@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { CalendarService } from '../calendar/calendar.service';
+import { algumLab, getLabTenantIds } from '@crm/shared';
 
 @Injectable()
 export class TasksService {
@@ -157,10 +158,30 @@ export class TasksService {
 
     // Sync to calendar if has due_at
     if (task.due_at && data.created_by_id) {
-      await this.syncTaskToCalendar(task, data.created_by_id);
+      // F2 [LAB-GATE] — tarefa com prazo virando evento TAREFA na agenda é automatismo de
+      // clínica: na conta de laboratório a tarefa é criada, mas não vai para a agenda.
+      // Clínica: só a leitura cacheada; o evento sai igual.
+      if (await this.tarefaDeLaboratorio(task)) {
+        this.logger.log(`[LAB-GATE] tarefa-agenda — tarefa ${task.id} é de laboratório: não vira evento na agenda`);
+      } else {
+        await this.syncTaskToCalendar(task, data.created_by_id);
+      }
     }
 
     return task;
+  }
+
+  /**
+   * F2 [LAB-GATE] — a tarefa é de laboratório? Pela conta da tarefa; tarefa sem conta,
+   * pela do lead dela. Sem laboratório cadastrado: só a leitura cacheada da lista.
+   */
+  private async tarefaDeLaboratorio(task: { tenant_id: string | null; lead_id: string | null }): Promise<boolean> {
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!labs.size) return false;
+    if (task.tenant_id) return labs.has(task.tenant_id);
+    if (!task.lead_id) return false;
+    const lead = await this.prisma.lead.findUnique({ where: { id: task.lead_id }, select: { tenant_id: true } });
+    return algumLab(labs, [lead?.tenant_id]);
   }
 
   async updateStatus(id: string, status: string, tenantId?: string) {

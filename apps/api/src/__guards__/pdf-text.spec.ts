@@ -430,6 +430,10 @@ describe('retrato: TCLE do plano (TreatmentPlanContractService) (F1)', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       tenant: { findUnique: jest.fn().mockResolvedValue(nomeClinica === null ? null : { name: nomeClinica }) },
+      // F2: ler a lista de laboratórios (cache de 60 s, só leitura) não é efeito da
+      // clínica; sem laboratório cadastrado ela volta vazia (mesma exceção dos
+      // retratos promocao-efeitos e calendar-create-hooks).
+      tenantBusinessProfile: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const clicksign: any = {
       createGenericSignature: jest.fn().mockResolvedValue({

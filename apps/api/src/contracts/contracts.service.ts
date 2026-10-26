@@ -8,6 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MediaS3Service } from '../media/s3.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { algumLab, getLabTenantIds } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 // ─── Meses em português ────────────────────────────────────────────────────────
 const MESES = [
@@ -512,6 +514,11 @@ export class ContractsService {
       include: { lead: true },
     });
     if (!convo?.lead) throw new BadRequestException('Conversa inválida');
+    // F2 [LAB-GATE] — contrato jurídico legado (trabalhista) não existe no laboratório:
+    // conversa ou contato de laboratório recusa. Clínica: só a leitura cacheada.
+    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [convo.tenant_id, convo.lead.tenant_id])) {
+      throw negarLaboratorio('Contrato jurídico (trabalhista)');
+    }
 
     // Normalizar percentual extenso
     variaveis.PERCENTUAL_EXTENSO =

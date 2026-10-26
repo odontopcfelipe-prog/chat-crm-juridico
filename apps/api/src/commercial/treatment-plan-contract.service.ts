@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClicksignService } from '../clicksign/clicksign.service';
 import { MessagesService } from '../messages/messages.service';
 import { ConversationsService } from '../conversations/conversations.service';
+import { isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 @Injectable()
 export class TreatmentPlanContractService {
@@ -36,6 +38,13 @@ export class TreatmentPlanContractService {
     });
     if (!plan) throw new NotFoundException('Plano nao encontrado');
     if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    // F2 [LAB-GATE] — TCLE (termo do tratamento odontológico + ClickSign) é de clínica:
+    // conta de laboratório recusa. O botão manual mostra o erro; o aceite, o fechamento
+    // e a entrada paga (fireContractForPlan, em segundo plano) só registram [LAB-GATE].
+    // Clínica: só a leitura cacheada da lista de laboratórios.
+    if (await isLabTenant(this.prisma, plan.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('TCLE (termo de consentimento do tratamento)');
+    }
 
     if (plan.contract_signature_id) {
       throw new BadRequestException('Plano ja tem assinatura digital iniciada');

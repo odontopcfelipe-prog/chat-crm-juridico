@@ -16,6 +16,8 @@ import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, getLabTenantIds, isLabTenant, withoutLabTenants, type Permission, type Sector } from '@crm/shared';
+// F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
+import { eRecusaDeLaboratorio, negarLaboratorio } from '../common/lab-gate.util';
 // Out/2026 — direcionar procedimento pro dentista da área (especialidade).
 import { loadTenantDentists } from '../common/utils/tenant-dentists';
 import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
@@ -1661,6 +1663,13 @@ export class QuotesService {
         );
         return;
       }
+      // F2 [LAB-GATE] — "Seu tratamento foi aprovado" + PDF dos procedimentos é texto de
+      // clínica: conta de laboratório não recebe, por nenhum caminho (aprovar-e-cobrar,
+      // fila do fechamento, entrada paga pelo webhook/reconcile). Clínica: só a leitura.
+      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] negociacao-aprovada — conta ${tenantId} é laboratório: não envia (plano ${planId})`);
+        return;
+      }
 
       // Onda 18.x — CARDS SEPARADOS: a venda À VISTA (PIX/cartão, sem parcelas) tem
       // toggle próprio ("Negociação aprovada · à vista"); sem valor salvo, HERDA o do
@@ -1933,6 +1942,12 @@ export class QuotesService {
       const ws = this.whatsapp;
       const phone = patient?.phone?.trim();
       if (!ws || !phone || !tenantId) return;
+      // F2 [LAB-GATE] — boleto da entrada com texto fixo de clínica ("pra garantir seu
+      // tratamento"): conta de laboratório não recebe. Clínica: só a leitura.
+      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] entrada-cobranca — conta ${tenantId} é laboratório: não envia (plano ${planId})`);
+        return;
+      }
 
       const charges = await this.prisma.paymentGatewayCharge.findMany({
         where: {
@@ -2074,6 +2089,12 @@ export class QuotesService {
           `[COMPROVANTE_PAGAMENTO] pulado no plano ${planId}: ` +
           `${!ws ? 'WhatsappService indisponível' : !phone ? 'paciente sem telefone' : 'sem tenant'}.`,
         );
+        return;
+      }
+      // F2 [LAB-GATE] — o comprovante lista os itens com 🦷 e "a clínica" fixos (texto de
+      // clínica): conta de laboratório não recebe. Clínica: só a leitura.
+      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] comprovante-pagamento — conta ${tenantId} é laboratório: não envia (plano ${planId})`);
         return;
       }
 
@@ -2700,6 +2721,12 @@ export class QuotesService {
         if (r?.whatsappError) this.logger.warn(`[ACCEPT→CLICKSIGN] Plano ${planId}: link do TCLE não saiu no WhatsApp — ${r.whatsappError}`);
       })
       .catch((err: any) => {
+        // F2 [LAB-GATE] — plano de laboratório: o TCLE é recusado em sendForSignature
+        // (função de clínica). Em segundo plano não é falha: só registra.
+        if (eRecusaDeLaboratorio(err)) {
+          this.logger.log(`[LAB-GATE] tcle — plano ${planId} é de laboratório: sem TCLE`);
+          return;
+        }
         this.logger.warn(`[ACCEPT→CLICKSIGN] Falha ao disparar assinatura do plano ${planId}: ${err?.message}. Operador pode reenviar manualmente.`);
       });
   }
@@ -2863,6 +2890,13 @@ export class QuotesService {
       );
     }
 
+    // F2 [LAB-GATE] — laboratório não tem TCLE para assinar: o plano (o trabalho) nasce
+    // ACTIVE. Clínica: PENDING_SIGNATURE como sempre (o objeto do create é o mesmo).
+    const planoAtivoLab = await isLabTenant(this.prisma, quote.patient?.tenant_id, (m) => this.logger.warn(m));
+    if (planoAtivoLab) {
+      this.logger.log(`[LAB-GATE] plano-ativo — orçamento ${id} é de laboratório: o plano nasce ACTIVE (sem TCLE)`);
+    }
+
     // Transacao: marca quote + cria TreatmentPlan + TreatmentPlanItems
     const result = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
@@ -2886,7 +2920,8 @@ export class QuotesService {
         data: {
           patient_id: quote.patient_id,
           quote_id: id,
-          status: 'PENDING_SIGNATURE',
+          status: planoAtivoLab ? 'ACTIVE' : 'PENDING_SIGNATURE',
+          ...(planoAtivoLab ? { start_date: now } : {}),
           total_value: quote.total_value,
           items: {
             create: quote.items.map((qi, idx) => ({
@@ -3141,6 +3176,13 @@ export class QuotesService {
         .catch((e) => this.logger.warn(`[VERSION] snapshot parcial falhou: ${e?.message}`));
     }
 
+    // F2 [LAB-GATE] — mesmo do accept(): no laboratório o plano nasce ACTIVE (sem TCLE).
+    // Clínica: PENDING_SIGNATURE como sempre.
+    const parcialAtivoLab = await isLabTenant(this.prisma, quote.patient?.tenant_id, (m) => this.logger.warn(m));
+    if (parcialAtivoLab) {
+      this.logger.log(`[LAB-GATE] plano-ativo — aprovação parcial do orçamento ${id} é de laboratório: o plano nasce ACTIVE (sem TCLE)`);
+    }
+
     // Transaction: remove items selecionados do original + recalcula totais
     // + cria novo Quote ACCEPTED com items copiados + TreatmentPlan
     const partial = await this.prisma.$transaction(async (tx) => {
@@ -3239,7 +3281,8 @@ export class QuotesService {
         data: {
           patient_id: quote.patient_id,
           quote_id: acceptedQuote.id,
-          status: 'PENDING_SIGNATURE',
+          status: parcialAtivoLab ? 'ACTIVE' : 'PENDING_SIGNATURE',
+          ...(parcialAtivoLab ? { start_date: new Date() } : {}),
           total_value: totalValue,
           items: {
             create: selectedItems.map((qi, idx) => ({
@@ -5374,6 +5417,12 @@ export class QuotesService {
       throw new BadRequestException('Servico de portal nao disponivel');
     }
     const quote = await this.findOne(quoteId, tenantId);
+    // F2 [LAB-GATE] — o envio leva o portal do paciente e texto de clínica ("na clínica",
+    // procedimentos): conta de laboratório recusa (o envio próprio do laboratório vem
+    // na fase de textos). Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, quote.patient?.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Envio do orçamento pelo WhatsApp (portal do paciente)');
+    }
     if (!['DRAFT', 'SENT'].includes(quote.status)) {
       throw new BadRequestException(
         `Orcamento esta ${quote.status} — nao pode reenviar. Crie um novo orcamento se precisar.`,

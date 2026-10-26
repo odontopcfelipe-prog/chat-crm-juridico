@@ -14,6 +14,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { algumLab, getLabTenantIds } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import { GoogleDriveService } from './google-drive.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -355,6 +357,12 @@ export class GoogleDriveController {
     });
     // Lead de OUTRA conta: mesmo 404 do lead inexistente (lead legado sem conta segue igual).
     if (!lead || leadDeOutraConta(lead.tenant_id, req)) throw new NotFoundException('Lead não encontrado');
+    // F2 [LAB-GATE] — o Drive é o da plataforma (o mesmo das clínicas): contato de
+    // laboratório (ou pedido de usuário de laboratório) recusa.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (algumLab(labs, [lead.tenant_id, req?.user?.tenant_id])) {
+      throw negarLaboratorio('Pasta do contato no Google Drive');
+    }
 
     const configured = await this.driveService.isConfigured();
     if (!configured) {

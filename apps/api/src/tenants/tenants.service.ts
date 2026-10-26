@@ -12,7 +12,8 @@ import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 import { getLimitsForPlan, isWithinLimit } from './plan-limits.js';
 // Onda 17.32.109 — Defaults plantados em cada tenant novo
-import { seedTenantDefaults } from '@crm/shared';
+import { seedTenantDefaults, getLabTenantIds, isLabTenant, withoutLabTenants } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 @Injectable()
 export class TenantsService {
@@ -238,11 +239,18 @@ export class TenantsService {
     failed: number;
     results: Array<{ tenant_id: string; name: string; ok: boolean; error?: string; specialties?: number; procedures?: number }>;
   }> {
-    const tenants = await this.prisma.tenant.findMany({
+    const todas = await this.prisma.tenant.findMany({
       where: { status: { not: 'DELETED' } },
       select: { id: true, name: true },
       orderBy: { created_at: 'asc' },
     });
+    // F2 [LAB-GATE] — especialidades, procedimentos odontológicos e anamnese V3 são de
+    // clínica: o laço de TODAS as contas pula o laboratório (não entra nos results).
+    // Clínica: sem laboratório a lista é o mesmo array.
+    const tenants = withoutLabTenants(todas, await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), (t) => t.id);
+    if (tenants.length !== todas.length) {
+      this.logger.log(`[LAB-GATE] seed-defaults-all — ${todas.length - tenants.length} laboratório(s) fora`);
+    }
     const results = [];
     let success = 0;
     let failed = 0;
@@ -266,6 +274,11 @@ export class TenantsService {
   }
 
   async seedDefaults(tenantId: string) {
+    // F2 [LAB-GATE] — padrões de clínica (procedimentos odontológicos, anamnese): a conta
+    // de laboratório recusa. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Padrões de clínica (especialidades, procedimentos, anamnese)');
+    }
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new BadRequestException('Tenant nao encontrado');
     const result = await seedTenantDefaults(this.prisma, tenantId);

@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { Prisma, Lead, generalStageFromLegacy, nearestStageIn } from '@crm/shared';
+import { Prisma, Lead, generalStageFromLegacy, nearestStageIn, isLabTenant } from '@crm/shared';
 import { AutomationsService } from '../automations/automations.service';
 import { FollowupService } from '../followup/followup.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
@@ -544,7 +544,12 @@ export class LeadsService {
     // Backfill defensivo: lead órfão (tenant_id null, pré-multi-tenant) com este
     // phone (em QUALQUER formato) é adotado pelo tenant da instância que recebeu a
     // mensagem. Roda ANTES da resolução pra que o adotado seja encontrado abaixo.
-    if (incomingTenantId) {
+    // F2 [LAB-GATE] — o lead sem conta é legado da clínica (pré-multi-tenant, com memória
+    // da IA, tarefas, ficha): o chip do laboratório NUNCA o adota; o laboratório segue
+    // para a resolução na conta dele e cria o lead próprio. Clínica: a mesma adoção.
+    if (incomingTenantId && (await isLabTenant(this.prisma, incomingTenantId, (m) => this.logger.warn(m)))) {
+      this.logger.log(`[LAB-GATE] adocao-orfao — conta ${incomingTenantId} é laboratório: não adota lead legado sem conta`);
+    } else if (incomingTenantId) {
       const adopted = await this.prisma.lead.updateMany({
         where: { phone: { in: variants }, tenant_id: null },
         data: { tenant_id: incomingTenantId },
@@ -1006,8 +1011,15 @@ export class LeadsService {
 
     // Criar pasta no Google Drive ao atingir AGUARDANDO_DOCS
     if (stage === 'AGUARDANDO_DOCS') {
-      this.googleDriveService.isConfigured().then(configured => {
+      this.googleDriveService.isConfigured().then(async configured => {
         if (!configured) return;
+        // F2 [LAB-GATE] — o Drive é o da clínica (global): lead de laboratório não ganha
+        // pasta (e sem pasta os anexos dele não sobem). Clínica: só a leitura cacheada,
+        // depois do isConfigured de sempre.
+        if (await isLabTenant(this.prisma, lead.tenant_id ?? tenantId, (m) => this.logger.warn(m))) {
+          this.logger.log(`[LAB-GATE] drive-pasta — lead ${id} é de laboratório: sem pasta no Drive da clínica`);
+          return null;
+        }
         return this.googleDriveService.ensureLeadFolder(id, lead.name || 'Lead');
       }).then(folderId => {
         if (folderId) this.logger.log(`[DRIVE] Pasta criada/garantida para lead ${id}: ${folderId}`);

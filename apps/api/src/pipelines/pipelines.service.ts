@@ -1,5 +1,7 @@
 import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 /**
  * Templates de funil — usados pelo endpoint POST /pipelines/from-template
@@ -466,6 +468,11 @@ export class PipelinesService {
     created: Array<{ key: string; name: string; slug: string }>;
     skipped: Array<{ key: string; name: string; slug: string; reason: string }>;
   }> {
+    // F2 [LAB-GATE] — os 9 funis odontológicos padrão são de clínica: a conta de
+    // laboratório recusa. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, tenantId)) {
+      throw negarLaboratorio('Funis padrão de clínica');
+    }
     // Ordem importa: odonto-clinico primeiro (vira default), demais por especialidade
     const seedOrder: PipelineTemplateKey[] = [
       'odonto-clinico',

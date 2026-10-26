@@ -11,7 +11,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
-import { escolherChipPaciente, soTemChipFinanceiro, type FuncaoChipPaciente } from '@crm/shared';
+import { escolherChipPaciente, soTemChipFinanceiro, algumLab, getLabTenantIds, type FuncaoChipPaciente } from '@crm/shared';
 
 export interface CreateWaitlistDto {
   lead_id: string;
@@ -243,6 +243,11 @@ export class WaitlistService {
         minute: '2-digit',
       });
 
+      // F2 [LAB-GATE] — "abriu uma vaga na agenda do(a) Dr(a)." é texto de clínica: a
+      // entrada de laboratório (pela conta dela e pela do contato) não é avisada. Lida
+      // depois da busca: a clínica busca os candidatos como antes.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+
       let notified = 0;
       for (const entry of matches) {
         const phone = entry.lead?.phone;
@@ -254,6 +259,10 @@ export class WaitlistService {
           entry.tenant_id || params.tenantId || entry.lead?.tenant_id || null;
         if (!tenantId) {
           this.logger.warn(`[WAITLIST] Entrada ${entry.id} sem clínica (tenant) — não notificada (não dá pra escolher o chip)`);
+          continue;
+        }
+        if (algumLab(labs, [tenantId, entry.lead?.tenant_id])) {
+          this.logger.log(`[LAB-GATE] lista-de-espera — entrada ${entry.id} é de laboratório: não avisa`);
           continue;
         }
         const instanceName = await this.resolveWaitlistInstance(

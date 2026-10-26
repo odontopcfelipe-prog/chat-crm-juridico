@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { excludeLabWhere, getLabTenantIds, type Prisma } from '@crm/shared';
+import { excludeLabWhere, getLabTenantIds, isLabTenant, type Prisma } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { FollowupService } from '../followup/followup.service';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 /**
  * Regra de uma clínica só age nas conversas dela; regra global (sem tenant) vale
@@ -29,8 +30,11 @@ export class AutomationsService {
   // ─── CRUD ──────────────────────────────────────────────────────
 
   async findAll(tenantId?: string) {
+    // F2 [LAB-GATE] — o ADMIN do laboratório vê só as regras da conta dele: as globais
+    // (sem conta) são das clínicas. Clínica: o mesmo where (só a leitura cacheada).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     return this.prisma.automationRule.findMany({
-      where: tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {},
+      where: tenantId ? (lab ? { tenant_id: tenantId } : { OR: [{ tenant_id: tenantId }, { tenant_id: null }] }) : {},
       orderBy: { created_at: 'asc' },
     });
   }
@@ -39,13 +43,48 @@ export class AutomationsService {
     return this.prisma.automationRule.create({ data });
   }
 
-  async update(id: string, data: { name?: string; trigger?: string; action?: string; action_value?: string; enabled?: boolean }) {
+  async update(id: string, data: { name?: string; trigger?: string; action?: string; action_value?: string; enabled?: boolean }, tenantId?: string) {
+    await this.recusarRegraDeClinica(id, tenantId);
     return this.prisma.automationRule.update({ where: { id }, data });
   }
 
-  async remove(id: string) {
+  async remove(id: string, tenantId?: string) {
+    await this.recusarRegraDeClinica(id, tenantId);
     await this.prisma.automationRule.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /**
+   * F2 [LAB-GATE] — ADMIN de laboratório só edita/apaga regra da própria conta: a
+   * global (sem conta) e a de outra conta são de clínica. Clínica: só a leitura
+   * cacheada, nada mais é lido.
+   */
+  private async recusarRegraDeClinica(id: string, tenantId?: string): Promise<void> {
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      const regra = await this.prisma.automationRule.findUnique({ where: { id }, select: { tenant_id: true } });
+      if (regra?.tenant_id !== tenantId) throw negarLaboratorio('Regra de automação de clínica');
+    }
+  }
+
+  /**
+   * F2 [LAB-GATE] — lead de laboratório: só as regras da conta dele agem. As globais
+   * (sem conta, feitas para as clínicas) e as de outra conta ficam fora. Clínica: as
+   * mesmas regras (o mesmo array). Sem conta no gancho, vale a do lead.
+   */
+  private async semRegrasDeClinicaNoLab<R extends { tenant_id: string | null }>(
+    rules: R[],
+    leadId: string,
+    tenantId?: string,
+  ): Promise<R[]> {
+    if (!rules.length) return rules;
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!labs.size) return rules;
+    const conta =
+      tenantId || (await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } }))?.tenant_id;
+    if (!conta || !labs.has(conta)) return rules;
+    const daConta = rules.filter((r) => r.tenant_id === conta);
+    this.logger.log(`[LAB-GATE] automacoes — lead ${leadId} é de laboratório: ${rules.length - daConta.length} regra(s) de clínica fora`);
+    return daConta;
   }
 
   // ─── Execution helpers ─────────────────────────────────────────
@@ -151,13 +190,14 @@ export class AutomationsService {
   // ─── Hook: NEW_LEAD ────────────────────────────────────────────
 
   async onNewLead(leadId: string, tenantId?: string) {
-    const rules = await this.prisma.automationRule.findMany({
+    const todas = await this.prisma.automationRule.findMany({
       where: {
         trigger: 'NEW_LEAD',
         enabled: true,
         ...(tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {}),
       },
     });
+    const rules = await this.semRegrasDeClinicaNoLab(todas, leadId, tenantId);
     for (const rule of rules) {
       await this.executeAction(rule, { leadId });
     }
@@ -166,13 +206,14 @@ export class AutomationsService {
   // ─── Hook: STAGE_CHANGE ────────────────────────────────────────
 
   async onStageChange(leadId: string, newStage: string, tenantId?: string) {
-    const rules = await this.prisma.automationRule.findMany({
+    const todas = await this.prisma.automationRule.findMany({
       where: {
         trigger: 'STAGE_CHANGE',
         enabled: true,
         ...(tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {}),
       },
     });
+    const rules = await this.semRegrasDeClinicaNoLab(todas, leadId, tenantId);
     for (const rule of rules) {
       // action_value can be 'ANY' or a specific stage
       if (rule.action_value === 'ANY' || rule.action === 'ADD_TAG' || rule.action === 'SEND_INTERNAL_NOTE') {

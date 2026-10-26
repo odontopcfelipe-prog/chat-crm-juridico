@@ -9,6 +9,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ContractPdfService } from './contract-pdf.service';
 import { ClicksignService } from '../clicksign/clicksign.service';
+import { isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 /**
  * Onda 14.24 — Servico de gestao de contratos vinculados a Quote.
@@ -123,6 +125,11 @@ export class ContractsService {
     opts?: { selected_documents?: string[]; dentist_user_id?: string },
   ) {
     const quote = await this.assertQuoteAndGet(quoteId, tenantId);
+    // F2 [LAB-GATE] — contrato de tratamento odontológico (contract-pdf + TCLE) não
+    // existe no laboratório: recusa. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, quote.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Contrato de tratamento odontológico');
+    }
     // Onda 14.36 — Bloqueia criação se faltam dados essenciais (paciente,
     // clínica, dentista responsável, valor). O operador vê o que falta na tela;
     // aqui é a trava de segurança no backend.

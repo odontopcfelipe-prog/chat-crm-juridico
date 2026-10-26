@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@crm/shared';
+import { Prisma, isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import {
   CreateReturnAlertDto,
   UpdateReturnAlertDto,
@@ -55,6 +56,11 @@ export class ReturnAlertsService {
 
   async create(tenantId: string, userId: string | undefined, dto: CreateReturnAlertDto) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // F2 [LAB-GATE] — "Retornos pendentes" é o quadro de retorno de clínica: conta de
+    // laboratório recusa. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, tenantId)) {
+      throw negarLaboratorio('Retorno pendente');
+    }
 
     const patient = await this.prisma.patient.findFirst({
       where: { id: dto.patient_id, tenant_id: tenantId },

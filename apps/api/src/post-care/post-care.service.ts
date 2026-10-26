@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { isLabTenant } from '@crm/shared';
 import {
   PostCareConfig, DEFAULT_CONFIG, analyzeSentiment, renderInitialMessage,
   renderThanks, renderApology, InitialChoice,
@@ -145,6 +146,12 @@ export class PostCareService {
     if (escopoTenantId && event.tenant_id !== escopoTenantId) return null;
     if (event.status !== 'CONCLUIDO') return null;
     if (event.type !== 'CONSULTA') return null; // so consultas
+    // F2 [LAB-GATE] — pesquisa pós-atendimento (NPS da consulta) é de clínica: evento de
+    // laboratório não ganha pesquisa (cobre o cron e o test-send). Clínica: só a leitura.
+    if (await isLabTenant(this.prisma, event.tenant_id, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] pesquisa-pos-atendimento — evento ${event.id} é de laboratório: sem pesquisa`);
+      return null;
+    }
 
     const config = cfg || (await this.getConfig(event.tenant_id));
     if (!config.enabled) return null;

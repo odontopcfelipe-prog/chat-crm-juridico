@@ -5,7 +5,8 @@ import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { evolutionSendFailed } from '../whatsapp/whatsapp.service';
-import { escolherChipPaciente, chipPacienteOuLegado, soTemChipFinanceiro } from '@crm/shared';
+import { escolherChipPaciente, chipPacienteOuLegado, soTemChipFinanceiro, isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 @Injectable()
 export class PortalAuthService {
@@ -38,6 +39,12 @@ export class PortalAuthService {
       select: { id: true, name: true, phone: true, email: true },
     });
     if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    // F2 [LAB-GATE] — portal do paciente (agenda, parcelas, ficha de anamnese) é de
+    // clínica: conta de laboratório recusa o link. O paciente foi achado NESTA conta,
+    // então ela é a conta do registro. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Portal do paciente (link de acesso)');
+    }
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date();
@@ -262,6 +269,11 @@ export class PortalAuthService {
     if (row.expires_at < new Date()) throw new GoneException('Token expirado — solicite novo link');
     if (row.patient.status === 'ARCHIVED') {
       throw new UnauthorizedException('Paciente arquivado');
+    }
+    // F2 [LAB-GATE] — backstop: link emitido antes da conta virar laboratório não abre o
+    // portal (nem é consumido). Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, row.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Portal do paciente');
     }
 
     // Marca consumido + grava metadata

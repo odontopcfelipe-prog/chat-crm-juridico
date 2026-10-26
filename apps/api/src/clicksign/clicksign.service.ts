@@ -12,6 +12,8 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { ContractsService, ContratoVariaveis } from '../contracts/contracts.service';
 import { SettingsService } from '../settings/settings.service';
+import { algumLab, getLabTenantIds } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -342,6 +344,12 @@ export class ClicksignService {
       include: { lead: true },
     });
     if (!convo?.lead) throw new BadRequestException('Conversa inválida');
+    // F2 [LAB-GATE] — contrato jurídico legado (honorários advocatícios) não existe no
+    // laboratório: conversa ou contato de laboratório recusa, antes de gerar e subir
+    // qualquer documento. Clínica: só a leitura cacheada.
+    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [convo.tenant_id, convo.lead.tenant_id])) {
+      throw negarLaboratorio('Contrato jurídico (ClickSign)');
+    }
 
     const lead = convo.lead;
     const clientName = variaveis.NOME_CONTRATANTE || lead.name || 'Cliente';

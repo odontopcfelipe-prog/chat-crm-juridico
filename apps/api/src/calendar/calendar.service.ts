@@ -17,7 +17,11 @@ import {
   recebeDisparoEquipe,
   DEFAULT_DENTIST_DAILY_SUMMARY,
   getLabTenantIds,
+  algumLab,
+  excludeLabWhere,
 } from '@crm/shared';
+// F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
+import { negarLaboratorio } from '../common/lab-gate.util';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -60,6 +64,13 @@ const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO'
 // Configurações › Consultório mostra esta mensagem quando o ADMIN tenta mexer.
 export const MSG_FERIADO_GLOBAL_SO_SUPER =
   'Feriado nacional vale para todas as clínicas: só o administrador do sistema cria, edita ou apaga.';
+
+/**
+ * F2 [LAB-GATE] — lembrete que fica no evento de laboratório: só o PUSH (aviso interno
+ * à equipe). WhatsApp/e-mail ao contato levam texto de consulta e não são criados.
+ * `padrao` = o canal que o chamador assume quando o lembrete vem sem canal.
+ */
+const lembreteDaEquipe = (padrao: string) => (r: { channel?: string }) => (r.channel ?? padrao) === 'PUSH';
 
 @Injectable()
 export class CalendarService {
@@ -511,6 +522,16 @@ export class CalendarService {
       }
     }
 
+    // F2 [LAB-GATE] — evento de laboratório: sem lembrete ao contato (WhatsApp/e-mail
+    // com texto de consulta; nem fica "pendente" na tela) e sem o aviso "consulta
+    // agendada". O evento nasce igual; o lembrete PUSH da equipe fica. Clínica: só a
+    // leitura cacheada — os lembretes e o create são os mesmos.
+    const eventoDeLab = await this.eventoDeLaboratorio(data.tenant_id, resolvedLeadId, resolvedPatientId);
+    const lembretes = eventoDeLab ? data.reminders?.filter(lembreteDaEquipe('PUSH')) : data.reminders;
+    if (eventoDeLab) {
+      this.logger.log(`[LAB-GATE] lembretes-agenda — evento de laboratório: ${(data.reminders?.length ?? 0) - (lembretes?.length ?? 0)} lembrete(s) ao contato não criado(s), sem aviso de agendamento`);
+    }
+
     const event = await this.prisma.calendarEvent.create({
       data: {
         type: data.type,
@@ -537,14 +558,14 @@ export class CalendarService {
         recurrence_rule: data.recurrence_rule,
         recurrence_end: data.recurrence_end ? new Date(data.recurrence_end) : null,
         recurrence_days: data.recurrence_days ?? [],
-        reminders: data.reminders?.length
+        reminders: lembretes?.length
           ? {
               // Onda 18.x — DEDUP por (minutes_before, channel): sem isso, uma antecedencia
               // repetida no payload/config virava 2 EventReminder -> 2 jobs -> lembrete
               // duplicado no MESMO minuto ("cafezinho" 2x). Mantem 1 por combinacao.
               create: [
                 ...new Map(
-                  data.reminders.map((r) => [
+                  lembretes.map((r) => [
                     `${r.minutes_before}:${r.channel ?? 'PUSH'}`,
                     { minutes_before: r.minutes_before, channel: r.channel ?? 'PUSH' },
                   ]),
@@ -606,7 +627,8 @@ export class CalendarService {
 
     // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
     // paciente (best-effort; so eventos clinicos com paciente/lead)
-    if (data.tenant_id && this.isClinicalEvent(event.type)) {
+    // F2 [LAB-GATE] — evento de laboratório não avisa o contato (ver eventoDeLab acima).
+    if (data.tenant_id && this.isClinicalEvent(event.type) && !eventoDeLab) {
       // Ortô só tem aviso próprio ("a partir das", ordem de chegada) quando a clínica
       // atende ortô em FLUXO. Por hora marcada (padrão) cai no aviso normal abaixo.
       if (event.type === 'ORTODONTIA' && (await this.isOrtoOrdemChegada(data.tenant_id))) {
@@ -713,6 +735,26 @@ export class CalendarService {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * F2 [LAB-GATE] — o evento é de laboratório? Pela conta do evento; evento sem conta
+   * (legado), pela do contato e do paciente. Sem laboratório cadastrado: nenhuma
+   * consulta além da lista cacheada.
+   */
+  private async eventoDeLaboratorio(
+    tenantId: string | null | undefined,
+    leadId: string | null | undefined,
+    patientId: string | null | undefined,
+  ): Promise<boolean> {
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!labs.size) return false;
+    if (tenantId) return labs.has(tenantId);
+    const [lead, paciente] = await Promise.all([
+      leadId ? this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } }) : null,
+      patientId ? this.prisma.patient.findUnique({ where: { id: patientId }, select: { tenant_id: true } }) : null,
+    ]);
+    return algumLab(labs, [lead?.tenant_id, paciente?.tenant_id]);
   }
 
   private async enqueueReminders(eventId: string, startAt: Date, reminders: { id: string; minutes_before: number; channel: string }[]) {
@@ -953,6 +995,11 @@ export class CalendarService {
       }, this.logger);
     }
 
+    // F2 [LAB-GATE] — evento de laboratório: lembrete novo só PUSH (equipe), nada é
+    // re-enfileirado e não sai o aviso "consulta remarcada". Clínica: só a leitura
+    // cacheada; o resto do update é o mesmo.
+    const eventoDeLab = await this.eventoDeLaboratorio(before?.tenant_id, event.lead_id, event.patient_id);
+
     // v20: trata reminders separadamente — se frontend enviou novo array,
     // substitui completamente (deleteMany + createMany). Mantem comportamento
     // antigo se nao enviar (reminders existentes ficam intactos).
@@ -962,13 +1009,14 @@ export class CalendarService {
       await this.boundedQueueOp(this.cancelReminderJobs(event.id), 'cancelReminderJobs(update)');
       // Substitui no banco
       await this.prisma.eventReminder.deleteMany({ where: { event_id: event.id } });
-      if (incomingReminders.length > 0) {
+      const novosLembretes = eventoDeLab ? incomingReminders.filter(lembreteDaEquipe('WHATSAPP')) : incomingReminders;
+      if (novosLembretes.length > 0) {
         // Onda 18.x — DEDUP por (minutes_before, channel) — ver create(). Evita 2
         // EventReminder identicos (lembrete duplicado no mesmo minuto).
         await this.prisma.eventReminder.createMany({
           data: [
             ...new Map(
-              incomingReminders.map((r) => [
+              novosLembretes.map((r) => [
                 `${r.minutes_before}:${r.channel ?? 'WHATSAPP'}`,
                 { event_id: event.id, minutes_before: r.minutes_before, channel: r.channel ?? 'WHATSAPP' },
               ]),
@@ -983,7 +1031,9 @@ export class CalendarService {
 
     // Se start_at mudou OU reminders foram alterados, re-enfileirar
     const shouldReEnqueue = (data.start_at || incomingReminders !== undefined) && finalReminders?.length;
-    if (shouldReEnqueue) {
+    if (shouldReEnqueue && eventoDeLab) {
+      this.logger.log(`[LAB-GATE] lembretes-agenda — evento ${event.id} é de laboratório: lembretes não re-enfileirados`);
+    } else if (shouldReEnqueue) {
       // bounded — se o Redis pendurar, o save não fica preso (lembrete vira best-effort)
       await this.boundedQueueOp(
         this.enqueueReminders(event.id, event.start_at, finalReminders),
@@ -1023,7 +1073,8 @@ export class CalendarService {
     // Onda 17.59 — CONSULTA odonto REMARCADA: avisa o paciente no WhatsApp que o
     // horário mudou (espelha a notificação de criação). Só evento clínico com a
     // DATA alterada; respeita o toggle "Re-agendamento" da Central.
-    if (this.isClinicalEvent(finalType ?? '') && dateChanged && before?.tenant_id) {
+    // F2 [LAB-GATE] — evento de laboratório não avisa a remarcação (ver eventoDeLab acima).
+    if (this.isClinicalEvent(finalType ?? '') && dateChanged && before?.tenant_id && !eventoDeLab) {
       void this.sendAppointmentEventWhatsapp(event, event.patient_id, event.lead_id, before.tenant_id, 'rescheduled');
       void this.sendAppointmentEventEmail(event, event.patient_id, event.lead_id, before.tenant_id, 'agendamento_remarcado');
     }
@@ -1867,15 +1918,30 @@ export class CalendarService {
    * quer tentar de novo manualmente.
    */
   async resendReminder(reminderId: string, tenantId?: string) {
+    // F2 [LAB-GATE] — lembrete de consulta é de clínica: evento de laboratório recusa o
+    // reenvio. Sem laboratório cadastrado a consulta é a mesma de antes (a conta do
+    // evento só entra no select quando existe laboratório).
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     const reminder = await this.prisma.eventReminder.findFirst({
       where: {
         id: reminderId,
         ...(tenantId ? { event: { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } } : {}),
       },
-      include: { event: { select: { id: true, status: true, start_at: true } } },
+      include: {
+        event: {
+          select: {
+            id: true, status: true, start_at: true,
+            ...(labs.size ? { tenant_id: true, lead_id: true, patient_id: true } : {}),
+          },
+        },
+      },
     });
     if (!reminder) throw new BadRequestException('Lembrete não encontrado');
     if (!reminder.event) throw new BadRequestException('Evento não encontrado');
+    const ev = reminder.event as { tenant_id?: string | null; lead_id?: string | null; patient_id?: string | null };
+    if (labs.size && (await this.eventoDeLaboratorio(ev.tenant_id, ev.lead_id, ev.patient_id))) {
+      throw negarLaboratorio('Reenvio de lembrete de consulta');
+    }
     if (['CANCELADO', 'CONCLUIDO'].includes(reminder.event.status)) {
       throw new BadRequestException('Não dá pra reenviar lembrete de evento cancelado/concluído');
     }
@@ -3092,6 +3158,15 @@ export class CalendarService {
   //
   // Idempotente: se evento ja tem reminder com mesma antecedencia, pula.
   async backfillReminders(opts: { tenant_id?: string; dry_run?: boolean } = {}) {
+    // F2 [LAB-GATE] — lembretes de consulta são de clínica: o ADMIN do laboratório não
+    // cria nenhum (nem nos eventos legados sem conta, que são da clínica); o SUPER_ADMIN
+    // (sem conta) varre todas as contas menos as de laboratório. Clínica: sem
+    // laboratório o where é o mesmo objeto.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (algumLab(labs, [opts.tenant_id])) {
+      this.logger.log(`[LAB-GATE] backfill-lembretes — conta ${opts.tenant_id} é laboratório: nada a criar`);
+      return { events_scanned: 0, reminders_created: 0, jobs_enqueued: 0, dry_run: opts.dry_run ?? false };
+    }
     // v26: alinhado com defaults da UI/IA [1d, 1h, 15min antes]
     const defaults = [1440, 60, 15]; // minutes_before pra cada lembrete default
 
@@ -3107,7 +3182,7 @@ export class CalendarService {
     }
 
     const events = await this.prisma.calendarEvent.findMany({
-      where,
+      where: opts.tenant_id ? where : excludeLabWhere('calendarEvent', where, labs),
       include: { reminders: { select: { minutes_before: true } } },
       orderBy: { start_at: 'asc' },
     });
@@ -3819,8 +3894,19 @@ export class CalendarService {
     }
     const daClinica = escopo.superAdmin ? {} : { tenant_id: escopo.tenantId as string };
 
+    // F2 [LAB-GATE] — tarefa→agenda é de clínica: o ADMIN do laboratório não converte
+    // nada; o SUPER_ADMIN varre todas as contas menos as de laboratório (e pula, no laço,
+    // a tarefa sem conta cujo responsável é de laboratório). Clínica: sem laboratório o
+    // where é o mesmo objeto.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!escopo.superAdmin && algumLab(labs, [escopo.tenantId])) {
+      this.logger.log(`[LAB-GATE] migrate-tasks — conta ${escopo.tenantId} é laboratório: nada a converter`);
+      return { orphanTasksMigrated: 0, commentsMigrated: 0, skippedNoCreator: 0, skippedNoClinic: 0 };
+    }
+    const orfas = { calendar_event_id: null, ...daClinica };
+
     const orphanTasks = await this.prisma.task.findMany({
-      where: { calendar_event_id: null, ...daClinica },
+      where: escopo.superAdmin ? excludeLabWhere('task', orfas, labs) : orfas,
       include: { comments: true },
     });
 
@@ -3855,6 +3941,11 @@ export class CalendarService {
       if (!clinica) {
         skippedNoClinic++;
         this.logger.warn(`[migrate-tasks] task ${task.id} sem clínica (nem pelo responsável) — pulada`);
+        continue;
+      }
+      if (algumLab(labs, [clinica])) {
+        skippedNoClinic++;
+        this.logger.log(`[LAB-GATE] migrate-tasks — task ${task.id} é de laboratório (pelo responsável): pulada`);
         continue;
       }
 
@@ -3981,6 +4072,11 @@ export class CalendarService {
       });
       if (!fullEvent?.tenant_id) {
         throw new BadRequestException('Evento sem clínica vinculada — não dá pra notificar');
+      }
+      // F2 [LAB-GATE] — "consulta agendada" é texto de clínica: evento de laboratório
+      // recusa o aviso manual. Clínica: só a leitura cacheada.
+      if (await this.eventoDeLaboratorio(fullEvent.tenant_id, fullEvent.lead_id, fullEvent.patient_id)) {
+        throw negarLaboratorio('Aviso de consulta ao paciente');
       }
       const r = await this.sendAppointmentEventWhatsapp(
         fullEvent, fullEvent.patient_id, fullEvent.lead_id, fullEvent.tenant_id, 'created',

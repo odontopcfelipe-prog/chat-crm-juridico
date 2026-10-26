@@ -7,7 +7,8 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { toBrazilWhatsappNumber, brazilPhoneMatchVariants } from '@crm/shared';
+import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../messages/messages.service';
@@ -131,6 +132,11 @@ export class ContractWhatsappService {
     if (!text) throw new BadRequestException('Escreva a mensagem que vai junto do contrato.');
 
     const contract = await this.loadContract(contractId, tenantId);
+    // F2 [LAB-GATE] — contrato de tratamento odontológico não existe no laboratório:
+    // recusa o envio. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Envio do contrato de tratamento pelo WhatsApp');
+    }
     if (contract.status === 'CANCELLED' || contract.status === 'EXPIRED') {
       throw new BadRequestException(this.problemMessage('CONTRACT_INACTIVE'));
     }
@@ -210,6 +216,10 @@ export class ContractWhatsappService {
    */
   async sendClickSign(contractId: string, tenantId: string, userId: string) {
     const contract = await this.loadContract(contractId, tenantId);
+    // F2 [LAB-GATE] — idem: nem ClickSign, nem link. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Contrato de tratamento pela ClickSign');
+    }
     const patient = contract.quote.patient;
     if (!toBrazilWhatsappNumber(patient.phone || '')) {
       throw new BadRequestException('Paciente sem telefone cadastrado — ClickSign exige WhatsApp pra assinatura');

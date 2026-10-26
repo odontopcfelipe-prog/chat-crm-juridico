@@ -2,9 +2,10 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL, isLabTenant } from '@crm/shared';
 import OpenAI from 'openai';
 import { gravarPostCareConfigDaConta, lerPostCareConfigBruta } from '../post-care/post-care-config';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -1329,6 +1330,12 @@ export class FollowupService {
       this.prisma.followupSequence.findUnique({ where: { id: sequenceId }, include: { steps: { orderBy: { position: 'asc' }, take: 1 } } }),
     ]);
     if (!lead || !this.dentroDoEscopo(lead.tenant_id, escopo)) throw new NotFoundException('Lead não encontrado');
+    // F2 [LAB-GATE] — follow-up (sequência com mensagens da IA de clínica) não existe no
+    // laboratório: a inscrição manual recusa; a automática (regra, troca de etapa) cai
+    // aqui e é engolida por quem chama. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, lead.tenant_id, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Sequência de follow-up');
+    }
     if (!sequence) throw new NotFoundException('Sequência não encontrada');
     // Sequência de uma clínica nunca pega lead de outra (regra de automação,
     // auto-enroll ou inscrição manual). Sequência global ou lead legado: livre.
@@ -1781,6 +1788,12 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
       where: { id: leadId },
       select: { is_client: true, tenant_id: true },
     });
+    // F2 [LAB-GATE] — lead de laboratório não entra em sequência nenhuma (nem as globais,
+    // feitas para as clínicas): nem lê as sequências. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, lead?.tenant_id, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] followup-auto — lead ${leadId} é de laboratório: sem inscrição (stage ${stage})`);
+      return;
+    }
     // Só as sequências da clínica DO LEAD (+ as globais, sem tenant). Lead sem
     // clínica (legado): como antes, todas.
     const sequences = await this.prisma.followupSequence.findMany({

@@ -8,7 +8,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { DEFAULT_ANAMNESIS_TEMPLATE } from '@crm/shared';
+import { DEFAULT_ANAMNESIS_TEMPLATE, getLabTenantIds, withoutLabTenants } from '@crm/shared';
 
 const SINGLETON_ID = 1;
 
@@ -56,10 +56,17 @@ export class GlobalAnamnesisService {
     });
 
     // 2) Propaga pra TODOS os tenants ativos
-    const tenants = await this.prisma.tenant.findMany({
+    const todas = await this.prisma.tenant.findMany({
       where: { status: { not: 'DELETED' } },
       select: { id: true, name: true },
     });
+    // F2 [LAB-GATE] — anamnese é ficha de paciente de clínica: a propagação pula as
+    // contas de laboratório (total_tenants conta só as clínicas). Clínica: sem
+    // laboratório a lista é o mesmo array.
+    const tenants = withoutLabTenants(todas, await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), (t) => t.id);
+    if (tenants.length !== todas.length) {
+      this.logger.log(`[LAB-GATE] anamnese-master — ${todas.length - tenants.length} laboratório(s) fora da propagação`);
+    }
     let propagated = 0;
     let failed = 0;
     for (const t of tenants) {

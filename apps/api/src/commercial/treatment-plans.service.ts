@@ -585,14 +585,16 @@ export class TreatmentPlansService implements OnModuleInit {
           ? new Date(Math.max(...doneTimes))
           : new Date();
       try {
-        await this.maintenance.createFromPlanCompletion({
+        const retorno = await this.maintenance.createFromPlanCompletion({
           tenantId,
           patientId: p.patient_id,
           treatmentPlanId: p.id,
           months: await this.getPostTreatmentMonths(tenantId),
           completedAt,
         });
-        created++;
+        // F2 [LAB-GATE] — null = conta de laboratório (não ganha retorno): não conta.
+        // Na clínica sempre volta o retorno (novo ou o existente): a conta é a mesma.
+        if (retorno) created++;
       } catch (e: any) {
         this.logger.warn(`[RETORNO-BACKFILL] plano ${p.id} falhou: ${e?.message}`);
       }
