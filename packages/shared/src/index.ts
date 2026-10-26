@@ -46,3 +46,6 @@ export * from './disparo-anexos';
 export * from './disparos-equipe';
 // Disparo em áudio (teste): texto→fala com motor, voz, sotaque e velocidade
 export * from './audio-disparo';
+// F1 do laboratório: tipo de negócio da conta (CLÍNICA × LABORATÓRIO) e quem é lab
+export * from './business-type';
+export * from './lab-tenants';

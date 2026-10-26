@@ -145,6 +145,30 @@ model Tenant {
   // Relógio de ponto (out/2026)
   time_clock_punches          TimeClockPunch[]
   time_clock_members          TimeClockMember[]
+  // Tipo de negócio (F1 do laboratório). Só relação do Prisma: nenhuma coluna nova em Tenant.
+  business_profile            TenantBusinessProfile?
+}
+
+/// F1 do laboratório (out/2026) — tipo de negócio da conta, escolhido no cadastro.
+/// SEM linha = CLÍNICA (todas as contas de hoje). Só business_type === 'LABORATORIO'
+/// liga o caminho do laboratório (ver packages/shared/src/business-type.ts).
+/// Tabela nova e isolada: nenhuma tabela existente é alterada. Nunca remover este
+/// model do schema — o db push do boot apagaria a tabela e os dados.
+model TenantBusinessProfile {
+  tenant_id          String   @id
+  tenant             Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  /// 'CLINICA' | 'LABORATORIO' (texto livre de propósito: nada de enum, que exigiria ALTER TYPE)
+  business_type      String
+  /// Laboratório: inscrição no CRO (TPD/LB) e responsável técnico
+  lab_cro_inscricao  String?
+  rt_user_id         String?
+  rt_name            String?
+  rt_cro             String?
+  created_by_user_id String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @default(now()) @updatedAt
+
+  @@index([business_type])
 }
 
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).

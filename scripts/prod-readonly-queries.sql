@@ -579,5 +579,30 @@ GROUP BY v.tenant_id, t.name, g.key, g.value
 ORDER BY t.name NULLS FIRST;
 ROLLBACK;
 
+-- ----------------------------------------------------------------------------
+\echo ''
+\echo '== 14. Tipo de negócio (F1 do laboratório) e chaves globais que viram texto de lab'
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Antes do deploy da F1 a tabela não existe (esta consulta dá ERROR e as outras
+-- seguem). Depois: tem que dar 0 linhas — nenhuma conta é laboratório ainda.
+SELECT business_type, count(*) AS contas
+FROM "TenantBusinessProfile"
+GROUP BY business_type
+ORDER BY business_type;
+ROLLBACK;
+
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '120s';
+-- Só se a chave existe e o tamanho do valor (o valor nunca sai). Chaves GLOBAIS
+-- (sem sufixo de tenant) valem para todas as contas — inclusive um laboratório.
+SELECT k.chave,
+       (g.key IS NOT NULL) AS existe,
+       length(g.value) AS tamanho_do_valor
+FROM (VALUES ('CLICKSIGN_API_TOKEN'), ('RECALL_MESSAGE_TEMPLATE'), ('DENTIST_DAILY_SUMMARY')) AS k(chave)
+LEFT JOIN "GlobalSetting" g ON g.key = k.chave
+ORDER BY k.chave;
+ROLLBACK;
+
 \echo ''
 \echo '== fim (nada foi alterado: todas as seções terminaram em ROLLBACK)'
