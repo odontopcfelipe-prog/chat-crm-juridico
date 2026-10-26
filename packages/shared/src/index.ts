@@ -53,3 +53,5 @@ export * from './lab-tenants';
 export * from './conta-legada';
 // Pesquisa pós-atendimento (NPS): chave da configuração por conta
 export * from './post-care-config';
+// F2 parte 3a: chaves da GlobalSetting que valem para toda conta (o laboratório só lê estas)
+export * from './globais-plataforma';

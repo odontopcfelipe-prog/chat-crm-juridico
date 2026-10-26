@@ -11,9 +11,13 @@
  * laboratório novo) nunca herda configuração de outra: sem a chave própria, vale
  * o padrão do código.
  *
+ * Conta de LABORATÓRIO nunca é legada (F2 parte 3a): nunca herda a configuração
+ * global antiga das clínicas, mesmo criada antes do corte ou convertida depois.
+ *
  * Funções puras com o Prisma por parâmetro (sem provider Nest — ver CLAUDE.md:
  * ciclo de DI).
  */
+import { isLabTenant } from './lab-tenants';
 
 /**
  * Corte das contas legadas: criadas ANTES deste instante continuam herdando o
@@ -32,6 +36,13 @@ type PrismaTenantCriacao = {
     }): Promise<{ created_at?: Date | string | null } | null>;
   };
 };
+
+/**
+ * Para saber se a conta é laboratório (getLabTenantIds). Opcional no tipo para
+ * quem só monta o necessário (testes); sem ele, a lista de laboratórios não é
+ * lida e a conta é tratada como clínica, com aviso.
+ */
+type PrismaTipoDaConta = Partial<Parameters<typeof isLabTenant>[0]>;
 
 type PrismaGlobalSettingLeitura = {
   globalSetting: {
@@ -74,13 +85,22 @@ function avisarSemDerrubar(avisar: (msg: string) => void, msg: string): void {
  * só a resposta certa (conta encontrada com data válida) fica no cache.
  * Sem id (null, '', não-texto): true, sem consultar nada (quem não tem conta lê
  * a global, como hoje).
+ *
+ * Laboratório: false, sempre. A pergunta vem antes do cache da data (que dura o
+ * processo inteiro), porque a conta pode virar laboratório depois. Se a lista de
+ * laboratórios não puder ser lida, vale o último conjunto conhecido
+ * (getLabTenantIds): o laboratório já conhecido continua não-legado e, sem
+ * nenhum conhecido, a conta segue como clínica, como hoje — responder "não
+ * legada" na dúvida tiraria de toda clínica antiga a configuração que ela herda
+ * enquanto o banco oscila.
  */
 export async function contaLegada(
-  prisma: PrismaTenantCriacao,
+  prisma: PrismaTenantCriacao & PrismaTipoDaConta,
   tenantId: unknown,
   avisar: (msg: string) => void = (msg) => console.warn(msg),
 ): Promise<boolean> {
   if (typeof tenantId !== 'string' || tenantId === '') return true;
+  if (await isLabTenant(prisma as Parameters<typeof isLabTenant>[0], tenantId, avisar)) return false;
   const conhecido = cache.get(tenantId);
   if (conhecido !== undefined) return conhecido;
   try {
@@ -115,13 +135,14 @@ export function chaveConfigDaConta(chaveGlobal: string, tenantId: string): strin
 /**
  * Valor efetivo de uma configuração por conta (texto cru da GlobalSetting):
  *  1. a chave da conta (`<chaveGlobal>_<tenantId>`), se existir;
- *  2. senão, a chave global antiga — SÓ se a conta for legada (contaLegada);
+ *  2. senão, a chave global antiga — SÓ se a conta for legada (contaLegada;
+ *     laboratório nunca é);
  *  3. senão, null (quem chama aplica o padrão do código).
  * Sem conta (tenantId vazio): a chave global antiga, como hoje.
  * Erro do banco propaga (como a leitura direta da global que esta função substitui).
  */
 export async function lerConfigDaConta(
-  prisma: PrismaGlobalSettingLeitura & PrismaTenantCriacao,
+  prisma: PrismaGlobalSettingLeitura & PrismaTenantCriacao & PrismaTipoDaConta,
   chaveGlobal: string,
   tenantId: string | null | undefined,
   avisar?: (msg: string) => void,

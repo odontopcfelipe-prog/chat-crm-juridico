@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createDecipheriv, scryptSync } from 'crypto';
+import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -36,6 +37,21 @@ export class SettingsService {
       !tenantId ? null : (await (this.prisma as any).tenantSetting
         .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key } } })
         .catch(() => null))?.value || null;
+
+    // F2 parte 3a — laboratório: só a conta Asaas DELE (TenantSetting); nada da
+    // global (chave, regra do dono, flag de sandbox). Sem chave própria: null.
+    if (tenantId && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      const propria = await ts('ASAAS_API_KEY');
+      if (!propria) {
+        this.logger.warn(`[LAB-GATE] asaas — conta ${tenantId} é laboratório sem conta Asaas própria: sem consulta ao Asaas`);
+        return null;
+      }
+      const baseLab = await ts('ASAAS_BASE_URL');
+      return {
+        apiKey: this.decryptIfNeeded(propria),
+        baseUrl: baseLab ? (baseLab.endsWith('/v3') ? baseLab : `${baseLab}/v3`) : 'https://api.asaas.com/v3',
+      };
+    }
 
     let apiKey: string | null = null;
     if (tenantId) {
@@ -160,7 +176,15 @@ export class SettingsService {
     }
   }
 
-  async getTtsConfig() {
+  /**
+   * Voz da IA (TTS). F2 parte 3a — com a conta da conversa: laboratório não herda
+   * o liga/desliga, a chave nem a voz globais das clínicas (TTS desligado, voz e
+   * idioma padrão do código). Sem conta ou clínica: a global, como sempre.
+   */
+  async getTtsConfig(tenantId?: string | null) {
+    if (tenantId && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      return { enabled: false, googleApiKey: '', voice: 'pt-BR-Neural2-B', language: 'pt-BR' };
+    }
     const keys = ['TTS_ENABLED', 'GOOGLE_TTS_API_KEY', 'TTS_VOICE', 'TTS_LANGUAGE'];
     const rows = await this.prisma.globalSetting.findMany({ where: { key: { in: keys } } });
     const cfg: Record<string, string> = {};

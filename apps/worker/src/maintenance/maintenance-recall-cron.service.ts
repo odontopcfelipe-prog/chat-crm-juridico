@@ -314,7 +314,8 @@ export class MaintenanceRecallCronService {
   /**
    * Resolve o template do recall: TenantSetting da clinica -> GlobalSetting ->
    * default. A clinica edita a chave RECALL_MESSAGE_TEMPLATE pra customizar o
-   * convite + upsell, sem deploy.
+   * convite + upsell, sem deploy. Laboratório: só a TenantSetting dele, senão o
+   * default (nunca a GlobalSetting das clínicas).
    */
   private async resolveRecallTemplate(tenantId: string): Promise<string> {
     try {
@@ -322,6 +323,8 @@ export class MaintenanceRecallCronService {
         where: { tenant_id_key: { tenant_id: tenantId, key: 'RECALL_MESSAGE_TEMPLATE' } },
       });
       if (ts?.value?.trim()) return ts.value;
+      // F2 parte 3a — laboratório não herda o texto global das clínicas.
+      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) return DEFAULT_RECALL_TEMPLATE;
       const gs = await this.prisma.globalSetting.findUnique({
         where: { key: 'RECALL_MESSAGE_TEMPLATE' },
       });

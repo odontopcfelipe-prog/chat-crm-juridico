@@ -12,8 +12,17 @@
  *
  * Cache em memoria por tenant+key (1 min TTL) pra reduzir queries
  * em integracoes chamadas em loop.
+ *
+ * F2 parte 3a — conta de LABORATÓRIO: a reserva na GlobalSetting (passo 2) só
+ * vale para chave da plataforma (GLOBAIS_DA_PLATAFORMA de @crm/shared); o resto
+ * é só a TenantSetting dela e o env. Clínica e chamada sem conta: como sempre.
+ * O cache é por conta+chave, então o valor de uma conta nunca serve a outra.
  */
+import { Logger } from '@nestjs/common';
+import { podeLerGlobal } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
+
+const logger = new Logger('TenantSettings');
 
 interface CacheEntry { value: string | null; expiresAt: number; }
 const cache = new Map<string, CacheEntry>();
@@ -60,8 +69,8 @@ export async function getTenantSetting(
     }
   }
 
-  // 2. GlobalSetting fallback
-  if (!value) {
+  // 2. GlobalSetting fallback (laboratório: só chave da plataforma)
+  if (!value && (await podeLerGlobal(prisma, tenantId, key, (m) => logger.warn(m)))) {
     try {
       const gs = await prisma.globalSetting.findUnique({ where: { key } });
       if (gs?.value) value = gs.value;

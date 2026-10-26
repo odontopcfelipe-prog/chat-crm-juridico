@@ -4492,7 +4492,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // Pré-calcular se vai enviar áudio (para pular texto nesse caso)
       // Buscar a última mensagem inbound (mais recente = primeiro do array desc)
       const _lastIn = convo.messages.find((m: any) => m.direction === 'in');
-      const _tts = await this.settings.getTtsConfig();
+      const _tts = await this.settings.getTtsConfig(profileTenantId);
       const _willAudio = _tts.enabled && _tts.googleApiKey && !_tts.googleApiKey.startsWith('enc:') && _lastIn?.type === 'audio';
 
       this.logger.debug(`[TTS-CHECK] enabled=${_tts.enabled} keyLen=${_tts.googleApiKey?.length || 0} keyEnc=${_tts.googleApiKey?.startsWith('enc:')} lastInType=${_lastIn?.type} willAudio=${_willAudio}`);

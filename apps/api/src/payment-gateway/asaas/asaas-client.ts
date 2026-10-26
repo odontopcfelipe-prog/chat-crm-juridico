@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
+import { isLabTenant } from '@crm/shared';
 import { SettingsService } from '../../settings/settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -63,6 +64,10 @@ export class AsaasClient {
    */
   async getConfig(tenantId?: string | null): Promise<AsaasConfig> {
     const { getTenantSetting } = await import('../../tenants/tenant-settings.helper.js');
+    // F2 parte 3a — laboratório: só a conta Asaas DELE (nunca a global nem a regra do dono).
+    if (tenantId && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      return this.getConfigDoLaboratorio(tenantId);
+    }
     // Onda 18.x — ISOLAMENTO POR TENANT (anti-vazamento de cobrança entre clínicas).
     // Regra: operação com tenant explícito usa a chave DELE (TenantSetting, texto cru).
     // NUNCA cai na chave global de outra clínica. Exceção: o "dono" da chave global
@@ -116,6 +121,30 @@ export class AsaasClient {
     return { apiKey: apiKey || '', baseUrl, sandbox, webhookToken: webhookToken || '' };
   }
 
+  /**
+   * F2 parte 3a — conta de LABORATÓRIO: chave e base URL só da TenantSetting dela.
+   * Sem chave própria: apiKey vazia (a mesma resposta "Asaas não configurado" da
+   * clínica bloqueada), mesmo sem dono da global ou sendo ela o dono. Sem base URL
+   * própria: produção (o flag global de sandbox é das clínicas). O token do webhook
+   * é o do endpoint da plataforma.
+   */
+  private async getConfigDoLaboratorio(tenantId: string): Promise<AsaasConfig> {
+    const propria = async (key: string): Promise<string | null> =>
+      (
+        await this.prisma.tenantSetting
+          .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key } } })
+          .catch(() => null)
+      )?.value || null;
+    const apiKey = await propria('ASAAS_API_KEY');
+    if (!apiKey) {
+      this.logger.warn(`[LAB-GATE] asaas — conta ${tenantId} é laboratório sem conta Asaas própria: cobrança Asaas indisponível`);
+    }
+    const baseRaw = await propria('ASAAS_BASE_URL');
+    const baseUrl = baseRaw ? (baseRaw.endsWith('/v3') ? baseRaw : `${baseRaw}/v3`) : 'https://api.asaas.com/v3';
+    const webhookToken = await this.settingsService.get('asaas_webhook_token');
+    return { apiKey: apiKey || '', baseUrl, sandbox: baseUrl.includes('sandbox'), webhookToken: webhookToken || '' };
+  }
+
   /** Onda 18.x — a clínica tem gateway Asaas UTILIZÁVEL? (chave própria, ou é a dona
    *  da chave global). Usado p/ decidir cobrança online (Asaas) vs local (só caixa). */
   async isConfigured(tenantId?: string | null): Promise<boolean> {
@@ -138,6 +167,8 @@ export class AsaasClient {
       .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key: 'ASAAS_API_KEY' } } })
       .catch(() => null);
     if (ts?.value) return true;
+    // F2 parte 3a — laboratório: só a chave própria conta (nunca a regra do dono).
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) return false;
     const { getTenantSetting } = await import('../../tenants/tenant-settings.helper.js');
     const owner = await getTenantSetting(this.prisma, 'ASAAS_GLOBAL_OWNER_TENANT', null);
     if (owner && owner === tenantId) return !!(await this.settingsService.get('asaas_api_key'));

@@ -23,6 +23,7 @@
  */
 
 import { AI_CLINIC_HOURS_KEY, formatClinicHours, normalizeClinicHours, type ClinicHours } from './ai-profile';
+import { isLabTenant } from './lab-tenants';
 
 export interface BusinessHoursSettings {
   start: { h: number; m: number }; // ex: 17:00
@@ -80,13 +81,22 @@ export interface OfficeHoursValues {
 /**
  * Valores crus do horário do escritório de UMA clínica: TenantSetting vence
  * GlobalSetting, chave a chave. Sem tenant = só o global (comportamento legado).
+ *
+ * F2 parte 3a — conta de LABORATÓRIO: só o que ela gravou (TenantSetting e a
+ * grade AI_CLINIC_HOURS); o horário global das clínicas não é lido, e o que
+ * faltar fica no padrão do código. A IA fora do expediente só liga se a própria
+ * conta ligou (sem a chave dela, AFTER_HOURS_AI_ENABLED = 'false', nunca o
+ * 'true' global nem o padrão ligado).
  */
 export async function loadOfficeHoursValues(
   prisma: any,
   tenantId?: string | null,
 ): Promise<OfficeHoursValues> {
+  const ehLaboratorio = !!tenantId && (await isLabTenant(prisma, tenantId));
   const [globalRows, tenantRows] = await Promise.all([
-    prisma.globalSetting.findMany({ where: { key: { in: [...OFFICE_HOURS_KEYS] } } }),
+    ehLaboratorio
+      ? Promise.resolve([])
+      : prisma.globalSetting.findMany({ where: { key: { in: [...OFFICE_HOURS_KEYS] } } }),
     tenantId
       ? prisma.tenantSetting.findMany({
           where: { tenant_id: tenantId, key: { in: [...OFFICE_HOURS_KEYS, AI_CLINIC_HOURS_KEY] } },
@@ -108,6 +118,7 @@ export async function loadOfficeHoursValues(
       ownKeys.push(r.key as OfficeHoursKey);
     }
   }
+  if (ehLaboratorio && values.AFTER_HOURS_AI_ENABLED === undefined) values.AFTER_HOURS_AI_ENABLED = 'false';
   return { values, ownKeys, clinicHours };
 }
 
