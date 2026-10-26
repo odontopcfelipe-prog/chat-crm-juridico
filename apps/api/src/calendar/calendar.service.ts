@@ -2631,10 +2631,14 @@ export class CalendarService {
     template: string,
     dayStart: Date,
     dayEnd: Date,
+    tenantId: string,
   ): Promise<string | null> {
     const events = await this.prisma.calendarEvent.findMany({
       where: {
         assigned_user_id: user.id,
+        // Só a agenda DESTA clínica (e o legado sem conta, como sempre): um evento de
+        // outra conta marcado no nome deste dentista não entra no resumo dele.
+        OR: [{ tenant_id: tenantId }, { tenant_id: null }],
         start_at: { gte: dayStart, lt: dayEnd },
         status: { in: ['AGENDADO', 'CONFIRMADO'] },
         // É a ÚNICA mensagem de agenda que o dentista recebe (não há mais aviso por
@@ -2725,7 +2729,7 @@ export class CalendarService {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'desligado no cadastro da equipe' });
         continue;
       }
-      const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd);
+      const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd, tenant_id);
       if (!msg) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem atendimentos hoje' });
         continue;

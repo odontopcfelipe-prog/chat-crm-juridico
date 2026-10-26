@@ -49,14 +49,20 @@ function montarServico(settings: Record<string, any>) {
       findMany: jest.fn(async ({ where }: any) => DENTISTAS.filter((u) => !where.tenant_id || u.tenant_id === where.tenant_id)),
     },
     calendarEvent: {
-      findMany: jest.fn(async ({ where }: any) =>
-        where.assigned_user_id === 'd-a'
-          ? [
-              { start_at: new Date('2026-10-21T09:00:00Z'), type: 'CONSULTA', patient: { name: 'Maria Souza' }, lead: null },
-              { start_at: new Date('2026-10-21T14:30:00Z'), type: 'ORTODONTIA', patient: null, lead: { name: 'João Lead' } },
-            ]
-          : [{ start_at: new Date('2026-10-21T11:00:00Z'), type: 'RETORNO', patient: { name: 'Carla' }, lead: null }],
-      ),
+      // Aplica o filtro de conta do where (OR [conta, null]); sem ele, o evento de
+      // OUTRA conta marcado no nome do dentista entraria no resumo.
+      findMany: jest.fn(async ({ where }: any) => {
+        const todos =
+          where.assigned_user_id === 'd-a'
+            ? [
+                { tenant_id: A, start_at: new Date('2026-10-21T09:00:00Z'), type: 'CONSULTA', patient: { name: 'Maria Souza' }, lead: null },
+                { tenant_id: B, start_at: new Date('2026-10-21T10:00:00Z'), type: 'CONSULTA', patient: { name: 'Paciente da Outra' }, lead: null },
+                { tenant_id: A, start_at: new Date('2026-10-21T14:30:00Z'), type: 'ORTODONTIA', patient: null, lead: { name: 'João Lead' } },
+              ]
+            : [{ tenant_id: B, start_at: new Date('2026-10-21T11:00:00Z'), type: 'RETORNO', patient: { name: 'Carla' }, lead: null }];
+        const contas: Array<string | null> | null = Array.isArray(where.OR) ? where.OR.map((o: any) => o.tenant_id) : null;
+        return contas ? todos.filter((e) => contas.includes(e.tenant_id)) : todos;
+      }),
     },
   };
   const chatGateway: any = { emitCalendarReminder: jest.fn() };
@@ -151,6 +157,9 @@ describe('Resumo diário do dentista — só por clínica', () => {
       expect(svc.resolveTenantWhatsappInstance).toHaveBeenCalledWith(A, 'CLINICA');
       const janela = prisma.calendarEvent.findMany.mock.calls[0][0].where.start_at;
       expect(janela).toEqual({ gte: DIA, lt: new Date(DIA.getTime() + 86400000) });
+      // A agenda é só da conta A (e do legado sem conta): o evento da outra conta no
+      // nome da dentista não aparece no texto abaixo.
+      expect(prisma.calendarEvent.findMany.mock.calls[0][0].where.OR).toEqual([{ tenant_id: A }, { tenant_id: null }]);
       expect(whatsapp.sendText.mock.calls).toEqual([
         [
           '82988887777',
