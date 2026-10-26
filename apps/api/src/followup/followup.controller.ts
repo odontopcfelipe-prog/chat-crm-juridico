@@ -2,6 +2,11 @@ import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, UseGuard
 import { FollowupService, type EscopoFollowup } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
+import { negarPermissao } from '../auth/require-any-permission';
+
+/** 403 de quem cria sequência sem estar ligado a uma clínica (a global é do SUPER_ADMIN). */
+const SEQUENCIA_SEM_CONTA_MSG =
+  'Sequência de follow-up — sua conta de usuário não está ligada a uma clínica; sequência para todas as clínicas só pelo administrador do sistema.';
 
 /** Clínica de quem chama: recurso de outra clínica responde "não encontrado". */
 function escopo(req: any): EscopoFollowup {
@@ -132,11 +137,15 @@ export class FollowupController {
     return this.svc.listSequences(e.tenantId ?? undefined);
   }
 
-  // Nasce na clínica de quem cria; sem clínica (global) só o SUPER_ADMIN.
+  // Nasce na clínica de quem cria; sem clínica (global) só o SUPER_ADMIN — quem
+  // não tem clínica no login e não é SUPER_ADMIN recebe 403 e nada é criado.
   @Post('sequences')
-  createSequence(@Body() body: any, @Request() req: any) {
+  async createSequence(@Body() body: any, @Request() req: any) {
     const e = escopo(req);
-    return this.svc.createSequence({ ...body, tenant_id: e.superAdmin ? body?.tenant_id : e.tenantId ?? undefined });
+    if (e.superAdmin) return this.svc.createSequence({ ...body, tenant_id: body?.tenant_id });
+    const conta = typeof e.tenantId === 'string' && e.tenantId !== '' ? e.tenantId : null;
+    if (!conta) throw negarPermissao(SEQUENCIA_SEM_CONTA_MSG);
+    return this.svc.createSequence({ ...body, tenant_id: conta });
   }
 
   @Patch('sequences/:id')
