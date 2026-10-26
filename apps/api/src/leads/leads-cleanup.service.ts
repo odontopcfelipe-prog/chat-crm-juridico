@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
+import { leadDeletionBlockers, moverContatoPara } from './lead-merge';
 
 export interface CleanupResult {
   totalDuplicatesFound: number;
@@ -260,33 +261,8 @@ export class LeadsCleanupService {
     };
   }
 
-  /** Tabelas de DADO DE NEGÓCIO que, se apontarem pro lead, tornam DELETAR o lead
-   *  uma perda irreversível (cascade-delete) ou um órfão silencioso (SetNull). Um
-   *  lead só pode ser o SOURCE (deletado) de um merge se NENHUMA delas apontar pra
-   *  ele. NÃO entram aqui as relações que mergeLeads MOVE pro target (não se
-   *  perdem): Conversation, Task, AiMemory, FollowupEnrollment (com a mensagem em
-   *  aprovação junto) e BroadcastItem (envio em fila). Fica DE FORA, como perda
-   *  aceitável, só LeadStageHistory — audit de transição de estágio que TODO lead
-   *  tem (bloquear por ele impediria qualquer merge) e é do lado duplicado que
-   *  some. As métricas da Central usam DispatchLog, não estas tabelas. */
-  private async leadDeletionBlockers(prisma: any, leadId: string): Promise<number> {
-    const [patient, contract, pgCustomer, honorario, finTx, calEvent, nota, note, waitlist, profile] = await Promise.all([
-      prisma.patient.count({ where: { lead_id: leadId } }),
-      prisma.contractSignature.count({ where: { lead_id: leadId } }),
-      prisma.paymentGatewayCustomer.count({ where: { lead_id: leadId } }),
-      prisma.leadHonorario.count({ where: { lead_id: leadId } }),
-      prisma.financialTransaction.count({ where: { lead_id: leadId } }),
-      prisma.calendarEvent.count({ where: { lead_id: leadId } }),
-      prisma.notaFiscal.count({ where: { lead_id: leadId } }),
-      prisma.leadNote.count({ where: { lead_id: leadId } }),
-      prisma.waitlistEntry.count({ where: { lead_id: leadId } }),
-      prisma.leadProfile.count({ where: { lead_id: leadId } }),
-    ]);
-    return patient + contract + pgCustomer + honorario + finTx + calEvent + nota + note + waitlist + profile;
-  }
-
   private async isLeadSafeToDelete(leadId: string): Promise<boolean> {
-    return (await this.leadDeletionBlockers(this.prisma, leadId)) === 0;
+    return (await leadDeletionBlockers(this.prisma, leadId)) === 0;
   }
 
   /**
@@ -341,82 +317,10 @@ export class LeadsCleanupService {
       // deletar (entre o resolveDirection e aqui, alguém pode ter anexado
       // paciente/contrato/etc. a ele). Se surgiu qualquer blocker, ABORTA — nunca
       // deleta dado. O caller trata este erro como "pulado / revisão manual".
-      const blockers = await this.leadDeletionBlockers(tx, sourceLeadId);
+      const blockers = await leadDeletionBlockers(tx, sourceLeadId);
       if (blockers > 0) throw new Error(LeadsCleanupService.MERGE_ABORTED_UNSAFE);
 
-      // Conversas e tasks
-      await tx.conversation.updateMany({ where: { lead_id: sourceLeadId }, data: { lead_id: targetLeadId } });
-      await tx.task.updateMany({ where: { lead_id: sourceLeadId }, data: { lead_id: targetLeadId } });
-
-      // FollowupEnrollment: MOVE (não perder nurture nem mensagem em APROVAÇÃO
-      // humana — FollowupMessage pende da enrollment, não do lead). @@unique
-      // [lead_id, sequence_id]: se o target já tem a mesma sequência, apaga a
-      // duplicada do source; senão migra pro target.
-      const srcEnr = await tx.followupEnrollment.findMany({
-        where: { lead_id: sourceLeadId },
-        select: { id: true, sequence_id: true },
-      });
-      if (srcEnr.length) {
-        const tgtSeqs = new Set(
-          (await tx.followupEnrollment.findMany({ where: { lead_id: targetLeadId }, select: { sequence_id: true } }))
-            .map((e: { sequence_id: string }) => e.sequence_id),
-        );
-        for (const e of srcEnr) {
-          if (tgtSeqs.has(e.sequence_id)) {
-            await tx.followupEnrollment.delete({ where: { id: e.id } });
-          } else {
-            await tx.followupEnrollment.update({ where: { id: e.id }, data: { lead_id: targetLeadId } });
-            // FollowupMessage.lead_id é coluna DENORMALIZADA (sem FK) e é o que o
-            // envio da mensagem APROVADA usa (followup.processor sendMessageDirect).
-            // Sem atualizar junto, a mensagem apontaria pro lead deletado e o envio
-            // sairia silenciosamente (findUnique null → return).
-            await tx.followupMessage.updateMany({
-              where: { enrollment_id: e.id },
-              data: { lead_id: targetLeadId },
-            });
-            tgtSeqs.add(e.sequence_id);
-          }
-        }
-      }
-
-      // BroadcastItem: MOVE (não perder envio de campanha em fila). Sem unique
-      // (broadcast_id, lead_id) → updateMany direto.
-      await tx.broadcastItem.updateMany({ where: { lead_id: sourceLeadId }, data: { lead_id: targetLeadId } });
-
-      // AiMemory (unique por lead_id)
-      const sourceMemory = await tx.aiMemory.findUnique({ where: { lead_id: sourceLeadId } });
-      const targetMemory = await tx.aiMemory.findUnique({ where: { lead_id: targetLeadId } });
-      if (sourceMemory && !targetMemory) {
-        await tx.aiMemory.update({ where: { lead_id: sourceLeadId }, data: { lead_id: targetLeadId } });
-      } else if (sourceMemory && targetMemory) {
-        await tx.aiMemory.delete({ where: { lead_id: sourceLeadId } });
-      }
-
-      // Preenche campos vazios do target com dados do source
-      const sourceLead = await tx.lead.findUnique({ where: { id: sourceLeadId } });
-      const targetLead = await tx.lead.findUnique({ where: { id: targetLeadId } });
-      if (sourceLead && targetLead) {
-        const updates: any = {};
-        if (!targetLead.name && sourceLead.name) updates.name = sourceLead.name;
-        if (!targetLead.email && sourceLead.email) updates.email = sourceLead.email;
-        if (!targetLead.profile_picture_url && sourceLead.profile_picture_url)
-          updates.profile_picture_url = sourceLead.profile_picture_url;
-        // is_client é promoção que nunca rebaixa: se o source já era cliente, herda.
-        if ((sourceLead as any).is_client && !(targetLead as any).is_client) {
-          updates.is_client = true;
-          if ((sourceLead as any).became_client_at && !(targetLead as any).became_client_at)
-            updates.became_client_at = (sourceLead as any).became_client_at;
-        }
-        if (sourceLead.tags && sourceLead.tags.length > 0) {
-          updates.tags = [...new Set([...targetLead.tags, ...sourceLead.tags])];
-        }
-        if (Object.keys(updates).length > 0) {
-          await tx.lead.update({ where: { id: targetLeadId }, data: updates });
-        }
-      }
-
-      // Deleta o source (o resto das relações cai no cascade)
-      await tx.lead.delete({ where: { id: sourceLeadId } });
+      await moverContatoPara(tx, sourceLeadId, targetLeadId);
     });
   }
 }

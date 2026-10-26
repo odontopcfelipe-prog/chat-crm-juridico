@@ -369,10 +369,13 @@ export class PatientsController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const dto = await this.dropHiddenContact(req, body);
-    return this.patientsService.update(id, tenantId, {
-      ...dto,
-      birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
-    });
+    // Edição do cadastro: telefone trocado leva o contato do WhatsApp junto.
+    return this.patientsService.update(
+      id,
+      tenantId,
+      { ...dto, birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined },
+      { levarContatoWhatsapp: true },
+    );
   }
 
   /**

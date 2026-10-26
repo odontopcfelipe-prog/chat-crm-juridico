@@ -8814,7 +8814,13 @@ function CreditCheckDialog({
         if (data.cpf) setCpf(fmtCpf(data.cpf));
         if (data.rg) setRg(data.rg);
         if (data.birth_date) setDataNasc(data.birth_date.substring(0, 10));
-        if (data.phone) setTelefone(fmtTel(data.phone));
+        // Telefone salvo com o 55 (veio do WhatsApp ou do "Corrigir telefones"): tira o
+        // 55 antes da máscara de 11 dígitos — senão ela cortava o fim do número e o
+        // salvar gravava o telefone errado no cadastro.
+        if (data.phone) {
+          const tel = String(data.phone).replace(/\D/g, '');
+          setTelefone(fmtTel(tel.length > 11 && tel.startsWith('55') ? tel.slice(2) : tel));
+        }
         if (data.address) setEndereco(data.address);
         if (data.address_number) setNumeroEndereco(data.address_number);
         if (data.neighborhood) setBairro(data.neighborhood);

@@ -13,7 +13,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins, Tag, BellOff } from 'lucide-react';
 import api from '@/lib/api';
-import { showError, showSuccess } from '@/lib/toast';
+import { showError, showInfo, showSuccess } from '@/lib/toast';
 import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
 import { useRole } from '@/lib/useRole';
@@ -274,7 +274,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
         if (payload[k] === '' || payload[k] === undefined) payload[k] = null;
       });
 
-      await api.patch(`/patients/${patient.id}`, payload);
+      const res = await api.patch(`/patients/${patient.id}`, payload);
 
       // Etiquetas: PUT idempotente substitui o conjunto. Só salva se o GET
       // inicial carregou (senão PUT [] apagaria as tags existentes).
@@ -289,6 +289,17 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
       }
 
       showSuccess('Dados atualizados');
+      // Telefone trocado: o contato do WhatsApp vai junto (ou diz por que não foi).
+      const contato = res?.data?.whatsapp_contato;
+      if (contato === 'atualizado' || contato === 'unido') {
+        showInfo('O WhatsApp do paciente passou para o telefone novo.');
+      } else if (contato === 'numero_de_outro_paciente') {
+        showError('O WhatsApp continua no número antigo: o telefone novo já é o contato de outro paciente.');
+      } else if (contato === 'revisar') {
+        showError('O WhatsApp continua no número antigo: já existe outro contato com o telefone novo, com histórico. Avise o administrador.');
+      } else if (contato === 'erro') {
+        showError('Dados salvos, mas o WhatsApp do paciente não passou para o telefone novo agora. Salve de novo em instantes.');
+      }
       onUpdated();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao salvar');

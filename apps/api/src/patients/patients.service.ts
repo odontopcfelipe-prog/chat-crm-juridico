@@ -15,6 +15,7 @@ import { createHash } from 'crypto';
 import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
 import { ownPatientsWhere } from '../auth/patient-scope.js';
 import { computeDentistLinks, originLabel } from './dentist-links.js';
+import { levarContatoParaTelefoneNovo, mesmoNumero, type ContatoWhatsapp } from './contato-telefone';
 
 // ============================================================================
 // Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
@@ -602,7 +603,13 @@ export class PatientsService {
     return patient;
   }
 
-  async update(id: string, tenantId: string, data: Prisma.PatientUncheckedUpdateInput) {
+  async update(
+    id: string,
+    tenantId: string,
+    data: Prisma.PatientUncheckedUpdateInput,
+    /** levarContatoWhatsapp: telefone trocado leva o contato do WhatsApp junto (edição do cadastro). */
+    opts?: { levarContatoWhatsapp?: boolean },
+  ) {
     await this.assertBelongsToTenant(id, tenantId);
 
     if (data.cpf && typeof data.cpf === 'string') {
@@ -624,6 +631,12 @@ export class PatientsService {
       }
     }
 
+    // Telefone de antes: se mudar de assinante, o contato do WhatsApp vai junto (abaixo).
+    const telefoneAntes =
+      opts?.levarContatoWhatsapp && typeof data.phone === 'string'
+        ? (await this.prisma.patient.findUnique({ where: { id }, select: { phone: true } }))?.phone ?? null
+        : null;
+
     const updated = await this.prisma.patient.update({ where: { id }, data });
 
     // Nome do cadastro é a FONTE DA VERDADE do contato WhatsApp. Ao salvar o nome:
@@ -643,7 +656,23 @@ export class PatientsService {
           .catch((e: any) => this.logger.warn(`[PATIENT UPDATE] falha ao linkar/sincronizar contato do paciente ${updated.id}: ${e?.message}`));
       }
     }
-    return updated;
+
+    // Telefone trocado no cadastro (só a edição do cadastro pede, via opts): o WhatsApp sai
+    // pelo telefone do CONTATO (lead), então ele vai junto (contato-telefone.ts). A
+    // resposta diz o que aconteceu pra tela avisar.
+    let whatsapp_contato: ContatoWhatsapp | null = null;
+    if (opts?.levarContatoWhatsapp && typeof data.phone === 'string' && updated.lead_id && updated.phone && !mesmoNumero(telefoneAntes, updated.phone)) {
+      const leadId = updated.lead_id;
+      whatsapp_contato = await levarContatoParaTelefoneNovo(
+        this.prisma,
+        { tenantId, patientId: updated.id, leadId, telefoneAntes, telefone: updated.phone },
+        this.logger,
+      ).catch((e: any): ContatoWhatsapp => {
+        this.logger.warn(`[PATIENT UPDATE] falha ao levar o contato ${leadId} para o telefone novo do paciente ${updated.id}: ${e?.message}`);
+        return 'erro';
+      });
+    }
+    return whatsapp_contato ? { ...updated, whatsapp_contato } : updated;
   }
 
   /** Soft delete — marca como ARCHIVED. Use para preservar historico clinico. */
