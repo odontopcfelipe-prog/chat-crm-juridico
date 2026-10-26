@@ -15,7 +15,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, getLabTenantIds, isLabTenant, withoutLabTenants, type Permission, type Sector } from '@crm/shared';
 // Out/2026 — direcionar procedimento pro dentista da área (especialidade).
 import { loadTenantDentists } from '../common/utils/tenant-dentists';
 import { loadAdminAlertRecipients } from '../common/utils/admin-alert-recipients';
@@ -1857,6 +1857,13 @@ export class QuotesService {
       const ws = this.whatsapp;
       const phone = patient?.phone?.trim();
       if (!tenantId) return;
+      // F2 [LAB-GATE] — régua de cobrança inteira fora no laboratório (decisão do dono):
+      // nem a apresentação, nem a âncora BOLETO_INTRO que libera o carnê automático D+2.
+      // O envio MANUAL de boleto/carnê pela tela continua. Clínica: só a leitura da lista.
+      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] apresentacao-fechamento — conta ${tenantId} é laboratório: sem apresentação nem âncora (plano ${planId})`);
+        return;
+      }
 
       // Dedup por venda — se já tem âncora, não repete (nem manda, nem re-ancora).
       const ja = await this.prisma.auditLog.findFirst({
@@ -2030,6 +2037,13 @@ export class QuotesService {
     terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string };
   }): Promise<void> {
     const { tenantId, planId, terms } = payload;
+    // F2 [LAB-GATE] — negociação aprovada ("seu tratamento") e o boleto da entrada com
+    // texto fixo de clínica: conta de laboratório não recebe. Aqui (e não no processor)
+    // cobre a fila e o fallback síncrono. Clínica: só a leitura da lista.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] fechamento — conta ${tenantId} é laboratório: sem negociação nem entrada (plano ${planId})`);
+      return;
+    }
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
       select: { patient: { select: { name: true, phone: true } } },
@@ -5056,6 +5070,14 @@ export class QuotesService {
     } catch (e: any) {
       this.logger.warn(`[SEM_AGENDAMENTO] listar tenants falhou: ${e?.message}`);
       return;
+    }
+    // F2 [LAB-GATE] — resumo "pacientes sem agendamento" é todo de clínica (consulta,
+    // tratamento, ortodontia): conta de laboratório não recebe, mesmo ligada. Clínica:
+    // sem laboratório a lista é o mesmo array.
+    const todas = tenants;
+    tenants = withoutLabTenants(tenants, await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), (t) => t.id);
+    if (tenants.length !== todas.length) {
+      this.logger.log(`[LAB-GATE] sem-agendamento — ${todas.length - tenants.length} laboratório(s) fora`);
     }
 
     for (const t of tenants) {

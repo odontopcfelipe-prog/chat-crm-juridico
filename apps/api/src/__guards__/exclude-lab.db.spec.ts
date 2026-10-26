@@ -67,6 +67,21 @@ descrever('excludeLabWhere no Postgres do CI', () => {
     ).resolves.toBeInstanceOf(Array);
   });
 
+  // F2 parte 2b: regras "sem resposta" — a conversa é filtrada pela conta dela E pela do
+  // contato (relação lead obrigatória), a mesma forma do AutomationsService.checkNoResponse.
+  it('conversa filtrada pela conta e pela do contato roda e não come a conversa legada', async () => {
+    const conv = await prisma.conversation.create({ data: { lead_id: criados.leads[1] } }); // sem conta, contato da clínica
+    try {
+      const forma = (labs: ReadonlySet<string>) =>
+        excludeLabWhere('conversation', { id: conv.id, lead: excludeLabWhere('lead', {}, labs) }, labs);
+      await expect(prisma.conversation.findMany({ where: forma(LAB_FALSO), select: { id: true } })).resolves.toEqual([{ id: conv.id }]);
+      // A conta do contato é laboratório: a conversa legada (sem conta) sai.
+      await expect(prisma.conversation.findMany({ where: forma(new Set([tenantId])), select: { id: true } })).resolves.toEqual([]);
+    } finally {
+      await prisma.conversation.deleteMany({ where: { id: conv.id } });
+    }
+  });
+
   it('a tabela nova existe e começa vazia', async () => {
     await expect(prisma.tenantBusinessProfile.count()).resolves.toBe(0);
   });

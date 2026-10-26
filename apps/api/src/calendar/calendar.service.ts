@@ -16,6 +16,7 @@ import {
   RETORNO_FAMILIA_TEXTO,
   recebeDisparoEquipe,
   DEFAULT_DENTIST_DAILY_SUMMARY,
+  getLabTenantIds,
 } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
@@ -2691,6 +2692,13 @@ export class CalendarService {
     // Por CLÍNICA: sem conta não há "todos os dentistas de todas as contas".
     if (!tenant_id) {
       throw new BadRequestException('tenant_id ausente — o resumo do dentista é por clínica');
+    }
+    // F2 [LAB-GATE] — resumo de atendimentos de clínica: conta de laboratório não
+    // recebe (cron e "Enviar agora"). Clínica: só a leitura da lista de laboratórios.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.has(tenant_id)) {
+      this.logger.log(`[LAB-GATE] resumo-dentista — conta ${tenant_id} é laboratório: não envia`);
+      return { total: 0, results: [] };
     }
     const config = await this.getDentistDailySummaryConfig(tenant_id);
 

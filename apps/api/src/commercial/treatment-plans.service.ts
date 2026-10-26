@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { MaintenanceService } from '../maintenance/maintenance.service';
 import { getTenantSetting } from '../tenants/tenant-settings.helper';
-import { Prisma } from '@crm/shared';
+import { Prisma, getLabTenantIds, withoutLabTenants } from '@crm/shared';
 // Fase 0 — funções puras (não são providers): não mexem no grafo de DI.
 import { isAdminRole } from '../auth/patient-scope';
 import { negarPermissao } from '../auth/require-any-permission';
@@ -604,7 +604,14 @@ export class TreatmentPlansService implements OnModuleInit {
   /** Roda o backfill em TODOS os tenants (usado no boot e no cron diário). */
   private async ensurePostTreatmentReturnsAllTenants(): Promise<void> {
     if (!this.maintenance) return;
-    const tenants = await this.prisma.tenant.findMany({ select: { id: true } }).catch(() => []);
+    const todas = await this.prisma.tenant.findMany({ select: { id: true } }).catch(() => []);
+    // F2 [LAB-GATE] — "Retorno pós-tratamento" (recall de 6 meses) é de clínica: o boot e
+    // o cron das 4 h não varrem os planos (trabalhos) do laboratório. Clínica: sem
+    // laboratório a lista é o mesmo array e a mesma consulta.
+    const tenants = withoutLabTenants(todas, await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), (t) => t.id);
+    if (tenants.length !== todas.length) {
+      this.logger.log(`[LAB-GATE] retorno-pos-tratamento — ${todas.length - tenants.length} laboratório(s) fora do backfill`);
+    }
     let total = 0;
     for (const t of tenants) {
       try {

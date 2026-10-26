@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { buildCondicoesBlock } from '@crm/shared';
+import { buildCondicoesBlock, getLabTenantIds } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -307,6 +307,10 @@ export class BoletoDeliveryService {
     const done = new Set(delivered.map((d) => d.entity_id));
 
     // Apresentações pendentes de tenants com o disparo LIGADO — até o teto por rodada.
+    // F2 [LAB-GATE] — entrega automática do carnê é régua (decisão do dono): venda de
+    // laboratório não entra nem ocupa vaga do teto por rodada. O envio MANUAL pela tela
+    // continua. Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     const enabledCache = new Map<string, boolean>();
     const out: { planId: string; tenantId: string }[] = [];
     for (const log of introLogs) {
@@ -314,6 +318,10 @@ export class BoletoDeliveryService {
       if (!planId || done.has(planId)) continue;
       const tenantId = ((log.meta_json as any)?.tenant_id as string) || '';
       if (!tenantId) continue;
+      if (labs.has(tenantId)) {
+        this.logger.debug(`[LAB-GATE] carne-d2 — plano ${planId} é de laboratório: entrega automática não sai`);
+        continue;
+      }
       if (!enabledCache.has(tenantId)) enabledCache.set(tenantId, await this.isEnabled(tenantId));
       if (!enabledCache.get(tenantId)) continue;
       out.push({ planId, tenantId });

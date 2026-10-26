@@ -1,5 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { getLabTenantIds } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { CalendarService } from './calendar.service';
@@ -123,6 +124,11 @@ export class CalendarCronService {
       const settings = await this.prisma.globalSetting.findMany({
         where: { key: { startsWith: 'DENTIST_DAILY_SUMMARY' } },
       });
+      // F2 [LAB-GATE] — o resumo é a agenda de atendimentos de clínica (Doutor(a),
+      // Avaliação, Paciente): conta de laboratório não recebe, mesmo ligada. O
+      // sendDentistDailySummaryNow tem o mesmo freio (cobre o "Enviar agora" e a chave
+      // global). Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const s of settings) {
         let cfg: any;
@@ -143,6 +149,10 @@ export class CalendarCronService {
         const tenantId = contaDaChaveResumoDentista(s.key);
         if (!tenantId) {
           this.logger.warn(`[CRON] ${s.key} sem conta ignorada — cada clínica usa DENTIST_DAILY_SUMMARY_<conta>`);
+          continue;
+        }
+        if (labs.has(tenantId)) {
+          this.logger.log(`[LAB-GATE] resumo-dentista — conta ${tenantId} é laboratório: não envia`);
           continue;
         }
 
@@ -175,6 +185,10 @@ export class CalendarCronService {
       const settings = await this.prisma.globalSetting.findMany({
         where: { key: { startsWith: 'BIRTHDAY_GREETING' } },
       });
+      // F2 [LAB-GATE] — os textos-padrão do aniversário são de clínica (sorriso,
+      // clareamento): conta de laboratório não manda, nem marca last_run_date na config.
+      // Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const s of settings) {
         let cfg: any;
@@ -184,6 +198,10 @@ export class CalendarCronService {
           ? undefined
           : s.key.replace(/^BIRTHDAY_GREETING_/, '');
         if (!tenantId) continue; // aniversario e sempre por-tenant
+        if (labs.has(tenantId)) {
+          this.logger.log(`[LAB-GATE] aniversario — conta ${tenantId} é laboratório: não envia`);
+          continue;
+        }
 
         // Onda 17.61 — TRÊS mensagens separadas no dia (clássica, o desejo, o
         // presente), cada uma no seu horario e com dedup proprio.

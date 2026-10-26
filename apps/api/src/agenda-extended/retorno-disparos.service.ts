@@ -14,6 +14,7 @@ import {
   diasRestantesNaJanela,
   escolherChipPaciente,
   findClinicHoliday,
+  getLabTenantIds,
   isRetornoDisparoId,
   renderRetornoTemplate,
   retornoDisparoId,
@@ -135,7 +136,15 @@ export class RetornoDisparosService {
     const hora = local.getUTCHours();
     if (hora < RETORNO_HORA_INICIO || hora >= RETORNO_HORA_FIM) return;
     const ligados = await this.ligadosPorClinica();
+    // F2 [LAB-GATE] — retorno de manutenção é texto de clínica (procedimento, revisão):
+    // conta de laboratório não dispara, mesmo com o toque ligado. Clínica: sem
+    // laboratório o conjunto é vazio e o laço é o mesmo de antes.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     for (const [tenantId, ids] of ligados) {
+      if (labs.has(tenantId)) {
+        this.avisarUmaVez(`lab:${tenantId}`, diaIso(local), `[LAB-GATE] retorno-disparos — conta ${tenantId} é laboratório: não dispara`);
+        continue;
+      }
       try {
         await this.processarClinica(tenantId, ids, agora);
       } catch (e: any) {

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { excludeLabWhere, getLabTenantIds, type Prisma } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { FollowupService } from '../followup/followup.service';
 
@@ -200,13 +201,23 @@ export class AutomationsService {
       where: { trigger: 'NO_RESPONSE_48H', enabled: true },
     });
 
+    // F2 [LAB-GATE] — conversa de laboratório não entra (ENROLL_FOLLOWUP poria o contato
+    // numa sequência que envia mensagem; tarefa, nota e etapa são de clínica). Olha a
+    // conversa E o contato dela (a conversa legada pode não ter conta). Clínica: sem
+    // laboratório o where é o mesmo objeto; com laboratório, a conversa sem conta
+    // (tenant_id NULL) de contato de clínica continua entrando.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (labs.size) this.logger.log(`[LAB-GATE] no-response — ${labs.size} laboratório(s) fora da busca`);
+    const foraDoLab = (where: Prisma.ConversationWhereInput): Prisma.ConversationWhereInput =>
+      labs.size ? excludeLabWhere('conversation', { ...where, lead: excludeLabWhere('lead', {}, labs) }, labs) : where;
+
     if (rules24.length > 0) {
       // Conversations last active between 25h and 24h ago (1-hour window to avoid re-triggering)
       const convs = await this.prisma.conversation.findMany({
-        where: {
+        where: foraDoLab({
           status: { not: 'FECHADO' },
           last_message_at: { gte: h25, lte: h24 },
-        },
+        }),
         select: { id: true, lead_id: true, tenant_id: true },
       });
       for (const conv of convs) {
@@ -220,10 +231,10 @@ export class AutomationsService {
 
     if (rules48.length > 0) {
       const convs = await this.prisma.conversation.findMany({
-        where: {
+        where: foraDoLab({
           status: { not: 'FECHADO' },
           last_message_at: { gte: h49, lte: h48 },
-        },
+        }),
         select: { id: true, lead_id: true, tenant_id: true },
       });
       for (const conv of convs) {

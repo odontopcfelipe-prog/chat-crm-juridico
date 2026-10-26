@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { excludeLabWhere, getLabTenantIds } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
 import { EMAIL_EVENTS, getEmailEvent } from './email-events';
@@ -192,14 +193,19 @@ export class EmailAutomationService {
       const start = new Date(tomorrowLocalMidnight + OFFSET_MS);
       const end = new Date(start.getTime() + DAY_MS);
 
+      // F2 [LAB-GATE] — toque automático de cobrança (= régua, decisão do dono): a
+      // cobrança do laboratório fica fora da busca. Clínica: sem laboratório o where é o
+      // mesmo objeto (com o `tenant_id not null` de sempre, o resultado é só o notIn).
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) this.logger.log(`[LAB-GATE] vencimento-email — ${labs.size} laboratório(s) fora da busca`);
       const charges = await this.prisma.paymentGatewayCharge.findMany({
-        where: {
+        where: excludeLabWhere('paymentGatewayCharge', {
           status: 'PENDING',
           due_reminder_sent_at: null,
           due_date: { gte: start, lt: end },
           installment_id: { not: null },
           tenant_id: { not: null },
-        },
+        }, labs),
         select: {
           id: true,
           tenant_id: true,

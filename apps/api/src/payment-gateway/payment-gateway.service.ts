@@ -9,6 +9,7 @@ import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { ModuleRef } from '@nestjs/core';
+import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
@@ -1209,6 +1210,12 @@ export class PaymentGatewayService {
   private async sendPaymentOverdueEmail(charge: any): Promise<void> {
     try {
       if (!charge?.installment_id || !charge?.tenant_id) return;
+      // F2 [LAB-GATE] — "pagamento em atraso" é toque automático de cobrança (= régua,
+      // decisão do dono): cobrança de laboratório não manda. Clínica: só a leitura da lista.
+      if (await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] atraso-email — cobrança ${charge.id ?? '?'} é de laboratório: e-mail não sai`);
+        return;
+      }
       const inst = await this.prisma.installment.findUnique({
         where: { id: charge.installment_id },
         select: { patient: { select: { name: true, email: true } } },

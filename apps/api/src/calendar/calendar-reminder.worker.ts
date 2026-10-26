@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
-import { lembreteClinicoIdFor } from '@crm/shared';
+import { lembreteClinicoIdFor, algumLab, getLabTenantIds } from '@crm/shared';
 import { SettingsService } from '../settings/settings.service';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -320,6 +320,16 @@ export class CalendarReminderWorker extends WorkerHost {
 
     if (!event) {
       this.logger.warn(`Evento ${eventId} não encontrado`);
+      return;
+    }
+
+    // F2 [LAB-GATE] — lembretes 48/24 h, 1 h e 15 min (WhatsApp e e-mail) têm texto de
+    // consulta: evento de laboratório (do evento, do contato ou do paciente) não envia.
+    // Sai sem reivindicar e sem last_error: nem "Lembrete falhou", nem engana o
+    // agendador de confirmação do worker. Cobre todos os produtores e os jobs já na
+    // fila. Clínica: sem laboratório não olha os ids; nenhuma consulta muda.
+    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [event.tenant_id, event.lead?.tenant_id, event.patient?.tenant_id])) {
+      this.logger.log(`[LAB-GATE] calendar-reminder — evento ${eventId} é de laboratório: lembrete ${reminderId} não sai`);
       return;
     }
 
@@ -892,6 +902,13 @@ export class CalendarReminderWorker extends WorkerHost {
 
     if (!event) {
       this.logger.warn(`[HEARING-NOTIFY] Evento ${eventId} não encontrado — cancelado`);
+      return;
+    }
+    // F2 [LAB-GATE] — aviso de audiência/perícia (IA + texto jurídico/clínico): evento de
+    // laboratório não notifica. Sai sem lançar (o BullMQ não re-tenta). O freio do
+    // process() não pega estes jobs (desviam antes de carregar o evento).
+    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [event.tenant_id, event.lead?.tenant_id, event.patient?.tenant_id])) {
+      this.logger.log(`[LAB-GATE] hearing-notify — evento ${eventId} é de laboratório: não notifica`);
       return;
     }
     if (['CANCELADO', 'CONCLUIDO'].includes(event.status)) {
