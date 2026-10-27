@@ -168,6 +168,12 @@ describe('trava: relação com User nunca entra inteira num include/select da AP
   const RELACOES = new Set(
     Prisma.dmmf.datamodel.models.flatMap((m) => m.fields.filter((f) => f.kind === 'object' && f.type === 'User').map((f) => f.name)),
   );
+  // Onde um nome de relação é filtro ou escrita, não projeção do que volta.
+  const FILTROS = new Set([
+    'where', 'data', 'orderBy', 'cursor', 'distinct', 'having', 'by',
+    'connect', 'connectOrCreate', 'disconnect', 'set', 'some', 'every', 'none', 'is', 'isNot',
+    'AND', 'OR', 'NOT', 'create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany',
+  ]);
 
   function arquivos(dir: string): string[] {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -177,45 +183,118 @@ describe('trava: relação com User nunca entra inteira num include/select da AP
     });
   }
 
-  const nomeDe = (n: ts.PropertyName) => (ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : '');
+  const nomeDe = (n: ts.Node | undefined) => (n && (ts.isIdentifier(n) || ts.isStringLiteral(n)) ? n.text : '');
+  /** Nós que não mudam o sentido do objeto (`as`, `satisfies`, parênteses, lista). */
+  const transparente = (n: ts.Node) =>
+    ts.isAsExpression(n) || ts.isSatisfiesExpression(n) || ts.isParenthesizedExpression(n) || ts.isTypeAssertionExpression(n) || ts.isArrayLiteralExpression(n);
+  const subir = (n: ts.Node | undefined) => {
+    let p = n;
+    while (p && transparente(p)) p = p.parent;
+    return p;
+  };
 
-  /** A propriedade está dentro de include/select (não de where/orderBy/data)? E fora de _count? */
+  /**
+   * A propriedade está numa projeção (o que a consulta DEVOLVE)? Sobe pelos objetos:
+   * include/select → projeção (select de _count → contagem); where/data/orderBy/... →
+   * não; objeto guardado em variável ou campo de classe cujo nome ou tipo fala de
+   * include/select (ex.: `const includeOpts`, `closingInclude`, `satisfies
+   * Prisma.XInclude`) → projeção.
+   */
   function contexto(no: ts.PropertyAssignment): 'projecao' | 'contagem' | 'outro' {
-    const objeto = no.parent;
-    const pai = objeto?.parent;
-    if (!pai || !ts.isPropertyAssignment(pai)) return 'outro';
-    const chave = nomeDe(pai.name);
-    if (chave !== 'include' && chave !== 'select') return 'outro';
-    // select dentro de _count → contagem
-    const avo = pai.parent?.parent;
-    if (chave === 'select' && avo && ts.isPropertyAssignment(avo) && nomeDe(avo.name) === '_count') return 'contagem';
-    return 'projecao';
+    let objeto: ts.Node = no.parent;
+    for (;;) {
+      const pai = subir(objeto.parent);
+      if (!pai) return 'outro';
+      if (ts.isPropertyAssignment(pai)) {
+        const chave = nomeDe(pai.name);
+        if (FILTROS.has(chave)) return 'outro';
+        if (chave === '_count') return 'contagem';
+        if (chave === 'include' || chave === 'select') {
+          const acima = subir(pai.parent?.parent);
+          if (chave === 'select' && acima && ts.isPropertyAssignment(acima) && nomeDe(acima.name) === '_count') return 'contagem';
+          return 'projecao';
+        }
+        objeto = pai.parent;
+        continue;
+      }
+      if (ts.isVariableDeclaration(pai) || ts.isPropertyDeclaration(pai)) {
+        const nome = nomeDe(pai.name);
+        const tipos = `${pai.type?.getText() ?? ''} ${(pai.initializer?.getText().match(/\b(satisfies|as)\s+[\w.<>]+/g) ?? []).join(' ')}`;
+        return /include|select/i.test(nome) || /Include|Select/.test(tipos) ? 'projecao' : 'outro';
+      }
+      return 'outro';
+    }
   }
+
+  const semSelect = (v: ts.Expression) =>
+    ts.isObjectLiteralExpression(v) && !v.properties.some((p) => p.name && nomeDe(p.name) === 'select');
+  const inteira = (v: ts.Expression): boolean =>
+    v.kind === ts.SyntaxKind.TrueKeyword || semSelect(v) || (ts.isConditionalExpression(v) && (inteira(v.whenTrue) || inteira(v.whenFalse)));
+
+  /** O que a trava acusa num arquivo. */
+  function varrer(fonte: ts.SourceFile, rotulo: string): string[] {
+    const achados: string[] = [];
+    const visitar = (no: ts.Node) => {
+      if (ts.isPropertyAssignment(no) && contexto(no) === 'projecao') {
+        const nome = nomeDe(no.name);
+        const relacaoInteira = RELACOES.has(nome) && inteira(no.initializer);
+        const campoSecreto = SECRETOS.includes(nome) && no.initializer.kind === ts.SyntaxKind.TrueKeyword && secretoDeRelacao(no);
+        if (relacaoInteira || campoSecreto) {
+          const { line } = fonte.getLineAndCharacterOfPosition(no.getStart());
+          achados.push(`${rotulo}:${line + 1} ${no.getText().slice(0, 60)}`);
+        }
+      }
+      ts.forEachChild(no, visitar);
+    };
+    visitar(fonte);
+    return achados;
+  }
+  /** Campo secreto num select DE UMA RELAÇÃO com User (o que volta junto de outro registro). */
+  function secretoDeRelacao(no: ts.PropertyAssignment): boolean {
+    const sel = subir(no.parent.parent);
+    if (!sel || !ts.isPropertyAssignment(sel) || nomeDe(sel.name) !== 'select') return false;
+    const rel = subir(sel.parent?.parent);
+    return !!rel && ts.isPropertyAssignment(rel) && RELACOES.has(nomeDe(rel.name));
+  }
+  const varrerTexto = (codigo: string) => varrer(ts.createSourceFile('exemplo.ts', codigo, ts.ScriptTarget.Latest, true), 'exemplo');
 
   it('o mapa de relações é o do schema (não ficou vazio)', () => {
     expect(RELACOES.has('assigned_user')).toBe(true);
+    expect(RELACOES.has('opened_by')).toBe(true);
     expect(RELACOES.size).toBeGreaterThan(10);
   });
 
-  it('nenhum `<relação com User>: true` nem objeto sem select fora de _count', () => {
-    const achados: string[] = [];
-    for (const arquivo of arquivos(RAIZ_SRC)) {
-      const fonte = ts.createSourceFile(arquivo, fs.readFileSync(arquivo, 'utf8'), ts.ScriptTarget.Latest, true);
-      const visitar = (no: ts.Node) => {
-        if (ts.isPropertyAssignment(no) && RELACOES.has(nomeDe(no.name)) && contexto(no) === 'projecao') {
-          const v = no.initializer;
-          const inteira =
-            v.kind === ts.SyntaxKind.TrueKeyword ||
-            (ts.isObjectLiteralExpression(v) && !v.properties.some((p) => p.name && nomeDe(p.name as ts.PropertyName) === 'select'));
-          if (inteira) {
-            const { line } = fonte.getLineAndCharacterOfPosition(no.getStart());
-            achados.push(`${path.relative(RAIZ_SRC, arquivo)}:${line + 1} ${no.getText().slice(0, 60)}`);
-          }
-        }
-        ts.forEachChild(no, visitar);
-      };
-      visitar(fonte);
-    }
+  it('a própria trava: acusa as formas inteiras e deixa passar filtro, escrita, contagem e select', () => {
+    const acusa = [
+      `const includeOpts = { lead: true, assigned_user: true };`,
+      `class S { private readonly closingInclude = { opened_by: true }; }`,
+      `const include = { primary_dentist: { include: { inboxes: true } } } satisfies Prisma.PatientInclude;`,
+      `prisma.task.findMany({ include: { lead: true, assigned_user: true } as any });`,
+      `prisma.task.findMany({ include: { assigned_user: true } });`,
+      `prisma.task.findMany({ include: { lead: { include: { assigned_user: true } } } });`,
+      `prisma.task.findMany({ include: { assigned_user: full ? true : { select: { id: true } } } });`,
+      `prisma.task.findMany({ select: { assigned_user: { select: { id: true, password_hash: true } } } });`,
+      `prisma.task.findMany({ include: { assigned_user: { where: { active: true } } } });`,
+    ];
+    for (const codigo of acusa) expect({ codigo, acusou: varrerTexto(codigo).length > 0 }).toEqual({ codigo, acusou: true });
+    const passa = [
+      `prisma.task.findMany({ where: { assigned_user: { tenant_id: t } } });`,
+      `prisma.task.update({ data: { assigned_user: { connect: { id } } } });`,
+      `prisma.tenant.findMany({ include: { _count: { select: { users: true } } } });`,
+      `prisma.task.findMany({ include: { assigned_user: { select: { id: true, name: true } } } });`,
+      `const includeOpts = { assigned_user: { select: { id: true, name: true } } };`,
+      `function f() { return { user: { id: u.id, name: u.name } }; }`,
+      `prisma.task.findMany({ orderBy: { assigned_user: { name: 'asc' } } });`,
+      // leitura interna do próprio usuário (validade do código), sem relação: não sai para a tela
+      `prisma.user.findFirst({ where: { password_reset_token: t }, select: { id: true, password_reset_sent_at: true } });`,
+    ];
+    for (const codigo of passa) expect({ codigo, achados: varrerTexto(codigo) }).toEqual({ codigo, achados: [] });
+  });
+
+  it('no código da API: nenhuma relação com User inteira, nem campo secreto, em include/select', () => {
+    const achados = arquivos(RAIZ_SRC).flatMap((arquivo) =>
+      varrer(ts.createSourceFile(arquivo, fs.readFileSync(arquivo, 'utf8'), ts.ScriptTarget.Latest, true), path.relative(RAIZ_SRC, arquivo)),
+    );
     expect(achados).toEqual([]);
   });
 });
