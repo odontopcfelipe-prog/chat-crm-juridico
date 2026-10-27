@@ -1,6 +1,7 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { eSessaoDaEquipe } from './sessao-da-equipe';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -23,6 +24,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    // Só sessão da equipe (login / mcp_token). Token de outro tipo assinado com o
+    // mesmo segredo (ex.: o do portal do paciente) vale só no lugar dele.
+    if (!eSessaoDaEquipe(payload)) throw new UnauthorizedException();
     // Backward compat: tokens antigos têm role (string), novos têm roles (array)
     const roles: string[] = Array.isArray(payload.roles)
       ? payload.roles

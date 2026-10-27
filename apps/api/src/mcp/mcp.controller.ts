@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { Public } from '../auth/decorators/public.decorator';
 import { McpToolsService } from './mcp-tools.service';
+import { eSessaoDaEquipe } from '../auth/sessao-da-equipe';
 
 // ─── Tool definitions (schema exposed to Claude) ───────────────────────────────
 
@@ -220,6 +221,10 @@ export class McpController {
       try {
         user = this.jwtService.verify(authHeader.slice(7));
       } catch {
+        return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Token inválido'));
+      }
+      // Só sessão da equipe (login / mcp_token), como na API.
+      if (!eSessaoDaEquipe(user)) {
         return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Token inválido'));
       }
     } else {
