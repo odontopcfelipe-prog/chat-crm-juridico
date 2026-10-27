@@ -6,6 +6,7 @@ import { NotificationSettingsService, type NotifEventType } from '../notificatio
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
 import { mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
+import { idDeConversa } from './socket-eventos';
 
 /**
  * Out/2026 — só quem tem WhatsApp (view_chat) recebe aviso de mensagem/lead.
@@ -259,6 +260,11 @@ export class ChatGateway {
   }
 
   async handleJoinConversation(conversationId: string, client: Socket) {
+    // Id que não é de conversa (objeto, número, sala de sistema) nunca chega ao banco.
+    if (!idDeConversa(conversationId)) {
+      this.logger.warn(`[SOCKET] BLOQUEADO: join_conversation com id invalido de ${client.id}`);
+      return;
+    }
     const socketUser = client.data.user;
     if (!socketUser?.sub) {
       this.logger.warn(`[SOCKET] BLOQUEADO: join_conversation sem user no socket`);
