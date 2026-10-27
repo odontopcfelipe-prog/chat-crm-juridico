@@ -7,6 +7,7 @@ import {
   formatClinicHours,
   formatTenantAddress,
   isAiChipPurpose,
+  isLabTenant,
   normalizeAiChipProfile,
   normalizeClinicHours,
   type AiChipProfile,
@@ -60,6 +61,16 @@ function estimateCostUsd(model: string, inputTk: number, outputTk: number): numb
   const entry = Object.entries(OPENAI_PRICE).find(([key]) => model.startsWith(key));
   const p = entry ? entry[1] : { inp: 0.40, out: 1.60 }; // fallback: gpt-4.1-mini
   return (inputTk * p.inp + outputTk * p.out) / 1_000_000;
+}
+
+/** Base URL da ClickSign quando nenhuma foi configurada (sandbox). */
+const CLICKSIGN_BASE_URL_PADRAO = 'https://sandbox.clicksign.com';
+
+/** IA desligada em todos os chips (visão da tela do laboratório). */
+function chipsComIaDesligada(): Record<AiChipPurpose, boolean> {
+  const out = {} as Record<AiChipPurpose, boolean>;
+  for (const p of AI_CHIP_PURPOSES) out[p] = false;
+  return out;
 }
 
 // ── CARLA — Financeiro: prompt da skill do chip FINANCEIRO ──────────────────
@@ -1725,6 +1736,15 @@ export class SettingsService {
 
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * F2 parte 3b — a conta de quem está na tela é laboratório? Sem conta
+   * (SUPER_ADMIN sem conta, chamada interna): não, sem consultar nada. Clínica:
+   * só a leitura cacheada (60 s) da lista de laboratórios.
+   */
+  private ehLaboratorio(tenantId: string | null | undefined): Promise<boolean> {
+    return isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+  }
+
   async getAll() {
     const settings = await this.prisma.globalSetting.findMany({ orderBy: { key: 'asc' } });
     // Mascarar valores sensíveis na listagem
@@ -1933,6 +1953,12 @@ export class SettingsService {
    * (aiChip), o robô de comando (adminBotEnabled) e o tempo de resposta padrão
    * (cooldownSeconds) são OS DA CLÍNICA. Chamadores internos sem tenant (worker de
    * lembretes, transcrição) só usam modelo/chaves e seguem na regra antiga.
+   *
+   * F2 parte 3b — `tenantId` de LABORATÓRIO: da global, só a parte da PLATAFORMA
+   * (chaves e modelos da IA); prompts do DJEN vazios, IA no WhatsApp desligada e
+   * IA desligada em todos os chips, sem ler a global das clínicas. Robô e tempo de
+   * resposta: os DELE (só a chave da conta, senão o padrão do código — ver
+   * config-da-clinica). Mesmo formato.
    */
   async getAiConfig(tenantId?: string | null) {
     const avisar = (m: string) => this.logger.warn(m);
@@ -1941,13 +1967,13 @@ export class SettingsService {
     const anthropicKey = await this.get('ANTHROPIC_API_KEY');
     const defaultModel = (await this.get('OPENAI_DEFAULT_MODEL')) || 'gpt-4.1-mini';
     const djenModel = (await this.get('DJEN_AI_MODEL')) || 'gpt-4.1-mini';
-    const djenPrompt = await this.get('DJEN_SYSTEM_PROMPT');
-    const djenNotifyTemplate = await this.get('DJEN_CLIENT_NOTIFY_TEMPLATE');
+    const laboratorio = await this.ehLaboratorio(tenantId);
+    const djenPrompt = laboratorio ? null : await this.get('DJEN_SYSTEM_PROMPT');
+    const djenNotifyTemplate = laboratorio ? null : await this.get('DJEN_CLIENT_NOTIFY_TEMPLATE');
     // Robô de comando e tempo de resposta: os da clínica (a que já existia herda o
     // valor antigo até salvar o dela). Erro de leitura = padrão, como antes.
     const adminBotEnabled = adminBotEfetivo(await lerConfigDaClinicaSemErro(this.prisma, ADMIN_BOT_KEY, tenantId, avisar));
-    const whatsappAiEnabledRaw = await this.get('WHATSAPP_AI_ENABLED');
-    const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
+    const whatsappAiEnabled = laboratorio ? false : (await this.get('WHATSAPP_AI_ENABLED')) !== 'false';
     // Onda 18.21 — liberação de IA por chip. Migração suave: chip não setado
     // HERDA o global antigo (whatsappAiEnabled) — quem tinha a IA desligada
     // continua desligada até ligar chip a chip. Agora POR CLÍNICA: a chave da
@@ -2027,8 +2053,12 @@ export class SettingsService {
     await this.set(chave, enabled ? 'true' : 'false');
   }
 
-  /** Kill switch global da IA no WhatsApp. Quando false, mensagens recebidas não disparam resposta automática. */
-  async getWhatsappAiEnabled(): Promise<boolean> {
+  /**
+   * Kill switch global da IA no WhatsApp. Quando false, mensagens recebidas não disparam resposta automática.
+   * F2 parte 3b — na visão da tela do LABORATÓRIO (`tenantId`): desligado, sem ler a global das clínicas.
+   */
+  async getWhatsappAiEnabled(tenantId?: string | null): Promise<boolean> {
+    if (await this.ehLaboratorio(tenantId)) return false;
     const val = await this.get('WHATSAPP_AI_ENABLED');
     return val !== 'false'; // padrão: habilitado
   }
@@ -2061,11 +2091,15 @@ export class SettingsService {
    *   2. GlobalSetting AI_ENABLED_<P> (regra antiga, de antes de ser por clínica);
    *   3. kill switch global WHATSAPP_AI_ENABLED (`master`).
    * Mesma regra do webhook (evolution.service) — manter as duas iguais.
+   *
+   * F2 parte 3b — LABORATÓRIO: IA desligada em todos os chips (como o freio do
+   * efeito, chip-ai-enabled.util), sem ler a dele nem a global das clínicas.
    */
   private async getChipAiEnabledMap(
     tenantId: string | null | undefined,
     master: boolean,
   ): Promise<Record<AiChipPurpose, boolean>> {
+    if (await this.ehLaboratorio(tenantId)) return chipsComIaDesligada();
     const tenantRows = tenantId
       ? await this.prisma.tenantSetting
           .findMany({
@@ -2254,7 +2288,7 @@ export class SettingsService {
       });
       escalationRecipients = this.parseRecipientIds(row?.value ?? null);
     }
-    const enabledMap = await this.getChipAiEnabledMap(tenantId, await this.getWhatsappAiEnabled());
+    const enabledMap = await this.getChipAiEnabledMap(tenantId, await this.getWhatsappAiEnabled(tenantId));
     return { ...profile, enabled: enabledMap[p], ...(p === 'FINANCEIRO' ? { escalationRecipients } : {}) };
   }
 
@@ -2288,7 +2322,7 @@ export class SettingsService {
         },
         select: { key: true, value: true },
       }),
-      this.getWhatsappAiEnabled(),
+      this.getWhatsappAiEnabled(tenantId),
       // Tempo padrão DA CLÍNICA (o "Usar o padrão (Xs)" de cada chip). Erro = 8s.
       lerConfigDaClinicaSemErro(this.prisma, AI_COOLDOWN_KEY, tenantId, (m) => this.logger.warn(m)),
     ]);
@@ -8049,11 +8083,25 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
     const apiToken     = await getTenantSetting(this.prisma, 'CLICKSIGN_API_TOKEN',     tenantId, 'CLICKSIGN_API_TOKEN');
     const webhookToken = await getTenantSetting(this.prisma, 'CLICKSIGN_WEBHOOK_TOKEN', tenantId, 'CLICKSIGN_WEBHOOK_TOKEN');
     return {
-      baseUrl:       baseUrl      || 'https://sandbox.clicksign.com',
+      baseUrl:       baseUrl      || CLICKSIGN_BASE_URL_PADRAO,
       apiToken:      apiToken     || '',
       webhookToken:  webhookToken || '',
       isConfigured:  !!apiToken,
     };
+  }
+
+  /**
+   * F2 parte 3b — a tela "Contratos & Assinatura" (GET /settings/clicksign), com a
+   * conta de quem está nela. A conta ClickSign guardada na global é das clínicas
+   * (fora de GLOBAIS_DA_PLATAFORMA): o LABORATÓRIO vê "não configurado" (mesmo
+   * formato), sem ler nada dela. Clínica e sem conta: getClicksignConfig() — a
+   * global, como sempre.
+   */
+  async getClicksignConfigDaTela(tenantId?: string | null) {
+    if (await this.ehLaboratorio(tenantId)) {
+      return { baseUrl: CLICKSIGN_BASE_URL_PADRAO, apiToken: '', webhookToken: '', isConfigured: false };
+    }
+    return this.getClicksignConfig();
   }
 
   /**
@@ -8147,7 +8195,16 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
 
   // ─── TTS (Text-to-Speech) ─────────────────────────────────────────────────
 
-  async getTtsConfig() {
+  /**
+   * F2 parte 3b — `tenantId` = conta de quem está na tela. LABORATÓRIO: desligado,
+   * sem chave do Google, voz e idioma padrão (o liga/desliga, a voz e a chave
+   * globais ficam fora de GLOBAIS_DA_PLATAFORMA; o worker também devolve a voz
+   * desligada no laboratório). Clínica e sem conta: a global, como sempre.
+   */
+  async getTtsConfig(tenantId?: string | null) {
+    if (await this.ehLaboratorio(tenantId)) {
+      return { enabled: false, isConfigured: false, voice: 'pt-BR-Neural2-B', language: 'pt-BR' };
+    }
     const enabled      = await this.get('TTS_ENABLED');
     const googleApiKey = await this.get('GOOGLE_TTS_API_KEY');
     const voice        = await this.get('TTS_VOICE');

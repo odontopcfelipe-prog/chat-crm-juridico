@@ -3,11 +3,13 @@ import {
   chipPacienteOuLegado,
   escolherChipPaciente,
   instrucaoVoz,
+  isLabTenant,
   normalizarAudioConfig,
   textoParaFala,
   type AudioTesteConfig,
 } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import { SettingsService } from '../settings/settings.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { numeroSemWhatsapp, wasSent } from '../whatsapp/envio-resultado';
@@ -56,13 +58,21 @@ export class AudioDisparoService {
     private whatsapp: WhatsappService,
   ) {}
 
+  /** F2 parte 3b — a conta é laboratório? Sem conta: não. Clínica: só a leitura cacheada (60 s). */
+  private ehLaboratorio(tenantId: string | null | undefined): Promise<boolean> {
+    return isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+  }
+
   async getConfig(tenantId: string) {
     const row = await this.prisma.tenantSetting
       .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key: CONFIG_KEY } } })
       .catch(() => null);
     let salvo: any = null;
     try { salvo = row?.value ? JSON.parse(row.value) : null; } catch { salvo = null; }
-    const [ai, googleKey] = await Promise.all([this.settings.getAiConfig().catch(() => null), this.settings.get('GOOGLE_TTS_API_KEY').catch(() => null)]);
+    // F2 parte 3b — a chave do Google (voz Gemini) é das clínicas; o laboratório só
+    // compartilha os créditos da OpenAI: para ele o motor Gemini fica desligado.
+    const laboratorio = await this.ehLaboratorio(tenantId);
+    const [ai, googleKey] = await Promise.all([this.settings.getAiConfig().catch(() => null), laboratorio ? null : this.settings.get('GOOGLE_TTS_API_KEY').catch(() => null)]);
     return {
       config: normalizarAudioConfig(salvo || {}),
       motores: { chatgpt: !!ai?.apiKey, openai: !!ai?.apiKey, gemini: !!googleKey },
@@ -93,7 +103,12 @@ export class AudioDisparoService {
     return { nome: 'Felipe', clinica: tenant?.name || 'nossa clínica', data: '22/06', hora: '15:00', dentista: dentista?.name || 'a doutora' };
   }
 
-  async sintetizar(cfg: AudioTesteConfig, texto: string): Promise<AudioGerado> {
+  /**
+   * `tenantId` = conta de quem pede (ouvir / enviar teste). F2 parte 3b — a voz do
+   * Google (Gemini) usa a chave GOOGLE_TTS_API_KEY das clínicas: LABORATÓRIO recebe
+   * 403 VERTICAL_DENIED (OpenAI/ChatGPT seguem: créditos da plataforma).
+   */
+  async sintetizar(cfg: AudioTesteConfig, texto: string, tenantId?: string | null): Promise<AudioGerado> {
     if (!texto.trim()) throw new BadRequestException('A mensagem está vazia');
     if (cfg.motor === 'chatgpt') return this.vozDoChatgpt(cfg, texto);
     if (cfg.motor === 'openai') {
@@ -127,6 +142,7 @@ export class AudioDisparoService {
       return { buffer: Buffer.from(await res.arrayBuffer()), mime: 'audio/mpeg' };
     }
 
+    if (await this.ehLaboratorio(tenantId)) throw negarLaboratorio('Voz do Google (Gemini)');
     const key = await this.settings.get('GOOGLE_TTS_API_KEY');
     if (!key) throw new BadRequestException('Chave do Google (Text-to-Speech) não configurada (Configurações › Inteligência Artificial)');
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
@@ -199,7 +215,7 @@ export class AudioDisparoService {
   /** Prévia pra tocar na tela (com os valores de exemplo). */
   async ouvir(tenantId: string, body: any): Promise<AudioGerado> {
     const cfg = normalizarAudioConfig(body || {});
-    return this.sintetizar(cfg, textoParaFala(cfg.texto, await this.varsExemplo(tenantId)));
+    return this.sintetizar(cfg, textoParaFala(cfg.texto, await this.varsExemplo(tenantId)), tenantId);
   }
 
   /** Manda a mensagem de voz de teste pro número, pelo chip da Clínica (nunca o Financeiro). */
@@ -214,7 +230,7 @@ export class AudioDisparoService {
     const chip = chipPacienteOuLegado(escolherChipPaciente(chips, 'CLINICA'));
     if (!chip) throw new BadRequestException('Nenhum chip da Clínica conectado nesta clínica');
     const cfg = normalizarAudioConfig(body || {});
-    const audio = await this.sintetizar(cfg, textoParaFala(cfg.texto, await this.varsExemplo(tenantId)));
+    const audio = await this.sintetizar(cfg, textoParaFala(cfg.texto, await this.varsExemplo(tenantId)), tenantId);
     const res = await this.whatsapp.sendMedia(num, 'audio', audio.buffer.toString('base64'), undefined, chip, undefined, audio.mime, 90000, tenantId);
     if (!wasSent(res)) {
       throw new BadRequestException(numeroSemWhatsapp(res) ? 'Esse número não tem WhatsApp — confira' : `Não saiu: ${String((res as any)?.error || 'erro').slice(0, 160)}`);

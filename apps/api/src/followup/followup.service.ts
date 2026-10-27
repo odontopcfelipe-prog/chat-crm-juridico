@@ -1238,19 +1238,34 @@ export class FollowupService {
     if (!b || !this.dentroDoEscopo(b.tenant_id, escopo)) throw new NotFoundException('Disparo não encontrado');
   }
 
+  /**
+   * Sequências da conta + as globais (sem conta). F2 parte 3b — LABORATÓRIO: só as
+   * DELE (as globais são das clínicas). Clínica e sem conta: como sempre.
+   */
   async listSequences(tenantId?: string) {
+    const where = (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))
+      ? { tenant_id: tenantId }
+      : tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {};
     return this.prisma.followupSequence.findMany({
-      where: tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {},
+      where,
       include: { steps: { orderBy: { position: 'asc' } }, _count: { select: { enrollments: true } } },
       orderBy: { created_at: 'desc' },
     });
   }
 
+  /**
+   * `contaDoUsuario` = conta de quem cria (req.user.tenant_id). F2 parte 3b — se
+   * ela é LABORATÓRIO, a sequência nasce SEMPRE nela (nunca global nem em outra
+   * conta, mesmo com tenant_id no corpo). Clínica e sem conta: como sempre.
+   */
   async createSequence(data: {
     name: string; description?: string; category?: string;
     auto_enroll_stages?: string[]; max_attempts?: number; tenant_id?: string;
     steps?: Array<{ position: number; delay_hours: number; channel: string; tone: string; objective: string; custom_prompt?: string; auto_send?: boolean }>;
-  }) {
+  }, contaDoUsuario?: string | null) {
+    if (await isLabTenant(this.prisma, contaDoUsuario, (m) => this.logger.warn(m))) {
+      data = { ...data, tenant_id: contaDoUsuario as string };
+    }
     const steps = Array.isArray(data.steps) ? data.steps.map((p) => soCampos(p, CAMPOS_PASSO)) : undefined;
     return this.prisma.followupSequence.create({
       data: {

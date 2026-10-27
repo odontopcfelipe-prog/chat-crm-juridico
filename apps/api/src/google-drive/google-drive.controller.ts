@@ -14,7 +14,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { algumLab, getLabTenantIds } from '@crm/shared';
+import { algumLab, getLabTenantIds, isLabTenant } from '@crm/shared';
 import { negarLaboratorio } from '../common/lab-gate.util';
 import { GoogleDriveService } from './google-drive.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -32,6 +32,25 @@ import { assinarEstadoOAuth, verificarEstadoOAuth } from './oauth-state';
 function ehSuperAdmin(req: any): boolean {
   return Array.isArray(req?.user?.roles) && req.user.roles.includes('SUPER_ADMIN');
 }
+
+/**
+ * F2 parte 3b — o que a tela do LABORATÓRIO (não SUPER_ADMIN) recebe de GET
+ * /google-drive/config: o mesmo formato, tudo "não". A conta Google da global é das
+ * clínicas; o laboratório não usa (createLeadFolder já recusa).
+ */
+const DRIVE_NAO_CONFIGURADO = {
+  configured: false,
+  hasServiceAccount: false,
+  hasRootFolder: false,
+  rootFolderId: null,
+  hasOAuth: false,
+  oauthConfigured: false,
+  oauthConnected: false,
+  oauthUserEmail: null,
+  hasLetterhead: false,
+  letterheadTemplateId: null,
+  letterheadTemplateName: null,
+} as const;
 
 /** Lead com conta diferente da do usuário (SUPER_ADMIN e lead legado sem conta passam). */
 function leadDeOutraConta(leadTenantId: string | null | undefined, req: any): boolean {
@@ -60,6 +79,10 @@ export class GoogleDriveController {
    */
   @Get('config')
   async getConfig(@Request() req: any) {
+    // F2 parte 3b — laboratório (quem não é SUPER_ADMIN): "não configurado", sem ler a global.
+    if (!ehSuperAdmin(req) && (await isLabTenant(this.prisma, req?.user?.tenant_id, (m) => this.logger.warn(m)))) {
+      return { ...DRIVE_NAO_CONFIGURADO };
+    }
     const cfg = await this.driveService.getConfig();
     if (ehSuperAdmin(req)) return cfg;
     return {

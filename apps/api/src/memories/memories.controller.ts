@@ -17,7 +17,7 @@ import { MemoriesService } from './memories.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { negarPermissao } from '../auth/require-any-permission';
-import { ehSuperAdmin } from '../settings/config-da-clinica';
+import { contaDoUsuario, ehSuperAdmin } from '../settings/config-da-clinica';
 
 /**
  * Modelo e prompts da consolidação do resumo da clínica: uma configuração só,
@@ -76,8 +76,9 @@ export class MemoriesController {
 
   @Get('organization/settings')
   @Roles('ADMIN')
-  async getOrgSettings() {
-    return this.memoriesService.getOrganizationProfileSettings();
+  async getOrgSettings(@Request() req?: any) {
+    // F2 parte 3b — conta de laboratório: os prompts padrão do código (nunca o personalizado global).
+    return this.memoriesService.getOrganizationProfileSettings(contaDoUsuario(req?.user));
   }
 
   /**
@@ -91,7 +92,8 @@ export class MemoriesController {
   @Roles('ADMIN')
   async migrateSkills(@Request() req: any) {
     exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
-    return this.memoriesService.migrateSkillsToMemoryVars();
+    // F2 parte 3b — reescreve as skills de todas as clínicas: de dentro de uma conta de laboratório, 403.
+    return this.memoriesService.migrateSkillsToMemoryVars(contaDoUsuario(req.user));
   }
 
   /**
@@ -136,7 +138,8 @@ export class MemoriesController {
   @Roles('ADMIN')
   async previewCleanSkillsHardcoded(@Request() req: any) {
     exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
-    return this.memoriesService.cleanSkillHardcodedOrgInfo(true);
+    // F2 parte 3b — conta de laboratório: prévia vazia (as skills são das clínicas).
+    return this.memoriesService.cleanSkillHardcodedOrgInfo(true, contaDoUsuario(req.user));
   }
 
   @Post('skills/clean-hardcoded-org-info')
@@ -144,7 +147,8 @@ export class MemoriesController {
   async applyCleanSkillsHardcoded(@Request() req: any, @Query('dry_run') dryRunParam?: string) {
     exigirPlataforma(req.user, MANUTENCAO_PLATAFORMA_MSG);
     const dryRun = dryRunParam !== 'false';
-    return this.memoriesService.cleanSkillHardcodedOrgInfo(dryRun);
+    // F2 parte 3b — conta de laboratório: prévia vazia; aplicar, 403.
+    return this.memoriesService.cleanSkillHardcodedOrgInfo(dryRun, contaDoUsuario(req.user));
   }
 
   /**
@@ -158,7 +162,8 @@ export class MemoriesController {
     @Body() body: { model?: string; incremental_prompt?: string; rebuild_prompt?: string },
   ) {
     exigirPlataforma(req.user, PERFIL_ORG_PLATAFORMA_MSG);
-    return this.memoriesService.updateOrganizationProfileSettings(body);
+    // F2 parte 3b — prompt e modelo globais: de dentro de uma conta de laboratório, 403.
+    return this.memoriesService.updateOrganizationProfileSettings(body, contaDoUsuario(req.user));
   }
 
   @Put('organization/profile')

@@ -139,13 +139,15 @@ export class FollowupController {
 
   // Nasce na clínica de quem cria; sem clínica (global) só o SUPER_ADMIN — quem
   // não tem clínica no login e não é SUPER_ADMIN recebe 403 e nada é criado.
+  // F2 parte 3b — quem é de conta laboratório (inclusive o SUPER_ADMIN logado
+  // nela) cria sempre na conta dele: o serviço confere com a conta do token.
   @Post('sequences')
   async createSequence(@Body() body: any, @Request() req: any) {
     const e = escopo(req);
-    if (e.superAdmin) return this.svc.createSequence({ ...body, tenant_id: body?.tenant_id });
+    if (e.superAdmin) return this.svc.createSequence({ ...body, tenant_id: body?.tenant_id }, e.tenantId);
     const conta = typeof e.tenantId === 'string' && e.tenantId !== '' ? e.tenantId : null;
     if (!conta) throw negarPermissao(SEQUENCIA_SEM_CONTA_MSG);
-    return this.svc.createSequence({ ...body, tenant_id: conta });
+    return this.svc.createSequence({ ...body, tenant_id: conta }, conta);
   }
 
   @Patch('sequences/:id')

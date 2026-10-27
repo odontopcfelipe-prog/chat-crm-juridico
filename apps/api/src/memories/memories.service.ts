@@ -17,8 +17,10 @@ import {
   ORG_MEMORY_SUBCATEGORIES,
   LEGACY_ORG_MEMORY_SUBCATEGORIES,
   internalOrgMemoryReason,
+  isLabTenant,
   orgMemoryPriceReason,
 } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 const ORG_PROFILE_DEBOUNCE_MS = 60_000; // 60s — evita regenerar a cada edit
 
@@ -130,6 +132,14 @@ export class MemoriesService {
     private readonly settings: SettingsService,
     @InjectQueue('memory-jobs') private readonly memoryQueue: Queue,
   ) {}
+
+  /**
+   * F2 parte 3b — a conta de quem está na tela é laboratório? Sem conta: não, sem
+   * consultar nada. Clínica: só a leitura cacheada (60 s) da lista de laboratórios.
+   */
+  private ehLaboratorio(tenantId: string | null | undefined): Promise<boolean> {
+    return isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+  }
 
   /**
    * Enfileira regeneracao debounced do OrganizationProfile apos CRUD.
@@ -856,14 +866,19 @@ export class MemoriesService {
    *   - MEMORY_ORG_MODEL: modelo usado (ex: gpt-4.1). Fallback: MEMORY_EXTRACTION_MODEL
    *   - MEMORY_ORG_INCREMENTAL_PROMPT: prompt da atualizacao incremental
    *   - MEMORY_ORG_REBUILD_PROMPT: prompt do "Refazer do zero"
+   *
+   * F2 parte 3b — `tenantId` = conta de quem está na tela. LABORATÓRIO: o modelo
+   * (da plataforma) e os prompts PADRÃO do código; o prompt personalizado gravado
+   * na global é das clínicas e nem é lido. Clínica e sem conta: como sempre.
    */
-  async getOrganizationProfileSettings() {
+  async getOrganizationProfileSettings(tenantId?: string | null) {
+    const laboratorio = await this.ehLaboratorio(tenantId);
     const [modelPrimary, modelLegacy, customIncremental, customRebuild] =
       await Promise.all([
         this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_ORG_MODEL' } }),
         this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_EXTRACTION_MODEL' } }),
-        this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_ORG_INCREMENTAL_PROMPT' } }),
-        this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_ORG_REBUILD_PROMPT' } }),
+        laboratorio ? null : this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_ORG_INCREMENTAL_PROMPT' } }),
+        laboratorio ? null : this.prisma.globalSetting.findUnique({ where: { key: 'MEMORY_ORG_REBUILD_PROMPT' } }),
       ]);
 
     return {
@@ -953,8 +968,19 @@ export class MemoriesService {
    * agora providos pela variavel {{office_memories}} (numeros oficiais e endereco).
    *
    * @param dryRun Se true (default), apenas mostra o que SERIA removido sem aplicar.
+   *
+   * F2 parte 3b — as skills não têm conta (valem para todas as clínicas). Conta
+   * de LABORATÓRIO (`tenantId` de quem chama): a prévia vem vazia (mesmo formato)
+   * e aplicar é recusado (403 VERTICAL_DENIED). Clínica e sem conta: como sempre.
    */
-  async cleanSkillHardcodedOrgInfo(dryRun = true) {
+  async cleanSkillHardcodedOrgInfo(dryRun = true, tenantId?: string | null) {
+    if (await this.ehLaboratorio(tenantId)) {
+      if (!dryRun) throw negarLaboratorio('Skills da IA');
+      return {
+        summary: { dry_run: dryRun, total_skills: 0, would_change: 0, applied_changes: 0, total_chars_removed: 0 },
+        report: [],
+      };
+    }
     const skills = await (this.prisma as any).promptSkill.findMany({
       select: { id: true, name: true, area: true, system_prompt: true, active: true },
       orderBy: { order: 'asc' },
@@ -1014,8 +1040,12 @@ export class MemoriesService {
    * so ADICIONA o header, nao toca no corpo.
    *
    * Retorna lista de skills processadas com flag `changed`.
+   *
+   * F2 parte 3b — reescreve skills de todas as clínicas: conta de LABORATÓRIO
+   * (`tenantId` de quem chama) recebe 403 VERTICAL_DENIED. Clínica: como sempre.
    */
-  async migrateSkillsToMemoryVars() {
+  async migrateSkillsToMemoryVars(tenantId?: string | null) {
+    if (await this.ehLaboratorio(tenantId)) throw negarLaboratorio('Skills da IA');
     const skills = await (this.prisma as any).promptSkill.findMany({
       select: { id: true, name: true, area: true, system_prompt: true, active: true },
       orderBy: { order: 'asc' },
@@ -1065,12 +1095,17 @@ export class MemoriesService {
   /**
    * Atualiza configuracoes do pipeline. Cada campo e opcional.
    * Passar string vazia em *_prompt equivale a "restaurar padrao" (apaga a key).
+   *
+   * F2 parte 3b — o prompt e o modelo gravados aqui valem para todas as contas:
+   * conta de LABORATÓRIO (`tenantId` de quem chama) recebe 403 VERTICAL_DENIED.
+   * Clínica e sem conta: como sempre.
    */
   async updateOrganizationProfileSettings(body: {
     model?: string;
     incremental_prompt?: string;
     rebuild_prompt?: string;
-  }) {
+  }, tenantId?: string | null) {
+    if (await this.ehLaboratorio(tenantId)) throw negarLaboratorio('Perfil da organização (prompt e modelo)');
     const ops: Promise<any>[] = [];
 
     if (typeof body.model === 'string') {

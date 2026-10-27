@@ -20,6 +20,7 @@ import {
 import { setTenantSetting } from '../tenants/tenant-settings.helper';
 import { AiTestChatService } from './ai-test-chat.service';
 import { negarPermissao } from '../auth/require-any-permission';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import {
   MEMORY_BATCH_KEY,
   clinicSettingStorageKey,
@@ -38,6 +39,9 @@ const SKILLS_PLATAFORMA_MSG = 'Skills da IA são mantidas pela plataforma — so
 
 /** 403 de configuração da plataforma pedida por quem não é administrador do sistema. */
 const SO_PLATAFORMA_MSG = 'Configuração da plataforma — somente o administrador do sistema pode alterar.';
+
+/** O que o laboratório não edita nas rotas de skills (F2 parte 3b). */
+const OQUE_SKILLS = 'Skills da IA';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
@@ -58,6 +62,17 @@ export class SettingsController {
     private readonly prisma: PrismaService,
     private readonly aiTestChatService: AiTestChatService,
   ) {}
+
+  /**
+   * F2 parte 3b — a conta de quem está na tela é LABORATÓRIO? Sem conta no token:
+   * não, sem consultar nada. Clínica: só a leitura cacheada (60 s) da lista.
+   * Freio POR CIMA das regras de quem grava o quê: o laboratório usa só o dele e
+   * o da plataforma e nunca grava a configuração global (nem o SUPER_ADMIN que
+   * está numa conta de laboratório: 403 VERTICAL_DENIED). Para a clínica nada muda.
+   */
+  private ehLaboratorio(req: any): Promise<boolean> {
+    return isLabTenant(this.prisma, contaDoUsuario(req?.user), (m) => this.logger.warn(m));
+  }
 
   // ─── Generic Settings ─────────────────────────────────
 
@@ -160,6 +175,8 @@ export class SettingsController {
   @Roles('ADMIN', 'DENTIST')
   async getDjenLawyers(@Request() req: any) {
     if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
+    // F2 parte 3b — conta de laboratório: nenhum advogado (a lista global é das clínicas).
+    if (await this.ehLaboratorio(req)) return [];
     const raw = await this.settingsService.get('DJEN_LAWYERS');
     if (raw) {
       try { return JSON.parse(raw); } catch {}
@@ -175,6 +192,8 @@ export class SettingsController {
   @Roles('ADMIN')
   async saveDjenLawyers(@Request() req: any, @Body() body: { lawyers: Array<{ oab: string; uf: string; nome: string }> }) {
     if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
+    // F2 parte 3b — a lista é global: de dentro de uma conta de laboratório, ninguém grava.
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio('Advogados do DJEN');
     if (!Array.isArray(body?.lawyers)) throw new BadRequestException('Envie a lista de advogados (lawyers).');
     await this.settingsService.upsert('DJEN_LAWYERS', JSON.stringify(body.lawyers));
     return { message: 'Advogados DJEN salvos com sucesso', count: body.lawyers.length };
@@ -352,6 +371,9 @@ export class SettingsController {
    *    chave da conta de quem salva (inclusive o dono logado numa clínica); o
    *    administrador do sistema sem conta grava a global antiga; sem conta e sem
    *    esse papel, 403.
+   *  - F2 parte 3b — conta de LABORATÓRIO (inclusive o SUPER_ADMIN logado nela):
+   *    os campos da plataforma nunca são gravados (ignorados, como os de quem não
+   *    é SUPER_ADMIN); robô e tempo de resposta vão para a chave DELE.
    */
   @Post('ai-config')
   @Roles('ADMIN')
@@ -365,15 +387,18 @@ export class SettingsController {
     const segundos = temTempo ? normalizarCooldown(corpo.cooldownSeconds) : null;
     const chaveTempo = temTempo ? chaveDeGravacaoDaClinica(AI_COOLDOWN_KEY, req.user) : null;
     const chaveRobo = temRobo ? chaveDeGravacaoDaClinica(ADMIN_BOT_KEY, req.user) : null;
-    const ignorados = isSuper ? [] : camposDePlataformaEnviados(corpo);
+    const superNoLaboratorio = isSuper && (await this.ehLaboratorio(req));
+    const gravaPlataforma = isSuper && !superNoLaboratorio;
+    const ignorados = gravaPlataforma ? [] : camposDePlataformaEnviados(corpo);
     if (ignorados.length) {
+      const quem = superNoLaboratorio ? 'em conta de laboratório' : 'sem SUPER_ADMIN';
       this.logger.warn(
-        `[ai-config] campos da plataforma ignorados (usuário ${req.user?.id ?? '?'} sem SUPER_ADMIN): ${ignorados.join(', ')}`,
+        `[ai-config] campos da plataforma ignorados (usuário ${req.user?.id ?? '?'} ${quem}): ${ignorados.join(', ')}`,
       );
     }
 
-    // 2. Plataforma: só o administrador do sistema (como antes).
-    if (isSuper) {
+    // 2. Plataforma: só o administrador do sistema (como antes), fora do laboratório.
+    if (gravaPlataforma) {
       if (corpo.apiKey)    await this.settingsService.setAiConfig(corpo.apiKey);
       if (corpo.adminKey)  await this.settingsService.setAdminKey(corpo.adminKey);
       if (corpo.anthropicApiKey) await this.settingsService.upsert('ANTHROPIC_API_KEY', corpo.anthropicApiKey);
@@ -534,9 +559,14 @@ export class SettingsController {
     return isLabTenant(this.prisma, contaDoUsuario(user), (m) => this.logger.warn(m));
   }
 
-  /** Escrita de skill/ferramenta/referência: só o administrador do sistema. */
-  private exigirPlataforma(user: any): void {
-    if (!ehSuperAdmin(user)) throw negarPermissao(SKILLS_PLATAFORMA_MSG);
+  /**
+   * Escrita de skill/ferramenta/referência: só o administrador do sistema (403
+   * PERMISSION_DENIED para os demais). F2 parte 3b — e nunca de dentro de uma
+   * conta de laboratório (403 VERTICAL_DENIED, antes de gravar ou subir arquivo).
+   */
+  private async exigirPlataforma(req: any): Promise<void> {
+    if (!ehSuperAdmin(req?.user)) throw negarPermissao(SKILLS_PLATAFORMA_MSG);
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio(OQUE_SKILLS);
   }
 
   @Get('skills')
@@ -549,7 +579,7 @@ export class SettingsController {
   @Patch('skills/:id/toggle')
   @Roles('ADMIN')
   async toggleSkill(@Request() req: any, @Param('id') id: string, @Body() data: { isActive: boolean }) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     await this.settingsService.toggleSkill(id, data.isActive);
     return { message: 'Skill atualizada com sucesso' };
   }
@@ -557,7 +587,7 @@ export class SettingsController {
   @Post('skills/reset-defaults')
   @Roles('ADMIN')
   async resetSkillsToDefaults(@Request() req: any) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.resetSkillsToDefaults();
   }
 
@@ -569,28 +599,28 @@ export class SettingsController {
   @Post('skills/migrate-sdr-to-odonto')
   @Roles('ADMIN')
   async migrateSdrToOdonto(@Request() req: any) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.migrateSdrToOdonto();
   }
 
   @Post('skills')
   @Roles('ADMIN')
   async createSkill(@Request() req: any, @Body() data: CreateSkillDto) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.createSkill(data);
   }
 
   @Patch('skills/:id')
   @Roles('ADMIN')
   async updateSkill(@Request() req: any, @Param('id') id: string, @Body() data: UpdateSkillDto) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.updateSkill(id, data);
   }
 
   @Delete('skills/:id')
   @Roles('ADMIN')
   async deleteSkill(@Request() req: any, @Param('id') id: string) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.deleteSkill(id);
   }
 
@@ -606,21 +636,21 @@ export class SettingsController {
   @Post('skills/:skillId/tools')
   @Roles('ADMIN')
   async createSkillTool(@Request() req: any, @Param('skillId') skillId: string, @Body() data: CreateSkillToolDto) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.createSkillTool(skillId, data);
   }
 
   @Patch('skills/tools/:toolId')
   @Roles('ADMIN')
   async updateSkillTool(@Request() req: any, @Param('toolId') toolId: string, @Body() data: UpdateSkillToolDto) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.updateSkillTool(toolId, data);
   }
 
   @Delete('skills/tools/:toolId')
   @Roles('ADMIN')
   async deleteSkillTool(@Request() req: any, @Param('toolId') toolId: string) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.deleteSkillTool(toolId);
   }
 
@@ -642,7 +672,7 @@ export class SettingsController {
     @UploadedFile() file: any,
     @Body() body: { asset_type?: string; inject_mode?: string },
   ) {
-    this.exigirPlataforma(req.user); // antes de subir qualquer arquivo
+    await this.exigirPlataforma(req); // antes de subir qualquer arquivo
     if (!file) throw new NotFoundException('Nenhum arquivo enviado');
 
     const ext = file.originalname.split('.').pop() || 'bin';
@@ -675,14 +705,14 @@ export class SettingsController {
   @Patch('skills/assets/:assetId')
   @Roles('ADMIN')
   async updateSkillAsset(@Request() req: any, @Param('assetId') assetId: string, @Body() body: { inject_mode?: string; asset_type?: string; content_text?: string; size?: number }) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     return this.settingsService.updateSkillAsset(assetId, body);
   }
 
   @Delete('skills/assets/:assetId')
   @Roles('ADMIN')
   async deleteSkillAsset(@Request() req: any, @Param('assetId') assetId: string) {
-    this.exigirPlataforma(req.user);
+    await this.exigirPlataforma(req);
     const asset = await this.settingsService.deleteSkillAsset(assetId);
     if (asset?.s3_key) {
       try { await this.s3Service.deleteObject(asset.s3_key); } catch {}
@@ -710,11 +740,15 @@ export class SettingsController {
    * Custos de IA: o administrador do sistema vê a plataforma (todas as contas e a
    * organização OpenAI), como antes; os demais veem só o consumo da própria
    * clínica (sem conta: zerado, nunca 403).
+   * F2 parte 3b — conta de LABORATÓRIO: só o consumo dele, mesmo com o SUPER_ADMIN
+   * logado nela (o consumo das clínicas não aparece de dentro do laboratório).
    */
   @Get('ai-costs')
   @Roles('ADMIN')
   async getAiCosts(@Request() req: any) {
-    if (ehSuperAdmin(req.user)) return this.settingsService.getAiCosts({ tipo: 'plataforma' });
+    if (ehSuperAdmin(req.user) && !(await this.ehLaboratorio(req))) {
+      return this.settingsService.getAiCosts({ tipo: 'plataforma' });
+    }
     return this.settingsService.getAiCosts({ tipo: 'clinica', tenantId: contaDoUsuario(req.user) });
   }
 
@@ -726,7 +760,9 @@ export class SettingsController {
   @Get('clicksign')
   @Roles('ADMIN')
   async getClicksign(@Request() req: any) {
-    const cfg = await this.settingsService.getClicksignConfig();
+    // F2 parte 3b — conta de laboratório: "não configurado" (a conta ClickSign
+    // global é das clínicas, fora de GLOBAIS_DA_PLATAFORMA).
+    const cfg = await this.settingsService.getClicksignConfigDaTela(contaDoUsuario(req.user));
     const isSuper = ehSuperAdmin(req.user);
     const mascarar = (t: string | null | undefined) => (isSuper ? maskApiKey(t) : t ? '********' : null);
     return {
@@ -740,6 +776,8 @@ export class SettingsController {
   @Roles('ADMIN')
   async setClicksign(@Request() req: any, @Body() body: { baseUrl?: string; apiToken?: string; webhookToken?: string }) {
     if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
+    // F2 parte 3b — conta ClickSign global: de dentro de uma conta de laboratório, ninguém grava.
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio('Conta ClickSign');
     await this.settingsService.setClicksignConfig(body);
     return { ok: true };
   }
@@ -748,6 +786,8 @@ export class SettingsController {
   // Os 8 dados (dentista responsável/CRO, endereço, foro) são da clínica; a URL
   // pública da API é da plataforma (só o administrador do sistema grava; vinda
   // de outro usuário é ignorada, com aviso no log e em `ignorados`).
+  // F2 parte 3b — conta de LABORATÓRIO (inclusive o SUPER_ADMIN logado nela): os
+  // 8 dados vão para a chave DELE; a URL pública nunca é gravada (ignorada).
 
   @Get('contract')
   async getContract(@Request() req: any) {
@@ -770,6 +810,9 @@ export class SettingsController {
       if (!isSuper) {
         ignorados.push('publicApiUrl');
         this.logger.warn(`[contract] publicApiUrl ignorada (usuário ${req.user?.id ?? '?'} sem SUPER_ADMIN)`);
+      } else if (await this.ehLaboratorio(req)) {
+        ignorados.push('publicApiUrl');
+        this.logger.warn(`[contract] publicApiUrl ignorada (usuário ${req.user?.id ?? '?'} em conta de laboratório)`);
       } else {
         const enviada = String(corpo.publicApiUrl).trim();
         const atual = String((await this.settingsService.getContractConfig()).publicApiUrl ?? '').trim();
@@ -828,8 +871,9 @@ export class SettingsController {
 
   @Get('tts')
   @Roles('ADMIN')
-  async getTtsConfig() {
-    return this.settingsService.getTtsConfig();
+  async getTtsConfig(@Request() req?: any) {
+    // F2 parte 3b — conta de laboratório: desligado (padrão do código).
+    return this.settingsService.getTtsConfig(contaDoUsuario(req?.user));
   }
 
   // Voz da IA (liga/desliga, voz e chave Google) é da PLATAFORMA: usa o crédito
@@ -839,6 +883,8 @@ export class SettingsController {
   @Roles('ADMIN')
   async setTtsConfig(@Request() req: any, @Body() body: { enabled?: boolean; googleApiKey?: string; voice?: string; language?: string }) {
     if (!ehSuperAdmin(req.user)) throw negarPermissao(SO_PLATAFORMA_MSG);
+    // F2 parte 3b — voz e chave do Google globais: de dentro de uma conta de laboratório, ninguém grava.
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio('Voz da IA (TTS)');
     await this.settingsService.setTtsConfig(body);
     return { ok: true };
   }
