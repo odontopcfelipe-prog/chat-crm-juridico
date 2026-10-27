@@ -7,6 +7,7 @@ import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { ChatGateway } from './gateway/chat.gateway';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { eSessaoDaEquipe } from './auth/sessao-da-equipe';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as express from 'express';
@@ -155,6 +156,11 @@ async function bootstrap() {
     }
     try {
       const payload = jwtService.verify(token);
+      // Só sessão da equipe (mesma regra da API: auth/sessao-da-equipe.ts).
+      if (!eSessaoDaEquipe(payload)) {
+        logger.warn(`[SOCKET] Conexao rejeitada — token que nao e de sessao da equipe`);
+        return next(new Error('Invalid token'));
+      }
       // Armazena em socket.data (nao em socket diretamente): o
       // connectionStateRecovery restaura apenas `rooms` e `data`, entao
       // propriedades soltas no socket (ex.: (socket as any).user) seriam
