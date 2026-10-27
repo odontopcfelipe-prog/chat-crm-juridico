@@ -6,6 +6,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { ChatGateway } from './gateway/chat.gateway';
+import { eventosDoSocket } from './gateway/socket-eventos';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { eSessaoDaEquipe } from './auth/sessao-da-equipe';
 import * as dotenv from 'dotenv';
@@ -231,38 +232,12 @@ async function bootstrap() {
       socketRateLimits.delete(socket.id);
       chatGateway.handleDisconnect(socket, reason);
     });
-    socket.on('join_conversation', (conversationId) => {
-      if (!checkSocketRateLimit(socket.id, 'join_conversation', 30)) {
-        logger.warn(`[SOCKET] Rate limited: join_conversation de ${socket.id}`);
-        return;
-      }
-      chatGateway.handleJoinConversation(conversationId, socket);
-    });
-    socket.on('leave_conversation', (conversationId) => {
-      if (!checkSocketRateLimit(socket.id, 'leave_conversation', 30)) {
-        return;
-      }
-      chatGateway.handleLeaveConversation(conversationId, socket);
-    });
-    socket.on('join_user', (userId) => {
-      if (!checkSocketRateLimit(socket.id, 'join_user', 10)) {
-        logger.warn(`[SOCKET] Rate limited: join_user de ${socket.id}`);
-        return;
-      }
-      chatGateway.handleJoinUser(userId, socket);
-    });
-    socket.on('typing', (data: { conversationId: string; isTyping: boolean }) => {
-      if (!checkSocketRateLimit(socket.id, 'typing', 30)) return;
-      const user = socket.data.user;
-      if (!user?.sub || !data?.conversationId) return;
-      // "Digitando" só de quem entrou na sala (o join_conversation já checou a clínica)
-      if (!socket.rooms.has(data.conversationId)) return;
-      chatGateway.emitTypingIndicator(data.conversationId, {
-        userId: user.sub,
-        userName: user.name || 'Operador',
-        isTyping: data.isTyping,
-      });
-    });
+    // Entrada checada e nenhum erro escapa (gateway/socket-eventos.ts).
+    const eventos = eventosDoSocket(socket, chatGateway, checkSocketRateLimit, logger);
+    socket.on('join_conversation', eventos.joinConversation);
+    socket.on('leave_conversation', eventos.leaveConversation);
+    socket.on('join_user', eventos.joinUser);
+    socket.on('typing', eventos.typing);
   });
 
   logger.log(`[SOCKET] Socket.IO attached to HTTP server on port ${port}, path /socket.io`);
