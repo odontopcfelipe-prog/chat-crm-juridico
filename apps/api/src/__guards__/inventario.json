@@ -7,7 +7,7 @@
     "globais": 12,
     "produtores": 24,
     "controllers": 85,
-    "handlers": 935,
+    "handlers": 936,
     "@Public": 29
   },
   "automatismos": [
@@ -1590,8 +1590,9 @@
       "path": "lab-waitlist",
       "acesso": [],
       "handlers": [
-        { "metodo": "LabWaitlistController.inscrever", "verbo": "POST", "path": "", "rota": "POST /lab-waitlist", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 5 } })"] },
-        { "metodo": "LabWaitlistController.listar", "verbo": "GET", "path": "", "rota": "GET /lab-waitlist", "acesso": ["@SuperAdmin()"] }
+        { "metodo": "LabWaitlistController.inscrever", "verbo": "POST", "path": "", "rota": "POST /lab-waitlist", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 5, getTracker: quemEnvia } })"] },
+        { "metodo": "LabWaitlistController.listar", "verbo": "GET", "path": "", "rota": "GET /lab-waitlist", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "LabWaitlistController.remover", "verbo": "DELETE", "path": ":id", "rota": "DELETE /lab-waitlist/:id", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {
