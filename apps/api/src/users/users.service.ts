@@ -7,6 +7,7 @@ import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import { Prisma, User, normalizarDisparosIds } from '@crm/shared';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
+import { semSegredos, semSegredosNemPagamento } from './usuario-sem-segredos';
 
 /**
  * Normaliza valores legados de role (nomes de departamento em PT-BR, plurais,
@@ -112,7 +113,8 @@ export class UsersService {
         supervisors: { select: { id: true, name: true } },
       },
     });
-    return users.map(({ password_hash, ...user }: any) => user);
+    // A tela de equipe (ADMIN) usa comissão e diária; senha e códigos nunca saem.
+    return users.map((user: any) => semSegredos(user));
   }
 
   async findOne(email: string): Promise<User | null> {
@@ -128,8 +130,9 @@ export class UsersService {
       },
     });
     if (!user) return null;
-    const { password_hash, ...result } = user as any;
-    return result;
+    // GET /users/me e /users/:id: nem senha/códigos, nem o pagamento do profissional
+    // (nenhuma tela lê daqui; a tela de equipe usa o GET /users).
+    return semSegredosNemPagamento(user as any);
   }
 
   async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; ortho_days?: number[]; disparos_off?: string[]; disparos_on?: string[] }): Promise<Omit<User, 'password_hash'>> {
@@ -200,8 +203,7 @@ export class UsersService {
     // por causa de SMTP (sem config, e-mail invalido, servidor fora).
     this.sendVerificationEmail(user.email, user.name, verifyToken, data.tenant_id)
       .catch((e) => this.logger.warn(`[VERIFY-EMAIL] Falha ao enviar pra ${user.email}: ${e?.message}`));
-    const { password_hash: _, ...result } = user;
-    return result as any;
+    return semSegredos(user) as any;
   }
 
   // ─── Confirmacao de e-mail (Onda 17.32.172) ────────────────────
@@ -387,8 +389,7 @@ export class UsersService {
     if (data.sector !== undefined || data.extra_grants !== undefined || data.extra_revokes !== undefined) {
       PermissionsGuard.invalidate(id);
     }
-    const { password_hash, ...result } = user;
-    return result as any;
+    return semSegredos(user) as any;
   }
 
   /** Retorna contadores do que o usuário possui (para o modal de transferência) */
@@ -510,7 +511,9 @@ export class UsersService {
       data: {
         supervisors: { set: dentistIds.map(id => ({ id })) },
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
         supervisors: { select: { id: true, name: true } },
       },
     });
