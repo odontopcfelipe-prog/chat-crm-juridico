@@ -93,6 +93,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { PermissionsGuard } from './auth/decorators/requires-permission.decorator';
 // Out/2026 — "só os pacientes dele" + ocultar contato/valores (regra do Dentista).
 import { PatientScopeGuard } from './auth/patient-scope';
+// F2 parte 4 do laboratório — negação por padrão, por handler, para conta de laboratório.
+import { LabTenantGuard } from './business-type/lab-tenant.guard';
 import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
 
 @Module({
@@ -241,6 +243,13 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     {
       provide: APP_GUARD,
       useClass: PatientScopeGuard,
+    },
+    // F2 parte 4 do laboratório — ÚLTIMO guard: conta de laboratório só alcança os
+    // handlers da política de rotas do laboratório (o resto: 403 VERTICAL_DENIED) e,
+    // congelada, recebe 403 TENANT_INACTIVE. Clínica passa direto (cache de 60 s).
+    {
+      provide: APP_GUARD,
+      useClass: LabTenantGuard,
     },
     // Out/2026 — apaga contato (view_patient_contact) e valores (view_values) das
     // respostas de quem não tem a permissão. Só afeta não-admin sem a permissão.

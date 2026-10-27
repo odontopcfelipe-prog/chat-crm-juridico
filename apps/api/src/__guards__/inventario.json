@@ -4,7 +4,7 @@
   "resumo": {
     "automatismos": { "@Cron": 25, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
-    "globais": 11,
+    "globais": 12,
     "produtores": 24,
     "controllers": 84,
     "handlers": 933,
@@ -80,6 +80,7 @@
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "RolesGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PermissionsGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "LabTenantGuard" },
     { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" },
     { "arquivo": "main.ts", "token": "app.use", "classe": "express.json({ limit: '50mb', verify: (função) })" },
     { "arquivo": "main.ts", "token": "app.use", "classe": "express.urlencoded({ limit: '50mb', extended: true })" },
