@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (342). */
+/** Handlers que a conta de laboratório alcança (343). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // BillingController — plano da própria conta
   'BillingController.getMine',
@@ -40,6 +40,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'CaixaController.returnDay',
   // CalendarController — agenda (sem consulta, expediente nem tipos de atendimento)
   'CalendarController.findAll',
+  'CalendarController.pendingValidation',
   'CalendarController.findOne',
   'CalendarController.create',
   'CalendarController.patientBlockStatus',
@@ -447,12 +448,11 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);
 
-/** Handlers negados dentro de controllers que o laboratório também usa (220). */
+/** Handlers negados dentro de controllers que o laboratório também usa (219). */
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
   // CalendarController — agenda (sem consulta, expediente nem tipos de atendimento)
-  'CalendarController.pendingValidation',
   'CalendarController.notifyEvent',
   'CalendarController.validate',
   'CalendarController.unvalidate',

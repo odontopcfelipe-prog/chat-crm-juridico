@@ -1414,6 +1414,11 @@ export class QuotesService {
    * "não comissiona" ficam de fora). Idempotente (1 VENDA por orçamento).
    */
   private async generateSaleCommission(tenantId: string, sellerUserId: string, quoteId: string, patientId: string, chargedValue?: number) {
+    // F2 parte 4 [LAB-GATE] — comissão de profissional fica fora do laboratório.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] comissao-venda — conta de laboratório, sem comissão na proposta ${quoteId}`);
+      return;
+    }
     // Idempotência: 1 comissão de venda por orçamento.
     const exists = await this.prisma.commission.findFirst({
       where: { quote_id: quoteId, kind: 'VENDA' },

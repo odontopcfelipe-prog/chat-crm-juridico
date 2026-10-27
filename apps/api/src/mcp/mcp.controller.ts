@@ -6,6 +6,8 @@ import { JwtService } from '@nestjs/jwt';
 import { Public } from '../auth/decorators/public.decorator';
 import { McpToolsService } from './mcp-tools.service';
 import { eSessaoDaEquipe } from '../auth/sessao-da-equipe';
+import { isLabTenant } from '@crm/shared';
+import { PrismaService } from '../prisma/prisma.service';
 
 // ─── Tool definitions (schema exposed to Claude) ───────────────────────────────
 
@@ -204,6 +206,7 @@ export class McpController {
   constructor(
     private readonly jwtService: JwtService,
     private readonly toolsService: McpToolsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -229,6 +232,13 @@ export class McpController {
       }
     } else {
       return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Authorization header requerido'));
+    }
+
+    // F2 parte 4 [LAB-GATE] — integração externa é da clínica: conta de laboratório
+    // (inclusive congelada) não passa. Clínica: só a leitura cacheada.
+    if (await isLabTenant(this.prisma, user?.tenant_id, (m) => this.logger.warn(m))) {
+      this.logger.warn(`[VERTICAL_DENIED] ${user?.tenant_id} McpController.handle`);
+      return res.status(403).json(this.jsonRpcError(body?.id ?? null, -32600, 'Função não disponível para laboratório.'));
     }
 
     // ── Batch support ──

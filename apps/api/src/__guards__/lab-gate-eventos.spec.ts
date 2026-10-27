@@ -53,6 +53,9 @@ import { PortalAuthService } from '../portal/portal-auth.service';
 import { ClicksignService } from '../clicksign/clicksign.service';
 import { ContractsService as ContratoJuridicoService } from '../contracts/contracts.service';
 import { invalidateAllSettings } from '../tenants/tenant-settings.helper';
+import { ReferralsService } from '../referrals/referrals.service';
+import { AffiliateService } from '../patients/affiliate.service';
+import { McpController } from '../mcp/mcp.controller';
 
 // ─── Dados de exemplo (repositório público: nada real) ───────────────────────
 const CLINICA = 'tenant-clinica';
@@ -900,7 +903,8 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
 
   it('criar, laboratório: o evento nasce só com o lembrete PUSH da equipe; nenhum job, nenhum aviso', async () => {
     const m = montar([LAB]);
-    await m.svc.create(evento(LAB));
+    // F2 parte 4: a agenda do laboratório só aceita tipos sem consulta (OUTRO, TAREFA, BLOQUEIO).
+    await m.svc.create(evento(LAB, { type: 'OUTRO' }));
     await esperar();
     expect(m.de('calendarEvent.create')).toHaveLength(1);
     expect(lembretesCriados(m)).toEqual([{ minutes_before: 30, channel: 'PUSH' }]);
@@ -912,7 +916,7 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
   const LEADS = { 'lead-lab': LAB, 'lead-clinica': CLINICA };
   it('criar sem conta no evento, contato de laboratório: sem lembrete ao contato', async () => {
     const lab = montar([LAB], {}, LEADS);
-    await lab.svc.create(evento(undefined, { lead_id: 'lead-lab' }));
+    await lab.svc.create(evento(undefined, { lead_id: 'lead-lab', type: 'OUTRO' }));
     expect(lembretesCriados(lab)).toEqual([{ minutes_before: 30, channel: 'PUSH' }]);
     expect(lab.fila.add).not.toHaveBeenCalled();
   });
@@ -922,7 +926,7 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
 
   it('criar sem conta no evento nem contato, paciente do laboratório: sem lembrete ao contato', async () => {
     const lab = montar([LAB], pacientes, LEADS);
-    await lab.svc.create(evento(undefined, { lead_id: undefined, patient_id: 'pac-lab' }));
+    await lab.svc.create(evento(undefined, { lead_id: undefined, patient_id: 'pac-lab', type: 'OUTRO' }));
     expect(lembretesCriados(lab)).toEqual([{ minutes_before: 30, channel: 'PUSH' }]);
     expect(lab.fila.add).not.toHaveBeenCalled();
     expect(lab.avisos).toEqual([]);
@@ -996,7 +1000,7 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
   // o padrão gravado é WHATSAPP (ao contato, sai no laboratório).
   it('criar, laboratório, lembrete sem canal: vale o padrão do criar (PUSH) e fica', async () => {
     const m = montar([LAB]);
-    await m.svc.create(evento(LAB, { reminders: [{ minutes_before: 45 }, { minutes_before: 1440, channel: 'WHATSAPP' }] }));
+    await m.svc.create(evento(LAB, { type: 'OUTRO', reminders: [{ minutes_before: 45 }, { minutes_before: 1440, channel: 'WHATSAPP' }] }));
     await esperar();
     expect(lembretesCriados(m)).toEqual([{ minutes_before: 45, channel: 'PUSH' }]);
     expect(m.fila.add).not.toHaveBeenCalled();
@@ -1026,6 +1030,44 @@ describe('Agenda — evento de laboratório: sem aviso ao contato e sem lembrete
     const lab = montar([LAB], comAntigo(LAB));
     await lab.svc.update('evento-1', { start_at: '2026-10-29T14:00:00.000Z' });
     expect(lab.fila.add).not.toHaveBeenCalled();
+  });
+
+  // ── F2 parte 4: a agenda do laboratório não tem consulta/procedimento/retorno ──
+  it('criar CONSULTA, laboratório (pela conta ou pelo contato): recusa com VERTICAL_DENIED e nada é gravado', async () => {
+    for (const [t, extra] of [[LAB, {}], [undefined, { lead_id: 'lead-lab' }]] as Array<[string | undefined, any]>) {
+      const m = montar([LAB], {}, LEADS);
+      const e = await erro(m.svc.create(evento(t, extra)));
+      expect(codigo(e)).toBe(CODIGO_VERTICAL_NEGADA);
+      expect(m.de('calendarEvent.create')).toEqual([]);
+    }
+    expect(logs.some((l) => l.msg.includes('[LAB-GATE] agenda-tipo'))).toBe(true);
+  });
+
+  it.each(['TAREFA', 'OUTRO', 'BLOQUEIO'])('criar %s, laboratório: cria', async (tipo) => {
+    const m = montar([LAB]);
+    await m.svc.create(evento(LAB, { type: tipo, reminders: [] }));
+    expect(m.de('calendarEvent.create')).toHaveLength(1);
+  });
+
+  it('criar CONSULTA, clínica com OUTRA conta laboratório: cria como antes', async () => {
+    const m = montar([LAB]);
+    await m.svc.create(evento(CLINICA));
+    expect(m.de('calendarEvent.create')).toHaveLength(1);
+  });
+
+  it('trocar para CONSULTA: laboratório recusa; para OUTRO, troca; na clínica troca como antes', async () => {
+    const lab = montar([LAB], antes(LAB));
+    expect(codigo(await erro(lab.svc.update('evento-1', { type: 'CONSULTA' })))).toBe(CODIGO_VERTICAL_NEGADA);
+    expect(lab.de('calendarEvent.update')).toEqual([]);
+    const labOutro = montar([LAB], antes(LAB));
+    await labOutro.svc.update('evento-1', { type: 'OUTRO' });
+    expect(labOutro.de('calendarEvent.update')).toHaveLength(1);
+    const clinicaSem = montar([], antes(CLINICA));
+    await clinicaSem.svc.update('evento-1', { type: 'PROCEDIMENTO' });
+    const clinica = montar([LAB], antes(CLINICA));
+    await clinica.svc.update('evento-1', { type: 'PROCEDIMENTO' });
+    expect(clinica.ops).toEqual(clinicaSem.ops);
+    expect(clinica.de('calendarEvent.update')).toHaveLength(1);
   });
 
   const notificar = (t: string) => ({
@@ -1797,5 +1839,101 @@ describe('Portal do paciente — link recusado e troca do token barrada no labor
     expect(codigo(await erro(m.svc.exchangeToken('token-exemplo-123')))).toBe(CODIGO_VERTICAL_NEGADA);
     expect(m.de('portalToken.update')).toEqual([]);
     expect(m.jwt.signAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('F2 parte 4 — indicação, afiliado e comissão não nascem no laboratório', () => {
+  const pacientes = { 'patient.findUnique': ({ where }: any) => ({ tenant_id: where.id.startsWith('pac-lab') ? LAB : CLINICA }) };
+
+  it('indicação (createPending): laboratório não grava; clínica segue igual com ou sem laboratório', async () => {
+    const lab = banco([LAB], pacientes);
+    expect(await new ReferralsService(lab.prisma).createPending({ tenantId: LAB, referrerId: 'pac-lab-1', referredId: 'pac-lab-2' })).toBeNull();
+    expect(lab.nomes()).toEqual([]);
+    expect(logs.some((l) => l.msg.includes('[LAB-GATE] indicacao'))).toBe(true);
+    const sem = banco([], pacientes);
+    await new ReferralsService(sem.prisma).createPending({ tenantId: CLINICA, referrerId: 'pac-1', referredId: 'pac-2' });
+    const com = banco([LAB], pacientes);
+    await new ReferralsService(com.prisma).createPending({ tenantId: CLINICA, referrerId: 'pac-1', referredId: 'pac-2' });
+    expect(com.ops).toEqual(sem.ops);
+    expect(com.nomes()).toContain('patient.findUnique');
+  });
+
+  it('comissão de afiliado no aceite: laboratório não consulta nem grava; clínica igual', async () => {
+    const params = (t: string) => ({ quoteId: 'orc-1', patientId: 'pac-1', treatmentValue: 1000, tenantId: t });
+    const lab = banco([LAB]);
+    await new AffiliateService(lab.prisma).recordReferralFromAcceptedQuote(params(LAB));
+    expect(lab.nomes()).toEqual([]);
+    const sem = banco([]);
+    await new AffiliateService(sem.prisma).recordReferralFromAcceptedQuote(params(CLINICA));
+    const com = banco([LAB]);
+    await new AffiliateService(com.prisma).recordReferralFromAcceptedQuote(params(CLINICA));
+    expect(com.ops).toEqual(sem.ops);
+    expect(com.nomes()).toContain('affiliateReferral.findFirst');
+  });
+
+  it('comissão de venda (aprovar e cobrar / balcão): laboratório não gera; clínica igual', async () => {
+    const vendedor = { 'user.findUnique': () => ({ commission_sale_type: 'PERCENT', commission_sale_value: 10 }) };
+    const gerar = async (labs: string[], t: string) => {
+      const b = banco(labs, vendedor);
+      const svc = new QuotesService(b.prisma, { get: () => undefined } as any);
+      await (svc as any).generateSaleCommission(t, 'vendedor-1', 'orc-1', 'pac-1', 1000);
+      return b;
+    };
+    const lab = await gerar([LAB], LAB);
+    expect(lab.nomes()).toEqual([]);
+    const sem = await gerar([], CLINICA);
+    const com = await gerar([LAB], CLINICA);
+    expect(com.ops).toEqual(sem.ops);
+    expect(com.nomes()).toContain('commission.findFirst');
+  });
+
+  it('comissão de execução (confirmar item): laboratório não gera; clínica igual', async () => {
+    const item = {
+      id: 'item-1', unit_price: 100, quantity: 1, procedure_id: 'proc-1',
+      procedure: { id: 'proc-1', name: 'Serviço exemplo', category: null, commissionable: true },
+      treatment_plan: { id: 'plano-1', patient_id: 'pac-1', quote_id: 'orc-1' },
+    };
+    const gerar = async (labs: string[], t: string) => {
+      const b = banco(labs);
+      const svc = new TreatmentPlansService(b.prisma, {} as any, undefined, new MaintenanceService(b.prisma));
+      await (svc as any).generateCommissionForItem(t, 'executor-1', item);
+      return b;
+    };
+    const lab = await gerar([LAB], LAB);
+    expect(lab.nomes()).toEqual([]);
+    const sem = await gerar([], CLINICA);
+    const com = await gerar([LAB], CLINICA);
+    expect(com.ops).toEqual(sem.ops);
+    expect(com.nomes().length).toBeGreaterThan(0);
+  });
+});
+
+describe('F2 parte 4 — integração externa (MCP, rota pública com token próprio)', () => {
+  function chamar(labs: string[], tenant_id: string) {
+    const b = banco(labs);
+    const jwt = { verify: jest.fn(() => ({ sub: 'u1', tenant_id })) };
+    const tools = { listar_clientes: jest.fn() };
+    const ctl = new McpController(jwt as any, tools as any, b.prisma);
+    const res: any = { statusCode: 200, corpo: undefined };
+    res.status = jest.fn((c: number) => { res.statusCode = c; return res; });
+    res.json = jest.fn((x: any) => { res.corpo = x; return res; });
+    res.send = jest.fn(() => res);
+    const req: any = { headers: { authorization: 'Bearer token-exemplo' } };
+    return { ctl, res, req, tools };
+  }
+
+  it('laboratório: 403 antes de qualquer ferramenta; clínica (com ou sem laboratório): responde como antes', async () => {
+    const corpo = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
+    const lab = chamar([LAB], LAB);
+    await lab.ctl.handle(lab.req, lab.res, corpo);
+    expect(lab.res.statusCode).toBe(403);
+    expect(lab.res.corpo.error.message).toBe('Função não disponível para laboratório.');
+    const sem = chamar([], CLINICA);
+    await sem.ctl.handle(sem.req, sem.res, corpo);
+    const com = chamar([LAB], CLINICA);
+    await com.ctl.handle(com.req, com.res, corpo);
+    expect(com.res.statusCode).toBe(200);
+    expect(com.res.corpo).toEqual(sem.res.corpo);
+    expect(com.res.corpo.result).toBeDefined();
   });
 });

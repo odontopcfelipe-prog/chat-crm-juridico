@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { startOfTodayMaceioUtc } from '@crm/shared';
+import { isLabTenant, startOfTodayMaceioUtc } from '@crm/shared';
 
 /**
  * AffiliateService — Onda 5e v34 (Fase 25).
@@ -1272,6 +1272,11 @@ export class AffiliateService {
     tenantId: string;
   }): Promise<void> {
     try {
+      // F2 parte 4 [LAB-GATE] — comissão de afiliado é da clínica: no laboratório não nasce.
+      if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+        this.logger.log(`[LAB-GATE] afiliado — conta de laboratório, sem comissão de afiliado na proposta ${params.quoteId}`);
+        return;
+      }
       // Ja existe referral VIVO pra essa Quote? (idempotente)
       // 'cancelado' NAO bloqueia: se o aceite foi desfeito (cobranca falhou) e o
       // operador refez a venda, a comissao tem que nascer de novo — senao o afiliado

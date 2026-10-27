@@ -66,8 +66,8 @@ export class LabSentinelService {
         }
         enviados = await this.avisar(achados);
       } finally {
-        // Nenhum e-mail saiu (SMTP fora, sem destinatário): devolve a trava para a
-        // próxima rodada (o reinício da API ou o dia seguinte) tentar de novo.
+        // Nenhum e-mail saiu (SMTP fora, sem destinatário): devolve a trava, para uma
+        // rodada manual no mesmo dia poder tentar de novo. Sem isso, a próxima é amanhã.
         if (enviados === 0) await this.liberarODia(hoje).catch(() => undefined);
       }
     } catch (e: any) {

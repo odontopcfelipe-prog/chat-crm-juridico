@@ -1,7 +1,7 @@
 /**
  * F2 parte 4 — contagens da vigia do laboratório contra o Postgres DE VERDADE
  * (só no CI). O Prisma só reclama de where errado na hora de executar: aqui as
- * 30 contagens rodam num banco descartável, e as que dependem de NULL e de chip
+ * 31 contagens rodam num banco descartável, e as que dependem de NULL e de chip
  * são conferidas com linhas de verdade.
  *
  * Roda SÓ no job do CI (banco ci@localhost:5432/ci, recriado a cada execução).
@@ -35,14 +35,15 @@ descrever('vigia do laboratório no Postgres do CI', () => {
     const leadClinica = await prisma.lead.create({ data: { phone: '5582900000952', tags: [], tenant_id: CLINICA } });
     leads.push(leadLab.id, leadClinica.id);
     const convLab = await prisma.conversation.create({ data: { lead_id: leadLab.id, tenant_id: LAB } });
-    const convClinica = await prisma.conversation.create({ data: { lead_id: leadClinica.id, tenant_id: CLINICA } });
+    // ERRADO: conversa da clínica presa ao chip do laboratório
+    const convClinica = await prisma.conversation.create({ data: { lead_id: leadClinica.id, tenant_id: CLINICA, instance_name: 'vigia-chip-lab' } });
 
     const msg = (conversation_id: string, instance_name: string | null, extra: Record<string, unknown> = {}) =>
       prisma.message.create({ data: { conversation_id, direction: 'out', type: 'text', status: 'enviado', instance_name, ...extra } });
     await msg(convLab.id, 'vigia-chip-lab'); // certo: chip do próprio laboratório
     await msg(convLab.id, null); // sem chip registrado: não conta
     await msg(convLab.id, 'vigia-chip-clinica'); // ERRADO: conversa do lab pelo chip da clínica
-    await msg(convClinica.id, 'vigia-chip-lab'); // ERRADO: chip do lab em conversa da clínica
+    await msg(convLab.id, 'vigia-chip-apagado'); // chip que o lab apagou (não existe em Instance): não conta
     await msg(convClinica.id, 'vigia-chip-clinica'); // da clínica: nada a ver com o lab
 
     const evento = (tenant_id: string, type: string) =>
@@ -68,13 +69,13 @@ descrever('vigia do laboratório no Postgres do CI', () => {
 
   it('todas as contagens rodam sem erro do Prisma e só acham o que está errado no laboratório', async () => {
     const r = await contarForaDoLugar(prisma as any, LAB);
-    expect(Object.keys(r)).toHaveLength(30);
+    expect(Object.keys(r)).toHaveLength(31);
     expect(r['Mensagem enviada por chip de outra conta']).toBe(1);
-    expect(r['Mensagem do chip do laboratório em conversa de outra conta']).toBe(1);
+    expect(r['Conversa de outra conta no chip do laboratório']).toBe(1);
     expect(r['Evento de agenda de clínica']).toBe(1);
     expect(r['Uso de IA']).toBe(0);
     const resto = Object.entries(r).filter(
-      ([n]) => !['Mensagem enviada por chip de outra conta', 'Mensagem do chip do laboratório em conversa de outra conta', 'Evento de agenda de clínica'].includes(n),
+      ([n]) => !['Mensagem enviada por chip de outra conta', 'Conversa de outra conta no chip do laboratório', 'Evento de agenda de clínica'].includes(n),
     );
     expect(resto.every(([, n]) => n === 0)).toBe(true);
   });

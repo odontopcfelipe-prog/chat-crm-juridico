@@ -15,13 +15,14 @@ const MODELOS_CONTADOS = [
   'odontogram', 'toothRecord', 'anamnesis', 'medicalRecord', 'clinicalNote', 'clinicalImage', 'radiographyExam',
   'patientAllergy', 'patientMedication', 'estheticApplication', 'adverseReaction', 'contractSignature', 'contract',
   'treatmentPlan', 'maintenanceTask', 'returnAlert', 'postCareSurvey', 'portalToken', 'smileSimulation', 'referral',
-  'affiliateReferral', 'waitlistEntry', 'aiUsage', 'aiMemory', 'commission', 'message', 'calendarEvent', 'paymentGatewayCharge',
+  'affiliateReferral', 'waitlistEntry', 'aiUsage', 'memory', 'leadProfile', 'commission', 'message', 'conversation', 'calendarEvent', 'paymentGatewayCharge',
 ];
 
 function prismaFalso(opcoes: {
   labs?: Array<{ tenant_id: string; tenant?: { name: string } }> | Error;
   contagens?: Record<string, number>;
   chips?: string[];
+  chipsDeOutrasContas?: string[];
   chaveAsaas?: string | null;
   superAdmins?: string[];
   diaJaReivindicado?: boolean;
@@ -33,7 +34,11 @@ function prismaFalso(opcoes: {
         return opcoes.labs ?? [];
       }),
     },
-    instance: { findMany: jest.fn(async () => (opcoes.chips ?? []).map((name) => ({ name }))) },
+    instance: {
+      findMany: jest.fn(async (args: any) =>
+        (args.where.tenant_id === LAB ? opcoes.chips ?? [] : opcoes.chipsDeOutrasContas ?? []).map((name) => ({ name })),
+      ),
+    },
     tenantSetting: { findUnique: jest.fn(async () => (opcoes.chaveAsaas ? { value: opcoes.chaveAsaas } : null)) },
     globalSetting: {
       updateMany: jest.fn(async (args: any) => ({ count: args.data.value === '' ? 1 : opcoes.diaJaReivindicado ? 0 : 1 })),
@@ -98,7 +103,7 @@ describe('sem laboratório (hoje)', () => {
 
 describe('com laboratório', () => {
   it('tudo zero: só log, sem e-mail', async () => {
-    const prisma = prismaFalso({ labs: [{ tenant_id: LAB, tenant: { name: 'Lab Teste' } }] });
+    const prisma = prismaFalso({ labs: [{ tenant_id: LAB, tenant: { name: 'Lab Teste' } }], chips: ['lab-chip'], chipsDeOutrasContas: ['clinica-chip'] });
     const { svc, mail, logs } = montar(prisma);
     await svc.verificar();
     expect(logs).toEqual(['log [LAB-SENTINEL] 1 laboratório(s), nada fora do lugar']);
@@ -179,20 +184,59 @@ describe('contarForaDoLugar — cada contagem olha só a conta do laboratório',
     expect(TIPOS_DE_AGENDA_DO_LABORATORIO).not.toContain('CONSULTA');
   });
 
-  it('chips: sem chip próprio não procura conversa de outra conta pelo chip; com chip, procura', async () => {
+  it('chip de outra conta: só nome que EXISTE em outra conta (chip apagado pelo próprio lab não conta)', async () => {
+    const prisma = prismaFalso({ chips: [], chipsDeOutrasContas: ['clinica-chip'] });
+    await contarForaDoLugar(prisma, LAB);
+    expect(prisma.instance.findMany).toHaveBeenCalledWith({
+      where: { OR: [{ tenant_id: null }, { tenant_id: { not: LAB } }] },
+      select: { name: true },
+    });
+    expect(prisma.message.count).toHaveBeenCalledWith({
+      where: { conversation: { tenant_id: LAB }, direction: 'out', instance_name: { in: ['clinica-chip'] } },
+    });
+    const semOutras = prismaFalso({ chips: [], chipsDeOutrasContas: [] });
+    const r = await contarForaDoLugar(semOutras, LAB);
+    expect(semOutras.message.count).toHaveBeenCalledTimes(1); // só a da IA
+    expect(r['Mensagem enviada por chip de outra conta']).toBe(0);
+  });
+
+  it('chip do laboratório em conversa de outra conta: pela conversa (índice), só com chip próprio', async () => {
     const sem = prismaFalso({ chips: [] });
     await contarForaDoLugar(sem, LAB);
-    expect(sem.message.count).toHaveBeenCalledTimes(2); // IA + chip de outra conta
+    expect(sem.conversation.count).not.toHaveBeenCalled();
     const com = prismaFalso({ chips: ['lab-chip'] });
     await contarForaDoLugar(com, LAB);
-    expect(com.message.count).toHaveBeenCalledTimes(3);
-    expect(com.message.count).toHaveBeenCalledWith({
-      where: {
-        instance_name: { in: ['lab-chip'] },
-        direction: 'out',
-        conversation: { OR: [{ tenant_id: null }, { tenant_id: { not: LAB } }] },
-      },
+    expect(com.conversation.count).toHaveBeenCalledWith({
+      where: { instance_name: { in: ['lab-chip'] }, OR: [{ tenant_id: null }, { tenant_id: { not: LAB } }] },
     });
+  });
+
+  it('memória da IA: conta onde a IA grava hoje (Memory e LeadProfile), não a linha do tempo do CRM', async () => {
+    const prisma = prismaFalso();
+    await contarForaDoLugar(prisma, LAB);
+    expect(prisma.memory.count).toHaveBeenCalledWith({ where: { tenant_id: LAB } });
+    expect(prisma.leadProfile.count).toHaveBeenCalledWith({ where: { tenant_id: LAB } });
+    expect(prisma.aiMemory).toBeUndefined();
+  });
+
+  it('as contagens rodam em lotes de no máximo 4 ao mesmo tempo', async () => {
+    const prisma = prismaFalso({ chips: ['lab-chip'], chipsDeOutrasContas: ['clinica-chip'] });
+    let abertas = 0;
+    let maximo = 0;
+    for (const m of MODELOS_CONTADOS) {
+      const original = prisma[m].count;
+      prisma[m].count = jest.fn(async (...a: any[]) => {
+        abertas++;
+        maximo = Math.max(maximo, abertas);
+        await Promise.resolve();
+        await Promise.resolve();
+        abertas--;
+        return original(...a);
+      });
+    }
+    await contarForaDoLugar(prisma, LAB);
+    expect(maximo).toBeGreaterThan(1);
+    expect(maximo).toBeLessThanOrEqual(4);
   });
 
   it('Asaas: com chave própria não conta; sem chave, conta as cobranças ASAAS da conta', async () => {

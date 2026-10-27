@@ -24,6 +24,7 @@ import {
 } from '@crm/shared';
 // F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
 import { negarLaboratorio } from '../common/lab-gate.util';
+import { tipoDeAgendaDoLaboratorio } from '../business-type/agenda-do-laboratorio';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -444,6 +445,13 @@ export class CalendarService {
   }) {
     if (!EVENT_TYPES.includes(data.type as any)) {
       throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
+    }
+    // F2 parte 4 [LAB-GATE] — a agenda do laboratório não tem consulta/procedimento/
+    // retorno (os tipos aceitos são os de agenda-do-laboratorio.ts). Clínica: só a
+    // leitura cacheada da lista de laboratórios, e o create segue igual.
+    if (!tipoDeAgendaDoLaboratorio(data.type) && (await this.eventoDeLaboratorio(data.tenant_id, data.lead_id, data.patient_id))) {
+      this.logger.log(`[LAB-GATE] agenda-tipo — evento ${data.type} recusado no laboratório`);
+      throw negarLaboratorio(`Evento do tipo ${data.type}`);
     }
 
     // Dentista responsavel OBRIGATORIO em eventos clinicos (Fase 23).
@@ -885,6 +893,11 @@ export class CalendarService {
         validated_at: true, validated_by_user_id: true, // pra checar lock pos-validacao
       },
     });
+    // F2 parte 4 [LAB-GATE] — no laboratório, trocar para tipo de clínica é recusado.
+    if (data.type && !tipoDeAgendaDoLaboratorio(data.type) && (await this.eventoDeLaboratorio(before?.tenant_id, before?.lead_id, null))) {
+      this.logger.log(`[LAB-GATE] agenda-tipo — troca para ${data.type} recusada no laboratório`);
+      throw negarLaboratorio(`Evento do tipo ${data.type}`);
+    }
 
     // Bloqueia troca de dentista APOS validacao clinica (Fase 23).
     // Operador pode trocar dentista ate o atendimento ser validado pelo

@@ -47,6 +47,7 @@ const CHAMADAS_DE_TODA_PAGINA: readonly string[] = [
   'TasksController.findAll', // selo de tarefas
   'WhatsappController.myNumbers', // aviso de chip desconectado (a cada 90 s)
   'CommercialController.quotesDashboard', // selo de propostas na barra lateral
+  'CalendarController.pendingValidation', // selo de atendimentos a validar na barra lateral (ADMIN, a cada 5 min)
 ];
 
 /**

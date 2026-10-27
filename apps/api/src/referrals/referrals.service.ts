@@ -15,6 +15,7 @@
  */
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isLabTenant } from '@crm/shared';
 
 export interface UpdateReferralDto {
   status?: 'PENDING' | 'EARNED' | 'PAID' | 'EXPIRED' | 'CANCELLED';
@@ -86,6 +87,11 @@ export class ReferralsService {
   }) {
     if (params.referrerId === params.referredId) {
       this.logger.warn(`[REFERRAL] Tentativa de auto-indicacao ignorada (paciente=${params.referredId})`);
+      return null;
+    }
+    // F2 parte 4 [LAB-GATE] — indicação premiada é da clínica: no laboratório não nasce.
+    if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] indicacao — conta de laboratório, sem indicação para ${params.referredId}`);
       return null;
     }
 
