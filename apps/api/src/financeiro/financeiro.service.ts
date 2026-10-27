@@ -107,6 +107,29 @@ export class FinanceiroService {
     return record;
   }
 
+  /**
+   * Cliente (lead) e profissional do lançamento só da própria conta — id de outra
+   * conta ou sem conta = "não encontrado", antes de gravar. Sem conta no contexto
+   * (SUPER_ADMIN) ou campo vazio/null (limpar o vínculo): nenhuma consulta, como antes.
+   */
+  private async assertVinculosDaConta(tenantId: string | null | undefined, leadId?: string | null, dentistId?: string | null) {
+    if (!tenantId) return;
+    if (leadId) {
+      const lead = await this.prisma.lead.findFirst({
+        where: { id: leadId, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!lead) throw new NotFoundException('Cliente nao encontrado');
+    }
+    if (dentistId) {
+      const user = await this.prisma.user.findFirst({
+        where: { id: dentistId, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!user) throw new NotFoundException('Profissional nao encontrado');
+    }
+  }
+
   // ─── Transactions CRUD ─────────────────────────────────
 
   async findAllTransactions(query: {
@@ -326,6 +349,7 @@ export class FinanceiroService {
 
   async createTransaction(data: CreateTransactionDto & { tenant_id?: string; actor_id?: string; source?: string; company_id?: string | null; is_variable_amount?: boolean }) {
     // STUBBED: legal_case_id/honorario_payment_id removidos Fase 0.2
+    await this.assertVinculosDaConta(data.tenant_id, data.lead_id, data.dentist_id);
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: data.tenant_id,
@@ -439,6 +463,7 @@ export class FinanceiroService {
 
   async updateTransaction(id: string, data: UpdateTransactionDto, tenantId?: string, actorId?: string, forbidSource?: string) {
     await this.verifyTransactionAccess(id, tenantId, forbidSource);
+    await this.assertVinculosDaConta(tenantId, data.lead_id, data.dentist_id);
 
     const updateData: any = {};
 
@@ -576,7 +601,7 @@ export class FinanceiroService {
       include: {
         lead_honorario: {
           include: {
-            lead: { select: { id: true, name: true } },
+            lead: { select: { id: true, name: true, tenant_id: true } },
           },
         },
       },
@@ -611,7 +636,8 @@ export class FinanceiroService {
 
     return this.prisma.financialTransaction.create({
       data: {
-        tenant_id: tenantId || honorario?.tenant_id || null,
+        // Honorário sem conta herda a conta do contato (não nasce lançamento sem conta).
+        tenant_id: tenantId || honorario?.tenant_id || lead?.tenant_id || null,
         type: 'RECEITA',
         category: 'HONORARIO',
         description: `Honorário ${typeLabel} - Lead ${lead?.name || 'Sem nome'}`.trim(),

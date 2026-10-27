@@ -95,7 +95,9 @@ export class NotaFiscalService {
     });
 
     if (!nf) throw new NotFoundException('Nota fiscal nao encontrada');
-    if (tenantId && nf.tenant_id && nf.tenant_id !== tenantId) {
+    // Com conta no contexto, só a nota da própria conta; nota sem conta (tenant_id
+    // NULL) também é recusada. SUPER_ADMIN chega sem conta e continua lendo qualquer uma.
+    if (tenantId && nf.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
 
@@ -121,7 +123,9 @@ export class NotaFiscalService {
     });
 
     if (!transaction) throw new NotFoundException('Transacao financeira nao encontrada');
-    if (tenantId && transaction.tenant_id && transaction.tenant_id !== tenantId) {
+    // Mesma regra do findOne: transação de outra conta ou sem conta é recusada
+    // antes de ler a configuração de NFS-e ou gravar a nota.
+    if (tenantId && transaction.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a esta transacao');
     }
 
@@ -226,7 +230,8 @@ export class NotaFiscalService {
   async cancel(id: string, tenantId?: string) {
     const nf = await this.prisma.notaFiscal.findUnique({ where: { id } });
     if (!nf) throw new NotFoundException('Nota fiscal nao encontrada');
-    if (tenantId && nf.tenant_id && nf.tenant_id !== tenantId) {
+    // Mesma regra do findOne: nota de outra conta ou sem conta é recusada.
+    if (tenantId && nf.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
     if (nf.status === 'CANCELADA') {

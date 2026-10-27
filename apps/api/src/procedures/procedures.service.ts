@@ -8,6 +8,7 @@ export class ProceduresService {
 
   async create(tenantId: string, data: Omit<Prisma.ProcedureUncheckedCreateInput, 'tenant_id'>) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    await this.assertSpecialtyDaConta(data.specialty_id, tenantId);
     return this.prisma.procedure.create({ data: { ...data, tenant_id: tenantId } });
   }
 
@@ -49,6 +50,7 @@ export class ProceduresService {
 
   async update(id: string, tenantId: string, data: Prisma.ProcedureUncheckedUpdateInput) {
     await this.assertBelongsToTenant(id, tenantId);
+    await this.assertSpecialtyDaConta(data.specialty_id, tenantId);
     return this.prisma.procedure.update({ where: { id }, data });
   }
 
@@ -56,6 +58,19 @@ export class ProceduresService {
     await this.assertBelongsToTenant(id, tenantId);
     // Soft delete para preservar referencias em QuoteItem/TreatmentPlanItem
     return this.prisma.procedure.update({ where: { id }, data: { active: false } });
+  }
+
+  /**
+   * Grupo (especialidade) só da própria conta. Sem filtro de ativo: a tela de
+   * edição reenvia o grupo atual, que pode estar desativado. null/'' seguem como hoje.
+   */
+  private async assertSpecialtyDaConta(specialtyId: unknown, tenantId: string) {
+    if (typeof specialtyId !== 'string' || !specialtyId) return;
+    const row = await this.prisma.specialty.findUnique({
+      where: { id: specialtyId },
+      select: { tenant_id: true },
+    });
+    if (row && row.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
   }
 
   private async assertBelongsToTenant(id: string, tenantId: string) {

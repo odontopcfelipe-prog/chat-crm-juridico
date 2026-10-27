@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
 import { CreateStockMovementDto } from './dto/stock-movement.dto';
+import { eventosDaConta } from '../calendar/conta-do-evento';
 
 @Injectable()
 export class StockMovementsService {
@@ -67,6 +68,23 @@ export class StockMovementsService {
       throw new BadRequestException(
         `Produto "${product.name}" exige data de validade na entrada.`,
       );
+    }
+
+    // Fornecedor e atendimento só da própria conta — conferidos antes de mexer no saldo.
+    if (dto.supplier_id) {
+      const supplier = await this.prisma.supplier.findFirst({
+        where: { id: dto.supplier_id, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!supplier) throw new NotFoundException('Fornecedor nao encontrado');
+    }
+    if (dto.appointment_id) {
+      // Atendimento antigo sem conta vale se foi criado por usuário da conta.
+      const appointment = await this.prisma.calendarEvent.findFirst({
+        where: { id: dto.appointment_id, ...eventosDaConta(tenantId) },
+        select: { id: true },
+      });
+      if (!appointment) throw new NotFoundException('Atendimento nao encontrado');
     }
 
     return this.prisma.$transaction(async (tx) => {

@@ -23,6 +23,7 @@ export class ProductsService {
       });
       if (existing) throw new BadRequestException(`Ja existe um produto com SKU "${dto.sku}"`);
     }
+    await this.assertSupplierDaConta(tenantId, dto.supplier_id);
 
     return this.prisma.product.create({
       data: { ...dto, tenant_id: tenantId },
@@ -113,7 +114,18 @@ export class ProductsService {
       where: { id, tenant_id: tenantId },
     });
     if (!existing) throw new NotFoundException('Produto nao encontrado');
+    await this.assertSupplierDaConta(tenantId, dto.supplier_id);
     return this.prisma.product.update({ where: { id }, data: dto });
+  }
+
+  /** Fornecedor do produto só da própria conta (vazio/null limpa o vínculo, sem consulta). */
+  private async assertSupplierDaConta(tenantId: string, supplierId?: string | null) {
+    if (!tenantId || !supplierId) return;
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!supplier) throw new NotFoundException('Fornecedor nao encontrado');
   }
 
   async archive(id: string, tenantId: string) {

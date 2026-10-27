@@ -78,6 +78,8 @@ export class ConversationsController {
 
   @Post()
   async create(@Body() dto: CreateConversationDto, @Request() req: any) {
+    // Lead e setor só da própria conta (403 antes de gravar); SUPER_ADMIN: conta do lead.
+    const conta = await this.conversationsService.contaDaConversaManual(req.user?.tenant_id, dto.lead_id, dto.inbox_id);
     // O chip é decidido no servidor (o front mandava "whatsapp" fixo — chip morto).
     const instanceName = await this.conversationsService.resolveManualConversationInstance(
       req.user?.tenant_id,
@@ -91,7 +93,7 @@ export class ConversationsController {
       inbox: dto.inbox_id ? { connect: { id: dto.inbox_id } } : undefined,
       instance_name: instanceName,
       ai_mode: dto.ai_mode ?? true,
-      tenant: req.user?.tenant_id ? { connect: { id: req.user.tenant_id } } : undefined,
+      tenant: conta ? { connect: { id: conta } } : undefined,
     });
   }
 
@@ -106,8 +108,8 @@ export class ConversationsController {
   }
 
   @Patch(':id/transfer')
-  transfer(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.conversationsService.assign(id, userId);
+  transfer(@Param('id') id: string, @Body('userId') userId: string, @Request() req: any) {
+    return this.conversationsService.assign(id, userId, req.user?.tenant_id);
   }
 
   /** Onda 17.64 — move a conversa pro setor Comercial/Clínica (o disparo passa a
@@ -131,7 +133,7 @@ export class ConversationsController {
     @Body() body: TransferRequestDto,
     @Request() req: any,
   ) {
-    return this.conversationsService.requestTransfer(id, body.toUserId, req.user.id, body.reason || null, body.audioIds);
+    return this.conversationsService.requestTransfer(id, body.toUserId, req.user.id, body.reason || null, body.audioIds, req.user?.tenant_id);
   }
 
   @Patch(':id/transfer-accept')
@@ -165,7 +167,7 @@ export class ConversationsController {
     @Body() body: TransferToLawyerDto,
     @Request() req: any,
   ) {
-    return this.conversationsService.transferToAssignedLawyer(id, req.user.id, body.reason, body.audioIds);
+    return this.conversationsService.transferToAssignedLawyer(id, req.user.id, body.reason, body.audioIds, req.user?.tenant_id);
   }
 
   @Patch(':id/return-to-origin')
@@ -196,8 +198,9 @@ export class ConversationsController {
   assignLawyer(
     @Param('id') id: string,
     @Body('lawyerId') lawyerId: string | null,
+    @Request() req: any,
   ) {
-    return this.conversationsService.setAssignedLawyer(id, lawyerId ?? null);
+    return this.conversationsService.setAssignedLawyer(id, lawyerId ?? null, req.user?.tenant_id);
   }
 
   @Patch(':id/specialty')

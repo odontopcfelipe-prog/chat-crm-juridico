@@ -16,16 +16,62 @@ export class TasksService {
     private calendarService: CalendarService,
   ) {}
 
+  // Só as tarefas da própria conta (tarefa sem conta não entra).
   private tenantWhere(tenantId?: string) {
-    return tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {};
+    return tenantId ? { tenant_id: tenantId } : {};
   }
 
   private async verifyTenantOwnership(id: string, tenantId?: string) {
     if (!tenantId) return;
     const task = await this.prisma.task.findUnique({ where: { id }, select: { tenant_id: true } });
-    if (task?.tenant_id && task.tenant_id !== tenantId) {
+    if (task && task.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
+  }
+
+  /**
+   * Contato, conversa e responsável ligados à tarefa: só da própria conta (o sem
+   * conta também fica fora; usuário sem conta é da plataforma). Id que não existe
+   * segue como antes. Sem conta no token (plataforma): sem conferência.
+   */
+  async exigirVinculosDaConta(
+    tenantId: string | undefined,
+    ids: { lead_id?: string | null; conversation_id?: string | null; assigned_user_id?: string | null },
+  ): Promise<void> {
+    if (!tenantId) return;
+    const select = { tenant_id: true } as const;
+    const lead = ids.lead_id ? await this.prisma.lead.findUnique({ where: { id: ids.lead_id }, select }) : null;
+    const conv = ids.conversation_id
+      ? await this.prisma.conversation.findUnique({ where: { id: ids.conversation_id }, select })
+      : null;
+    const user = ids.assigned_user_id
+      ? await this.prisma.user.findUnique({ where: { id: ids.assigned_user_id }, select })
+      : null;
+    if ([lead, conv, user].some((r) => r && r.tenant_id !== tenantId)) {
+      throw new ForbiddenException('Acesso negado a este recurso');
+    }
+  }
+
+  /** Conta da tarefa criada sem conta no token: a do contato, da conversa ou do responsável. */
+  private async contaDosVinculos(d: {
+    lead_id?: string;
+    conversation_id?: string;
+    assigned_user_id?: string;
+  }): Promise<string | undefined> {
+    const select = { tenant_id: true } as const;
+    if (d.lead_id) {
+      const l = await this.prisma.lead.findUnique({ where: { id: d.lead_id }, select });
+      if (l?.tenant_id) return l.tenant_id;
+    }
+    if (d.conversation_id) {
+      const c = await this.prisma.conversation.findUnique({ where: { id: d.conversation_id }, select });
+      if (c?.tenant_id) return c.tenant_id;
+    }
+    if (d.assigned_user_id) {
+      const u = await this.prisma.user.findUnique({ where: { id: d.assigned_user_id }, select });
+      if (u?.tenant_id) return u.tenant_id;
+    }
+    return undefined;
   }
 
   async findAll(
@@ -123,6 +169,7 @@ export class TasksService {
 
   async toggleChecklistItem(taskId: string, itemId: string, done: boolean, tenantId?: string) {
     await this.verifyTenantOwnership(taskId, tenantId);
+    await this.exigirItemDaTarefa(taskId, itemId, tenantId);
     return this.prisma.taskChecklistItem.update({
       where: { id: itemId },
       data: { done },
@@ -131,8 +178,16 @@ export class TasksService {
 
   async deleteChecklistItem(taskId: string, itemId: string, tenantId?: string) {
     await this.verifyTenantOwnership(taskId, tenantId);
+    await this.exigirItemDaTarefa(taskId, itemId, tenantId);
     await this.prisma.taskChecklistItem.delete({ where: { id: itemId } });
     return { ok: true };
+  }
+
+  /** O item do checklist tem de ser da tarefa da URL (id que não existe segue como antes). */
+  private async exigirItemDaTarefa(taskId: string, itemId: string, tenantId?: string) {
+    if (!tenantId) return;
+    const item = await this.prisma.taskChecklistItem.findUnique({ where: { id: itemId }, select: { task_id: true } });
+    if (item && item.task_id !== taskId) throw new NotFoundException('Item não encontrado');
   }
 
   async create(data: {
@@ -145,6 +200,9 @@ export class TasksService {
     tenant_id?: string;
     created_by_id?: string;
   }) {
+    // Sem conta no token (plataforma, robô sem conta): a tarefa nasce na conta do
+    // contato/conversa/responsável, e não sem conta.
+    const tenantId = data.tenant_id || (await this.contaDosVinculos(data));
     const task = await this.prisma.task.create({
       data: {
         title: data.title,
@@ -153,7 +211,7 @@ export class TasksService {
         conversation_id: data.conversation_id,
         assigned_user_id: data.assigned_user_id,
         due_at: data.due_at ? new Date(data.due_at) : null,
-        tenant_id: data.tenant_id,
+        tenant_id: tenantId,
         status: 'A_FAZER',
       },
     });
@@ -222,6 +280,8 @@ export class TasksService {
     assigned_user_id?: string | null;
   }, tenantId?: string) {
     await this.verifyTenantOwnership(id, tenantId);
+    // Responsável novo: só da própria conta (tirar o responsável segue livre).
+    await this.exigirVinculosDaConta(tenantId, { assigned_user_id: data.assigned_user_id });
     const updateData: any = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
@@ -372,7 +432,8 @@ export class TasksService {
         where: { id: conversationId },
         select: { tenant_id: true },
       });
-      if (conv?.tenant_id && conv.tenant_id !== tenantId) {
+      // Só conversa da própria conta (a sem conta também fica fora).
+      if (conv && conv.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }

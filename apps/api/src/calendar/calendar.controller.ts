@@ -101,7 +101,9 @@ export class CalendarController {
   // (PATCH abaixo) segue por checkOwnership — dentista continua validando.
   @RequiresPermission('manage_agenda')
   @Post('events')
-  create(@Body() data: CreateEventDto, @Request() req: any) {
+  async create(@Body() data: CreateEventDto, @Request() req: any) {
+    // Contato, paciente, conversa, profissional e tipo só da própria conta (404 antes de gravar).
+    await this.calendarService.exigirIdsDaConta(req.user?.tenant_id, data);
     return this.calendarService.create({
       ...data,
       created_by_id: req.user.id,
@@ -154,6 +156,9 @@ export class CalendarController {
         );
       }
     }
+
+    // Ids novos no corpo (contato, paciente, conversa, profissional, tipo) só da própria conta.
+    await this.calendarService.exigirIdsDaConta(req.user?.tenant_id, data, id);
 
     // Fase 0 — o ator vai junto: trava pós-validação (Faltou/Desmarcou/Adiado só ADMIN) e rastro.
     const actor = { userId: req.user.id, roles: req.user.roles, tenantId: req.user?.tenant_id, via: 'patch_evento' };
@@ -289,8 +294,9 @@ export class CalendarController {
 
   @RequiresPermission('view_agenda')
   @Get('schedule/:userId')
-  getSchedule(@Param('userId') userId: string) {
-    return this.calendarService.getSchedule(userId);
+  getSchedule(@Param('userId') userId: string, @Request() req: any) {
+    // Só expediente de profissional da própria conta (404 'Profissional nao encontrado').
+    return this.calendarService.getSchedule(userId, req.user?.tenant_id);
   }
 
   @Put('schedule/:userId')
@@ -315,7 +321,8 @@ export class CalendarController {
     if (!isAdmin && req.user?.id !== userId) {
       throw new ForbiddenException('Apenas ADMIN ou o proprio dentista pode editar essa agenda');
     }
-    return this.calendarService.setSchedule(userId, slots);
+    // Só profissional da própria conta: o service confere antes de apagar/regravar.
+    return this.calendarService.setSchedule(userId, slots, req.user?.tenant_id);
   }
 
   // ─── Appointment Types ────────────────────────────────
@@ -727,8 +734,9 @@ export class CalendarController {
   // ─── ICS Export ───────────────────────────────────────
 
   @Get('export/ics/:id')
-  async exportEventIcs(@Param('id') id: string, @Res() res: Response) {
-    const icsContent = await this.calendarService.exportICS([id]);
+  async exportEventIcs(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    // Só evento da própria conta: id de outra conta sai como id inexistente (calendário vazio).
+    const icsContent = await this.calendarService.exportICS([id], req.user?.tenant_id);
     res.set({
       'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': `attachment; filename="event-${id}.ics"`,
@@ -751,7 +759,8 @@ export class CalendarController {
       tenantId: req.user?.tenant_id,
     });
     const ids = events.map((e: any) => e.id);
-    const icsContent = await this.calendarService.exportICS(ids);
+    // Mesmo recorte de conta da lista acima.
+    const icsContent = await this.calendarService.exportICS(ids, req.user?.tenant_id);
     res.set({
       'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': 'attachment; filename="calendar-export.ics"',

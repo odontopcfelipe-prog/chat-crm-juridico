@@ -1399,7 +1399,7 @@ export class AiProcessor extends WorkerHost {
       try {
         const conv = await (this.prisma as any).conversation.findUnique({
           where: { id: convoId },
-          select: { assigned_dentist_id: true },
+          select: { assigned_dentist_id: true, tenant_id: true },
         });
         const dentistId = conv?.assigned_dentist_id;
 
@@ -1413,9 +1413,12 @@ export class AiProcessor extends WorkerHost {
           if (taskTitle) {
             const lead = await this.prisma.lead.findUnique({
               where: { id: leadId },
-              select: { name: true },
+              select: { name: true, tenant_id: true },
             });
             await this.createCalendarEvent({
+              // Conta da tarefa = a da conversa; sem ela, a do contato (mesma
+              // resolução do book_appointment).
+              tenant_id: conv?.tenant_id || lead?.tenant_id || null,
               type: 'TAREFA',
               title: `${taskTitle} — ${lead?.name || 'Lead'}`,
               description: `Tarefa automática criada pela IA ao mover lead para ${resolvedStage}`,
@@ -1441,7 +1444,12 @@ export class AiProcessor extends WorkerHost {
     if (updates.area && updates.area !== 'null') {
       const conv = await (this.prisma as any).conversation.findUnique({
         where: { id: convoId },
-        select: { specialty: true, assigned_dentist_id: true },
+        select: {
+          specialty: true,
+          assigned_dentist_id: true,
+          tenant_id: true,
+          lead: { select: { tenant_id: true } },
+        },
       });
       if (!conv?.specialty) {
         await (this.prisma as any).conversation.update({
@@ -1450,9 +1458,13 @@ export class AiProcessor extends WorkerHost {
         });
         this.logger.log(`[AI] Especialidade classificada: "${updates.area}"`);
 
-        // Auto-atribuir o especialista menos ocupado (só se ainda não houver um)
+        // Auto-atribuir o especialista menos ocupado (só se ainda não houver um),
+        // sempre da conta da conversa (sem ela, a do contato).
         if (!conv?.assigned_dentist_id) {
-          const dentistId = await this.findLeastBusySpecialist(updates.area);
+          const dentistId = await this.findLeastBusySpecialist(
+            updates.area,
+            conv?.tenant_id || conv?.lead?.tenant_id || null,
+          );
           if (dentistId) {
             await (this.prisma as any).conversation.update({
               where: { id: convoId },
@@ -1640,6 +1652,9 @@ export class AiProcessor extends WorkerHost {
     lead_id: string;
     conversation_id?: string;
     created_by_id: string;
+    /** Conta do evento (conversa ?? contato). Obrigatório: a agenda só mostra o
+     *  evento para a conta gravada nele. null = conta desconhecida. */
+    tenant_id: string | null;
   }): Promise<any> {
     // Anti-duplicação: cancelar consultas ativas anteriores da MESMA conversa
     if (params.conversation_id && params.type === 'CONSULTA') {
@@ -1688,6 +1703,7 @@ export class AiProcessor extends WorkerHost {
         lead_id: params.lead_id,
         conversation_id: params.conversation_id,
         created_by_id: params.created_by_id,
+        tenant_id: params.tenant_id || undefined,
         reminders: {
           create: [
             { minutes_before: 60, channel: 'WHATSAPP' },
@@ -1823,9 +1839,20 @@ export class AiProcessor extends WorkerHost {
   }
 
   // ─── Encontra o especialista menos ocupado para uma especialidade ───
-  private async findLeastBusySpecialist(area: string): Promise<string | null> {
+  // Só entre os usuários da conta `tenantId`, e a ocupação conta só as conversas
+  // abertas dessa conta. Sem conta conhecida, não escolhe ninguém.
+  private async findLeastBusySpecialist(
+    area: string,
+    tenantId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!tenantId) {
+      this.logger.warn(
+        `[AI] Especialista não atribuído: conversa sem conta conhecida (área: "${area}")`,
+      );
+      return null;
+    }
     const allUsers = await (this.prisma as any).user.findMany({
-      where: { specialties: { isEmpty: false } },
+      where: { tenant_id: tenantId, specialties: { isEmpty: false } },
       select: { id: true, specialties: true },
     });
 
@@ -1848,7 +1875,7 @@ export class AiProcessor extends WorkerHost {
     const counts = await Promise.all(
       specialists.map(async (s) => {
         const count = await (this.prisma as any).conversation.count({
-          where: { assigned_dentist_id: s.id, status: 'ABERTO' },
+          where: { assigned_dentist_id: s.id, status: 'ABERTO', tenant_id: tenantId },
         });
         return { id: s.id as string, count };
       }),

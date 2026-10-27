@@ -1,20 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { eventosDaConta } from '../calendar/conta-do-evento';
 
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
+  // Só a própria conta (registro sem conta não entra). Sem conta (SUPER_ADMIN): sem filtro.
+  // Evento da agenda usa eventosDaConta: o antigo sem conta conta para a conta de quem o criou.
   private tenantWhere(tenantId?: string) {
-    return tenantId
-      ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] }
-      : {};
+    return tenantId ? { tenant_id: tenantId } : {};
   }
 
   async aggregate(userId: string, roles: string | string[], tenantId?: string) {
     const roleArr = Array.isArray(roles) ? roles : (roles ? [roles] : []);
     const isAdmin = roleArr.includes('ADMIN');
     const tw = this.tenantWhere(tenantId);
+    const ew = eventosDaConta(tenantId);
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -54,15 +56,15 @@ export class DashboardService {
     // ─── Task filters (CalendarEvent type=TAREFA) ──
     const calTaskWhere = (statuses: string[]) =>
       isAdmin
-        ? { type: 'TAREFA', status: { in: statuses }, ...tw }
-        : { type: 'TAREFA', status: { in: statuses }, assigned_user_id: userId, ...tw };
+        ? { type: 'TAREFA', status: { in: statuses }, ...ew }
+        : { type: 'TAREFA', status: { in: statuses }, assigned_user_id: userId, ...ew };
 
     // ─── Event filters ──
     const eventWhere = {
       start_at: { gte: now, lte: sevenDaysFromNow },
       status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
       ...(isAdmin ? {} : { assigned_user_id: userId }),
-      ...tw,
+      ...ew,
     };
 
     // ─── Honorário payment filters ── (STUBBED: models removidos na Fase 0.2)
@@ -343,6 +345,7 @@ export class DashboardService {
     const roleArr = Array.isArray(roles) ? roles : (roles ? [roles] : []);
     const isAdmin = roleArr.includes('ADMIN');
     const tw = this.tenantWhere(tenantId);
+    const ew = eventosDaConta(tenantId);
     const now = new Date();
 
     const end = endDate ? new Date(endDate) : now;
@@ -373,7 +376,7 @@ export class DashboardService {
           status: { in: ['AGENDADO', 'CONFIRMADO'] },
           start_at: { gte: wStart, lte: wEnd },
           ...taskUserFilter,
-          ...tw,
+          ...ew,
         },
       });
 

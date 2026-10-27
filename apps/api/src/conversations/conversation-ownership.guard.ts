@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { conversaForaDaConta } from './conta-da-conversa';
 
 /**
  * Onda 17.61 (segurança/IDOR) — garante que o usuário só opere em conversas do
@@ -20,13 +21,10 @@ export class ConversationOwnershipGuard implements CanActivate {
     if (!tenantId) return true; // SUPER_ADMIN / contexto sem tenant
     const id = req.params?.id;
     if (!id) return true; // rota sem :id (lista, lead/:leadId, etc.) — escopada à parte
-    const conv = await this.prisma.conversation.findUnique({
-      where: { id },
-      select: { tenant_id: true },
-    });
-    // Só bloqueia quando a conversa EXISTE e é de outro tenant (não vaza existência;
+    // Só bloqueia quando a conversa EXISTE e não é da conta: de outro tenant, ou sem
+    // conta nem na conversa nem no contato (não revela se a conversa existe;
     // conversa inexistente segue pro handler que devolve 404).
-    if (conv && conv.tenant_id && conv.tenant_id !== tenantId) {
+    if (await conversaForaDaConta(this.prisma, id, tenantId)) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
     return true;

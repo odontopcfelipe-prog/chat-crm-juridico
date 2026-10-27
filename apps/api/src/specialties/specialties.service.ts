@@ -49,6 +49,9 @@ export class SpecialtiesService {
   /** Associa dentista a uma especialidade (M:N) */
   async addDentist(specialtyId: string, userId: string, tenantId: string) {
     await this.assertBelongsToTenant(specialtyId, tenantId);
+    // Dentista só da própria conta (usuário sem conta também é recusado).
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { tenant_id: true } });
+    if (user && user.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
     return this.prisma.specialty.update({
       where: { id: specialtyId },
       data: { dentists: { connect: { id: userId } } },

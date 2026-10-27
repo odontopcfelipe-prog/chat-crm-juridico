@@ -4,6 +4,7 @@ import { FileStorageService } from './filesystem.service';
 import { SettingsService } from '../settings/settings.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { contaEfetivaDaConversa } from '../conversations/conta-da-conversa';
 import axios from 'axios';
 import * as crypto from 'crypto';
 
@@ -88,8 +89,10 @@ export class MediaDownloadService {
   /**
    * Retry manual acionado pelo frontend (POST /media/:id/retry).
    * Usa mesma lógica mas retorna erro detalhado para o controller.
+   * Com `tenantId` (usuário com conta): só mensagem da própria conta, mesma regra
+   * da guarda das conversas; de outra conta → 'not_found', sem baixar nem emitir.
    */
-  async retryDownload(messageId: string): Promise<{ ok: boolean; reason?: 'not_found' | 'no_media_data' | 'expired' | 'download_failed' }> {
+  async retryDownload(messageId: string, tenantId?: string | null): Promise<{ ok: boolean; reason?: 'not_found' | 'no_media_data' | 'expired' | 'download_failed' }> {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       select: {
@@ -98,12 +101,15 @@ export class MediaDownloadService {
         external_message_id: true,
         type: true,
         instance_name: true,
-        conversation: { select: { instance_name: true } },
+        conversation: { select: { instance_name: true, tenant_id: true } },
         media: true,
       },
     });
 
     if (!message) return { ok: false, reason: 'not_found' };
+    if (tenantId && (await contaEfetivaDaConversa(this.prisma, message.conversation_id, message.conversation?.tenant_id)) !== tenantId) {
+      return { ok: false, reason: 'not_found' };
+    }
 
     // Se já tem mídia salva, só emite e retorna ok
     if (message.media?.file_path || message.media?.s3_key) {

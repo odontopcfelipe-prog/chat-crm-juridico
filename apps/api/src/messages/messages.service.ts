@@ -9,6 +9,7 @@ import { MediaS3Service } from '../media/s3.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { SettingsService } from '../settings/settings.service';
 import { MediaUrlService } from '../media/media-url.service';
+import { conversaForaDaConta } from '../conversations/conta-da-conversa';
 import { Readable } from 'stream';
 import OpenAI, { toFile } from 'openai';
 
@@ -68,15 +69,7 @@ export class MessagesService {
 
   async getMessages(conversationId: string, page = 1, limit = 100, tenantId?: string) {
     // Verificar ownership da conversa
-    if (tenantId) {
-      const conv = await this.prisma.conversation.findUnique({
-        where: { id: conversationId },
-        select: { tenant_id: true },
-      });
-      if (conv?.tenant_id && conv.tenant_id !== tenantId) {
-        throw new ForbiddenException('Acesso negado a este recurso');
-      }
-    }
+    await this.assertConvTenant(conversationId, tenantId);
 
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(Math.max(1, limit), 500);
@@ -100,26 +93,31 @@ export class MessagesService {
   }
 
   // ── Onda 17.61 (segurança/IDOR) — isolamento de tenant em msgs/conversas ──
-  /** Bloqueia operar numa conversa de OUTRO tenant (espelha o check do getMessages). */
+  /** Bloqueia operar numa conversa que não é da conta: de OUTRO tenant, ou sem conta
+   *  nem na conversa nem no contato (mesma regra da guarda das conversas). */
   private async assertConvTenant(conversationId: string, tenantId?: string) {
     if (!tenantId) return;
-    const conv = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      select: { tenant_id: true },
-    });
-    if (conv?.tenant_id && conv.tenant_id !== tenantId) {
+    if (await conversaForaDaConta(this.prisma, conversationId, tenantId)) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
   }
 
-  /** Bloqueia operar numa mensagem cuja conversa é de OUTRO tenant. */
+  /** Bloqueia operar numa mensagem cuja conversa não é da conta (mesma regra acima). */
   private async assertMessageTenant(messageId: string, tenantId?: string) {
     if (!tenantId) return;
     const msg = await this.prisma.message.findUnique({
       where: { id: messageId },
       select: { conversation: { select: { tenant_id: true } } },
     });
-    if (msg?.conversation?.tenant_id && msg.conversation.tenant_id !== tenantId) {
+    if (!msg || msg.conversation?.tenant_id === tenantId) return;
+    // Conversa sem conta gravada: vale a do contato.
+    const conta = msg.conversation?.tenant_id
+      ?? (await this.prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversation: { select: { lead: { select: { tenant_id: true } } } } },
+      }))?.conversation?.lead?.tenant_id
+      ?? null;
+    if (conta !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
   }
@@ -308,6 +306,13 @@ export class MessagesService {
       throw new BadRequestException('Conversa inválida');
     }
 
+    // Citação só de mensagem da própria conta — conferida antes de gravar ou enviar.
+    let quoted: any;
+    if (replyToId && tenantId) {
+      quoted = await this.prisma.message.findUnique({ where: { id: replyToId } });
+      if (quoted && quoted.conversation_id !== convo.id) await this.assertConvTenant(quoted.conversation_id, tenantId);
+    }
+
     // Nota interna: salva no BD com type='internal_note', não envia ao WhatsApp
     if (isInternal) {
       const note = await this.prisma.message.create({
@@ -341,7 +346,7 @@ export class MessagesService {
     let quotedPayload: any = undefined;
     let replyToText: string | null = null;
     if (replyToId) {
-      const quoted = await this.prisma.message.findUnique({ where: { id: replyToId } });
+      if (quoted === undefined) quoted = await this.prisma.message.findUnique({ where: { id: replyToId } });
       if (quoted?.external_message_id) {
         const remoteJid = `${convo.lead.phone}@s.whatsapp.net`;
         replyToText = quoted.text || null;

@@ -7,6 +7,7 @@ import { Prisma, Conversation } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
 import { clinicTransferBlockReason, workStageAfterDemotion } from '../leads/clinic-transfer-guard';
 import { isChipAiEnabled } from '../settings/chip-ai-enabled.util';
+import { contaEfetivaDaConversa, conversaForaDaConta } from './conta-da-conversa';
 
 @Injectable()
 export class ConversationsService {
@@ -24,6 +25,54 @@ export class ConversationsService {
 
   async create(data: Prisma.ConversationCreateInput): Promise<Conversation> {
     return this.prisma.conversation.create({ data });
+  }
+
+  /**
+   * Conta da conversa aberta pela equipe ("Novo contato" / "Abrir no chat"). Com
+   * conta no login: lead e setor (inbox) do corpo só da própria conta — de outra
+   * conta ou sem conta → 403, antes de gravar. Id inexistente segue o caminho de
+   * hoje (o connect do Prisma recusa). Sem conta no login (SUPER_ADMIN): não
+   * confere e a conversa nasce na conta do contato, nunca sem conta.
+   */
+  async contaDaConversaManual(
+    tenantId: string | null | undefined,
+    leadId: string,
+    inboxId?: string | null,
+  ): Promise<string | null> {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } });
+    if (!tenantId) return lead?.tenant_id ?? null;
+    if (lead && lead.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
+    if (inboxId) {
+      const inbox = await this.prisma.inbox.findUnique({ where: { id: inboxId }, select: { tenant_id: true } });
+      if (inbox && inbox.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
+    }
+    return tenantId;
+  }
+
+  /**
+   * Usuário vindo do corpo (atribuir, transferir, dentista vinculado) só da própria
+   * conta: de outra conta ou sem conta → 403, antes de gravar. Id inexistente segue
+   * o caminho de hoje. Sem conta no login (SUPER_ADMIN), não confere.
+   */
+  private async exigirUsuarioDaConta(
+    client: { user: { findUnique(args: any): Promise<any> } },
+    userId: string | null | undefined,
+    tenantId?: string | null,
+  ): Promise<void> {
+    if (await this.usuarioForaDaConta(client, userId, tenantId)) {
+      throw new ForbiddenException('Acesso negado a este recurso');
+    }
+  }
+
+  /** O usuário existe e não é da conta (de outra ou sem conta)? Sem conta no login → false. */
+  private async usuarioForaDaConta(
+    client: { user: { findUnique(args: any): Promise<any> } },
+    userId: string | null | undefined,
+    tenantId?: string | null,
+  ): Promise<boolean> {
+    if (!tenantId || !userId) return false;
+    const user = await client.user.findUnique({ where: { id: userId }, select: { tenant_id: true } });
+    return !!user && user.tenant_id !== tenantId;
   }
 
   /**
@@ -45,7 +94,13 @@ export class ConversationsService {
       orderBy: { created_at: 'asc' },
       select: { name: true, purpose: true },
     });
-    if (comFuncao.length === 0) return requested ?? null;
+    if (comFuncao.length === 0) {
+      if (!requested) return requested ?? null;
+      // Chip pedido só se for da própria conta; nome sem linha em Instance (legado)
+      // segue como antes.
+      const chip = await this.prisma.instance.findUnique({ where: { name: requested }, select: { tenant_id: true } });
+      return chip && chip.tenant_id !== tenantId ? null : requested;
+    }
     if (requested && comFuncao.some((i) => i.name === requested)) return requested;
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, tenant_id: tenantId }, select: { is_client: true } });
     const quer = lead?.is_client ? 'CLINICA' : 'COMERCIAL';
@@ -307,17 +362,19 @@ export class ConversationsService {
         assigned_user: { select: { id: true, name: true } },
       },
     });
-    if (conv && tenantId && conv.tenant_id && conv.tenant_id !== tenantId) {
+    // Só da própria conta (sem conta gravada, vale a do contato; sem as duas, não é).
+    if (conv && tenantId && conv.tenant_id !== tenantId
+      && (conv.tenant_id || (await contaEfetivaDaConversa(this.prisma, id, null)) !== tenantId)) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
     return conv;
   }
 
   async findAllByLead(lead_id: string, tenantId?: string): Promise<any[]> {
-    // Verificar ownership do lead
+    // Verificar ownership do lead (lead sem conta não é da conta)
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id: lead_id }, select: { tenant_id: true } });
-      if (lead?.tenant_id && lead.tenant_id !== tenantId) {
+      if (lead && lead.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }
@@ -492,7 +549,8 @@ export class ConversationsService {
     }
   }
 
-  async setAssignedLawyer(id: string, dentistId: string | null): Promise<Conversation> {
+  async setAssignedLawyer(id: string, dentistId: string | null, tenantId?: string | null): Promise<Conversation> {
+    await this.exigirUsuarioDaConta(this.prisma, dentistId, tenantId);
     const updated = await this.prisma.conversation.update({
       where: { id },
       data: { assigned_dentist_id: dentistId } as any,
@@ -582,7 +640,8 @@ export class ConversationsService {
     return conv;
   }
 
-  async assign(id: string, userId: string): Promise<Conversation> {
+  async assign(id: string, userId: string, tenantId?: string | null): Promise<Conversation> {
+    await this.exigirUsuarioDaConta(this.prisma, userId, tenantId);
     return this.prisma.conversation.update({
       where: { id },
       data: {
@@ -720,7 +779,7 @@ export class ConversationsService {
     }));
   }
 
-  async requestTransfer(id: string, toUserId: string, fromUserId: string, reason: string | null, audioIds?: string[]) {
+  async requestTransfer(id: string, toUserId: string, fromUserId: string, reason: string | null, audioIds?: string[], tenantId?: string | null) {
     // Transação atômica: verificar ownership + atualizar em uma só operação
     const { fromUser, conv } = await this.prisma.$transaction(async (tx) => {
       const existing = await (tx as any).conversation.findUnique({
@@ -733,6 +792,8 @@ export class ConversationsService {
       if (existing.pending_transfer_to_id) {
         throw new BadRequestException('Esta conversa já possui uma transferência pendente.');
       }
+      // Destino só da própria conta (nada gravado nem avisado antes disso).
+      await this.exigirUsuarioDaConta(tx, toUserId, tenantId);
 
       const [fromUser, conv] = await Promise.all([
         tx.user.findUnique({ where: { id: fromUserId }, select: { name: true } }),
@@ -885,7 +946,7 @@ export class ConversationsService {
     return { success: true };
   }
 
-  async transferToAssignedLawyer(id: string, fromUserId: string, reason?: string, audioIds?: string[]) {
+  async transferToAssignedLawyer(id: string, fromUserId: string, reason?: string, audioIds?: string[], tenantId?: string | null) {
     // Transação atômica: ler + validar ownership + definir origin em uma operação
     const conv = await this.prisma.$transaction(async (tx) => {
       const existing = await (tx as any).conversation.findUnique({
@@ -896,7 +957,12 @@ export class ConversationsService {
       if (!existing || existing.assigned_user_id !== fromUserId) {
         throw new ForbiddenException('Você só pode transferir conversas atribuídas a você.');
       }
-      if (!existing.assigned_dentist_id) {
+      // Dentista vinculado de outra conta (ou sem conta) vale como "nenhum dentista
+      // vinculado": nada é gravado e o operador escolhe o dentista na transferência manual.
+      if (
+        !existing.assigned_dentist_id
+        || (await this.usuarioForaDaConta(tx, existing.assigned_dentist_id, tenantId))
+      ) {
         throw new BadRequestException(
           'Nenhum dentista foi vinculado a esta conversa pela IA. Aguarde a IA processar as mensagens ou faça transferência manual.',
         );
@@ -916,6 +982,7 @@ export class ConversationsService {
       fromUserId,
       reason?.trim() || `Especialidade detectada pela IA: ${conv.specialty || 'Odontológica'}`,
       audioIds,
+      tenantId,
     );
   }
 
@@ -1276,9 +1343,8 @@ export class ConversationsService {
   // ── Notas internas fixas ──────────────────────────────────────────────────
 
   async listNotes(conversationId: string, tenantId?: string) {
-    if (tenantId) {
-      const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { tenant_id: true } });
-      if (conv?.tenant_id && conv.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (tenantId && (await conversaForaDaConta(this.prisma, conversationId, tenantId))) {
+      throw new ForbiddenException('Acesso negado');
     }
     return (this.prisma as any).conversationNote.findMany({
       where: { conversation_id: conversationId },
@@ -1288,9 +1354,8 @@ export class ConversationsService {
   }
 
   async createNote(conversationId: string, userId: string, text: string, tenantId?: string) {
-    if (tenantId) {
-      const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { tenant_id: true } });
-      if (conv?.tenant_id && conv.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (tenantId && (await conversaForaDaConta(this.prisma, conversationId, tenantId))) {
+      throw new ForbiddenException('Acesso negado');
     }
     const note = await (this.prisma as any).conversationNote.create({
       data: { conversation_id: conversationId, user_id: userId, text },

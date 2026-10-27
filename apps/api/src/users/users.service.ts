@@ -409,7 +409,14 @@ export class UsersService {
 
     // Se informou transferToId, transferir tudo antes de excluir
     if (transferToId) {
-      const dest = await this.prisma.user.findUnique({ where: { id: transferToId }, select: { id: true } });
+      // Destino diferente de quem sai e só da própria conta (sem conta: qualquer um, como antes).
+      if (transferToId === id) {
+        throw new BadRequestException('Escolha outro usuário para receber a transferência.');
+      }
+      const dest = await this.prisma.user.findFirst({
+        where: { id: transferToId, ...this.tenantWhere(tenantId) },
+        select: { id: true },
+      });
       if (!dest) throw new BadRequestException('Usuário destino da transferência não encontrado.');
 
       // Transferir tudo em uma transação

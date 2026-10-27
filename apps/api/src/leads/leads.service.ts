@@ -93,9 +93,8 @@ export class LeadsService {
   }
 
   async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string, crc = false, lost = false) {
-    const baseWhere: any = tenant_id
-      ? { OR: [{ tenant_id }, { tenant_id: null }] }
-      : {};
+    // Só leads da própria conta (lead sem conta fica de fora). Sem conta (SUPER_ADMIN): todos.
+    const baseWhere: any = tenant_id ? { tenant_id } : {};
 
     // Filtro por pipeline (CRM dinâmico). Quando passado, a view só mostra
     // leads do funil selecionado. Quando omitido, mantém comportamento legado
@@ -497,7 +496,8 @@ export class LeadsService {
         },
       },
     }) as any;
-    if (lead && tenantId && lead.tenant_id && lead.tenant_id !== tenantId) {
+    // Só lead da própria conta (sem conta ou de outra conta → 403).
+    if (lead && tenantId && lead.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
     return lead;
@@ -722,7 +722,7 @@ export class LeadsService {
   async update(id: string, data: { name?: string; email?: string; cpf_cnpj?: string; tags?: string[]; origin?: string }, tenantId?: string): Promise<Lead> {
     if (tenantId) {
       const existing = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });
-      if (existing?.tenant_id && existing.tenant_id !== tenantId) {
+      if (existing && existing.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }
@@ -816,6 +816,9 @@ export class LeadsService {
     lossReason?: string,
     actorId?: string,
     stageIdArg?: string,
+    // Rota PATCH /leads/:id/stage: lead sem conta também é recusado (só lead da
+    // própria conta). Chamadas internas (graduação/promoção) seguem como antes.
+    somenteDaConta = false,
   ): Promise<Lead> {
     if (!stageArg && !stageIdArg) {
       throw new ForbiddenException('Informe `stage` ou `stage_id`');
@@ -823,7 +826,7 @@ export class LeadsService {
 
     if (tenantId) {
       const existing = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });
-      if (existing?.tenant_id && existing.tenant_id !== tenantId) {
+      if (existing && (existing.tenant_id ? existing.tenant_id !== tenantId : somenteDaConta)) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }
@@ -837,9 +840,22 @@ export class LeadsService {
     if (stageIdArg) {
       const st = await (this.prisma as any).pipelineStage.findUnique({
         where: { id: stageIdArg },
-        select: { id: true, slug: true, is_initial: true, is_won: true, is_lost: true, pipeline_id: true },
+        select: {
+          id: true, slug: true, is_initial: true, is_won: true, is_lost: true, pipeline_id: true,
+          pipeline: { select: { tenant_id: true } },
+        },
       });
       if (!st) throw new ForbiddenException('stage_id inválido');
+      // Só etapa de funil da própria conta (mesma resposta de etapa inexistente).
+      // Funil legado sem conta segue aceito na clínica (graduateLeadToEmFechamento
+      // usa o funil do próprio lead); no laboratório, não.
+      if (tenantId) {
+        const contaDoFunil = st.pipeline?.tenant_id ?? null;
+        const recusa = contaDoFunil
+          ? contaDoFunil !== tenantId
+          : await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+        if (recusa) throw new ForbiddenException('stage_id inválido');
+      }
       stage = this.legacyStageFromPipelineStage(st);
       resolvedPipelineId = st.pipeline_id;
       stageSlug = st.slug;
@@ -1212,7 +1228,8 @@ export class LeadsService {
       select: { id: true, is_client: true, stage: true, tenant_id: true },
     });
     if (!lead) return { ok: false };
-    if (lead.tenant_id && lead.tenant_id !== tenantId) return { ok: false };
+    // Só lead da própria conta (lead sem conta também fica de fora).
+    if (tenantId ? lead.tenant_id !== tenantId : lead.tenant_id) return { ok: false };
     if (lead.is_client) return { ok: true, leadId: lead.id, alreadyClient: true };
 
     const ev = await patientEvidence(this.prisma, lead.id);
@@ -1425,7 +1442,8 @@ export class LeadsService {
       select: { id: true, is_client: true, stage: true, tenant_id: true, pipeline_id: true, stage_id: true },
     });
     if (!lead) return { ok: false, error: 'Contato não encontrado' };
-    if (lead.tenant_id && lead.tenant_id !== tenantId) return { ok: false, error: 'Acesso negado' };
+    // Só lead da própria conta (lead sem conta também fica de fora).
+    if (tenantId ? lead.tenant_id !== tenantId : lead.tenant_id) return { ok: false, error: 'Acesso negado' };
     if (!lead.is_client) {
       return { ok: true, leadId: lead.id, alreadyLead: true };
     }
@@ -1480,7 +1498,7 @@ export class LeadsService {
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });
-      if (lead?.tenant_id && lead.tenant_id !== tenantId) {
+      if (lead && lead.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }
@@ -1566,7 +1584,7 @@ export class LeadsService {
   async getTimeline(leadId: string, tenantId?: string): Promise<any[]> {
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } });
-      if (lead?.tenant_id && lead.tenant_id !== tenantId) {
+      if (lead && lead.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
       }
     }
@@ -1661,7 +1679,7 @@ export class LeadsService {
       },
     });
     if (!lead) throw new NotFoundException('Lead não encontrado');
-    if (tenantId && lead.tenant_id && lead.tenant_id !== tenantId) {
+    if (tenantId && lead.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado');
     }
 

@@ -40,8 +40,9 @@ export class MediaController {
    */
   @Post(':messageId/retry')
   @UseGuards(JwtAuthGuard)
-  async retryMediaDownload(@Param('messageId') messageId: string) {
-    const result = await this.mediaDownloadService.retryDownload(messageId);
+  async retryMediaDownload(@Param('messageId') messageId: string, @Req() req: any) {
+    // Mensagem de outra conta → o mesmo 404 de mensagem inexistente.
+    const result = await this.mediaDownloadService.retryDownload(messageId, req.user?.tenant_id);
 
     if (result.ok) {
       return { ok: true, message: 'Mídia disponível' };

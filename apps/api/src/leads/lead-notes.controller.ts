@@ -16,8 +16,8 @@ export class LeadNotesController {
   constructor(private readonly leadNotesService: LeadNotesService) {}
 
   @Get()
-  findAll(@Param('leadId') leadId: string) {
-    return this.leadNotesService.findByLead(leadId);
+  findAll(@Param('leadId') leadId: string, @Request() req: any) {
+    return this.leadNotesService.findByLead(leadId, req.user?.tenant_id);
   }
 
   @Post()
@@ -28,14 +28,21 @@ export class LeadNotesController {
   ) {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException('Usuário não autenticado');
-    return this.leadNotesService.create(leadId, userId, body.text);
+    return this.leadNotesService.create(leadId, userId, body.text, req.user?.tenant_id);
   }
 
   @Delete(':noteId')
   delete(
+    @Param('leadId') leadId: string,
     @Param('noteId') noteId: string,
     @Request() req: any,
   ) {
-    return this.leadNotesService.delete(noteId, req.user?.id, req.user?.role);
+    return this.leadNotesService.delete(
+      noteId,
+      req.user?.id,
+      req.user?.roles ?? req.user?.role,
+      req.user?.tenant_id,
+      leadId,
+    );
   }
 }

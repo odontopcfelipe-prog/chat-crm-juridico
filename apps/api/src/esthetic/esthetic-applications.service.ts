@@ -12,6 +12,7 @@ import {
   UpdateEstheticApplicationDto,
 } from './dto/esthetic-application.dto';
 import { MaintenanceService } from '../maintenance/maintenance.service';
+import { eventosDaConta } from '../calendar/conta-do-evento';
 
 const DELETE_WINDOW_HOURS = 24;
 
@@ -75,6 +76,38 @@ export class EstheticApplicationsService {
       });
       if (!proc) throw new NotFoundException('Procedimento nao encontrado');
       procedure = { id: proc.id, default_revisit_months: proc.default_revisit_months };
+    }
+
+    // Nota, atendimento, item do plano e quem aplicou só da própria conta
+    // (o atendimento também vai para a baixa de estoque). Conferidos antes de gravar.
+    if (dto.clinical_note_id) {
+      const note = await this.prisma.clinicalNote.findFirst({
+        where: { id: dto.clinical_note_id, medical_record: { patient: { tenant_id: tenantId } } },
+        select: { id: true },
+      });
+      if (!note) throw new NotFoundException('Nota clinica nao encontrada');
+    }
+    if (dto.appointment_id) {
+      // Atendimento antigo sem conta vale se foi criado por usuário da conta.
+      const appointment = await this.prisma.calendarEvent.findFirst({
+        where: { id: dto.appointment_id, ...eventosDaConta(tenantId) },
+        select: { id: true },
+      });
+      if (!appointment) throw new NotFoundException('Atendimento nao encontrado');
+    }
+    if (dto.treatment_plan_item_id) {
+      const item = await this.prisma.treatmentPlanItem.findFirst({
+        where: { id: dto.treatment_plan_item_id, treatment_plan: { patient: { tenant_id: tenantId } } },
+        select: { id: true },
+      });
+      if (!item) throw new NotFoundException('Item do plano nao encontrado');
+    }
+    if (dto.applied_by_user_id) {
+      const applier = await this.prisma.user.findFirst({
+        where: { id: dto.applied_by_user_id, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!applier) throw new NotFoundException('Profissional nao encontrado');
     }
 
     const appliedBy = dto.applied_by_user_id || userId;

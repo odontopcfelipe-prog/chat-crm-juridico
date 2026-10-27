@@ -49,6 +49,8 @@ import {
   STATUS_INICIAIS_SO_ADMIN,
   TIPOS_CLINICOS,
 } from './agenda-status-guard';
+// Conta do evento: a gravada nele ou, no evento antigo sem conta, a de quem o criou.
+import { eventosDaConta, eventoDaConta, SELECT_CONTA_DO_EVENTO } from './conta-do-evento';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
@@ -205,8 +207,9 @@ export class CalendarService {
   }) {
     const where: any = {};
 
+    // Só a agenda da própria conta (evento antigo sem conta entra só na conta de quem o criou).
     if (query.tenantId) {
-      where.OR = [{ tenant_id: query.tenantId }, { tenant_id: null }];
+      Object.assign(where, eventosDaConta(query.tenantId));
     }
     if (query.type) where.type = query.type;
     if (query.leadId) where.lead_id = query.leadId;
@@ -482,9 +485,12 @@ export class CalendarService {
     if (!resolvedPatientId && resolvedLeadId) {
       const linkedPatient = await this.prisma.patient.findUnique({
         where: { lead_id: resolvedLeadId },
-        select: { id: true },
+        select: { id: true, tenant_id: true },
       });
-      if (linkedPatient) resolvedPatientId = linkedPatient.id;
+      // Só vincula o paciente da conta do evento (Patient.tenant_id é obrigatório).
+      const pacienteDeOutraConta =
+        !!data.tenant_id && !!linkedPatient?.tenant_id && linkedPatient.tenant_id !== data.tenant_id;
+      if (linkedPatient && !pacienteDeOutraConta) resolvedPatientId = linkedPatient.id;
     }
 
     // v31: caminho INVERSO — quando operador escolhe paciente direto pela UI
@@ -496,9 +502,11 @@ export class CalendarService {
     if (resolvedPatientId && !resolvedLeadId) {
       const patient = await this.prisma.patient.findUnique({
         where: { id: resolvedPatientId },
-        select: { lead_id: true },
+        select: { lead_id: true, lead: { select: { tenant_id: true } } },
       });
-      if (patient?.lead_id) {
+      // Só o contato da conta do evento (contato sem conta também fica de fora).
+      const contatoDeOutraConta = !!data.tenant_id && !!patient?.lead && patient.lead.tenant_id !== data.tenant_id;
+      if (patient?.lead_id && !contatoDeOutraConta) {
         resolvedLeadId = patient.lead_id;
       }
     }
@@ -1352,10 +1360,11 @@ export class CalendarService {
       ],
     };
     // Isolamento de tenant: admin de um tenant não vê agenda de outro tenant
+    // (evento antigo sem conta só conta para a conta de quem o criou).
     if (tenantId) {
       where.AND = [
         ...(where.AND || []),
-        { OR: [{ tenant_id: tenantId }, { tenant_id: null }] },
+        eventosDaConta(tenantId),
       ];
     }
     if (excludeEventId) where.id = { not: excludeEventId };
@@ -1367,7 +1376,20 @@ export class CalendarService {
 
   // ─── Availability ─────────────────────────────────────
 
-  async getSchedule(userId: string) {
+  /**
+   * Expediente, horários livres e bloqueio de agenda só de profissional da própria
+   * conta: usuário de outra conta, ou sem conta, dá 404 'Profissional nao encontrado'
+   * antes de qualquer leitura ou escrita (mesmo padrão do exigirIdsDaConta). Id que
+   * não existe segue o caminho de hoje; usuário sem conta (SUPER_ADMIN) não é conferido.
+   */
+  async exigirProfissionalDaConta(tenantId: string | null | undefined, userId: string | null | undefined): Promise<void> {
+    if (!tenantId || !userId) return;
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { tenant_id: true } });
+    if (u && u.tenant_id !== tenantId) throw new NotFoundException('Profissional nao encontrado');
+  }
+
+  async getSchedule(userId: string, tenantId?: string | null) {
+    await this.exigirProfissionalDaConta(tenantId, userId);
     // Onda 5e v10: ordena por day_of_week + sort_order + start_time pra
     // garantir ordem consistente quando ha multiplos turnos no mesmo dia.
     return this.prisma.userSchedule.findMany({
@@ -1387,7 +1409,10 @@ export class CalendarService {
       label?: string | null;
       sort_order?: number;
     }[],
+    tenantId?: string | null,
   ) {
+    // Só profissional da própria conta — conferido antes de apagar o expediente.
+    await this.exigirProfissionalDaConta(tenantId, userId);
     // Onda 5e v10: como agora pode haver MULTIPLOS registros pelo mesmo
     // (user_id, day_of_week), nao da pra usar upsert (chave nao eh mais
     // unica). Usamos transacao: deleta TUDO do usuario + cria os novos slots.
@@ -1419,6 +1444,8 @@ export class CalendarService {
   }
 
   async getAvailability(userId: string, dateStr: string, durationMinutes: number, tenantId?: string) {
+    // Só profissional da própria conta (expediente e eventos dele são lidos abaixo).
+    await this.exigirProfissionalDaConta(tenantId, userId);
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) {
       throw new BadRequestException('Data inválida');
@@ -3468,6 +3495,8 @@ export class CalendarService {
     created_by?: string;
     tenant_id?: string;
   }) {
+    // Só bloqueia agenda de profissional da própria conta — conferido antes de gravar.
+    await this.exigirProfissionalDaConta(data.tenant_id, data.user_id);
     return this.prisma.scheduleBlock.create({
       data: {
         user_id: data.user_id,
@@ -3785,9 +3814,10 @@ export class CalendarService {
 
   // ─── ICS Export ───────────────────────────────────────
 
-  async exportICS(eventIds: string[]): Promise<string> {
+  async exportICS(eventIds: string[], tenantId?: string): Promise<string> {
     const events = await this.prisma.calendarEvent.findMany({
-      where: { id: { in: eventIds } },
+      // Com conta: só os eventos dela (id de outra conta sai como id inexistente).
+      where: { id: { in: eventIds }, ...eventosDaConta(tenantId) },
       include: {
         assigned_user: { select: { name: true } },
         lead: { select: { name: true } },
@@ -3847,11 +3877,11 @@ export class CalendarService {
   async checkOwnership(eventId: string, userId: string, userRoles: string | string[], tenantId?: string): Promise<boolean> {
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
-      select: { created_by_id: true, assigned_user_id: true, tenant_id: true },
+      select: { created_by_id: true, assigned_user_id: true, ...SELECT_CONTA_DO_EVENTO },
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
-    // Tenant isolation check
-    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) return false;
+    // Tenant isolation check — só a própria conta (evento antigo sem conta: a de quem o criou).
+    if (!eventoDaConta(event, tenantId)) return false;
     // ADMIN/OPERADOR (secretaria)/ASSISTANT enxergam e mexem em qualquer
     // evento do tenant. DENTIST/FINANCEIRO so se for owner ou assigned.
     if (canViewAllAgenda(userRoles)) return true;
@@ -3868,11 +3898,63 @@ export class CalendarService {
   async checkSameTenant(eventId: string, tenantId?: string): Promise<boolean> {
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
-      select: { tenant_id: true },
+      select: SELECT_CONTA_DO_EVENTO,
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
-    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) return false;
-    return true;
+    // Só a própria conta (evento antigo sem conta: a de quem o criou).
+    return eventoDaConta(event, tenantId);
+  }
+
+  /**
+   * Os ids que o corpo do evento liga (contato, paciente, conversa, profissional e
+   * tipo de atendimento) só podem ser da própria conta: id de outra conta, ou sem
+   * conta, dá 404 antes de qualquer escrita. O tipo de atendimento sem conta (padrão
+   * antigo) segue aceito. Id que não existe segue o caminho de hoje; usuário sem conta
+   * (SUPER_ADMIN) não é conferido. Com `eventoId` (edição), o id que o evento já tem
+   * não é conferido de novo — o Salvar do modal reenvia contato, paciente e profissional.
+   */
+  async exigirIdsDaConta(
+    tenantId: string | null | undefined,
+    ids: {
+      lead_id?: string | null;
+      patient_id?: string | null;
+      conversation_id?: string | null;
+      assigned_user_id?: string | null;
+      appointment_type_id?: string | null;
+    },
+    eventoId?: string,
+  ): Promise<void> {
+    if (!tenantId) return;
+    const campos = ['lead_id', 'patient_id', 'conversation_id', 'assigned_user_id', 'appointment_type_id'] as const;
+    let novos = campos.filter((c) => !!ids?.[c]);
+    if (!novos.length) return;
+    if (eventoId) {
+      const atual = await this.prisma.calendarEvent.findUnique({
+        where: { id: eventoId },
+        select: { lead_id: true, patient_id: true, conversation_id: true, assigned_user_id: true, appointment_type_id: true },
+      });
+      if (atual) novos = novos.filter((c) => ids[c] !== atual[c]);
+    }
+    const conta = { select: { tenant_id: true } } as const;
+    for (const campo of novos) {
+      const id = ids[campo] as string;
+      if (campo === 'lead_id') {
+        const r = await this.prisma.lead.findUnique({ where: { id }, ...conta });
+        if (r && r.tenant_id !== tenantId) throw new NotFoundException('Contato nao encontrado');
+      } else if (campo === 'patient_id') {
+        const r = await this.prisma.patient.findUnique({ where: { id }, ...conta });
+        if (r && r.tenant_id !== tenantId) throw new NotFoundException('Paciente nao encontrado');
+      } else if (campo === 'conversation_id') {
+        const r = await this.prisma.conversation.findUnique({ where: { id }, ...conta });
+        if (r && r.tenant_id !== tenantId) throw new NotFoundException('Conversa nao encontrada');
+      } else if (campo === 'assigned_user_id') {
+        const r = await this.prisma.user.findUnique({ where: { id }, ...conta });
+        if (r && r.tenant_id !== tenantId) throw new NotFoundException('Profissional nao encontrado');
+      } else {
+        const r = await this.prisma.appointmentType.findUnique({ where: { id }, ...conta });
+        if (r?.tenant_id && r.tenant_id !== tenantId) throw new NotFoundException('Tipo de agendamento não encontrado');
+      }
+    }
   }
 
   // ─── Comments ─────────────────────────────────────────
@@ -4214,12 +4296,13 @@ export class CalendarService {
       where: { id: eventId },
       select: {
         id: true, type: true, status: true, start_at: true, patient_id: true,
-        assigned_user_id: true, validated_at: true, tenant_id: true,
+        assigned_user_id: true, validated_at: true, ...SELECT_CONTA_DO_EVENTO,
       },
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
     // Fase 0 — anti-IDOR: a rota não checava a clínica do evento.
-    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) {
+    // Evento antigo sem conta: vale a conta de quem o criou.
+    if (!eventoDaConta(event, tenantId)) {
       throw new ForbiddenException('Acesso negado');
     }
     if (event.validated_at) {
@@ -4318,12 +4401,12 @@ export class CalendarService {
       where: { id: eventId },
       select: {
         id: true, validated_at: true, assigned_user_id: true, type: true, title: true,
-        tenant_id: true, validated_by_user_id: true, validation_notes: true, status: true,
+        validated_by_user_id: true, validation_notes: true, status: true, ...SELECT_CONTA_DO_EVENTO,
       },
     });
     if (!event) throw new NotFoundException('Evento nao encontrado');
     // Fase 0 — anti-IDOR: mesma checagem de clínica do validate.
-    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) {
+    if (!eventoDaConta(event, tenantId)) {
       throw new ForbiddenException('Acesso negado');
     }
     if (!event.validated_at) {

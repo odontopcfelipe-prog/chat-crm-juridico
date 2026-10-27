@@ -431,7 +431,9 @@ export class BookAppointmentHandler implements ToolHandler {
         // a agenda mostra "Agendado pela IA" no lugar do criador.
         created_by_id: assignedUserId,
         created_by_ai: true,
-        tenant_id: convo.tenant_id || undefined,
+        // Conta do evento: a da conversa; sem ela, a do contato (mesma resolução do
+        // feriado acima) — o evento não nasce sem conta.
+        tenant_id: holidayTenantId || undefined,
         // Onda 5e v26: alinhado com defaults da UI [1d, 1h, 15min antes].
         // Filtra pelo tempo restante (nao cria reminder cuja antecedencia ja passou) —
         // no instante REAL (naive + 3h), mesma conta da API.

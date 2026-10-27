@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { eventosDaConta } from '../calendar/conta-do-evento';
 import type { DashboardScope } from './dashboard-analytics.service';
 
 type Quartile = 'TOP' | 'MID' | 'LOW';
@@ -10,10 +11,10 @@ interface UserRef { id: string; name: string; role?: string; roles?: string[] }
 export class TeamPerformanceService {
   constructor(private prisma: PrismaService) {}
 
+  // Só a própria conta (registro sem conta não entra). Sem conta (SUPER_ADMIN): sem filtro.
+  // Evento da agenda usa eventosDaConta: o antigo sem conta conta para a conta de quem o criou.
   private tenantWhere(tenantId?: string) {
-    return tenantId
-      ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] }
-      : {};
+    return tenantId ? { tenant_id: tenantId } : {};
   }
 
   async getPerformance(
@@ -41,6 +42,7 @@ export class TeamPerformanceService {
     }
 
     const tw = this.tenantWhere(tenantId);
+    const ew = eventosDaConta(tenantId);
     const now = new Date();
     const end = endDate ? new Date(endDate) : now;
     const start = startDate ? new Date(startDate) : new Date(now.getTime() - 30 * 86400000);
@@ -103,27 +105,27 @@ export class TeamPerformanceService {
       this.prisma.calendarEvent.groupBy({
         by: ['assigned_user_id'],
         _count: true,
-        where: { type: 'TAREFA', status: 'CONCLUIDO', assigned_user_id: { in: allIds }, ...tw },
+        where: { type: 'TAREFA', status: 'CONCLUIDO', assigned_user_id: { in: allIds }, ...ew },
       }),
       this.prisma.calendarEvent.groupBy({
         by: ['assigned_user_id'],
         _count: true,
-        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, assigned_user_id: { in: allIds }, ...tw },
+        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, assigned_user_id: { in: allIds }, ...ew },
       }),
       this.prisma.calendarEvent.groupBy({
         by: ['assigned_user_id'],
         _count: true,
-        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, start_at: { lt: now }, assigned_user_id: { in: allIds }, ...tw },
+        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, start_at: { lt: now }, assigned_user_id: { in: allIds }, ...ew },
       }),
       this.prisma.calendarEvent.groupBy({
         by: ['assigned_user_id'],
         _count: true,
-        where: { type: 'TAREFA', status: 'CONCLUIDO', assigned_user_id: { in: allIds }, created_at: { gte: prevStart, lte: prevEnd }, ...tw },
+        where: { type: 'TAREFA', status: 'CONCLUIDO', assigned_user_id: { in: allIds }, created_at: { gte: prevStart, lte: prevEnd }, ...ew },
       }),
       this.prisma.calendarEvent.groupBy({
         by: ['assigned_user_id'],
         _count: true,
-        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, assigned_user_id: { in: allIds }, created_at: { gte: prevStart, lte: prevEnd }, ...tw },
+        where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, assigned_user_id: { in: allIds }, created_at: { gte: prevStart, lte: prevEnd }, ...ew },
       }),
 
       // ── ADVOGADO: Cases ── STUBBED: LegalCase/CaseHonorario/HonorarioPayment/CaseDeadline/CasePetition removidos Fase 0.2

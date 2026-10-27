@@ -103,6 +103,7 @@ export class LeadsController {
       body.loss_reason,
       req.user?.id,
       body.stage_id,
+      true, // só lead da própria conta (sem conta também é recusado)
     );
   }
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { eventosDaConta } from '../calendar/conta-do-evento';
 
 export type DashboardScope = 'comercial' | 'juridico' | 'financeiro' | 'estagiarios';
 
@@ -14,10 +15,10 @@ export interface ResolvedScope {
 export class DashboardAnalyticsService {
   constructor(private prisma: PrismaService) {}
 
+  // Só a própria conta (registro sem conta não entra). Sem conta (SUPER_ADMIN): sem filtro.
+  // Evento da agenda usa eventosDaConta: o antigo sem conta conta para a conta de quem o criou.
   private tenantWhere(tenantId?: string) {
-    return tenantId
-      ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] }
-      : {};
+    return tenantId ? { tenant_id: tenantId } : {};
   }
 
   /**
@@ -288,8 +289,7 @@ export class DashboardAnalyticsService {
   ) {
     const roleArr = Array.isArray(roles) ? roles : (roles ? [roles] : []);
     const isAdmin = roleArr.includes('ADMIN');
-    const tw = this.tenantWhere(tenantId);
-    const baseWhere: any = { type: 'TAREFA', ...tw };
+    const baseWhere: any = { type: 'TAREFA', ...eventosDaConta(tenantId) };
 
     const resolved = await this.resolveScope(scope, userId, roleArr, tenantId);
     if (resolved?.bypass) {

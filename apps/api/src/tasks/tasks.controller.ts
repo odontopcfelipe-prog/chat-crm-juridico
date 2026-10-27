@@ -65,7 +65,9 @@ export class TasksController {
   }
 
   @Post()
-  create(@Body() data: CreateTaskDto, @Request() req: any) {
+  async create(@Body() data: CreateTaskDto, @Request() req: any) {
+    // Contato, conversa e responsável só da própria conta, antes de gravar.
+    await this.tasksService.exigirVinculosDaConta(req.user?.tenant_id, data);
     return this.tasksService.create({
       ...data,
       tenant_id: req.user?.tenant_id,

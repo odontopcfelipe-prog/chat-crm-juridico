@@ -166,6 +166,12 @@ export class PatientsService {
       }
     }
 
+    // Contato e dentistas só da própria conta (contato sem conta também é recusado).
+    await this.assertVinculosDaConta(tenantId, {
+      leadId: patientData.lead_id,
+      dentistIds: [patientData.primary_dentist_id, patientData.ortho_dentist_id],
+    });
+
     // Onda 17.33 — pré-valida etiquetas ANTES de criar o paciente (fail-fast):
     // se vier tag de outro tenant, erra com 400 claro em vez de criar o
     // paciente e engolir o erro silenciosamente (sem órfão, sem confusão UX).
@@ -226,6 +232,39 @@ export class PatientsService {
     }
 
     return patient;
+  }
+
+  /**
+   * Vínculos que vêm do corpo (contato, dentista responsável, dentista da
+   * ortodontia, indicador): só da própria conta. De outra conta ou sem conta →
+   * 400 e nada é gravado. Id que não existe segue como antes.
+   */
+  private async assertVinculosDaConta(
+    tenantId: string,
+    v: { leadId?: unknown; dentistIds?: unknown[]; referrerId?: unknown },
+  ): Promise<void> {
+    const idOuNada = (x: unknown) => (typeof x === 'string' && x ? x : null);
+
+    const leadId = idOuNada(v.leadId);
+    if (leadId) {
+      const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } });
+      if (lead && lead.tenant_id !== tenantId) throw new BadRequestException('Contato inválido');
+    }
+
+    const dentistIds = [...new Set((v.dentistIds ?? []).map(idOuNada).filter((x): x is string => !!x))];
+    if (dentistIds.length) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: dentistIds } },
+        select: { tenant_id: true },
+      });
+      if (users.some((u) => u.tenant_id !== tenantId)) throw new BadRequestException('Dentista inválido');
+    }
+
+    const referrerId = idOuNada(v.referrerId);
+    if (referrerId) {
+      const referrer = await this.prisma.patient.findUnique({ where: { id: referrerId }, select: { tenant_id: true } });
+      if (referrer && referrer.tenant_id !== tenantId) throw new BadRequestException('Paciente indicador inválido');
+    }
   }
 
   /**
@@ -612,6 +651,22 @@ export class PatientsService {
   ) {
     await this.assertBelongsToTenant(id, tenantId);
 
+    // Dentistas e indicador só da própria conta. O valor que já está gravado (a
+    // tela reenvia o cadastro inteiro) segue aceito como antes.
+    const temValor = (x: unknown): x is string => typeof x === 'string' && x !== '';
+    if (temValor(data.primary_dentist_id) || temValor(data.ortho_dentist_id) || temValor(data.referred_by_id)) {
+      const atual = await this.prisma.patient.findUnique({
+        where: { id },
+        select: { primary_dentist_id: true, ortho_dentist_id: true, referred_by_id: true },
+      });
+      const novo = (campo: 'primary_dentist_id' | 'ortho_dentist_id' | 'referred_by_id') =>
+        temValor(data[campo]) && data[campo] !== atual?.[campo] ? data[campo] : undefined;
+      await this.assertVinculosDaConta(tenantId, {
+        dentistIds: [novo('primary_dentist_id'), novo('ortho_dentist_id')],
+        referrerId: novo('referred_by_id'),
+      });
+    }
+
     if (data.cpf && typeof data.cpf === 'string') {
       const conflict = await this.prisma.patient.findFirst({
         where: { tenant_id: tenantId, cpf: data.cpf, NOT: { id } },
@@ -903,6 +958,14 @@ export class PatientsService {
       if (cpfDup) throw new BadRequestException('Ja existe um paciente com este CPF neste tenant');
     }
 
+    // Conta e contato vêm da rota, nunca do corpo; dentistas e indicador do
+    // corpo só da própria conta.
+    const { tenant_id: _conta, lead_id: _contato, ...extra } = extraData;
+    await this.assertVinculosDaConta(tenantId, {
+      dentistIds: [extra.primary_dentist_id, extra.ortho_dentist_id],
+      referrerId: extra.referred_by_id,
+    });
+
     // SaaS Fase 4 — valida limite do plano tambem na conversao de Lead. Leads
     // chegam constantemente via WhatsApp; sem esta checagem um tenant STARTER
     // ultrapassa max_patients indefinidamente convertendo leads em pacientes.
@@ -916,7 +979,7 @@ export class PatientsService {
         phone: lead.phone,
         email: lead.email || null,
         referred_by: lead.origin || null,
-        ...extraData,
+        ...extra,
       },
     });
 
