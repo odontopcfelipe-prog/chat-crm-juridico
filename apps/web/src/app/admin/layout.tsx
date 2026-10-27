@@ -9,7 +9,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ShieldCheck, Building2, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, Building2, ArrowLeft, FlaskConical } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -61,6 +61,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/admin/tenants" className="text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-accent/40 inline-flex items-center gap-1.5">
             <Building2 size={12} />
             Tenants
+          </Link>
+          <Link href="/admin/lista-espera" className="text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-accent/40 inline-flex items-center gap-1.5">
+            <FlaskConical size={12} />
+            Lista de espera
           </Link>
         </nav>
       </header>

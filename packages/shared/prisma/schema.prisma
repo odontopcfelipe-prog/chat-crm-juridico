@@ -171,6 +171,23 @@ model TenantBusinessProfile {
   @@index([business_type])
 }
 
+/// Lista de espera do caminho "Laboratório de prótese" no /cadastrar, enquanto o
+/// cadastro de laboratório não abre. É da plataforma (sem conta): quem se inscreve
+/// ainda não tem conta nenhuma. Só o SUPER_ADMIN lê.
+model LabWaitlistEntry {
+  id           String   @id @default(uuid())
+  lab_name     String
+  contact_name String
+  /// WhatsApp já normalizado (55 + DDD + número)
+  phone        String
+  email        String?
+  city         String?
+  created_at   DateTime @default(now())
+
+  @@index([created_at])
+  @@index([phone])
+}
+
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
 /// Os defaults (assunto/corpo/variaveis) vivem no codigo
 /// (apps/api/src/email-automation/email-events.ts); uma linha aqui

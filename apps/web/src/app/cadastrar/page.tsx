@@ -15,7 +15,8 @@ import Link from 'next/link';
 import {
   Loader2, Building2, User, Mail, Lock, IdCard, Phone, CheckCircle2,
   Sparkles, ArrowRight, Zap, MessageSquare, CreditCard, FileSignature,
-  CalendarDays, ShieldCheck, ArrowLeft,
+  CalendarDays, ShieldCheck, ArrowLeft, Stethoscope, FlaskConical, MapPin,
+  PackageCheck, Wallet,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -28,8 +29,13 @@ const PLAN_INFO: Record<string, { name: string; price: number; tagline: string }
   ENTERPRISE: { name: 'Enterprise', price: 150, tagline: 'Redes e franquias' },
 };
 
+// Caminho escolhido no topo do cadastro. "Laboratório de prótese" ainda não cria
+// conta: vira lista de espera (POST /lab-waitlist) até o laboratório abrir.
+type Caminho = 'CLINICA' | 'LABORATORIO';
+
 export default function SignupPage() {
   const router = useRouter();
+  const [caminho, setCaminho] = useState<Caminho>('CLINICA');
   // Dados clinica
   const [clinicName, setClinicName] = useState('');
   const [cpfCnpj, setCpfCnpj] = useState('');
@@ -50,6 +56,7 @@ export default function SignupPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
+    if (params.get('tipo')?.toLowerCase() === 'laboratorio') setCaminho('LABORATORIO');
     const raw = params.get('plan');
     if (!raw) return;
     const normalized = raw.toUpperCase();
@@ -60,6 +67,17 @@ export default function SignupPage() {
   }, []);
 
   const planInfo = PLAN_INFO[plan] ?? PLAN_INFO.STARTER;
+  const laboratorio = caminho === 'LABORATORIO';
+
+  // Troca o caminho e deixa o link compartilhável (/cadastrar?tipo=laboratorio).
+  const escolherCaminho = (c: Caminho) => {
+    setCaminho(c);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (c === 'LABORATORIO') url.searchParams.set('tipo', 'laboratorio');
+    else url.searchParams.delete('tipo');
+    window.history.replaceState(null, '', url.toString());
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,27 +159,48 @@ export default function SignupPage() {
 
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[11px] font-bold mb-5 backdrop-blur-sm">
               <Sparkles size={11} />
-              14 dias grátis · sem cartão
+              {laboratorio ? 'Em breve · lista de espera aberta' : '14 dias grátis · sem cartão'}
             </div>
 
-            <h1 className="text-4xl xl:text-5xl font-black leading-[1.1] mb-5 tracking-tight">
-              Sua clínica online em{' '}
-              <span className="text-emerald-300">1 minuto.</span>
-            </h1>
+            {laboratorio ? (
+              <>
+                <h1 className="text-4xl xl:text-5xl font-black leading-[1.1] mb-5 tracking-tight">
+                  Seu laboratório online,{' '}
+                  <span className="text-emerald-300">em breve.</span>
+                </h1>
 
-            <p className="text-base text-violet-100/80 leading-relaxed mb-8 max-w-md">
-              Pacientes, agenda, WhatsApp, cobrança Asaas, contratos digitais —
-              tudo num lugar, na mão da sua equipe.
-            </p>
+                <p className="text-base text-violet-100/80 leading-relaxed mb-8 max-w-md">
+                  Dentistas clientes, trabalhos, WhatsApp e cobrança —
+                  o mesmo sistema das clínicas, feito para o laboratório de prótese.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-4xl xl:text-5xl font-black leading-[1.1] mb-5 tracking-tight">
+                  Sua clínica online em{' '}
+                  <span className="text-emerald-300">1 minuto.</span>
+                </h1>
+
+                <p className="text-base text-violet-100/80 leading-relaxed mb-8 max-w-md">
+                  Pacientes, agenda, WhatsApp, cobrança Asaas, contratos digitais —
+                  tudo num lugar, na mão da sua equipe.
+                </p>
+              </>
+            )}
 
             {/* Benefícios */}
             <div className="space-y-3.5">
-              {[
+              {(laboratorio ? [
+                { Icon: MessageSquare, label: 'WhatsApp com os dentistas clientes' },
+                { Icon: PackageCheck,  label: 'Trabalhos, provas e entregas' },
+                { Icon: CreditCard,    label: 'Cobrança Asaas (PIX/boleto/cartão)' },
+                { Icon: Wallet,        label: 'Caixa, financeiro e boletos' },
+              ] : [
                 { Icon: MessageSquare, label: 'WhatsApp + IA pra atendimento' },
                 { Icon: CreditCard,    label: 'Cobrança Asaas (PIX/boleto/cartão)' },
                 { Icon: FileSignature, label: 'Contratos com ClickSign' },
                 { Icon: CalendarDays,  label: 'Agenda + prontuário completo' },
-              ].map(({ Icon, label }) => (
+              ]).map(({ Icon, label }) => (
                 <div key={label} className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
                     <Icon size={14} className="text-emerald-300" />
@@ -229,19 +268,37 @@ export default function SignupPage() {
                 </Link>
                 <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
                   <Sparkles size={11} />
-                  14 dias grátis · sem cartão
+                  {laboratorio ? 'Em breve · lista de espera aberta' : '14 dias grátis · sem cartão'}
                 </div>
               </div>
 
+            <EscolhaDoCaminho caminho={caminho} onEscolher={escolherCaminho} />
+
             <div className="mb-7">
-              <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
-                Crie sua conta
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1.5">
-                Leva menos de 1 minuto. Comece a usar agora mesmo.
-              </p>
+              {laboratorio ? (
+                <>
+                  <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
+                    Laboratório de prótese
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1.5">
+                    Estamos preparando o sistema para laboratórios. Deixe seu contato e você é dos primeiros a entrar.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
+                    Crie sua conta
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1.5">
+                    Leva menos de 1 minuto. Comece a usar agora mesmo.
+                  </p>
+                </>
+              )}
             </div>
 
+            {laboratorio ? (
+              <ListaEsperaLaboratorio />
+            ) : (
             <form
               onSubmit={handleSubmit}
               className="bg-card border border-border/70 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.12)] overflow-hidden"
@@ -411,6 +468,7 @@ export default function SignupPage() {
                 </p>
               </div>
             </form>
+            )}
 
               {/* Login link */}
               <p className="text-center text-xs text-muted-foreground mt-6">
@@ -424,6 +482,214 @@ export default function SignupPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+const CAMINHOS: { valor: Caminho; Icon: any; titulo: string; sub: string; selo?: string }[] = [
+  { valor: 'CLINICA', Icon: Stethoscope, titulo: 'Clínica odontológica', sub: 'Pacientes, agenda e tratamentos' },
+  { valor: 'LABORATORIO', Icon: FlaskConical, titulo: 'Laboratório de prótese', sub: 'Dentistas clientes e trabalhos', selo: 'Em breve' },
+];
+
+function EscolhaDoCaminho({ caminho, onEscolher }: { caminho: Caminho; onEscolher: (c: Caminho) => void }) {
+  return (
+    <div className="mb-6">
+      <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
+        O que você vai cadastrar?
+      </p>
+      <div role="radiogroup" aria-label="O que você vai cadastrar?" className="grid grid-cols-2 gap-2.5">
+        {CAMINHOS.map(({ valor, Icon, titulo, sub, selo }) => {
+          const ativo = caminho === valor;
+          return (
+            <button
+              key={valor}
+              type="button"
+              role="radio"
+              aria-checked={ativo}
+              onClick={() => onEscolher(valor)}
+              className={`text-left rounded-xl border px-3.5 py-3 transition-colors ${
+                ativo
+                  ? 'border-violet-500 bg-violet-500/10 ring-2 ring-violet-500/25'
+                  : 'border-border bg-card hover:border-violet-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                    ativo ? 'bg-violet-600 text-white' : 'bg-violet-500/10 text-violet-600'
+                  }`}
+                >
+                  <Icon size={14} />
+                </div>
+                <span className="text-sm font-bold text-foreground leading-tight">{titulo}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                {sub}
+                {selo && (
+                  <span className="ml-1.5 inline-block align-middle text-[9px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-1.5 py-px">
+                    {selo}
+                  </span>
+                )}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Caminho "Laboratório de prótese": ainda não cria conta, só entra na lista de espera. */
+function ListaEsperaLaboratorio() {
+  const [labName, setLabName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [city, setCity] = useState('');
+  // Campo escondido: gente não vê nem preenche; robô preenche e é ignorado no servidor.
+  const [website, setWebsite] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [pronto, setPronto] = useState(false);
+
+  const enviar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (phone.replace(/\D/g, '').length < 10) {
+      showError('Informe o WhatsApp com DDD');
+      return;
+    }
+    setEnviando(true);
+    try {
+      await api.post('/lab-waitlist', {
+        lab_name: labName,
+        contact_name: contactName,
+        phone,
+        email: email.trim() || undefined,
+        city: city.trim() || undefined,
+        website: website || undefined,
+      });
+      setPronto(true);
+    } catch (err: any) {
+      const msg = err?.response?.status === 429
+        ? 'Muitas tentativas. Espere um minuto e tente de novo.'
+        : err?.response?.data?.message || 'Não foi possível enviar agora. Tente de novo.';
+      showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro'));
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  if (pronto) {
+    return (
+      <div className="bg-card border border-border/70 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.12)] p-7 sm:p-8 text-center">
+        <div className="w-12 h-12 rounded-full bg-emerald-500/15 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+          <CheckCircle2 size={24} />
+        </div>
+        <h3 className="text-lg font-extrabold text-foreground">Você está na lista!</h3>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+          Recebemos o contato do <b className="text-foreground">{labName.trim()}</b>. Quando o sistema para
+          laboratórios abrir, chamamos você no WhatsApp informado.
+        </p>
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 mt-6 text-sm font-bold text-violet-700 hover:underline"
+        >
+          <ArrowLeft size={14} />
+          Voltar pra home
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={enviar}
+      className="bg-card border border-border/70 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.12)] overflow-hidden"
+    >
+      <div className="p-6 sm:p-7 border-b border-border/60">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">1</span>
+          <h3 className="text-sm font-bold text-foreground">Seu laboratório</h3>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div className="sm:col-span-2">
+            <FormField
+              Icon={FlaskConical}
+              label="Nome do laboratório *"
+              value={labName}
+              onChange={setLabName}
+              placeholder="Laboratório de Prótese Sorriso"
+              required
+            />
+          </div>
+          <FormField
+            Icon={User}
+            label="Seu nome *"
+            value={contactName}
+            onChange={setContactName}
+            placeholder="Fulano de Tal"
+            required
+          />
+          <FormField
+            Icon={Phone}
+            label="WhatsApp *"
+            value={phone}
+            onChange={setPhone}
+            placeholder="(82) 99999-9999"
+            required
+          />
+          <FormField
+            Icon={Mail}
+            label="E-mail"
+            type="email"
+            value={email}
+            onChange={setEmail}
+            placeholder="seu@email.com"
+          />
+          <FormField
+            Icon={MapPin}
+            label="Cidade"
+            value={city}
+            onChange={setCity}
+            placeholder="Maceió - AL"
+          />
+        </div>
+        <div aria-hidden="true" className="absolute -left-[9999px] w-px h-px overflow-hidden">
+          <label>
+            Site
+            <input
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="p-6 sm:p-7 bg-gradient-to-br from-violet-50 to-emerald-50/50 dark:from-violet-950/30 dark:to-emerald-950/20">
+        <button
+          type="submit"
+          disabled={enviando}
+          className="w-full h-12 sm:h-13 rounded-xl bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_8px_24px_-4px_rgba(124,58,237,0.4)] hover:shadow-[0_12px_32px_-4px_rgba(124,58,237,0.5)] hover:-translate-y-0.5 disabled:transform-none disabled:shadow-none"
+        >
+          {enviando ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Enviando...
+            </>
+          ) : (
+            <>
+              Entrar na lista de espera
+              <ArrowRight size={16} />
+            </>
+          )}
+        </button>
+        <p className="text-[11px] text-center text-muted-foreground mt-3 flex items-center justify-center gap-1.5">
+          <CheckCircle2 size={11} className="text-emerald-600" />
+          Sem compromisso · usamos seu contato só para avisar da abertura
+        </p>
+      </div>
+    </form>
   );
 }
 

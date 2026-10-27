@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TenantsController, TenantsMeController, SignupController } from './tenants.controller';
 import { TenantsService } from './tenants.service';
+import { LabWaitlistController } from './lab-waitlist.controller';
+import { LabWaitlistService } from './lab-waitlist.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 // Onda 17.32.106 — ORDEM IMPORTA. TenantsMeController PRECISA vir
@@ -12,8 +14,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 // estaticas (/me, /me/usage) corretamente.
 @Module({
   imports: [PrismaModule],
-  controllers: [TenantsMeController, TenantsController, SignupController],
-  providers: [TenantsService],
+  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController],
+  providers: [TenantsService, LabWaitlistService],
   exports: [TenantsService],
 })
 export class TenantsModule {}

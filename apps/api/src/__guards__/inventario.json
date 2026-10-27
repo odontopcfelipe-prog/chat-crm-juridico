@@ -6,9 +6,9 @@
     "socket": 7,
     "globais": 12,
     "produtores": 24,
-    "controllers": 84,
-    "handlers": 933,
-    "@Public": 28
+    "controllers": 85,
+    "handlers": 935,
+    "@Public": 29
   },
   "automatismos": [
     { "tipo": "@Cron", "arquivo": "agenda-extended/retorno-disparos.service.ts", "alvo": "RetornoDisparosService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
@@ -1582,6 +1582,16 @@
         { "metodo": "TeamChatController.messages", "verbo": "GET", "path": "messages", "rota": "GET /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.send", "verbo": "POST", "path": "messages", "rota": "POST /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.read", "verbo": "POST", "path": "read", "rota": "POST /team-chat/read", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "tenants/lab-waitlist.controller.ts",
+      "classe": "LabWaitlistController",
+      "path": "lab-waitlist",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "LabWaitlistController.inscrever", "verbo": "POST", "path": "", "rota": "POST /lab-waitlist", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 5 } })"] },
+        { "metodo": "LabWaitlistController.listar", "verbo": "GET", "path": "", "rota": "GET /lab-waitlist", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {
