@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - master  # main e mantida apenas como mirror — CI roda so em master
+      # Branch de correcao sobre a versao em producao: gera imagens do proprio commit
+      # (o espelho master -> main abaixo roda so na master).
+      - feat/hotfix-sessao-equipe
   workflow_dispatch:  # permite acionar manualmente pelo GitHub UI
 
 jobs:
@@ -64,6 +67,7 @@ jobs:
   # como workflow separado na lista.
   mirror-to-main:
     needs: build-and-push
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
