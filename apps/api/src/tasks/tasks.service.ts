@@ -64,9 +64,11 @@ export class TasksService {
 
     const where = andClauses.length === 1 ? baseTenant : { AND: andClauses };
 
+    // Só o que as telas usam (lista, quadro e contadores): nada do cadastro do
+    // responsável além de id e nome — o mesmo recorte do findOne.
     const includeOpts = {
-      lead: true,
-      assigned_user: true,
+      lead: { select: { id: true, name: true, phone: true } },
+      assigned_user: { select: { id: true, name: true } },
       _count: { select: { comments: true } },
     };
 
