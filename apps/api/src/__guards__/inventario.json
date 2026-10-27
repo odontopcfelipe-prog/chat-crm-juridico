@@ -2,7 +2,7 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
-    "automatismos": { "@Cron": 25, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "automatismos": { "@Cron": 26, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
     "globais": 12,
     "produtores": 24,
@@ -15,6 +15,7 @@
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkNoResponse", "detalhe": "CronExpression.EVERY_HOUR" },
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkPaymentOverdue", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
     { "tipo": "@Cron", "arquivo": "billing/billing.service.ts", "alvo": "BillingService.dailyBillingCheck", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
+    { "tipo": "@Cron", "arquivo": "business-type/lab-sentinel.service.ts", "alvo": "LabSentinelService.verificar", "detalhe": "'30 7 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkBirthdayGreetings", "detalhe": "'0 * * * *'" },
     { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkDentistDailySummary", "detalhe": "'0 * * * *'" },
     { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkPushReminders", "detalhe": "'*/1 * * * *'" },

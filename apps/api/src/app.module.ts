@@ -26,6 +26,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { SettingsModule } from './settings/settings.module';
 import { MailModule } from './common/mail/mail.module';
 import { OpsModule } from './ops/ops.module';
+import { BusinessTypeModule } from './business-type/business-type.module';
 import { EmailAutomationModule } from './email-automation/email-automation.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -136,6 +137,7 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     SettingsModule,
     MailModule,
     OpsModule,
+    BusinessTypeModule,
     EmailAutomationModule,
     InboxesModule,
     PipelinesModule,
