@@ -1911,7 +1911,7 @@ describe('F2 parte 4 — indicação, afiliado e comissão não nascem no labora
 describe('F2 parte 4 — integração externa (MCP, rota pública com token próprio)', () => {
   function chamar(labs: string[], tenant_id: string) {
     const b = banco(labs);
-    const jwt = { verify: jest.fn(() => ({ sub: 'u1', tenant_id })) };
+    const jwt = { verify: jest.fn(() => ({ sub: 'u1', email: 'u1@exemplo.com', roles: ['ADMIN'], tenant_id })) };
     const tools = { listar_clientes: jest.fn() };
     const ctl = new McpController(jwt as any, tools as any, b.prisma);
     const res: any = { statusCode: 200, corpo: undefined };

@@ -132,7 +132,8 @@ describe('portal do paciente (PortalJwtGuard) — igual a antes', () => {
 describe('MCP (rota pública com token próprio)', () => {
   function chamar(token: string) {
     const tools = { callTool: jest.fn(async () => ({ ok: true })) };
-    const ctl = new McpController(jwtEquipe, tools as any);
+    const semLaboratorio: any = { tenantBusinessProfile: { findMany: jest.fn(async () => []) } };
+    const ctl = new McpController(jwtEquipe, tools as any, semLaboratorio);
     const res: any = { statusCode: 200, corpo: undefined };
     res.status = jest.fn((c: number) => {
       res.statusCode = c;
