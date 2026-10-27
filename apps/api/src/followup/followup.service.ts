@@ -1200,27 +1200,30 @@ export class FollowupService {
   // ou legado) só o SUPER_ADMIN altera. Chamadas internas (auto-enroll,
   // automações) não passam escopo e seguem como antes.
 
-  private dentroDoEscopo(recursoTenant: string | null | undefined, escopo?: EscopoFollowup): boolean {
-    if (!escopo || escopo.superAdmin) return true;
+  private async dentroDoEscopo(recursoTenant: string | null | undefined, escopo?: EscopoFollowup): Promise<boolean> {
+    if (!escopo) return true;
+    // F2 [LAB-GATE] — o SUPER_ADMIN dentro de uma conta de laboratório só alcança o que
+    // é do laboratório (nunca as sequências globais das clínicas). Fora dele: como antes.
+    if (escopo.superAdmin && !(await isLabTenant(this.prisma, escopo.tenantId, (m) => this.logger.warn(m)))) return true;
     return !!recursoTenant && recursoTenant === escopo.tenantId;
   }
 
   private async assertSequencia(id: string, escopo?: EscopoFollowup) {
     if (!escopo) return;
     const seq = await this.prisma.followupSequence.findUnique({ where: { id }, select: { tenant_id: true } });
-    if (!seq || !this.dentroDoEscopo(seq.tenant_id, escopo)) throw new NotFoundException('Sequência não encontrada');
+    if (!seq || !(await this.dentroDoEscopo(seq.tenant_id, escopo))) throw new NotFoundException('Sequência não encontrada');
   }
 
   private async assertPasso(stepId: string, escopo?: EscopoFollowup) {
     if (!escopo) return;
     const step = await this.prisma.followupStep.findUnique({ where: { id: stepId }, select: { sequence: { select: { tenant_id: true } } } });
-    if (!step || !this.dentroDoEscopo(step.sequence?.tenant_id, escopo)) throw new NotFoundException('Passo não encontrado');
+    if (!step || !(await this.dentroDoEscopo(step.sequence?.tenant_id, escopo))) throw new NotFoundException('Passo não encontrado');
   }
 
   private async assertInscricao(enrollmentId: string, escopo?: EscopoFollowup) {
     if (!escopo) return;
     const e = await this.prisma.followupEnrollment.findUnique({ where: { id: enrollmentId }, select: { lead: { select: { tenant_id: true } } } });
-    if (!e || !this.dentroDoEscopo(e.lead?.tenant_id, escopo)) throw new NotFoundException('Enrollment não encontrado');
+    if (!e || !(await this.dentroDoEscopo(e.lead?.tenant_id, escopo))) throw new NotFoundException('Enrollment não encontrado');
   }
 
   private async assertMensagem(messageId: string, escopo?: EscopoFollowup) {
@@ -1229,13 +1232,13 @@ export class FollowupService {
       where: { id: messageId },
       select: { enrollment: { select: { lead: { select: { tenant_id: true } } } } },
     });
-    if (!m || !this.dentroDoEscopo(m.enrollment?.lead?.tenant_id, escopo)) throw new NotFoundException('Mensagem não encontrada');
+    if (!m || !(await this.dentroDoEscopo(m.enrollment?.lead?.tenant_id, escopo))) throw new NotFoundException('Mensagem não encontrada');
   }
 
   private async assertDisparoEmMassa(id: string, escopo?: EscopoFollowup) {
     if (!escopo) return;
     const b = await this.prisma.broadcastJob.findUnique({ where: { id }, select: { tenant_id: true } });
-    if (!b || !this.dentroDoEscopo(b.tenant_id, escopo)) throw new NotFoundException('Disparo não encontrado');
+    if (!b || !(await this.dentroDoEscopo(b.tenant_id, escopo))) throw new NotFoundException('Disparo não encontrado');
   }
 
   /**
@@ -1344,7 +1347,7 @@ export class FollowupService {
       this.prisma.lead.findUnique({ where: { id: leadId } }),
       this.prisma.followupSequence.findUnique({ where: { id: sequenceId }, include: { steps: { orderBy: { position: 'asc' }, take: 1 } } }),
     ]);
-    if (!lead || !this.dentroDoEscopo(lead.tenant_id, escopo)) throw new NotFoundException('Lead não encontrado');
+    if (!lead || !(await this.dentroDoEscopo(lead.tenant_id, escopo))) throw new NotFoundException('Lead não encontrado');
     // F2 [LAB-GATE] — follow-up (sequência com mensagens da IA de clínica) não existe no
     // laboratório: a inscrição manual recusa; a automática (regra, troca de etapa) cai
     // aqui e é engolida por quem chama. Clínica: só a leitura cacheada.

@@ -134,6 +134,8 @@ export class SettingsController {
       }
       throw negarPermissao('Configuração da plataforma — somente o administrador do sistema pode alterar.');
     }
+    // F2 [LAB-GATE] — de dentro de uma conta de laboratório nada grava na global.
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio('Configuração da plataforma');
     return this.settingsService.upsert(data.key, data.value);
   }
 
@@ -150,7 +152,12 @@ export class SettingsController {
   /** Salva a config SMTP global. Senha vazia/mascarada nao sobrescreve. */
   @Put('smtp')
   @Roles('SUPER_ADMIN')
-  async saveSmtp(@Body() body: { host?: string; port?: string | number; user?: string; pass?: string; from?: string }) {
+  async saveSmtp(
+    @Body() body: { host?: string; port?: string | number; user?: string; pass?: string; from?: string },
+    @Request() req?: any,
+  ) {
+    // F2 [LAB-GATE] — e-mail da plataforma: de dentro de uma conta de laboratório, não.
+    if (await this.ehLaboratorio(req)) throw negarLaboratorio('E-mail da plataforma');
     const entries: Array<[string, string | undefined]> = [
       ['SMTP_HOST', body.host],
       ['SMTP_PORT', body.port !== undefined && body.port !== null ? String(body.port) : undefined],

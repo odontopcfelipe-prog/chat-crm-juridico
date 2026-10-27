@@ -900,6 +900,84 @@ describe('Google Drive — GET /google-drive/config', () => {
 // 6. Follow-up: sequências
 // ═════════════════════════════════════════════════════════════════════════════
 
+describe('gravação genérica e e-mail da plataforma — nada global de dentro do laboratório', () => {
+  it('PUT /settings: o dono no laboratório recusa a chave global; na clínica e sem conta grava como antes', async () => {
+    for (const [user, esperado] of [
+      [DONO_NO_LAB, 'erro'],
+      [DONO_NA_CLINICA, 'ok'],
+      [SUPER_SEM_CONTA, 'ok'],
+    ] as Array<[any, string]>) {
+      limparCaches();
+      const m = montarSettings({ labs: [LAB], global: GLOBAL });
+      const r = await resultado(m.ctl.upsert(req(user), { key: 'TTS_ENABLED', value: 'true' }));
+      expect(r[0]).toBe(esperado);
+      if (esperado === 'erro') {
+        expect(r[1].code).toBe('VERTICAL_DENIED');
+        expect(gravadas(m.ops)).toEqual([]);
+      } else {
+        expect(gravadas(m.ops)).toEqual(['TTS_ENABLED']);
+      }
+    }
+  });
+
+  it('PUT /settings: chave de tela de clínica, o dono no laboratório grava na do laboratório', async () => {
+    limparCaches();
+    const m = montarSettings({ labs: [LAB], global: GLOBAL });
+    await m.ctl.upsert(req(DONO_NO_LAB), { key: 'MEMORY_BATCH_ENABLED', value: 'false' });
+    expect(gravadas(m.ops)).toEqual([daConta('MEMORY_BATCH_ENABLED', LAB)]);
+  });
+
+  it('PUT /settings/smtp: o dono no laboratório recusa; sem conta grava como antes', async () => {
+    limparCaches();
+    const lab = montarSettings({ labs: [LAB], global: GLOBAL });
+    const r = await resultado(lab.ctl.saveSmtp({ host: 'smtp.exemplo.test' }, req(DONO_NO_LAB)));
+    expect(r[0]).toBe('erro');
+    expect(r[1].code).toBe('VERTICAL_DENIED');
+    expect(gravadas(lab.ops)).toEqual([]);
+    limparCaches();
+    const plat = montarSettings({ labs: [LAB], global: GLOBAL });
+    expect((await resultado(plat.ctl.saveSmtp({ host: 'smtp.exemplo.test' }, req(SUPER_SEM_CONTA))))[0]).toBe('ok');
+    expect(gravadas(plat.ops)).toEqual(['SMTP_HOST']);
+  });
+});
+
+describe('follow-up — o dono no laboratório não mexe nas sequências globais', () => {
+  function montarSeq(labs: string[], dono: string | null) {
+    const prisma: any = {
+      tenantBusinessProfile: { findMany: jest.fn(async () => labs.map((tenant_id) => ({ tenant_id }))) },
+      followupSequence: {
+        findUnique: jest.fn(async () => ({ tenant_id: dono })),
+        update: jest.fn(async () => ({})),
+        delete: jest.fn(async () => ({})),
+      },
+    };
+    return { svc: new FollowupService(prisma, { add: jest.fn() } as any), prisma };
+  }
+  const escopo = (u: any) => ({ tenantId: u.tenant_id, superAdmin: u.roles.includes('SUPER_ADMIN') });
+
+  it('sequência global: o dono na clínica e sem conta editam como antes; no laboratório, 404', async () => {
+    for (const [user, edita] of [[DONO_NA_CLINICA, true], [SUPER_SEM_CONTA, true], [DONO_NO_LAB, false]] as Array<[any, boolean]>) {
+      limparCaches();
+      const m = montarSeq([LAB], null);
+      const r = await m.svc.updateSequence('seq-global', { name: 'Novo nome' }, escopo(user)).then(() => 'ok', (e: any) => e);
+      if (edita) {
+        expect(r).toBe('ok');
+        expect(m.prisma.followupSequence.update).toHaveBeenCalledTimes(1);
+      } else {
+        expect(r).toBeInstanceOf(NotFoundException);
+        expect(m.prisma.followupSequence.update).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it('sequência do próprio laboratório: o dono no laboratório edita', async () => {
+    limparCaches();
+    const m = montarSeq([LAB], LAB);
+    await m.svc.updateSequence('seq-lab', { name: 'Novo nome' }, escopo(DONO_NO_LAB));
+    expect(m.prisma.followupSequence.update).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('follow-up — sequências do laboratório são só dele', () => {
   function montar(labs: string[]) {
     const b = banco({ labs });
