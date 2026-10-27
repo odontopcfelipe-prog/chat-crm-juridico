@@ -275,3 +275,29 @@ describe('laboratório congelado — 403 TENANT_INACTIVE mesmo com token antigo'
     expect(codigo(r[1])).toBe('VERTICAL_DENIED');
   });
 });
+
+describe('LabTenantGuard — tipo no token', () => {
+  beforeEach(() => {
+    __limparCacheLabTenants();
+    __limparCacheCongelamento();
+  });
+
+  it('token de laboratório (bt) é tratado como laboratório mesmo antes de o cache ver a conta', async () => {
+    const m = montar({ labs: [] });
+    const user = { ...usuario(LAB), bt: 'LABORATORIO' };
+    const [tipo, erro] = await resultado(m.guard.canActivate(contexto(user, OdontogramController, OdontogramController.prototype.upsertTooth)));
+    expect(tipo).toBe('erro');
+    expect(codigo(erro)).toBe('VERTICAL_DENIED');
+    await expect(m.guard.canActivate(contexto(user, UsersController, UsersController.prototype.getMe))).resolves.toBe(true);
+  });
+
+  it('token de clínica (sem bt, ou bt diferente do literal) passa como hoje, sem consulta a mais', async () => {
+    const m = montar({ labs: [] });
+    for (const bt of [undefined, 'CLINICA', 'laboratorio', '']) {
+      await expect(
+        m.guard.canActivate(contexto({ ...usuario(CLINICA), bt }, OdontogramController, OdontogramController.prototype.upsertTooth)),
+      ).resolves.toBe(true);
+    }
+    expect(m.prisma.tenant.findUnique).not.toHaveBeenCalled();
+  });
+});

@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { BT_LABORATORIO, isLab, isLabTenantCached } from '@crm/shared';
 import { TenantsService } from './tenants.service';
 import { normalizeTenantLogo } from './tenant-logo.util';
 
@@ -101,7 +102,7 @@ export class TenantsMeController {
     if (!tenantId) return null;
     const t = await this.service.findOne(tenantId);
     if (!t) return null;
-    return {
+    const resposta = {
       id: t.id,
       name: t.name,
       slug: t.slug,
@@ -128,6 +129,18 @@ export class TenantsMeController {
       responsible_name:   (t as any).responsible_name   ?? null,
       responsible_cro:    (t as any).responsible_cro    ?? null,
       business_hours:     (t as any).business_hours     ?? null,
+    };
+    // F3 — laboratório (claim do token, ou já na lista carregada): + tipo, CRO e
+    // responsável técnico. Clínica: a resposta de sempre, sem consulta a mais.
+    if (!isLab(req.user?.bt) && !isLabTenantCached(tenantId)) return resposta;
+    const perfil = await this.service.perfilDoLaboratorio(tenantId);
+    if (!perfil) return resposta;
+    return {
+      ...resposta,
+      business_type: BT_LABORATORIO,
+      lab_cro_inscricao: perfil.lab_cro_inscricao ?? null,
+      rt_name: perfil.rt_name ?? null,
+      rt_cro: perfil.rt_cro ?? null,
     };
   }
 
@@ -290,6 +303,11 @@ interface CreateTenantBody {
     password: string;
     phone?: string;
   };
+  // F3 — só o valor exato 'LABORATORIO' cria laboratório; o resto é clínica.
+  business_type?: string;
+  lab_cro_inscricao?: string;
+  rt_name?: string;
+  rt_cro?: string;
 }
 
 interface UpdateTenantBody {
@@ -326,22 +344,44 @@ export class TenantsController {
   @Get(':id')
   @SuperAdmin()
   async findOne(@Param('id') id: string) {
-    const tenant = await this.service.findOne(id);
+    const tenant = await this.service.findOneParaAdmin(id);
     if (!tenant) throw new NotFoundException('Tenant nao encontrado');
     return tenant;
   }
 
-  /** Cria tenant + admin inicial atomicamente. */
+  /**
+   * Cria tenant + admin inicial atomicamente.
+   * F3 — business_type 'LABORATORIO' (exato) cria conta de laboratório: precisa da
+   * chave da plataforma CRIACAO_LABORATORIO_LIBERADA (senão 409), nasce ACTIVE,
+   * plano CUSTOM, sem teste e sem e-mail de boas-vindas. Sem o tipo, a clínica de sempre.
+   */
   @Post()
   @SuperAdmin()
-  create(@Body() body: CreateTenantBody) {
+  create(@Body() body: CreateTenantBody, @Req() req?: any) {
     if (!body.name || !body.name.trim()) {
       throw new BadRequestException('Nome do tenant eh obrigatorio');
     }
     if (!body.admin?.name || !body.admin?.email || !body.admin?.password) {
       throw new BadRequestException('Dados do admin inicial sao obrigatorios');
     }
-    return this.service.create(body);
+    if (!isLab(body.business_type)) return this.service.create(body);
+    return this.service.create(
+      {
+        name: body.name,
+        slug: body.slug,
+        email: body.email,
+        phone: body.phone,
+        cpf_cnpj: body.cpf_cnpj,
+        plan: 'CUSTOM',
+        status: 'ACTIVE',
+        admin: body.admin,
+      },
+      {
+        lab: true,
+        criadoPor: req?.user?.id ?? null,
+        perfil: { lab_cro_inscricao: body.lab_cro_inscricao, rt_name: body.rt_name, rt_cro: body.rt_cro },
+      },
+    );
   }
 
   /** Atualiza dados / branding. */

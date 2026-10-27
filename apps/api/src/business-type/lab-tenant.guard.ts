@@ -1,5 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { getLabTenantIds } from '@crm/shared';
+import { getLabTenantIds, isLab } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CODIGO_VERTICAL_NEGADA } from '../common/lab-gate.util';
 import { registrarAuditoria } from '../common/utils/audit-log.util';
@@ -39,7 +39,9 @@ export class LabTenantGuard implements CanActivate {
     if (typeof tenantId !== 'string' || tenantId === '') return true;
 
     const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (!labs.has(tenantId)) return true;
+    // O token do laboratório já diz o tipo (bt): vale mesmo antes do cache desta
+    // réplica ver a conta recém-criada. Token de clínica não tem bt.
+    if (!labs.has(tenantId) && !isLab(user.bt)) return true;
 
     const roles: unknown[] = Array.isArray(user.roles) ? user.roles : [];
     if (!roles.includes('SUPER_ADMIN') && (await laboratorioCongelado(this.prisma, tenantId, (m) => this.logger.warn(m)))) {

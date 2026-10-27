@@ -25,6 +25,8 @@ type PrismaLab = {
 
 let cache: { ids: ReadonlySet<string>; ate: number } | null = null;
 let emVoo: Promise<ReadonlySet<string>> | null = null;
+/** Sobe a cada invalidação: consulta começada antes não regrava o cache com a lista velha. */
+let geracao = 0;
 
 /**
  * Ids das contas de laboratório (cache de 60 s; chamadas simultâneas dividem a
@@ -49,17 +51,18 @@ export async function getLabTenantIds(
 
 /** Nunca rejeita: em falha, devolve o último conjunto conhecido. */
 async function carregar(prisma: PrismaLab, avisar: (msg: string) => void): Promise<ReadonlySet<string>> {
+  const minhaGeracao = geracao;
   try {
     const linhas = await prisma.tenantBusinessProfile.findMany({
       where: { business_type: BT_LABORATORIO },
       select: { tenant_id: true },
     });
     const ids = linhas.length ? new Set(linhas.map((l) => l.tenant_id)) : SEM_LAB;
-    cache = { ids, ate: Date.now() + CACHE_MS };
+    if (minhaGeracao === geracao) cache = { ids, ate: Date.now() + CACHE_MS };
     return ids;
   } catch (e) {
     const ids = cache?.ids ?? SEM_LAB;
-    cache = { ids, ate: Date.now() + CACHE_MS };
+    if (minhaGeracao === geracao) cache = { ids, ate: Date.now() + CACHE_MS };
     try {
       avisar(`[lab-tenants] falha ao ler TenantBusinessProfile — usando ${ids.size} lab(s) do cache: ${(e as Error)?.message ?? e}`);
     } catch {
@@ -151,6 +154,19 @@ export function excludeLabWhere<W>(modelo: ModeloExcluiLab, where: W, labIds: Re
         ? { tenant_id: { notIn: ids } }
         : { patient: { tenant_id: { notIn: ids } } };
   return { AND: [where ?? {}, filtro] } as unknown as W;
+}
+
+/**
+ * Vence a lista carregada (a próxima leitura vai ao banco). Chamado depois de
+ * criar uma conta de laboratório, para este processo já tratá-la como laboratório
+ * sem esperar os 60 s. A lista conhecida fica guardada: se a releitura falhar,
+ * os laboratórios que já existiam continuam laboratório. Uma consulta que já
+ * estava em andamento não regrava a lista velha.
+ */
+export function invalidarCacheLabTenants(): void {
+  geracao += 1;
+  cache = cache ? { ids: cache.ids, ate: 0 } : null;
+  emVoo = null;
 }
 
 /** Só para testes: esquece o cache e a consulta em voo. */

@@ -13,7 +13,31 @@ import { randomBytes } from 'crypto';
 import { getLimitsForPlan, isWithinLimit } from './plan-limits.js';
 // Onda 17.32.109 — Defaults plantados em cada tenant novo
 import { seedTenantDefaults, getLabTenantIds, isLabTenant, withoutLabTenants } from '@crm/shared';
+import { BT_LABORATORIO, invalidarCacheLabTenants, isLab, seedLabTenantDefaults } from '@crm/shared';
 import { negarLaboratorio } from '../common/lab-gate.util';
+import { exigirCriacaoLaboratorioLiberada } from './criacao-laboratorio.service';
+
+/**
+ * F3 do laboratório — segundo argumento do create. Sem ele (ou sem lab: true) o
+ * create é o de sempre, da clínica.
+ */
+export interface OpcoesDaCriacao {
+  lab?: boolean;
+  /** User.id de quem criou (SUPER_ADMIN). */
+  criadoPor?: string | null;
+  /** Inscrição no CRO e responsável técnico do laboratório (opcionais). */
+  perfil?: { lab_cro_inscricao?: string | null; rt_name?: string | null; rt_cro?: string | null };
+}
+
+/** O que o /admin mostra do tipo da conta. */
+const PERFIL_NO_ADMIN = { business_type: true, lab_cro_inscricao: true, rt_name: true, rt_cro: true } as const;
+
+/** Texto opcional do perfil: aparado, até 120 caracteres, vazio vira null. */
+function textoDoPerfil(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().slice(0, 120);
+  return t || null;
+}
 
 @Injectable()
 export class TenantsService {
@@ -48,6 +72,8 @@ export class TenantsService {
             payment_gateway_charges: true,
           },
         },
+        // F3 — selo "Laboratório" no /admin (clínica: null)
+        business_profile: { select: PERFIL_NO_ADMIN },
       },
     });
     return tenants;
@@ -72,6 +98,43 @@ export class TenantsService {
     return tenant;
   }
 
+  /** Detalhe do /admin (SUPER_ADMIN): o mesmo do findOne + o tipo da conta (clínica: null). */
+  async findOneParaAdmin(id: string) {
+    return this.prisma.tenant.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            users: true,
+            patients: true,
+            leads: true,
+            payment_gateway_charges: true,
+            conversations: true,
+            quote_templates: true,
+          },
+        },
+        business_profile: { select: PERFIL_NO_ADMIN },
+      },
+    });
+  }
+
+  /**
+   * F3 — tipo, CRO e responsável técnico da conta, SÓ se ela for laboratório
+   * (senão null). Falha de leitura: null (na dúvida, clínica).
+   */
+  async perfilDoLaboratorio(tenantId: string) {
+    try {
+      const p = await this.prisma.tenantBusinessProfile.findUnique({
+        where: { tenant_id: tenantId },
+        select: { business_type: true, lab_cro_inscricao: true, rt_name: true, rt_cro: true },
+      });
+      return p && isLab(p.business_type) ? p : null;
+    } catch (e: any) {
+      this.logger.warn(`[LAB] perfil da conta ${tenantId} não lido: ${e?.message}`);
+      return null;
+    }
+  }
+
   /**
    * Onda 17.32.88 — Slugifica de verdade: lowercase, remove acentos,
    * troca espaços/pontos por hifen, colapsa hifens duplos, trim.
@@ -90,7 +153,12 @@ export class TenantsService {
     return s || null;
   }
 
-  async create(body: any) {
+  async create(body: any, opts?: OpcoesDaCriacao) {
+    // F3 — conta de laboratório só com a chave da plataforma ligada (senão 409,
+    // antes de qualquer gravação). Clínica: nenhuma leitura a mais.
+    const ehLaboratorio = opts?.lab === true;
+    if (ehLaboratorio) await exigirCriacaoLaboratorioLiberada(this.prisma);
+
     // Slugifica de verdade (não só lowercase) — Onda 17.32.88
     if (body.slug) body.slug = this.slugify(body.slug);
 
@@ -150,20 +218,45 @@ export class TenantsService {
         data: { owner_user_id: adminUser.id },
       });
 
-      // Onda 17.32.109 — Popula defaults (especialidades, tabela de
-      // precos com 30 procedimentos, ficha de anamnese V3) DENTRO da
-      // mesma transacao. Se algo falhar, o tenant inteiro eh revertido.
-      // Idempotente: pode rodar de novo manualmente via /tenants/me/seed-defaults.
-      try {
-        const result = await seedTenantDefaults(tx, tenant.id);
-        this.logger.log(
-          `[TENANT-CREATE] Defaults plantados: ${result.specialties} especialidades, ${result.procedures} procedimentos, anamnese V3.`,
-        );
-      } catch (err: any) {
-        this.logger.error(
-          `[TENANT-CREATE] Falha ao plantar defaults: ${err?.message}`,
-        );
-        throw err; // aborta a transacao — tenant nao fica meio-criado
+      if (ehLaboratorio) {
+        // F3 — o tipo é gravado ANTES do seed, na mesma transação: a conta nunca
+        // existe como clínica. Seed de laboratório no lugar do da clínica (sem
+        // anamnese nem procedimentos odontológicos) e chaves desligadas.
+        try {
+          await tx.tenantBusinessProfile.create({
+            data: {
+              tenant_id: tenant.id,
+              business_type: BT_LABORATORIO,
+              lab_cro_inscricao: textoDoPerfil(opts?.perfil?.lab_cro_inscricao),
+              rt_name: textoDoPerfil(opts?.perfil?.rt_name),
+              rt_cro: textoDoPerfil(opts?.perfil?.rt_cro),
+              created_by_user_id: typeof opts?.criadoPor === 'string' && opts.criadoPor ? opts.criadoPor : null,
+            },
+          });
+          const r = await seedLabTenantDefaults(tx, tenant.id);
+          this.logger.log(
+            `[TENANT-CREATE] Laboratório: ${r.grupos} grupos, ${r.servicos} serviços, ${r.categorias} categorias, funil ${r.funil ? 'criado' : 'já existia'}, ${r.chaves.daConta + r.chaves.globais} chaves desligadas.`,
+          );
+        } catch (err: any) {
+          this.logger.error(`[TENANT-CREATE] Falha ao plantar o laboratório: ${err?.message}`);
+          throw err; // aborta a transacao — tenant nao fica meio-criado
+        }
+      } else {
+        // Onda 17.32.109 — Popula defaults (especialidades, tabela de
+        // precos com 30 procedimentos, ficha de anamnese V3) DENTRO da
+        // mesma transacao. Se algo falhar, o tenant inteiro eh revertido.
+        // Idempotente: pode rodar de novo manualmente via /tenants/me/seed-defaults.
+        try {
+          const result = await seedTenantDefaults(tx, tenant.id);
+          this.logger.log(
+            `[TENANT-CREATE] Defaults plantados: ${result.specialties} especialidades, ${result.procedures} procedimentos, anamnese V3.`,
+          );
+        } catch (err: any) {
+          this.logger.error(
+            `[TENANT-CREATE] Falha ao plantar defaults: ${err?.message}`,
+          );
+          throw err; // aborta a transacao — tenant nao fica meio-criado
+        }
       }
 
       this.logger.log(
@@ -179,6 +272,14 @@ export class TenantsService {
         },
       };
     });
+
+    if (ehLaboratorio) {
+      // F3 — este processo passa a ver a conta como laboratório já na próxima
+      // leitura (sem esperar o cache de 60 s). Sem e-mail de boas-vindas: o texto
+      // de hoje é o da clínica em teste; quem cria o laboratório passa o acesso.
+      invalidarCacheLabTenants();
+      return { ...created, business_type: BT_LABORATORIO };
+    }
 
     // Onda 17.32.179 — Boas-vindas + confirmacao de e-mail pro admin
     // dono do tenant novo. POS-transacao e best-effort: e-mail fora
