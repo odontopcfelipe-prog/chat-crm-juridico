@@ -2,12 +2,12 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
-    "automatismos": { "@Cron": 26, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "automatismos": { "@Cron": 27, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
     "globais": 12,
     "produtores": 24,
-    "controllers": 85,
-    "handlers": 936,
+    "controllers": 86,
+    "handlers": 938,
     "@Public": 29
   },
   "automatismos": [
@@ -35,6 +35,7 @@
     { "tipo": "@Cron", "arquivo": "tasks/task-alert-cron.service.ts", "alvo": "TaskAlertCronService.emitDueSoonAlerts", "detalhe": "'*/5 * * * *'" },
     { "tipo": "@Cron", "arquivo": "tasks/task-alert-cron.service.ts", "alvo": "TaskAlertCronService.emitOverdueAlerts", "detalhe": "'*/30 * * * *'" },
     { "tipo": "@Cron", "arquivo": "tasks/tasks.service.ts", "alvo": "TasksService.checkOverdueTasks", "detalhe": "CronExpression.EVERY_HOUR" },
+    { "tipo": "@Cron", "arquivo": "tenants/padroes-laboratorio.service.ts", "alvo": "PadroesLaboratorioService.garantir", "detalhe": "'15 7 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "transfer-audio/transfer-audio.service.ts", "alvo": "TransferAudioService.cleanupExpired", "detalhe": "CronExpression.EVERY_HOUR" },
     { "tipo": "@Cron", "arquivo": "webhooks/evolution.service.ts", "alvo": "EvolutionService.resyncPeriodicSafetyNet", "detalhe": "'*/15 * * * *', { name: 'evolution-resync-safety-net' }" },
     { "tipo": "@Processor", "arquivo": "calendar/calendar-reminder.worker.ts", "alvo": "CalendarReminderWorker", "detalhe": "'calendar-reminders'" },
@@ -1582,6 +1583,16 @@
         { "metodo": "TeamChatController.messages", "verbo": "GET", "path": "messages", "rota": "GET /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.send", "verbo": "POST", "path": "messages", "rota": "POST /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.read", "verbo": "POST", "path": "read", "rota": "POST /team-chat/read", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "tenants/criacao-laboratorio.controller.ts",
+      "classe": "CriacaoLaboratorioController",
+      "path": "plataforma/criacao-laboratorio",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "CriacaoLaboratorioController.ler", "verbo": "GET", "path": "", "rota": "GET /plataforma/criacao-laboratorio", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "CriacaoLaboratorioController.definir", "verbo": "PUT", "path": "", "rota": "PUT /plataforma/criacao-laboratorio", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {

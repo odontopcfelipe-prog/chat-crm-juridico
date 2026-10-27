@@ -11,11 +11,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Search, Plus, Building2, Users, HeartPulse, Briefcase, Receipt,
   Pause, Play, Pencil, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
-  ExternalLink, Sparkles,
+  ExternalLink, Sparkles, FlaskConical,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import {
+  BlocoCriacaoLaboratorio, CODIGO_CRIACAO_DESLIGADA, EscolhaDoTipoDeConta, ehLaboratorio, useCriacaoLaboratorio,
+  type EstadoCriacaoLaboratorio, type TipoDeConta,
+} from './CriacaoLaboratorio';
 
 interface Tenant {
   id: string;
@@ -38,6 +42,13 @@ interface Tenant {
     leads: number;
     payment_gateway_charges: number;
   };
+  // F3 — tipo da conta (null = clínica)
+  business_profile?: {
+    business_type: string;
+    lab_cro_inscricao: string | null;
+    rt_name: string | null;
+    rt_cro: string | null;
+  } | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
@@ -56,6 +67,14 @@ const PLAN_CONFIG: Record<string, { label: string; cls: string }> = {
 
 const STATUS_FILTERS = ['', 'ACTIVE', 'TRIAL', 'SUSPENDED', 'DELETED'];
 
+/** Dica do selo "Laboratório": inscrição no CRO e responsável técnico, se houver. */
+function resumoDoLaboratorio(p: Tenant['business_profile']): string {
+  const partes = ['Laboratório de prótese'];
+  if (p?.lab_cro_inscricao) partes.push(`Inscrição no CRO: ${p.lab_cro_inscricao}`);
+  if (p?.rt_name) partes.push(`Responsável técnico: ${p.rt_name}${p.rt_cro ? ` (${p.rt_cro})` : ''}`);
+  return partes.join('\n');
+}
+
 export default function AdminTenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,6 +84,8 @@ export default function AdminTenantsPage() {
   const [editing, setEditing] = useState<Tenant | null>(null);
   // Onda 17.32.111 — Bulk seed-defaults em todos os tenants
   const [seedingAll, setSeedingAll] = useState(false);
+  // F3 — chave da plataforma "Criação de laboratório"
+  const criacaoLab = useCriacaoLaboratorio();
 
   const handleSeedAll = useCallback(async () => {
     const ok = window.confirm(
@@ -205,6 +226,14 @@ export default function AdminTenantsPage() {
         </div>
       </div>
 
+      <BlocoCriacaoLaboratorio
+        estado={criacaoLab.estado}
+        erro={criacaoLab.erro}
+        salvando={criacaoLab.salvando}
+        onAlternar={(liberar) => { void criacaoLab.alternar(liberar); }}
+        onRecarregar={() => { void criacaoLab.carregar(); }}
+      />
+
       {/* Mini KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <KpiCard label="Ativos" value={totals.active} icon={<CheckCircle2 size={14} />} tone="emerald" />
@@ -290,6 +319,15 @@ export default function AdminTenantsPage() {
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${planCfg.cls}`}>
                         {planCfg.label}
                       </span>
+                      {ehLaboratorio(t) && (
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 inline-flex items-center gap-1"
+                          title={resumoDoLaboratorio(t.business_profile)}
+                        >
+                          <FlaskConical size={10} />
+                          Laboratório
+                        </span>
+                      )}
                       {t.slug && (
                         <span className="text-[10px] font-mono text-muted-foreground">/{t.slug}</span>
                       )}
@@ -383,6 +421,13 @@ export default function AdminTenantsPage() {
           mode="create"
           onClose={() => setNewOpen(false)}
           onSaved={() => { setNewOpen(false); void load(); }}
+          criacaoLab={{
+            estado: criacaoLab.estado,
+            erro: criacaoLab.erro,
+            salvando: criacaoLab.salvando,
+            onLigar: () => { void criacaoLab.alternar(true); },
+            onRecarregar: () => { void criacaoLab.carregar(); },
+          }}
         />
       )}
 
@@ -423,11 +468,20 @@ function TenantFormDialog({
   tenant,
   onClose,
   onSaved,
+  criacaoLab,
 }: {
   mode: 'create' | 'edit';
   tenant?: Tenant;
   onClose: () => void;
   onSaved: () => void;
+  /** F3 — chave "Criação de laboratório" (só no modo create). */
+  criacaoLab?: {
+    estado: EstadoCriacaoLaboratorio | null;
+    erro: boolean;
+    salvando: boolean;
+    onLigar: () => void;
+    onRecarregar: () => void;
+  };
 }) {
   const [name, setName] = useState(tenant?.name || '');
   const [slug, setSlug] = useState(tenant?.slug || '');
@@ -442,6 +496,14 @@ function TenantFormDialog({
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminPhone, setAdminPhone] = useState('');
+  // F3 — tipo da conta nova (clínica é o padrão) e dados opcionais do laboratório
+  const [tipo, setTipo] = useState<TipoDeConta>('CLINICA');
+  const [labCro, setLabCro] = useState('');
+  const [rtNome, setRtNome] = useState('');
+  const [rtCro, setRtCro] = useState('');
+  const criandoLab = mode === 'create' && tipo === 'LABORATORIO';
+  const lab = criandoLab || (mode === 'edit' && ehLaboratorio(tenant));
+  const labTravado = criandoLab && criacaoLab?.estado?.liberada !== true;
 
   const [saving, setSaving] = useState(false);
 
@@ -454,8 +516,32 @@ function TenantFormDialog({
         return;
       }
     }
+    if (labTravado) { showError('A criação de laboratório está desligada na plataforma.'); return; }
     setSaving(true);
     try {
+      if (criandoLab) {
+        // Laboratório: plano, status e teste quem decide é a API (Custom, ativo, sem teste)
+        await api.post('/tenants', {
+          name: name.trim(),
+          slug: slug.trim() || undefined,
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+          cpf_cnpj: cpfCnpj.trim() || undefined,
+          business_type: 'LABORATORIO',
+          lab_cro_inscricao: labCro.trim() || undefined,
+          rt_name: rtNome.trim() || undefined,
+          rt_cro: rtCro.trim() || undefined,
+          admin: {
+            name: adminName.trim(),
+            email: adminEmail.trim().toLowerCase(),
+            password: adminPassword,
+            phone: adminPhone.trim() || undefined,
+          },
+        });
+        showSuccess('Laboratório criado!');
+        onSaved();
+        return;
+      }
       const payload: any = {
         name: name.trim(),
         slug: slug.trim() || undefined,
@@ -481,6 +567,8 @@ function TenantFormDialog({
       }
       onSaved();
     } catch (err: any) {
+      // Chave desligada no meio do caminho: relê o estado e o envio trava até ligar
+      if (err?.response?.data?.code === CODIGO_CRIACAO_DESLIGADA) criacaoLab?.onRecarregar();
       const msg = err?.response?.data?.message || 'Erro ao salvar';
       showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro'));
     } finally {
@@ -511,54 +599,88 @@ function TenantFormDialog({
 
         {/* Body — scroll */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
+          {mode === 'create' && criacaoLab && (
+            <EscolhaDoTipoDeConta
+              tipo={tipo}
+              onEscolher={setTipo}
+              estado={criacaoLab.estado}
+              erro={criacaoLab.erro}
+              salvando={criacaoLab.salvando}
+              onLigar={criacaoLab.onLigar}
+              onRecarregar={criacaoLab.onRecarregar}
+            />
+          )}
+
           <section>
-            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Dados da clínica</p>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">{lab ? 'Dados do laboratório' : 'Dados da clínica'}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField label="Nome *" required value={name} onChange={setName} placeholder="Clínica Passos Odontologia" />
-              <FormField label="Slug (opcional)" value={slug} onChange={setSlug} placeholder="clinica-passos" />
-              <FormField label="Email" type="email" value={email} onChange={setEmail} placeholder="contato@clinica.com.br" />
+              <FormField label="Nome *" required value={name} onChange={setName} placeholder={lab ? 'Laboratório de Prótese Exemplo' : 'Clínica Passos Odontologia'} />
+              <FormField label="Slug (opcional)" value={slug} onChange={setSlug} placeholder={lab ? 'laboratorio-exemplo' : 'clinica-passos'} />
+              <FormField label="Email" type="email" value={email} onChange={setEmail} placeholder={lab ? 'contato@laboratorio.com.br' : 'contato@clinica.com.br'} />
               <FormField label="Telefone" value={phone} onChange={setPhone} placeholder="5582999999999" />
               <FormField label="CPF/CNPJ" value={cpfCnpj} onChange={setCpfCnpj} placeholder="11.222.333/0001-44" />
-              <div>
-                <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">Plano</label>
-                <select
-                  value={plan}
-                  onChange={(e) => setPlan(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background"
-                >
-                  <option value="STARTER">Starter</option>
-                  <option value="PRO">Pro</option>
-                  <option value="ENTERPRISE">Enterprise</option>
-                  <option value="CUSTOM">Custom</option>
-                </select>
-              </div>
+              {criandoLab ? (
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">Plano</label>
+                  <div className="w-full px-3 py-2 text-sm border border-border rounded-md bg-muted/40 text-muted-foreground">
+                    Custom (fixo no laboratório)
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">Plano</label>
+                  <select
+                    value={plan}
+                    onChange={(e) => setPlan(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background"
+                  >
+                    <option value="STARTER">Starter</option>
+                    <option value="PRO">Pro</option>
+                    <option value="ENTERPRISE">Enterprise</option>
+                    <option value="CUSTOM">Custom</option>
+                  </select>
+                </div>
+              )}
             </div>
           </section>
 
-          <section>
-            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Branding (opcional)</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField label="URL do logo" value={logoUrl} onChange={setLogoUrl} placeholder="https://..." />
-              <div>
-                <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">Cor primária</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={themeColor || '#7c3aed'}
-                    onChange={(e) => setThemeColor(e.target.value)}
-                    className="w-12 h-9 border border-border rounded cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={themeColor}
-                    onChange={(e) => setThemeColor(e.target.value)}
-                    placeholder="#7c3aed"
-                    className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background font-mono"
-                  />
+          {criandoLab && (
+            <section>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Responsável técnico (opcional)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <FormField label="Inscrição do laboratório no CRO" value={labCro} onChange={setLabCro} placeholder="CRO-AL 0000" maxLength={120} />
+                <FormField label="Nome do responsável técnico" value={rtNome} onChange={setRtNome} placeholder="Nome completo" maxLength={120} />
+                <FormField label="CRO do responsável técnico" value={rtCro} onChange={setRtCro} placeholder="CRO-AL 0000" maxLength={120} />
+              </div>
+            </section>
+          )}
+
+          {!criandoLab && (
+            <section>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Branding (opcional)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <FormField label="URL do logo" value={logoUrl} onChange={setLogoUrl} placeholder="https://..." />
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">Cor primária</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={themeColor || '#7c3aed'}
+                      onChange={(e) => setThemeColor(e.target.value)}
+                      className="w-12 h-9 border border-border rounded cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={themeColor}
+                      onChange={(e) => setThemeColor(e.target.value)}
+                      placeholder="#7c3aed"
+                      className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background font-mono"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           {mode === 'create' && (
             <section>
@@ -569,8 +691,8 @@ function TenantFormDialog({
                   Este usuário poderá criar outros usuários dentro do tenant e gerenciar tudo.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <FormField label="Nome *" required value={adminName} onChange={setAdminName} placeholder="Dr(a). Responsável" />
-                  <FormField label="Email *" required type="email" value={adminEmail} onChange={setAdminEmail} placeholder="admin@clinica.com.br" />
+                  <FormField label="Nome *" required value={adminName} onChange={setAdminName} placeholder={lab ? 'Responsável pelo laboratório' : 'Dr(a). Responsável'} />
+                  <FormField label="Email *" required type="email" value={adminEmail} onChange={setAdminEmail} placeholder={lab ? 'admin@laboratorio.com.br' : 'admin@clinica.com.br'} />
                   <FormField label="Senha *" required type="password" value={adminPassword} onChange={setAdminPassword} placeholder="••••••••" />
                   <FormField label="Telefone" value={adminPhone} onChange={setAdminPhone} placeholder="5582999999999" />
                 </div>
@@ -591,11 +713,11 @@ function TenantFormDialog({
           </button>
           <button
             type="submit"
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || labTravado}
             className="flex-1 text-sm font-bold px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            {mode === 'create' ? 'Criar tenant' : 'Salvar'}
+            {mode === 'create' ? (criandoLab ? 'Criar laboratório' : 'Criar tenant') : 'Salvar'}
           </button>
         </div>
       </form>
@@ -604,8 +726,8 @@ function TenantFormDialog({
 }
 
 function FormField({
-  label, value, onChange, placeholder, type = 'text', required,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean }) {
+  label, value, onChange, placeholder, type = 'text', required, maxLength,
+}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean; maxLength?: number }) {
   return (
     <div>
       <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">
@@ -616,6 +738,7 @@ function FormField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
+        maxLength={maxLength}
         placeholder={placeholder}
         className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30"
       />

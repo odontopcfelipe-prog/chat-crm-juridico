@@ -1,6 +1,7 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BT_LABORATORIO, isLab } from '@crm/shared';
 import { eSessaoDaEquipe } from './sessao-da-equipe';
 
 @Injectable()
@@ -31,6 +32,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const roles: string[] = Array.isArray(payload.roles)
       ? payload.roles
       : (payload.role ? [payload.role] : ['OPERADOR']);
-    return { id: payload.sub, email: payload.email, roles, role: roles[0], tenant_id: payload.tenant_id };
+    const user = { id: payload.sub, email: payload.email, roles, role: roles[0], tenant_id: payload.tenant_id };
+    // F3 do laboratório — bt só no token de conta de laboratório; clínica sem chave nova.
+    return isLab(payload.bt) ? { ...user, bt: BT_LABORATORIO } : user;
   }
 }

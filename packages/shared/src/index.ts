@@ -49,6 +49,8 @@ export * from './audio-disparo';
 // F1 do laboratório: tipo de negócio da conta (CLÍNICA × LABORATÓRIO) e quem é lab
 export * from './business-type';
 export * from './lab-tenants';
+// F3 do laboratório: o que a conta de laboratório recebe ao nascer (catálogo, finanças, funil, chaves desligadas)
+export * from './lab-defaults';
 // Configuração por conta na GlobalSetting: reserva na global antiga só para contas legadas
 export * from './conta-legada';
 // Pesquisa pós-atendimento (NPS): chave da configuração por conta

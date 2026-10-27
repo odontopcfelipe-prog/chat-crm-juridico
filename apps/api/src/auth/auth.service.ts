@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
+import { BT_LABORATORIO, isLab } from '@crm/shared';
 
 @Injectable()
 export class AuthService {
@@ -24,10 +25,16 @@ export class AuthService {
       // SUPER_ADMIN bypassa (precisa entrar pra reativar). Tenant sem id
       // (legacy) tambem bypassa pra nao quebrar sistema antigo.
       const roles: string[] = Array.isArray(user.roles) ? user.roles : [];
+      let laboratorio = false;
       if (!roles.includes('SUPER_ADMIN') && user.tenant_id) {
+        // F3 do laboratório — o tipo da conta vem nesta mesma leitura (sem
+        // consulta a mais). Conta sem perfil = clínica.
         const tenant = await this.prisma.tenant.findUnique({
           where: { id: user.tenant_id },
-          select: { status: true, suspended_reason: true, trial_ends_at: true, name: true },
+          select: {
+            status: true, suspended_reason: true, trial_ends_at: true, name: true,
+            business_profile: { select: { business_type: true } },
+          },
         });
         if (tenant?.status === 'SUSPENDED') {
           throw new ForbiddenException(
@@ -43,19 +50,30 @@ export class AuthService {
             'Periodo de avaliacao expirado. Entre em contato pra contratar.',
           );
         }
+        laboratorio = isLab(tenant?.business_profile?.business_type);
       }
       const { password_hash, ...result } = user;
-      return result;
+      // Clínica: o mesmo objeto de hoje, sem chave nova.
+      return laboratorio ? { ...result, bt: BT_LABORATORIO } : result;
     }
     return null;
   }
 
-  async login(user: any) {
+  /**
+   * Payload da sessão da equipe. Clínica: { email, sub, roles, tenant_id }, como
+   * sempre (retrato __guards__/auth-payload). Conta de laboratório: + bt.
+   */
+  private payloadDaSessao(user: any) {
     // Multi-role: roles é array. Fallback se vazio ou ausente.
     const roles: string[] = (Array.isArray(user.roles) && user.roles.length > 0)
       ? user.roles
       : (user.role ? [user.role] : ['OPERADOR']);
     const payload = { email: user.email, sub: user.id, roles, tenant_id: user.tenant_id };
+    return isLab(user.bt) ? { ...payload, bt: BT_LABORATORIO } : payload;
+  }
+
+  async login(user: any) {
+    const payload = this.payloadDaSessao(user);
     return {
       access_token: this.jwtService.sign(payload),
       user: payload
@@ -63,10 +81,8 @@ export class AuthService {
   }
 
   async generateMcpToken(user: any) {
-    const roles: string[] = (Array.isArray(user.roles) && user.roles.length > 0)
-      ? user.roles
-      : (user.role ? [user.role] : ['OPERADOR']);
-    const payload = { email: user.email, sub: user.id, roles, tenant_id: user.tenant_id };
+    // user = req.user (JwtStrategy): o bt, quando existe, veio do token assinado no login.
+    const payload = this.payloadDaSessao(user);
     const mcp_token = this.jwtService.sign(payload, { expiresIn: '365d' });
     return { mcp_token };
   }
