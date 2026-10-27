@@ -72,13 +72,11 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
   let gw: ChatGateway;
   let prisma: any;
   let log: any;
-  // Promise rejeitada sem tratamento ou erro lançado fora de try: nenhum dos dois pode aparecer.
-  const soltas: unknown[] = [];
-  const naRejeicao = (motivo: unknown) => soltas.push(motivo);
+  // Promise rejeitada sem tratamento ou erro lançado fora de try reprovam o teste
+  // em andamento (o jest-circus escuta o process de verdade — um process.on aqui
+  // pegaria só a cópia do ambiente de teste). Os avisos no log são a checagem explícita.
 
   beforeAll(async () => {
-    process.on('unhandledRejection', naRejeicao);
-    process.on('uncaughtException', naRejeicao);
     ({ gw, prisma } = gatewayDeTeste());
     log = logger();
     http = createServer();
@@ -107,8 +105,6 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
   });
 
   afterAll(async () => {
-    process.off('unhandledRejection', naRejeicao);
-    process.off('uncaughtException', naRejeicao);
     cliente?.close();
     await new Promise<void>((ok) => servidor.close(() => ok()));
   });
@@ -127,18 +123,26 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
   it('valores que não são texto, sala de sistema e banco fora: nada escapa, e o servidor segue atendendo', async () => {
     const sair = jest.spyOn(gw, 'handleLeaveConversation');
     const usuario = jest.spyOn(gw, 'handleJoinUser');
-    const venenos: unknown[] = [{}, { id: 'conv-a' }, ['conv-a'], 123, null, true, { toString: 1 }, [{ toString: 1 }], 'tenant:b', 'x'.repeat(500)];
-    for (const v of [...venenos, 'conv-banco-fora']) cliente.emit('join_conversation', v);
-    cliente.emit('join_conversation'); // sem argumento nenhum
-    for (const v of [...venenos, 'tenant:a']) cliente.emit('leave_conversation', v);
-    for (const v of [...venenos, 'y'.repeat(500)]) cliente.emit('join_user', v);
-    cliente.emit('typing', 'nao-e-objeto');
-    cliente.emit('typing', null);
-    cliente.emit('typing', { toString: 1 });
-    cliente.emit('typing', { conversationId: { x: 1 }, isTyping: true });
-    cliente.emit('typing', { conversationId: { toString: 1 }, isTyping: true });
-    await esperar(200);
-    expect(soltas).toEqual([]);
+    let saidas: unknown[] = [];
+    let usuarios: unknown[] = [];
+    try {
+      const venenos: unknown[] = [{}, { id: 'conv-a' }, ['conv-a'], 123, null, true, { toString: 1 }, [{ toString: 1 }], 'tenant:b', 'x'.repeat(500)];
+      for (const v of [...venenos, 'conv-banco-fora']) cliente.emit('join_conversation', v);
+      cliente.emit('join_conversation'); // sem argumento nenhum
+      for (const v of [...venenos, 'tenant:a']) cliente.emit('leave_conversation', v);
+      for (const v of [...venenos, 'y'.repeat(500)]) cliente.emit('join_user', v);
+      cliente.emit('typing', 'nao-e-objeto');
+      cliente.emit('typing', null);
+      cliente.emit('typing', { toString: 1 });
+      cliente.emit('typing', { conversationId: { x: 1 }, isTyping: true });
+      cliente.emit('typing', { conversationId: { toString: 1 }, isTyping: true });
+      await esperar(200);
+      saidas = sair.mock.calls.map((c) => c[0]);
+      usuarios = usuario.mock.calls.map((c) => c[0]);
+    } finally {
+      sair.mockRestore();
+      usuario.mockRestore();
+    }
     // Só o id de texto chegou ao banco (o que simula o banco fora).
     expect(prisma.conversation.findUnique.mock.calls.map((c: any[]) => c[0].where.id)).toEqual(['conv-banco-fora']);
     const avisos = log.warn.mock.calls.map((c: any[]) => c[0]).join('\n');
@@ -147,10 +151,6 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
     expect(log.warn.mock.calls.filter((c: any[]) => /BLOQUEADO: join_conversation com id invalido/.test(c[0]))).toHaveLength(11);
     // Sair e join_user: nada estranho chega ao gateway (nem ao log dele), e nada falha.
     // ('tenant:b' é texto curto: o join_user repassa e o gateway recusa — não é o id da pessoa.)
-    const saidas = sair.mock.calls.map((c) => c[0]);
-    const usuarios = usuario.mock.calls.map((c) => c[0]);
-    sair.mockRestore();
-    usuario.mockRestore();
     expect(saidas).toEqual([]);
     expect(usuarios).toEqual(['tenant:b']);
     expect(avisos).not.toMatch(/leave_conversation falhou|join_user falhou|typing falhou/);
@@ -162,10 +162,13 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
     const ok = entrou('conv-a');
     cliente.emit('join_conversation', 'conv-a');
     await ok;
-    expect(soltas).toEqual([]);
   });
 
   it('typing: só na conversa em que entrou, nunca na sala da clínica; isTyping vira true/false', async () => {
+    // Entra na conversa aqui mesmo (não depende do teste anterior).
+    const ok = entrou('conv-a');
+    cliente.emit('join_conversation', 'conv-a');
+    await ok;
     const recebidos: Array<{ sala: string; dados: unknown }> = [];
     const emitir = jest.spyOn(gw, 'emitTypingIndicator').mockImplementation((sala, dados) => {
       recebidos.push({ sala, dados });
@@ -185,7 +188,6 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
     } finally {
       emitir.mockRestore();
     }
-    expect(soltas).toEqual([]);
   });
 
   it('erro síncrono dentro de um evento também não escapa', async () => {
@@ -203,7 +205,6 @@ describe('socket de verdade: entrada fora do esperado e erro do banco só viram 
     const ok = entrou('conv-a');
     cliente.emit('join_conversation', 'conv-a');
     await ok;
-    expect(soltas).toEqual([]);
   });
 });
 
