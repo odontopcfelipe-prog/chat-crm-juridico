@@ -574,7 +574,7 @@ describe('ProductsService — fornecedor do produto só da própria conta', () =
       },
       supplier: { findFirst: achar(SUPPLIERS) },
     };
-    return { svc: new ProductsService(prisma), prisma, escritas };
+    return { svc: new ProductsService(prisma, {} as any), prisma, escritas };
   }
 
   const PRODUTO = { name: 'Luva', category: 'DESCARTAVEL', unit: 'CX', sku: 'LUV-1' };

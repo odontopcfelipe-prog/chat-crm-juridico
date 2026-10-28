@@ -3713,6 +3713,7 @@ model Product {
   category    String?
   unit        String  @default("UN") // "UN" | "ML" | "MG" | "UI" | "CAIXA" | "KIT"
   description String?
+  photo_url   String? // Path relativo no filesystem (products/{id}.ext); servido por GET /products/:id/photo
 
   // Regulatorio (ANVISA)
   anvisa_registration   String? // No de registro ANVISA

@@ -5,14 +5,27 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FileStorageService } from '../media/filesystem.service';
 import { Prisma } from '@crm/shared';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+
+/** Foto do produto: mesmo formato e limite da foto do paciente. */
+const PHOTO_MIMES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
 
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fileStorage: FileStorageService,
+  ) {}
 
   async create(tenantId: string, dto: CreateProductDto) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
@@ -134,6 +147,66 @@ export class ProductsService {
     });
     if (!existing) throw new NotFoundException('Produto nao encontrado');
     return this.prisma.product.update({ where: { id }, data: { active: false } });
+  }
+
+  // ─── Foto do produto ───────────────────────────────────────────
+
+  /** Salva a foto no filesystem (products/{id}.ext) e grava o caminho no produto. */
+  async updatePhoto(id: string, tenantId: string, buffer: Buffer, mimeType: string) {
+    const existing = await this.prisma.product.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Produto nao encontrado');
+
+    const ext = PHOTO_MIMES[mimeType?.toLowerCase()];
+    if (!ext) throw new BadRequestException('Tipo de imagem nao suportado. Use JPEG, PNG ou WebP.');
+    if (buffer.length > PHOTO_MAX_BYTES) {
+      throw new BadRequestException('Imagem muito grande. Maximo 2 MB.');
+    }
+
+    // Limpa a versao anterior salva em outra extensao
+    for (const oldExt of Object.values(PHOTO_MIMES)) {
+      if (oldExt !== ext) {
+        await this.fileStorage.delete(`products/${id}.${oldExt}`).catch(() => {});
+      }
+    }
+
+    const relativePath = `products/${id}.${ext}`;
+    await this.fileStorage.write(relativePath, buffer);
+    return this.prisma.product.update({
+      where: { id },
+      data: { photo_url: relativePath },
+      select: { id: true, photo_url: true, updated_at: true },
+    });
+  }
+
+  /** Bytes da foto, so do produto da propria conta. null = sem foto (ou arquivo sumiu do disco). */
+  async getPhoto(id: string, tenantId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const product = await this.prisma.product.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { photo_url: true },
+    });
+    if (!product?.photo_url) return null;
+    const buffer = await this.fileStorage.tryRead(product.photo_url);
+    if (!buffer) return null;
+    const ext = product.photo_url.split('.').pop()?.toLowerCase();
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    return { buffer, mimeType };
+  }
+
+  async removePhoto(id: string, tenantId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { photo_url: true },
+    });
+    if (!product) throw new NotFoundException('Produto nao encontrado');
+    if (product.photo_url) await this.fileStorage.delete(product.photo_url).catch(() => {});
+    return this.prisma.product.update({
+      where: { id },
+      data: { photo_url: null },
+      select: { id: true, photo_url: true, updated_at: true },
+    });
   }
 
   /** Produtos com estoque <= min_stock (alerta de reposicao). */

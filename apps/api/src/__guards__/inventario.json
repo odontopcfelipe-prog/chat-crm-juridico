@@ -7,7 +7,7 @@
     "globais": 12,
     "produtores": 24,
     "controllers": 86,
-    "handlers": 938,
+    "handlers": 941,
     "@Public": 29
   },
   "automatismos": [
@@ -948,6 +948,9 @@
         { "metodo": "InventoryController.getProduct", "verbo": "GET", "path": "products/:id", "rota": "GET /products/:id", "acesso": [] },
         { "metodo": "InventoryController.updateProduct", "verbo": "PATCH", "path": "products/:id", "rota": "PATCH /products/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.archiveProduct", "verbo": "DELETE", "path": "products/:id", "rota": "DELETE /products/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.uploadProductPhoto", "verbo": "POST", "path": "products/:id/photo", "rota": "POST /products/:id/photo", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.getProductPhoto", "verbo": "GET", "path": "products/:id/photo", "rota": "GET /products/:id/photo", "acesso": ["@SkipThrottle()"] },
+        { "metodo": "InventoryController.removeProductPhoto", "verbo": "DELETE", "path": "products/:id/photo", "rota": "DELETE /products/:id/photo", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.productStockHistory", "verbo": "GET", "path": "products/:id/stock-history", "rota": "GET /products/:id/stock-history", "acesso": [] },
         { "metodo": "InventoryController.createMovement", "verbo": "POST", "path": "stock-movements", "rota": "POST /stock-movements", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.listMovements", "verbo": "GET", "path": "stock-movements", "rota": "GET /stock-movements", "acesso": [] },

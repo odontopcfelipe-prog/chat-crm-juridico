@@ -8,9 +8,17 @@ import {
   Param,
   Query,
   Request,
+  Res,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
+import type { Response } from 'express';
+import { createHash } from 'crypto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { SuppliersService } from './suppliers.service';
@@ -209,6 +217,46 @@ export class InventoryController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.products.archive(id, tenantId);
+  }
+
+  /** Envia/troca a foto: POST /products/:id/photo (multipart, campo "file") */
+  @RequiresPermission('manage_inventory')
+  @Post('products/:id/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  uploadProductPhoto(@Param('id') id: string, @UploadedFile() file: any, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!file) throw new BadRequestException('Nenhum arquivo enviado.');
+    return this.products.updatePhoto(id, tenantId, file.buffer, file.mimetype);
+  }
+
+  /** Serve a foto: GET /products/:id/photo. Fora do throttle (uma por linha da lista),
+   *  com ETag do conteudo pra trocar de foto sem ficar preso no cache. */
+  @SkipThrottle()
+  @Get('products/:id/photo')
+  async getProductPhoto(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const result = await this.products.getPhoto(id, tenantId);
+    if (!result) throw new NotFoundException('Foto nao encontrada.');
+    const etag = `"${createHash('sha1').update(result.buffer).digest('hex')}"`;
+    res.set('ETag', etag);
+    res.set('Cache-Control', 'private, max-age=0, must-revalidate');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.set('Content-Type', result.mimeType);
+    res.end(result.buffer);
+  }
+
+  /** Remove a foto: DELETE /products/:id/photo */
+  @RequiresPermission('manage_inventory')
+  @Delete('products/:id/photo')
+  removeProductPhoto(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.products.removePhoto(id, tenantId);
   }
 
   @Get('products/:id/stock-history')
