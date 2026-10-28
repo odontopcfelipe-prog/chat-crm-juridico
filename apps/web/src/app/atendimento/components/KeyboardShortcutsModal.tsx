@@ -2,10 +2,13 @@
 
 import { useEffect } from 'react';
 import { Keyboard, X } from 'lucide-react';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface ShortcutGroup {
   label: string;
-  shortcuts: { keys: string[]; description: string }[];
+  /** ia: atalho de IA — não aparece no laboratório. */
+  shortcuts: { keys: string[]; description: string; ia?: boolean }[];
 }
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -23,7 +26,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: ['Alt', 'R'], description: 'Responder à última mensagem do cliente' },
       { keys: ['Ctrl', 'F'], description: 'Buscar dentro da conversa' },
-      { keys: ['Ctrl', 'Shift', 'A'], description: 'Alternar modo IA (SophIA on/off)' },
+      { keys: ['Ctrl', 'Shift', 'A'], description: 'Alternar modo IA (SophIA on/off)', ia: true },
       { keys: ['Enter'], description: 'Enviar mensagem' },
       { keys: ['Shift', 'Enter'], description: 'Nova linha na mensagem' },
     ],
@@ -49,6 +52,7 @@ interface KeyboardShortcutsModalProps {
 }
 
 export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModalProps) {
+  const lab = isLab(useBusinessType());
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -92,7 +96,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
                 {group.label}
               </p>
               <div className="space-y-1.5">
-                {group.shortcuts.map((s, i) => (
+                {group.shortcuts.filter(s => !lab || !s.ia).map((s, i) => (
                   <div key={i} className="flex items-center justify-between gap-4">
                     <span className="text-[13px] text-muted-foreground">{s.description}</span>
                     <div className="flex items-center gap-1 shrink-0">

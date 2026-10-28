@@ -87,7 +87,8 @@ export interface MessageBubbleProps {
   onEdit: (id: string, text: string) => void;
   onSetEditing: (edit: { id: string; text: string } | null) => void;
   onDelete: (id: string) => void;
-  onTranscribe: (id: string) => void;
+  /** Sem a prop (laboratório), o botão de transcrever áudio não aparece. */
+  onTranscribe?: (id: string) => void;
   onLightbox: (url: string) => void;
   onDocPreview: (preview: { url: string; name: string; mime: string }) => void;
   onImageDownload: (url: string) => void;
@@ -310,7 +311,7 @@ function MessageBubbleInner({
               <p className="text-[12.5px] mt-2 leading-snug italic text-[#667781]">
                 {msg.text}
               </p>
-            ) : (
+            ) : onTranscribe && (
               <button
                 onClick={() => onTranscribe(msg.id)}
                 disabled={transcribing[msg.id]}
@@ -450,6 +451,7 @@ export const MessageBubble = memo(MessageBubbleInner, (prev, next) => {
     prev.editingMsg?.id === next.editingMsg?.id &&
     (prev.editingMsg?.id !== prev.msg.id || prev.editingMsg?.text === next.editingMsg?.text) &&
     prev.transcribing[prev.msg.id] === next.transcribing[next.msg.id] &&
+    !prev.onTranscribe === !next.onTranscribe &&
     prev.nextStep === next.nextStep
   );
 });

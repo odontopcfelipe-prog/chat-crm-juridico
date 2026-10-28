@@ -10,7 +10,9 @@ import {
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { canAccessRoute } from '@crm/shared';
+import { canAccessRouteBt } from '@crm/shared';
+// F4 do laboratório — no laboratório só os atalhos das telas da lista de rotas dele.
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface LeadResult {
   id: string;
@@ -77,7 +79,8 @@ export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProp
   // Out/2026 — atalhos e busca de leads respeitam o acesso por tela (ROUTE_ACCESS):
   // o Dentista não vê Inbox/CRC/Contatos/... nem busca leads (contato/chat).
   const { hasPermission } = useUserPermissions();
-  const canSearchLeads = canAccessRoute('/atendimento/crm', hasPermission);
+  const bt = useBusinessType();
+  const canSearchLeads = canAccessRouteBt('/atendimento/crm', hasPermission, bt);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [leadResults, setLeadResults] = useState<LeadResult[]>([]);
@@ -138,7 +141,7 @@ export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProp
   const items: PaletteItem[] = [];
 
   // Navegação — filtrada por query ou lista completa
-  const allowedNav = NAV_ITEMS.filter(n => canAccessRoute(n.href, hasPermission));
+  const allowedNav = NAV_ITEMS.filter(n => canAccessRouteBt(n.href, hasPermission, bt));
   const filteredNav = q
     ? allowedNav.filter(n =>
         n.label.toLowerCase().includes(q) ||

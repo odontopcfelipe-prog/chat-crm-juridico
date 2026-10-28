@@ -37,6 +37,8 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useChatSocket } from '../../hooks/useChatSocket';
 import { getDateKey, formatDateLabel } from '@/lib/chatUtils';
+import { isLab, pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 type RenderItem =
   | { kind: 'sep'; label: string; key: string }
@@ -54,13 +56,17 @@ interface Props {
 
 export default function ChatPane({ leadId, compact = false, scope }: Props) {
   const router = useRouter();
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   const {
     messages, setMessages,
     lead, convoId, convoStatus, setConvoStatus,
-    aiMode, setAiMode,
+    aiMode: aiModeDaConversa, setAiMode,
     loading,
     currentUserId,
   } = useChatSocket(leadId, scope ? { scope } : undefined);
+  // Laboratório não tem IA no chat (a conversa pode chegar com ai_mode ligado).
+  const aiMode = !lab && aiModeDaConversa;
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -262,7 +268,11 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
         <span>Conversa não encontrada</span>
         {scope === 'patient' && (
           <span className="text-xs">
-            Confira se o paciente tem telefone e se a clínica tem um WhatsApp Clínica/Comercial conectado.
+            {pickBt(
+              bt,
+              'Confira se o paciente tem telefone e se a clínica tem um WhatsApp Clínica/Comercial conectado.',
+              'Confira se o cliente tem telefone e se o laboratório tem um WhatsApp Atendimento/Comercial conectado.',
+            )}
           </span>
         )}
       </div>
@@ -298,6 +308,7 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
           >
             <ExternalLink size={13} />
           </button>
+          {!lab && (
           <button
             onClick={toggleAi}
             disabled={isClosed}
@@ -311,6 +322,7 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
             {aiMode ? <Bot size={11} /> : <BotOff size={11} />}
             {aiMode ? 'IA ativa' : 'IA off'}
           </button>
+          )}
           {!isClosed && (
             <button
               onClick={closeConvo}

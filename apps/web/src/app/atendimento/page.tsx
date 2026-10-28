@@ -9,6 +9,8 @@ import FichaTrabalhista from '@/components/FichaTrabalhista';
 import { EventModal, type UserOption } from '@/components/EventModal';
 import { useAudioRecorder, RecordingWave } from '@/components/AudioRecorder';
 import { useRole } from '@/lib/useRole';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { isLab } from '@crm/shared';
 import { AuthAudioPlayer } from '@/components/AuthAudioPlayer';
 import { EmojiPickerButton } from '@/components/EmojiPickerButton';
 import { SophIAButton } from '@/components/SophIAButton';
@@ -102,6 +104,9 @@ export default function Dashboard() {
   // contaLaboratorio: conta de laboratório (claim `bt` do token). Usado só no
   // "Finalizado" do painel lateral (handleChangeLeadStage).
   const { isAdmin, isLab: contaLaboratorio } = useRole();
+  // lab: conta de laboratório (F4). Só esconde o que é de clínica ou de IA no
+  // inbox; o texto da clínica não muda.
+  const lab = isLab(useBusinessType());
   // Não-admin começa no filtro "MINHAS" — admin começa em "TUDO"
   const [leadFilter, setLeadFilter] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -565,7 +570,7 @@ export default function Dashboard() {
       }
 
       // Ctrl+Shift+A: toggle AI mode
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+      if (!lab && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
         e.preventDefault();
         if (selectedId && !selectedId.startsWith('demo-')) handleToggleAiMode();
         return;
@@ -598,14 +603,14 @@ export default function Dashboard() {
     document.addEventListener('keydown', handleGlobalKeyDown);
     return () => document.removeEventListener('keydown', handleGlobalKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commandPaletteOpen, lightbox, docPreview, transferModal, showReasonPopup, selectedId]);
+  }, [commandPaletteOpen, lightbox, docPreview, transferModal, showReasonPopup, selectedId, lab]);
 
   // Sync aiMode when conversation changes
   useEffect(() => {
     const conv = conversations.find(c => c.id === selectedId);
-    if (conv) setAiMode(!!conv.aiMode);
+    if (conv) setAiMode(!lab && !!conv.aiMode);
     // NÃO fechar o dropdown aqui — conversations muda via socket e fecharia prematuramente
-  }, [selectedId, conversations]);
+  }, [selectedId, conversations, lab]);
 
   // Fechar dropdowns ao trocar de conversa
   useEffect(() => {
@@ -1547,7 +1552,7 @@ export default function Dashboard() {
 
   // ─── Slash command menu (estáticos + canned responses dinâmicos) ────────────
   const allSlashItems = useMemo(() => [
-    ...SLASH_COMMANDS.map(cmd => ({
+    ...(lab ? [] : SLASH_COMMANDS).map(cmd => ({
       id: cmd.id,
       label: cmd.label,
       description: cmd.description,
@@ -1563,7 +1568,7 @@ export default function Dashboard() {
       isCanned: true as const,
       cannedText: cr.text,
     })),
-  ], [cannedResponses]);
+  ], [cannedResponses, lab]);
 
   const slashQuery = text.startsWith('/') && !text.includes(' ') ? text.slice(1).toLowerCase() : null;
   const filteredSlashCommands = slashQuery !== null
@@ -2077,7 +2082,7 @@ export default function Dashboard() {
       }
       // Buscar resumo IA do lead (fire-and-forget)
       const conv = conversations.find(c => c.id === convId);
-      if (conv?.leadId) {
+      if (!lab && conv?.leadId) {
         api.get(`/leads/${conv.leadId}/summary`, { _silent401: true } as any)
           .then(r => {
             const summary = r.data?.summary;
@@ -2437,7 +2442,7 @@ export default function Dashboard() {
       // Minhas conversas: atribuídas ao usuário atual (como operador OU dentista), SEM IA ativa
       result = conversations.filter(c =>
         (c.assignedAgentId === currentUserId || c.assignedDentistId === currentUserId) &&
-        !c.aiMode && c.status !== 'CLOSED'
+        (lab || !c.aiMode) && c.status !== 'CLOSED'
       );
     } else if (leadFilter === 'ACTIVE') {
       result = conversations.filter(myActiveConvs);
@@ -2462,7 +2467,7 @@ export default function Dashboard() {
       const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
       return tb - ta;
     });
-  }, [conversations, adiadoConversations, leadFilter, debouncedSearch, currentUserId]);
+  }, [conversations, adiadoConversations, leadFilter, debouncedSearch, currentUserId, lab]);
 
   // Keep ref in sync for keyboard shortcut handler (declared before useMemo)
   const filteredConversationsRef = useRef(filteredConversations);
@@ -2714,10 +2719,10 @@ export default function Dashboard() {
               onShowDetails={() => setShowDetailsPanel(true)}
               onSetClientPanelLeadId={setClientPanelLeadId}
               onLightbox={setLightbox}
-              onCreateTask={openTaskModal}
-              onCreateAppointment={() => setAgendaPanelOpen(true)}
+              onCreateTask={lab ? undefined : openTaskModal}
+              onCreateAppointment={lab ? undefined : () => setAgendaPanelOpen(true)}
               onCadastrarContato={() => setCadastrarContatoOpen(true)}
-              onPromoteToClient={async () => {
+              onPromoteToClient={lab ? undefined : async () => {
                 if (!selected?.leadId) return;
                 if (!confirm(`Marcar ${selected.contactName || 'esse contato'} como cliente?\n\nEle vai mover pra aba "Clientes" no WhatsApp e a IA passa pro modo Pos-Venda.`)) return;
                 try {
@@ -2727,7 +2732,7 @@ export default function Dashboard() {
                   showError(err?.response?.data?.message || 'Falha ao promover a cliente');
                 }
               }}
-              onDemoteToLead={async () => {
+              onDemoteToLead={lab ? undefined : async () => {
                 if (!selected?.leadId) return;
                 if (!confirm(`Reverter ${selected.contactName || 'esse cliente'} pra Lead?\n\nEle volta pra aba "Leads" e a IA volta pro modo Comercial.`)) return;
                 try {
@@ -2764,7 +2769,7 @@ export default function Dashboard() {
               activeTask={selected?.activeTask}
               onCompleteTask={handleCompleteTask}
               onPostponeTask={handlePostponeTask}
-              onNewTask={openTaskModal}
+              onNewTask={lab ? undefined : openTaskModal}
               leadTags={selected?.leadTags ?? []}
               onUpdateTags={async (tags) => {
                 if (!selected) return;
@@ -2957,7 +2962,7 @@ export default function Dashboard() {
                         onEdit={handleEditMessage}
                         onSetEditing={setEditingMsg}
                         onDelete={handleDeleteMessage}
-                        onTranscribe={handleTranscribe}
+                        onTranscribe={lab ? undefined : handleTranscribe}
                         onLightbox={setLightbox}
                         onDocPreview={setDocPreview}
                         onImageDownload={handleImageDownload}
@@ -2973,7 +2978,7 @@ export default function Dashboard() {
                   <div className="text-center text-muted-foreground py-20">Nenhum resultado para &ldquo;{msgSearchQuery}&rdquo;</div>
                 ) : isRealConvo && messages.length === 0 ? (
                   <div className="text-center text-muted-foreground py-20">Nenhuma mensagem nesta conversa.</div>
-                ) : (
+                ) : !lab && (
                   <>
                     <div className="w-full flex justify-end">
                       <div className="max-w-[92%] md:max-w-[80%] bg-gradient-to-tr from-primary/90 to-ring/90 text-primary-foreground p-4 rounded-2xl rounded-tr-sm shadow-sm relative">
@@ -3007,6 +3012,7 @@ export default function Dashboard() {
               <div className="shrink-0 bg-card/95 backdrop-blur-md border-t border-border flex items-center justify-around px-2 py-1.5">
 
                 {/* IA */}
+                {!lab && (
                 <button
                   onClick={handleToggleAiMode}
                   className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg active:bg-accent transition-colors min-w-[56px]"
@@ -3019,9 +3025,10 @@ export default function Dashboard() {
                     {aiMode ? 'IA On' : 'IA Off'}
                   </span>
                 </button>
+                )}
 
                 {/* Ficha — só trabalhista */}
-                {selected.specialty?.toLowerCase().includes('trabalhist') && (
+                {!lab && selected.specialty?.toLowerCase().includes('trabalhist') && (
                   <button
                     onClick={() => setFichaInboxVisible(true)}
                     className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg active:bg-accent transition-colors min-w-[56px]"
@@ -3086,7 +3093,7 @@ export default function Dashboard() {
                     <p className="text-[10px] text-muted-foreground">Detalhes &amp; Ações</p>
                   </div>
                   {/* Badge da etapa CRM — clicável para rolar até a seleção */}
-                  {(() => {
+                  {!lab && (() => {
                     const stage = findStage(normalizeStage(leadStage));
                     return stage ? (
                       <button
@@ -3115,6 +3122,7 @@ export default function Dashboard() {
                         <span className="font-medium">{selected.contactPhone}</span>
                       </div>
                       {/* Área — sempre visível, editável via dropdown */}
+                      {!lab && (
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">Área</span>
                         <div className="relative">
@@ -3149,13 +3157,14 @@ export default function Dashboard() {
                           )}
                         </div>
                       </div>
+                      )}
                       {selected.assignedAgentName && (
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-muted-foreground">Atendente</span>
                           <span className="font-medium">{selected.assignedAgentName}</span>
                         </div>
                       )}
-                      {selected.specialty && (
+                      {!lab && selected.specialty && (
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-muted-foreground">Especialista</span>
                           <div className="relative" ref={lawyerDropdownRef2}>
@@ -3207,7 +3216,7 @@ export default function Dashboard() {
                   </section>
 
                   {/* IA Toggle */}
-                  {isRealConvo && (
+                  {!lab && isRealConvo && (
                     <section>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Assistente IA</p>
                       <button
@@ -3235,6 +3244,7 @@ export default function Dashboard() {
                   )}
 
                   {/* Etapa do Funil */}
+                  {!lab && (
                   <section id="panel-stage-section">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Etapa do Funil</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -3252,9 +3262,10 @@ export default function Dashboard() {
                       ))}
                     </div>
                   </section>
+                  )}
 
                   {/* Ficha Trabalhista */}
-                  {selected?.specialty?.toLowerCase().includes('trabalhist') && (
+                  {!lab && selected?.specialty?.toLowerCase().includes('trabalhist') && (
                     <section>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
                         Ficha Trabalhista
@@ -3370,7 +3381,7 @@ export default function Dashboard() {
               )}
 
               {/* ── Barra de resposta rápida por estágio do lead ──────── */}
-              {!isClosed && selectedId && selected?.leadStage && (() => {
+              {!lab && !isClosed && selectedId && selected?.leadStage && (() => {
                 const stage = normalizeStage(selected.leadStage);
                 const tpl = STAGE_TEMPLATES[stage];
                 if (!tpl || dismissedQuickReply.has(selectedId) || text.length > 0) return null;
@@ -3536,7 +3547,7 @@ export default function Dashboard() {
                               setSlashMenuIndex(0); // reset seleção ao digitar
 
                               // ── Auto-disable AI upon typing ──
-                              if (aiMode && val.trim().length > 0 && selectedId) {
+                              if (!lab && aiMode && val.trim().length > 0 && selectedId) {
                                 setAiMode(false); // Optimistic UI previne chamadas duplicadas
                                 (async () => {
                                   try {
@@ -3590,7 +3601,7 @@ export default function Dashboard() {
                           {isRealConvo && (
                             <div className="h-[52px] flex items-center shrink-0">
                               {/* SophIA (correção/tom) — só faz sentido com texto */}
-                              {text.trim() && (
+                              {!lab && text.trim() && (
                                 <SophIAButton text={text} onResult={handleSophIAResult} compact menuAlign="right" />
                               )}
                               {/* Notas da conversa — visíveis para a equipe */}
@@ -3677,7 +3688,7 @@ export default function Dashboard() {
       </main>
 
       {/* Painel do Cliente — popup ao clicar no nome no desktop */}
-      {clientPanelLeadId && (
+      {!lab && clientPanelLeadId && (
         <ClientPanel
           leadId={clientPanelLeadId}
           onClose={() => setClientPanelLeadId(null)}
@@ -3835,7 +3846,7 @@ export default function Dashboard() {
             setUnreadCounts(prev => { const n = { ...prev }; delete n[id]; return n; });
             setCommandPaletteOpen(false);
           }}
-          onToggleAI={handleToggleAiMode}
+          onToggleAI={lab ? undefined : handleToggleAiMode}
           onOpenTransferModal={handleOpenTransferModal}
           onCloseConversation={handleClose}
         />

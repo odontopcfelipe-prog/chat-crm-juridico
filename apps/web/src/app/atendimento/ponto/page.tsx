@@ -12,8 +12,10 @@ import { Clock, ChevronLeft, Loader2, LogIn, LogOut, MapPin, MapPinOff, Users, R
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import {
-  apiErr, cap1, dateBr, distanceMeters, EspelhoTable, fmtDist, fmtMin, GEO_META, MonthNav,
+  apiErr, cap1, dateBr, distanceMeters, EspelhoTable, fmtDist, fmtMin, GEO_META, geoLabel, MonthNav,
   PunchDetail, scheduleText, TotalsCards, type Day, type DaySchedule, type Espelho, type Punch, type PontoLocal,
 } from './ponto-ui';
 import { getBestPosition, isFail, precisionHint, SEM_GPS_M, type GeoReading } from './geo-client';
@@ -45,6 +47,7 @@ const FRESCA_MS = 15000;
 export default function PontoPage() {
   const router = useRouter();
   const { hasPermission, ready: permsReady } = useUserPermissions();
+  const bt = useBusinessType();
   const [data, setData] = useState<MeData | null>(null);
   const [ym, setYm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -203,7 +206,7 @@ export default function PontoPage() {
           <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 grid place-items-center"><Clock className="w-5 h-5" /></div>
           <div>
             <h1 className="text-xl font-bold text-slate-800 leading-none">Meu ponto</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Registre no local da clínica. A hora registrada é a do sistema.</p>
+            <p className="text-sm text-slate-500 mt-0.5">{pickBt(bt, 'Registre no local da clínica. A hora registrada é a do sistema.', 'Registre no local do laboratório. A hora registrada é a do sistema.')}</p>
           </div>
         </div>
         {isAdm && (
@@ -237,10 +240,10 @@ export default function PontoPage() {
                   <span className="text-amber-700 flex items-start gap-1.5 max-w-md"><Crosshair className="w-4 h-4 shrink-0 mt-0.5" /> {hint.text}</span>
                 )}
                 {geo.pos && precise && !inside && (
-                  <span className="text-rose-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Fora da área da clínica · {fmtDist(dist)}</span>
+                  <span className="text-rose-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" />{pickBt(bt, ' Fora da área da clínica · ', ' Fora da área do laboratório · ')}{fmtDist(dist)}</span>
                 )}
                 {geo.pos && precise && inside && (
-                  <span className="text-emerald-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Dentro da área da clínica · {fmtDist(dist)}</span>
+                  <span className="text-emerald-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" />{pickBt(bt, ' Dentro da área da clínica · ', ' Dentro da área do laboratório · ')}{fmtDist(dist)}</span>
                 )}
                 {geo.pos && precise && <span className="text-slate-400 text-xs">(± {fmtDist(geo.pos.accuracy)})</span>}
               </div>
@@ -283,7 +286,7 @@ export default function PontoPage() {
                   <p className="text-[11px] text-slate-400 mt-1">
                     {geo.pos && !precise
                       ? `Sua posição não aparece: a leitura deste aparelho erra até ± ${fmtDist(geo.pos.accuracy)}, então não dá pra saber onde você está.`
-                      : 'Azul = área da clínica · verde = você (o tracejado é a margem de erro do GPS).'}{' '}
+                      : pickBt(bt, 'Azul = área da clínica · verde = você (o tracejado é a margem de erro do GPS).', 'Azul = área do laboratório · verde = você (o tracejado é a margem de erro do GPS).')}{' '}
                     O mapa só mostra — o ponto usa o GPS do aparelho.
                   </p>
                 </div>
@@ -292,7 +295,7 @@ export default function PontoPage() {
               {(geo.kind === 'denied' || (geo.kind === 'unavailable' && !geo.pos) || (geo.pos && !precise)) && (
                 <LocationHelp key={geo.kind} defaultOpen={geo.kind === 'denied' || geo.kind === 'unavailable'} />
               )}
-              <p className="text-xs text-slate-400 mt-2">O ponto só é aceito com localização, dentro da área da clínica.</p>
+              <p className="text-xs text-slate-400 mt-2">{pickBt(bt, 'O ponto só é aceito com localização, dentro da área da clínica.', 'O ponto só é aceito com localização, dentro da área do laboratório.')}</p>
             </>
           )}
         </div>
@@ -314,7 +317,7 @@ export default function PontoPage() {
                 <button onClick={() => setDetail({ p, date: data.today })} className={`w-full flex items-center justify-between gap-2 text-sm px-3 py-2 rounded-lg border ${p.voided ? 'border-slate-100 text-slate-300 line-through' : 'border-slate-100 hover:bg-slate-50'}`}>
                   <span className="font-semibold tabular-nums">{p.hora}</span>
                   <span className={p.voided ? '' : p.kind === 'ENTRADA' ? 'text-emerald-700' : 'text-slate-600'}>{p.voided ? 'Anulada' : p.label}</span>
-                  <span className={`text-xs ${GEO_META[p.geo_status]?.cls}`}>{GEO_META[p.geo_status]?.label}</span>
+                  <span className={`text-xs ${GEO_META[p.geo_status]?.cls}`}>{geoLabel(bt, p.geo_status)}</span>
                 </button>
               </li>
             ))}

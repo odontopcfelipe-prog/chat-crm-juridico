@@ -13,6 +13,8 @@ import { useState, useEffect } from 'react';
 import { X, Loader2, UserPlus, IdCard, Mail, Tag as TagIcon, Compass } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab, pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface Props {
   open: boolean;
@@ -50,6 +52,10 @@ export function CadastrarContatoModal({
   currentTags,
   currentPhone,
 }: Props) {
+  // Laboratório (F4): só o "Salvar" (dados do contato). Tornar paciente/cliente
+  // fica para a ficha do cliente (F5); o servidor também nega o ensure-patient.
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   // Detecta se o "name" atual eh so o telefone (lead nao nomeado).
   // Quando for, deixa o campo vazio pra forcar o operador a colocar nome real.
   const isPhonePlaceholder = currentName && currentPhone &&
@@ -245,9 +251,15 @@ export function CadastrarContatoModal({
 
           {/* Aviso de fluxo — explica os 3 botoes do footer */}
           <div className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-3 py-2 mt-2 space-y-1">
-            <p><strong>Salvar</strong>: so atualiza dados do Lead (continua na aba "Leads").</p>
-            <p><strong>Tornar Paciente</strong>: adiciona em <strong>/pacientes</strong> sem virar cliente.</p>
-            <p><strong>Tornar Cliente</strong>: cria paciente + move pra aba "Clientes" no WhatsApp.</p>
+            {pickBt(
+              bt,
+              <>
+                <p><strong>Salvar</strong>: so atualiza dados do Lead (continua na aba "Leads").</p>
+                <p><strong>Tornar Paciente</strong>: adiciona em <strong>/pacientes</strong> sem virar cliente.</p>
+                <p><strong>Tornar Cliente</strong>: cria paciente + move pra aba "Clientes" no WhatsApp.</p>
+              </>,
+              <p><strong>Salvar</strong>: só atualiza os dados do contato (continua na aba &quot;Leads&quot;).</p>,
+            )}
           </div>
         </div>
 
@@ -266,7 +278,7 @@ export function CadastrarContatoModal({
             type="submit"
             disabled={saving || !name.trim()}
             className="text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-            title="So atualiza dados do Lead (nao cria paciente)"
+            title={pickBt(bt, 'So atualiza dados do Lead (nao cria paciente)', 'Só atualiza os dados do contato')}
           >
             {pendingMode === 'lead-only' ? (
               <Loader2 size={12} className="animate-spin" />
@@ -276,6 +288,7 @@ export function CadastrarContatoModal({
             Salvar
           </button>
           {/* Tornar Paciente — salva + cria Patient */}
+          {!lab && (
           <button
             type="button"
             onClick={() => runSave('patient')}
@@ -290,7 +303,9 @@ export function CadastrarContatoModal({
             )}
             Tornar Paciente
           </button>
+          )}
           {/* Tornar Cliente — salva + cria Patient + promove */}
+          {!lab && (
           <button
             type="button"
             onClick={() => runSave('client')}
@@ -305,6 +320,7 @@ export function CadastrarContatoModal({
             )}
             Tornar Cliente
           </button>
+          )}
         </div>
       </form>
     </div>

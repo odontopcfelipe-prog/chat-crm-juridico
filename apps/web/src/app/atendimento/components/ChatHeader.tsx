@@ -6,6 +6,8 @@ import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import api from '@/lib/api';
+import { isLab, pickBt, LAB_PURPOSE_LABEL } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 // Onda 17.64 — move a conversa pro setor Comercial/Clínica. O disparo passa a SAIR
 // pelo número desse setor (e reclassifica lead↔paciente). Auto-contido: chama o
@@ -13,15 +15,16 @@ import api from '@/lib/api';
 function MoveSectorButton({ conversationId }: { conversationId?: string }) {
   const [open, setOpen] = useState(false);
   const [moving, setMoving] = useState(false);
+  const bt = useBusinessType();
   if (!conversationId) return null;
   const move = async (purpose: 'COMERCIAL' | 'CLINICA') => {
     if (moving) return;
-    const label = purpose === 'CLINICA' ? 'Clínica' : 'Comercial';
+    const label = purpose === 'CLINICA' ? pickBt(bt, 'Clínica', LAB_PURPOSE_LABEL.CLINICA) : 'Comercial';
     if (!window.confirm(
       `Mover esta conversa pro setor ${label}?\n\n` +
       `O atendimento passa pro time de ${label} e as PRÓXIMAS mensagens saem pelo NÚMERO desse setor ` +
       `(o cliente recebe do número novo — vira um chat novo no WhatsApp dele).\n\n` +
-      `Se a IA estiver ligada no chip ${label}, a assistente passa a atender esta conversa a partir da próxima mensagem do cliente.`,
+      pickBt(bt, `Se a IA estiver ligada no chip ${label}, a assistente passa a atender esta conversa a partir da próxima mensagem do cliente.`, ''),
     )) return;
     setMoving(true);
     try {
@@ -38,7 +41,7 @@ function MoveSectorButton({ conversationId }: { conversationId?: string }) {
       <button
         onClick={() => setOpen((o) => !o)}
         disabled={moving}
-        title="Mover esta conversa pro setor Comercial ou Clínica (o disparo passa a sair pelo número do setor)"
+        title={pickBt(bt, 'Mover esta conversa pro setor Comercial ou Clínica (o disparo passa a sair pelo número do setor)', 'Mover esta conversa pro setor Comercial ou Atendimento (o disparo passa a sair pelo número do setor)')}
         className="px-2.5 py-1 text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
       >
         <Inbox size={16} /> Mover setor <ChevronDown size={14} />
@@ -49,7 +52,7 @@ function MoveSectorButton({ conversationId }: { conversationId?: string }) {
             <span className="w-2 h-2 rounded-full bg-sky-500" /> Comercial (Leads)
           </button>
           <button onClick={() => move('CLINICA')} className="w-full text-left px-3 py-2 text-sm hover:bg-accent/40 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" /> Clínica (Pacientes)
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />{pickBt(bt, ' Clínica (Pacientes)', ' Atendimento (Dentistas)')}
           </button>
         </div>
       )}
@@ -118,7 +121,7 @@ export interface ChatHeaderProps {
   onShowDetails: () => void;
   onSetClientPanelLeadId: (id: string | null) => void;
   onLightbox: (url: string) => void;
-  onCreateTask: () => void;
+  onCreateTask?: () => void;
   // Onda 17.32.56 — Atalho de agendamento dentro da conversa
   onCreateAppointment?: () => void;
   // Onda 17.32.58 — Promover/demover Lead<->Cliente manualmente
@@ -193,6 +196,9 @@ export function ChatHeader({
   pipelinesList,
   onChangeStageById,
 }: ChatHeaderProps) {
+  // Laboratório (F4): sem IA, sem especialista, sem ficha trabalhista e sem
+  // tarefa (a tarefa abre o modal da agenda). O texto da clínica não muda.
+  const lab = isLab(useBusinessType());
   const [copiedPhone, setCopiedPhone] = useState(false);
   // Modais de tarefa
   const [showCompleteModal, setShowCompleteModal] = useState(false);
@@ -249,7 +255,7 @@ export function ChatHeader({
         <div
           className="min-w-0 flex-1 cursor-pointer active:opacity-70 transition-opacity"
           onClick={() => {
-            if (isMobile) {
+            if (isMobile || lab) {
               onShowDetails();
             } else {
               onSetClientPanelLeadId(selected.leadId);
@@ -291,7 +297,7 @@ export function ChatHeader({
               (ver bloco mais abaixo) pra evitar duplicação visual. */}
           <div className="hidden md:flex items-center gap-2 flex-wrap mt-1.5">
             {/* Botão "Atribuir especialista" mostrado apenas se há especialidade legada — TODO PR5: remover */}
-            {selected.specialty && (
+            {!lab && selected.specialty && (
               <div className="relative" ref={lawyerDropdownRef}>
                 <button
                   onClick={(e) => { e.stopPropagation(); onToggleLawyer(); }}
@@ -343,15 +349,15 @@ export function ChatHeader({
         {/* Badges informativos inline — mobile */}
         {isMobile && (
           <div className="flex items-center gap-1.5">
-            {isRealConvo && (
+            {!lab && isRealConvo && (
               <span className={`w-2 h-2 rounded-full shrink-0 ${aiMode ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]' : 'bg-muted-foreground/40'}`} title={aiMode ? 'IA Ativa' : 'IA Inativa'} />
             )}
-            {selected?.specialty && (
+            {!lab && selected?.specialty && (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 text-[9px] font-bold border border-violet-500/20">
                 ⚖️ {selected.specialty}
               </span>
             )}
-            {fichaFinalizada && (
+            {!lab && fichaFinalizada && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[9px] font-bold border border-emerald-500/20">
                 ✅
               </span>
@@ -359,7 +365,7 @@ export function ChatHeader({
           </div>
         )}
         {/* Badges informativos — ficha trabalhista (desktop only) */}
-        {selected?.specialty?.toLowerCase().includes('trabalhist') && (
+        {!lab && selected?.specialty?.toLowerCase().includes('trabalhist') && (
           <div className="hidden md:flex gap-1.5 items-center justify-end">
             {!isClosed && (
               <button
@@ -388,7 +394,7 @@ export function ChatHeader({
         )}
         {/* Botões de ação — desktop only */}
         <div className="hidden md:flex gap-2 items-center flex-wrap justify-end">
-          {isRealConvo && (
+          {!lab && isRealConvo && (
             <button
               onClick={onToggleAiMode}
               title={aiMode ? 'Desativar IA' : 'Ativar IA'}
@@ -446,7 +452,7 @@ export function ChatHeader({
               </button>
             </>
           )}
-          {selected?.leadId && isRealConvo && !isClosed && (
+          {!lab && selected?.leadId && isRealConvo && !isClosed && (
             <button
               onClick={onCreateTask}
               title="Criar tarefa"
@@ -665,13 +671,15 @@ export function ChatHeader({
         </button>
 
         {/* Nova tarefa */}
-        <button
-          onClick={onNewTask}
-          className="px-2.5 py-1 text-[11px] font-bold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-lg hover:bg-sky-500/20 transition-colors whitespace-nowrap"
-          title="Criar nova tarefa para este contato"
-        >
-          + Nova
-        </button>
+        {!lab && (
+          <button
+            onClick={onNewTask}
+            className="px-2.5 py-1 text-[11px] font-bold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-lg hover:bg-sky-500/20 transition-colors whitespace-nowrap"
+            title="Criar nova tarefa para este contato"
+          >
+            + Nova
+          </button>
+        )}
       </div>
     )}
 

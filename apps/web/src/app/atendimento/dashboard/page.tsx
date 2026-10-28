@@ -29,8 +29,12 @@ import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
 import HomeBySector from '@/components/home/HomeBySector';
 import { PainelSetor } from '@/components/home/DentistHome';
-import { mapBackendRole, type Sector, type Permission } from '@crm/shared';
+import { isLab, mapBackendRole, type Sector, type Permission } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
+// F4 do laboratório — o laboratório tem um Início próprio (LabInicio); o painel
+// da clínica não muda.
+import { useBusinessType } from '@/lib/useBusinessType';
+import LabInicio from '@/components/home/LabInicio';
 // Onda 17.32.125 — Lembrete persistente do onboarding pendente
 import { OnboardingPendingBanner } from '@/components/OnboardingPendingBanner';
 // O JWT NAO inclui o nome do usuario — payload backend tem so
@@ -152,6 +156,7 @@ export default function VisaoGeralPage() {
   const [meReady, setMeReady] = useState(false);
   // Fallback: deriva setor de roles do JWT se /users/me falhar
   const role = useRole();
+  const bt = useBusinessType();
   const resolvedSector: Sector = (userSector as Sector) || mapBackendRole(role?.roles ?? []);
   // Onda 17.6 — modal de seleção de paciente pra avaliação
   useEffect(() => {
@@ -185,6 +190,20 @@ export default function VisaoGeralPage() {
   // "recepção" e a tela trocaria depois (hydration mismatch + pisca a home errada).
   // Até montar, não desenha a home — `now` só é preenchido no navegador.
   if (!now || !meReady) return <div className="h-full overflow-y-auto bg-background" />;
+
+  // Laboratório: Início próprio, só com os atalhos das telas liberadas para ele
+  // (o painel da clínica chama a agenda, os badges e os procedimentos, que ele não usa).
+  if (isLab(bt)) {
+    return (
+      <LabInicio
+        sector={resolvedSector}
+        userName={userName}
+        extraGrants={userGrants}
+        extraRevokes={userRevokes}
+        allowSwitch={!!(role?.isAdmin || role?.isSuperAdmin)}
+      />
+    );
+  }
 
   // Out/2026 — todo mundo entra no painel que nasceu pro dentista (topo com logo
   // + busca, boas-vindas, relógio com a fila, cards ilustrados, resumo do dia),

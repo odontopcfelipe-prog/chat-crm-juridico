@@ -11,6 +11,8 @@
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { Building2, Loader2, MapPin, Route, Search } from 'lucide-react';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 export type EnderecoHit = {
   lat: number;
@@ -113,6 +115,7 @@ export function EnderecoBusca({
   const [loading, setLoading] = useState(false);
   const [empty, setEmpty] = useState(false);
   const listId = useId();
+  const bt = useBusinessType();
   const ctrl = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const biasRef = useRef(bias);
@@ -198,7 +201,11 @@ export function EnderecoBusca({
             else if (e.key === 'Enter') { e.preventDefault(); void onEnter(); }
             else if (e.key === 'Escape') setOpen(false);
           }}
-          placeholder="Digite o endereço da clínica (ex.: Rua Domingos Barbosa da Silva, 147)"
+          placeholder={pickBt(
+            bt,
+            'Digite o endereço da clínica (ex.: Rua Domingos Barbosa da Silva, 147)',
+            'Digite o endereço do laboratório (ex.: Av. Fernandes Lima, 123)',
+          )}
           role="combobox"
           aria-controls={listId}
           aria-expanded={open && hits.length > 0}

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Zap, Plus, Trash2, Save, Loader2, GripVertical, Edit2, X, Check } from 'lucide-react';
 import api from '@/lib/api';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface CannedResponse {
   id: string;
@@ -23,6 +25,7 @@ export default function CannedResponsesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editText, setEditText] = useState('');
+  const bt = useBusinessType();
 
   useEffect(() => {
     api.get('/settings/canned-responses')
@@ -222,7 +225,7 @@ export default function CannedResponsesPage() {
         {/* Footer tip */}
         <div className="px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[11px] text-muted-foreground">
-            💡 No chat, digite <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">/</kbd> seguido de uma palavra-chave para filtrar as respostas disponíveis. As respostas são compartilhadas entre a equipe da sua clínica.
+            💡 No chat, digite <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">/</kbd>{pickBt(bt, ' seguido de uma palavra-chave para filtrar as respostas disponíveis. As respostas são compartilhadas entre a equipe da sua clínica.', ' seguido de uma palavra-chave para filtrar as respostas disponíveis. As respostas são compartilhadas entre a equipe do seu laboratório.')}
           </p>
         </div>
       </div>

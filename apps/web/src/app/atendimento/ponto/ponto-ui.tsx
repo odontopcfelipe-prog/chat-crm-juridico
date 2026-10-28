@@ -11,6 +11,8 @@ import {
   ChevronLeft, ChevronRight, MapPin, MapPinOff, PenLine, X, Loader2, Plus,
   Download, Printer, AlertTriangle, Crosshair,
 } from 'lucide-react';
+import { isLab, pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 /* ── tipos (espelho de apps/api/src/ponto) ───────────────── */
 export type GeoStatus = 'NO_LOCAL' | 'FORA' | 'SEM_GPS' | 'IMPRECISO' | 'SEM_REF' | 'MANUAL' | 'REDE_CLINICA';
@@ -167,6 +169,17 @@ export const GEO_META: Record<string, { label: string; cls: string }> = {
   REDE_CLINICA: { label: 'Pela rede da clínica', cls: 'text-amber-600' },
 };
 
+/** Laboratório: os rótulos que falam do local da conta. A cor continua saindo do GEO_META. */
+export const LAB_GEO_LABEL: Readonly<Record<string, string>> = Object.freeze({
+  NO_LOCAL: 'No local do laboratório',
+  REDE_CLINICA: 'Pela rede do laboratório',
+});
+
+/** Rótulo do local da batida pelo tipo da conta (na clínica, o mesmo do GEO_META). */
+export function geoLabel(bt: unknown, k: string): string | undefined {
+  return (isLab(bt) && LAB_GEO_LABEL[k]) || GEO_META[k]?.label;
+}
+
 function GeoIcon({ p, className = 'w-3 h-3' }: { p: Punch; className?: string }) {
   const cls = `${className} ${GEO_META[p.geo_status]?.cls ?? 'text-slate-400'}`;
   if (p.geo_status === 'MANUAL') return <PenLine className={cls} />;
@@ -243,14 +256,14 @@ const STATUS_TXT: Partial<Record<DayStatus, { label: string; cls: string }>> = {
 export const visibleDays = (e: Espelho) =>
   e.days.filter((d) => d.status !== 'FUTURO' && !(d.status === 'FORA_DO_PERIODO' && d.punches.length === 0));
 
-function PunchChips({ d, onPunchClick }: { d: Day; onPunchClick: (p: Punch, date: string) => void }) {
+function PunchChips({ d, onPunchClick, bt }: { d: Day; onPunchClick: (p: Punch, date: string) => void; bt: unknown }) {
   return (
     <div className="flex flex-wrap gap-1">
       {d.punches.map((p) => (
         <button
           key={p.id}
           onClick={() => onPunchClick(p, d.date)}
-          title={p.voided ? `Anulada: ${p.void_reason ?? ''}` : `${p.label ?? ''} · ${GEO_META[p.geo_status]?.label ?? ''}`}
+          title={p.voided ? `Anulada: ${p.void_reason ?? ''}` : `${p.label ?? ''} · ${geoLabel(bt, p.geo_status) ?? ''}`}
           className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums transition hover:shadow-sm ${
             p.voided
               ? 'border-slate-200 text-slate-300 line-through'
@@ -299,6 +312,7 @@ export function EspelhoTable({
   /** Adm: lançar batida no dia. */
   onAdd?: (date: string) => void;
 }) {
+  const bt = useBusinessType();
   const rows = visibleDays(data);
   const rowBg = (d: Day) =>
     `${d.weekday === 0 || d.weekday === 6 || d.holiday ? 'bg-slate-50/60' : ''} ${d.status === 'HOJE' ? 'bg-sky-50/50' : ''}`;
@@ -332,7 +346,7 @@ export function EspelhoTable({
                   )}
                 </div>
               </div>
-              {d.punches.length > 0 && <div className="mt-1.5"><PunchChips d={d} onPunchClick={onPunchClick} /></div>}
+              {d.punches.length > 0 && <div className="mt-1.5"><PunchChips d={d} onPunchClick={onPunchClick} bt={bt} /></div>}
               <div className="mt-1 text-xs text-slate-500 tabular-nums">
                 Trabalhado {d.punches.length || d.worked_min ? fmtMin(d.worked_min) : '—'}
                 {!off && <> · Previsto {fmtMin(d.expected_min)}</>}
@@ -371,7 +385,7 @@ export function EspelhoTable({
                     <span className="text-xs text-slate-400">{WEEKDAYS[d.weekday]}</span>
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap tabular-nums">{off ? '—' : d.holiday ? 'Feriado' : scheduleText(d.schedule)}</td>
-                  <td className="px-3 py-2"><PunchChips d={d} onPunchClick={onPunchClick} /></td>
+                  <td className="px-3 py-2"><PunchChips d={d} onPunchClick={onPunchClick} bt={bt} /></td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-700">{d.punches.length || d.worked_min ? fmtMin(d.worked_min) : <span className="text-slate-300">—</span>}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-500">{off ? <span className="text-slate-300">—</span> : fmtMin(d.expected_min)}</td>
                   <td className={`px-3 py-2 text-right tabular-nums font-semibold ${saldoCls(d.balance_min)}`}>
@@ -439,14 +453,15 @@ export function PunchDetail({
 }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const bt = useBusinessType();
   const hasMap = p.latitude != null && p.longitude != null;
   return (
     <Modal title={`Batida de ${dayLabel(date)} às ${p.hora}`} onClose={onClose}>
       <DetailRow k="Tipo" v={p.voided ? 'Anulada' : p.label ?? (p.kind === 'ENTRADA' ? 'Entrada' : 'Saída')} />
       <DetailRow k="Origem" v={p.source === 'MANUAL' ? `Lançada por ${p.created_by ?? 'adm'}` : 'Registrada pelo funcionário'} />
       {p.note && <DetailRow k="Motivo" v={p.note} />}
-      <DetailRow k="Local" v={<span className={GEO_META[p.geo_status]?.cls}>{GEO_META[p.geo_status]?.label ?? p.geo_status}</span>} />
-      {p.distance_m != null && <DetailRow k="Distância da clínica" v={fmtDist(p.distance_m)} />}
+      <DetailRow k="Local" v={<span className={GEO_META[p.geo_status]?.cls}>{geoLabel(bt, p.geo_status) ?? p.geo_status}</span>} />
+      {p.distance_m != null && <DetailRow k={pickBt(bt, 'Distância da clínica', 'Distância do laboratório')} v={fmtDist(p.distance_m)} />}
       {p.accuracy_m != null && <DetailRow k="Precisão do GPS" v={`± ${fmtDist(p.accuracy_m)}`} />}
       {hasMap && (
         <DetailRow

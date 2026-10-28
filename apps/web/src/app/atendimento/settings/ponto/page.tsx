@@ -13,6 +13,8 @@ import { Clock, Loader2, MapPin, Save, UserPlus, Users, Trash2, CalendarRange, A
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { resetPontoStatusCache } from '@/lib/usePontoStatus';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import {
   apiErr, dateBr, fmtMin, Modal, scheduleMinutes, scheduleText, WEEKDAYS, WEEKDAYS_LONG,
   type DaySchedule, type PontoLocal, type ScheduleVersion, type WeekSchedule,
@@ -175,6 +177,7 @@ function ScheduleEditor({ rows, onChange }: { rows: Row[]; onChange: (r: Row[]) 
 
 /* ════════════════════════════════════════════════════════════ */
 export default function PontoSettingsPage() {
+  const bt = useBusinessType();
   const [data, setData] = useState<ConfigData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [modal, setModal] = useState<
@@ -296,8 +299,11 @@ export default function PontoSettingsPage() {
             </section>
 
             <p className="text-xs text-muted-foreground">
-              Feriados nacionais entram sozinhos no cálculo. Feriados estaduais e municipais vêm do cadastro de feriados da clínica.
-              Esqueceu de bater? Só o adm ajusta, na Central do ponto — e o ajuste fica registrado com o motivo.
+              {pickBt(
+                bt,
+                'Feriados nacionais entram sozinhos no cálculo. Feriados estaduais e municipais vêm do cadastro de feriados da clínica. Esqueceu de bater? Só o adm ajusta, na Central do ponto — e o ajuste fica registrado com o motivo.',
+                'Feriados nacionais entram sozinhos no cálculo. Feriados estaduais e municipais vêm do cadastro de feriados do laboratório. Esqueceu de bater? Só o adm ajusta, na Central do ponto — e o ajuste fica registrado com o motivo.',
+              )}
             </p>
           </div>
         )}
@@ -324,6 +330,7 @@ const LOCAL_MAX_ACC_M = 50;
 const MACEIO = { lat: -9.6658, lng: -35.7353 };
 
 function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLocal) => void }) {
+  const bt = useBusinessType();
   const [lat, setLat] = useState(data.local ? String(data.local.lat) : '');
   const [lng, setLng] = useState(data.local ? String(data.local.lng) : '');
   const [raio, setRaio] = useState(String(data.local?.raio_m ?? 100));
@@ -408,10 +415,16 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
   const pickEndereco = (h: EnderecoHit, auto = false) => {
     setPoint({ lat: h.lat, lng: h.lng }, true);
     setHint(
-      (auto ? `Achei pelo endereço cadastrado da clínica (${h.title}). ` : '') +
+      (auto
+        ? pickBt(bt, `Achei pelo endereço cadastrado da clínica (${h.title}). `, `Achei pelo endereço cadastrado do laboratório (${h.title}). `)
+        : '') +
         (h.kind === 'street'
-          ? 'A busca marca o MEIO da rua, não o número: toque no mapa exatamente em cima da clínica e depois salve.'
-          : 'Confira no mapa se o ponto azul está em cima da clínica e salve.'),
+          ? pickBt(
+              bt,
+              'A busca marca o MEIO da rua, não o número: toque no mapa exatamente em cima da clínica e depois salve.',
+              'A busca marca o MEIO da rua, não o número: toque no mapa exatamente em cima do laboratório e depois salve.',
+            )
+          : pickBt(bt, 'Confira no mapa se o ponto azul está em cima da clínica e salve.', 'Confira no mapa se o ponto azul está em cima do laboratório e salve.')),
     );
   };
 
@@ -469,7 +482,7 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
       </h2>
       <p className="text-xs text-muted-foreground mt-1">
         O ponto só é aceito <b>dentro do círculo</b>, com a localização do celular ligada e precisão de até ±{data.max_precisao_m} m.
-        <b> Toque no mapa exatamente em cima da clínica</b> e salve.
+        <b>{pickBt(bt, ' Toque no mapa exatamente em cima da clínica', ' Toque no mapa exatamente em cima do laboratório')}</b> e salve.
       </p>
       {!data.local && (
         <p className="mt-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -488,7 +501,11 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
       {reading?.done && (
         <p className={`mt-2 text-xs ${reading.acc <= LOCAL_MAX_ACC_M ? 'text-emerald-600' : 'text-rose-600'}`}>
           {reading.acc <= LOCAL_MAX_ACC_M
-            ? `Leitura boa (± ${fmtM(reading.acc)}). Confira no mapa se o ponto azul está em cima da clínica.`
+            ? pickBt(
+                bt,
+                `Leitura boa (± ${fmtM(reading.acc)}). Confira no mapa se o ponto azul está em cima da clínica.`,
+                `Leitura boa (± ${fmtM(reading.acc)}). Confira no mapa se o ponto azul está em cima do laboratório.`,
+              )
             : reading.acc > SEM_GPS_M
               ? `Este aparelho está sem GPS (± ${fmtM(reading.acc)}) — a localização veio da internet e erra por quilômetros. Marque no mapa.`
               : `Leitura imprecisa (± ${fmtM(reading.acc)}). Tente de novo perto de uma janela, ou marque no mapa.`}

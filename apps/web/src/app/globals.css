@@ -1444,3 +1444,6 @@
   line-height: 20px;
   color: var(--wa-meta);
 }
+
+/* F4 do laboratório: o body fica oculto até a tela do laboratório montar (BtBootScript + useBusinessType). */
+html[data-bt="LABORATORIO"]:not([data-bt-pronto]) body { visibility: hidden; }

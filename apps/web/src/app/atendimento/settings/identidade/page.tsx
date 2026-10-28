@@ -22,6 +22,8 @@ import { maskCEPInput } from '@/lib/utils';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { resetTenantCache } from '@/lib/useTenant';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface TenantData {
   id: string;
@@ -44,6 +46,7 @@ interface TenantData {
 
 export default function IdentidadeClinicaPage() {
   const role = useRole();
+  const bt = useBusinessType();
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -126,7 +129,7 @@ export default function IdentidadeClinicaPage() {
         <Building2 size={48} className="mx-auto mb-3 text-muted-foreground" />
         <p className="text-base font-bold mb-2">Área restrita</p>
         <p className="text-sm text-muted-foreground">
-          Só o administrador da clínica pode editar a identidade.
+          {pickBt(bt, 'Só o administrador da clínica pode editar a identidade.', 'Só o administrador do laboratório pode editar a identidade.')}
         </p>
       </div>
     );
@@ -178,7 +181,7 @@ export default function IdentidadeClinicaPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      showError('Nome da clínica é obrigatório');
+      showError(pickBt(bt, 'Nome da clínica é obrigatório', 'Nome do laboratório é obrigatório'));
       return;
     }
     setSaving(true);
@@ -199,7 +202,7 @@ export default function IdentidadeClinicaPage() {
       });
       // Invalida cache do useTenant pra sidebar/header puxar nome novo
       resetTenantCache();
-      showSuccess('Identidade da clínica atualizada!');
+      showSuccess(pickBt(bt, 'Identidade da clínica atualizada!', 'Identidade do laboratório atualizada!'));
       // Reload pra refletir branding em todo lugar
       setTimeout(() => window.location.reload(), 600);
     } catch (err: any) {
@@ -224,11 +227,14 @@ export default function IdentidadeClinicaPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-foreground tracking-tight flex items-center gap-2">
           <Building2 size={22} className="text-violet-600" />
-          Identidade da clínica
+          {pickBt(bt, 'Identidade da clínica', 'Identidade do laboratório')}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          O nome editado aqui aparece em todo o sistema — sidebar, recibos,
-          contratos, e-mails e cobranças enviadas aos pacientes.
+          {pickBt(
+            bt,
+            'O nome editado aqui aparece em todo o sistema — sidebar, recibos, contratos, e-mails e cobranças enviadas aos pacientes.',
+            'O nome editado aqui aparece em todo o sistema — sidebar, recibos, contratos, e-mails e cobranças enviadas aos clientes.',
+          )}
         </p>
       </div>
 
@@ -267,13 +273,13 @@ export default function IdentidadeClinicaPage() {
           <div className="flex items-center gap-4 mb-5">
             <div className="w-20 h-20 rounded-2xl border border-border bg-white flex items-center justify-center overflow-hidden shrink-0">
               {logoUrl ? (
-                <img src={logoUrl} alt="Logo da clínica" className="w-full h-full object-contain" />
+                <img src={logoUrl} alt={pickBt(bt, 'Logo da clínica', 'Logo do laboratório')} className="w-full h-full object-contain" />
               ) : (
                 <Building2 size={28} className="text-muted-foreground/50" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Logo da clínica</p>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">{pickBt(bt, 'Logo da clínica', 'Logo do laboratório')}</p>
               <p className="text-[11px] text-muted-foreground mb-2">
                 Aparece na barra lateral e no cabeçalho dos contratos e termos. PNG ou JPG — a imagem é reduzida automaticamente.
               </p>
@@ -329,10 +335,10 @@ export default function IdentidadeClinicaPage() {
 
           <Field
             Icon={Building2}
-            label="Nome da clínica *"
+            label={pickBt(bt, 'Nome da clínica *', 'Nome do laboratório *')}
             value={name}
             onChange={setName}
-            placeholder="Clínica Odontológica Sorriso"
+            placeholder={pickBt(bt, 'Clínica Odontológica Sorriso', 'Laboratório de Prótese Exemplo')}
             help="Aparece no sidebar e nos documentos."
             required
           />
@@ -359,7 +365,7 @@ export default function IdentidadeClinicaPage() {
                 type="email"
                 value={email}
                 onChange={setEmail}
-                placeholder="contato@clinica.com.br"
+                placeholder={pickBt(bt, 'contato@clinica.com.br', 'contato@laboratorio.com.br')}
                 help="Usado em assinaturas, NF-e e respostas automáticas."
               />
             </div>
@@ -370,11 +376,14 @@ export default function IdentidadeClinicaPage() {
         <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <MapPin size={16} className="text-violet-600" />
-            <h2 className="text-sm font-bold text-foreground">Endereço da clínica</h2>
+            <h2 className="text-sm font-bold text-foreground">{pickBt(bt, 'Endereço da clínica', 'Endereço do laboratório')}</h2>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            Aparece nas mensagens automáticas (confirmação e lembrete) pro paciente
-            saber onde é a consulta. Digite o CEP que o resto preenche sozinho.
+            {pickBt(
+              bt,
+              'Aparece nas mensagens automáticas (confirmação e lembrete) pro paciente saber onde é a consulta. Digite o CEP que o resto preenche sozinho.',
+              'Aparece nas mensagens automáticas pro cliente saber onde fica o laboratório. Digite o CEP que o resto preenche sozinho.',
+            )}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
             <div className="sm:col-span-2">
@@ -416,7 +425,7 @@ export default function IdentidadeClinicaPage() {
                 <ExternalLink size={10} />
               </a>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Domínio personalizado (sua-clinica.com.br) disponível no plano Enterprise.
+                {pickBt(bt, 'Domínio personalizado (sua-clinica.com.br) disponível no plano Enterprise.', 'Domínio personalizado (seu-laboratorio.com.br) disponível no plano Enterprise.')}
               </p>
             </div>
           </div>

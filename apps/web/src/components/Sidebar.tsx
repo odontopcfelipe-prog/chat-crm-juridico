@@ -24,6 +24,10 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useTenant, applyTenantTheme } from '@/lib/useTenant';
 import { THEMES } from '@/components/ThemeSwitcher';
 import { useVisualMode } from '@/components/VisualModeProvider';
+// F4 do laboratório — na sessão de laboratório a barra só mostra as telas da
+// lista de rotas dele e o cargo com o nome do laboratório. Na clínica nada muda.
+import { isLab, labAllowsRoute, LAB_ROLE_LABELS } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 // ─── Tooltip Styles (shared) ──────────────────────────────────────
 const TOOLTIP_CLS =
@@ -101,6 +105,10 @@ export function Sidebar() {
   // Aplica theme_color como CSS var no <html> e disponibiliza nome+logo.
   const tenant = useTenant();
   useEffect(() => { applyTenantTheme(tenant); }, [tenant]);
+  const bt = useBusinessType();
+  const lab = isLab(bt);
+  // Laboratório: item fora da lista de rotas dele some (e o grupo vazio junto).
+  const navOk = (href: string) => !lab || labAllowsRoute(href);
 
   // Onda 15.8 — Mapeia o role principal pra label legivel exibida embaixo do
   // nome no rodape da sidebar (estilo LUMEN "Cirurgia-Dentista"). Fallback
@@ -112,7 +120,7 @@ export function Sidebar() {
     ASSISTANT: 'Assistente',
     FINANCEIRO: 'Financeiro',
   };
-  const userCargo = perms.role ? (ROLE_LABELS[perms.role] ?? perms.role) : '';
+  const userCargo = perms.role ? ((lab ? LAB_ROLE_LABELS : ROLE_LABELS)[perms.role] ?? perms.role) : '';
 
   const [expanded, setExpanded] = useState(false);
   // Onda 5c (Fase 25) — estado de cada grupo (expandido/colapsado).
@@ -860,7 +868,7 @@ export function Sidebar() {
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
         allItems.dashboard,    // Menu inicial (rota /atendimento/dashboard)
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       // Atendimento: canais ativos (agenda + comunicacao com o paciente).
@@ -874,7 +882,7 @@ export function Sidebar() {
         allItems.ponto,        // Relógio de ponto
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       id: 'jornada',
@@ -889,7 +897,7 @@ export function Sidebar() {
         // Onda 15 (etapa 18) — Orcamentos e Financeiro moveram pro
         // grupo "Financeiro" abaixo (operador preferiu agrupar la).
         // Orcamentos continua duplicado no CRM como atalho.
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       id: 'crm',
@@ -904,7 +912,7 @@ export function Sidebar() {
         // allItems.orcamentos,   // Orcamentos
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
         allItems.followup,     // Follow-up IA (admin)
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       // Onda 15 (etapa 18) — Grupo "Financeiro" reativado, agora hospedando
@@ -925,7 +933,7 @@ export function Sidebar() {
         allItems.boletos,              // Boletos (cobranças / PaymentGatewayCharge)
         allItems.validar,              // Validar (gate Financeiro→Tratamento, manage_financial)
         // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       id: 'gestao',
@@ -939,7 +947,7 @@ export function Sidebar() {
         allItems.estoque,      // Estoque
         allItems.relatorios,   // Relatórios
         allItems.minhaRede,    // Minha rede
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       id: 'marketing',
@@ -949,7 +957,7 @@ export function Sidebar() {
       items: [
         allItems.influencers,  // Cadastro de influenciadores
         allItems.afiliados,    // Dashboard de afiliados
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
     {
       id: 'sistema',
@@ -962,7 +970,7 @@ export function Sidebar() {
         allItems.anamneseMaster, // Anamnese master (Onda 17.32.112 — só SUPER_ADMIN)
         allItems.settings,       // Configuracoes
         allItems.manual,         // Manual
-      ].filter(i => i.show),
+      ].filter(i => i.show && navOk(i.href)),
     },
   ].filter(g => g.items.length > 0);
 
@@ -1472,7 +1480,8 @@ export function Sidebar() {
             <p className="text-[11px] text-muted-foreground truncate">{userEmail}</p>
           </div>
 
-          {/* Meu perfil */}
+          {/* Meu perfil (no laboratório fica fora: a tela de equipe ainda é só da clínica) */}
+          {!lab && (
           <button
             onClick={() => {
               setShowUserMenu(false);
@@ -1483,6 +1492,7 @@ export function Sidebar() {
             <User size={14} className="text-muted-foreground shrink-0" />
             Meu perfil
           </button>
+          )}
 
           {/* Trocar usuario — limpa remembered_email tambem pra abrir
             o login com email em branco */}

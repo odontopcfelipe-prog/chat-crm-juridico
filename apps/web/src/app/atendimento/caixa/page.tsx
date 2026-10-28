@@ -12,6 +12,8 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { useRole } from '@/lib/useRole';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 /* ── helpers ─────────────────────────────────────────────── */
 const brl = (v: any) =>
@@ -417,6 +419,7 @@ function ContasModal({ accounts, onClose, onChanged }: { accounts: Account[]; on
   const [newName, setNewName] = useState('');
   const [newKind, setNewKind] = useState('CAIXA');
   const [busy, setBusy] = useState(false);
+  const bt = useBusinessType();
 
   const rename = async (id: string, name: string) => {
     try { await api.patch(`/caixa/accounts/${id}`, { name }); onChanged(); }
@@ -434,7 +437,7 @@ function ContasModal({ accounts, onClose, onChanged }: { accounts: Account[]; on
 
   return (
     <Modal onClose={onClose} title="Contas do caixa">
-      <p className="text-sm text-slate-500 mb-4">Onde o dinheiro cai. Renomeie do jeito da sua clínica (nome do banco, maquininha…).</p>
+      <p className="text-sm text-slate-500 mb-4">{pickBt(bt, 'Onde o dinheiro cai. Renomeie do jeito da sua clínica (nome do banco, maquininha…).', 'Onde o dinheiro cai. Renomeie do jeito do seu laboratório (nome do banco, maquininha…).')}</p>
       <div className="space-y-2 mb-4">
         {list.map((a) => (
           <div key={a.id} className="flex items-center gap-2">

@@ -6,6 +6,8 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import type { ConversationNoteItem } from '../types';
 import type { Socket } from 'socket.io-client';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface NotesPanelProps {
   conversationId: string;
@@ -15,6 +17,8 @@ interface NotesPanelProps {
 }
 
 export function NotesPanel({ conversationId, currentUserId, onClose, socketRef }: NotesPanelProps) {
+  // Laboratório (F4): sem a correção por IA (o span vazio segura o "Salvar Nota" à direita).
+  const lab = isLab(useBusinessType());
   const [notes, setNotes] = useState<ConversationNoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -305,6 +309,7 @@ export function NotesPanel({ conversationId, currentUserId, onClose, socketRef }
             </button>
           </div>
           <div className="flex items-center justify-between mt-2">
+            {lab ? <span /> : (
             <button
               onClick={handleCorrectWithAI}
               disabled={!text.trim() || correcting}
@@ -313,6 +318,7 @@ export function NotesPanel({ conversationId, currentUserId, onClose, socketRef }
               {correcting ? <div className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" /> : <Sparkles size={12} />}
               Corrigir com IA
             </button>
+            )}
             <button
               onClick={handleSend}
               disabled={!text.trim() || sending}

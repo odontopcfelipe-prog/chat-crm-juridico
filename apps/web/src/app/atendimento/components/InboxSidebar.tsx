@@ -9,6 +9,8 @@ import {
 import { showSuccess } from '@/lib/toast';
 import { normalizeStage } from '@/lib/crmStages';
 import { useRole } from '@/lib/useRole';
+import { pickBt, type BusinessType } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import { formatChatListTime } from '@/lib/chatUtils';
 import type { ConversationSummary, UnreadSummary } from '../types';
 import { ContactAvatar } from './ContactAvatar';
@@ -67,9 +69,9 @@ function formatTaskDate(dateStr: string): string {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: string, bt: BusinessType) {
   const map: Record<string, { class: string; label: string }> = {
-    BOT: { class: '', label: '🤖 SophIA' },
+    BOT: { class: '', label: pickBt(bt, '🤖 SophIA', '⏳ Aguardando') },
     WAITING: { class: 'wa-tag-amber', label: '⏳ Aguardando' },
     ACTIVE: { class: 'wa-tag-green', label: '🟢 Atribuído' },
     CLOSED: { class: 'wa-tag-muted', label: '⬛ Fechado' },
@@ -93,6 +95,8 @@ interface ConversationRowProps {
   onSelect: (id: string) => void;
   onToggleBulk?: (id: string) => void;
   onLightbox: (url: string) => void;
+  /** Tipo de negócio da sessão (string: não quebra o memo). */
+  bt: BusinessType;
 }
 
 const ConversationRow = memo(function ConversationRow({
@@ -104,6 +108,7 @@ const ConversationRow = memo(function ConversationRow({
   onSelect,
   onToggleBulk,
   onLightbox,
+  bt,
 }: ConversationRowProps) {
   const name = conv.contactName || conv.contactPhone;
   const attendant = conv.originAssignedUserId ? conv.originAssignedUserName : conv.assignedAgentName;
@@ -190,7 +195,7 @@ const ConversationRow = memo(function ConversationRow({
         {/* CRM: status, atendente, SLA, especialidade, etiquetas, tarefa, score
             (o telefone fica na dica do nome e no cabeçalho da conversa) */}
         <div className="wa-chat-meta">
-          {statusBadge(conv.status)}
+          {statusBadge(conv.status, bt)}
           {attendant && (
             <span className="inline-flex items-center gap-1 truncate max-w-[160px]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#8696a0] inline-block shrink-0" />
@@ -346,6 +351,7 @@ export const InboxSidebar = memo(function InboxSidebar({
   onLoadMore,
 }: InboxSidebarProps) {
   const { isAdmin } = useRole();
+  const bt = useBusinessType();
 
   // Onda 18.35 — scroll infinito: IntersectionObserver dispara `onLoadMore` quando
   // o sentinela no fim da lista entra em tela (root = o próprio container rolável).
@@ -718,6 +724,7 @@ export const InboxSidebar = memo(function InboxSidebar({
                 onSelect={handleSelectRow}
                 onToggleBulk={onToggleBulk}
                 onLightbox={onLightbox}
+                bt={bt}
               />
             ))}
             {/* Onda 18.35 — sentinela do scroll infinito. Some durante a busca

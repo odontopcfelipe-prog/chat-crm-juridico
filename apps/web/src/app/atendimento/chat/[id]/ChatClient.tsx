@@ -15,6 +15,8 @@ import type { Socket } from 'socket.io-client';
 import { formatPhone } from '@/lib/utils';
 import { showError } from '@/lib/toast';
 import { getDateKey, formatDateLabel, formatTime as formatTimeUtil, getInitial as getInitialUtil, isEmojiOnly, extractFirstUrl, getDocLabel } from '@/lib/chatUtils';
+import { isLab } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 
 function StatusIcon({ status, isOut }: { status: string; isOut: boolean }) {
   if (!isOut) return null;
@@ -39,6 +41,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   // Fix: usar React.use() pra unwrap a Promise (forma idiomatica do Next 15/16).
   const resolvedParams = use(params);
   const router = useRouter();
+  // Laboratório: sem IA, sem SophIA, sem transcrição e sem especialista (o servidor
+  // nega essas rotas para o laboratório). Na clínica nada muda.
+  const lab = isLab(useBusinessType());
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [lead, setLead] = useState<any>(null);
@@ -299,7 +304,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     if (!confirm('Devolver esta conversa ao atendente comercial de origem?')) return;
     try {
       await api.patch(`/conversations/${convoId}/return-to-origin`);
-      router.push('/');
+      router.push(lab ? '/atendimento' : '/');
     } catch (e: any) {
       alert(e?.response?.data?.message || 'Erro ao devolver conversa.');
     }
@@ -441,14 +446,17 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           }).catch(() => {});
           setConvoId(convo.id);
           setConvoStatus(convo.status || 'ABERTO');
-          setAiMode(!!convo.ai_mode);
+          // btAgora() e não o `lab` do render: num carregamento direto (o iframe do
+          // split) este efeito roda na hidratação, quando o hook ainda diz clínica.
+          const labAgora = isLab(btAgora());
+          setAiMode(!labAgora && !!convo.ai_mode);
           setMessages(convo.messages || []);
           setSpecialty(convo.specialty || null);
           setAssignedDentist(convo.assigned_dentist || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
 
           // Carregar lista de especialistas para o dropdown (agents = sem restrição de role)
-          api.get('/users/agents').then((r) => {
+          if (!labAgora) api.get('/users/agents').then((r) => {
             setAllSpecialists(
               (r.data as any[]).filter((u) => u.specialties?.length > 0),
             );
@@ -616,7 +624,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         {/* Header */}
         <header className="min-h-[80px] px-8 py-4 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between z-30 shrink-0">
           <div className="flex items-center gap-4">
-            <button onClick={() => router.push('/')} className="text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => router.push(lab ? '/atendimento' : '/')} className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft size={22} />
             </button>
             <div className="w-12 h-12 rounded-full bg-[#2a2a2a] border border-[#3a3a3a] text-white flex items-center justify-center font-bold text-xl shadow-sm">
@@ -633,6 +641,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                   {contactPresence === 'composing' ? 'digitando...' : 'online'}
                 </span>
               )}
+              {!lab && (
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
                   {specialty && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 text-[10px] font-bold border border-violet-500/20">
@@ -689,10 +698,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     )}
                   </div>
                 </div>
+              )}
             </div>
           </div>
           <div className="flex gap-2 items-center">
-            {specialty?.toLowerCase().includes('trabalhist') && (
+            {!lab && specialty?.toLowerCase().includes('trabalhist') && (
               <>
                 {!isClosed && (
                   <button
@@ -715,6 +725,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 </button>
               </>
             )}
+            {!lab && (
             <button
               onClick={handleToggleAiMode}
               title={aiMode ? 'Desativar IA' : 'Ativar IA'}
@@ -727,6 +738,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               {aiMode ? <Bot size={16} /> : <BotOff size={16} />}
               {aiMode ? 'IA Ativa' : 'IA Inativa'}
             </button>
+            )}
             {originAssignedUserId && !isClosed && (
               <button
                 onClick={handleReturnToOrigin}
@@ -888,7 +900,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             <p className={`text-[12px] mt-2 leading-snug italic ${isOut ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                               {msg.text}
                             </p>
-                          ) : (
+                          ) : lab ? null : (
                             <button
                               onClick={() => handleTranscribe(msg.id)}
                               disabled={transcribing[msg.id]}
@@ -1101,7 +1113,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 
                     // ── Auto-disable AI upon typing ──
-                    if (aiMode && val.trim().length > 0 && convoId) {
+                    if (!lab && aiMode && val.trim().length > 0 && convoId) {
                       setAiMode(false);
                       (async () => {
                         try {
@@ -1127,7 +1139,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 />
                 <div className="absolute inset-y-0 right-3 flex items-center gap-1">
                   <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
-                  <SophIAButton text={text} onResult={handleSophIAResult} compact />
+                  {!lab && <SophIAButton text={text} onResult={handleSophIAResult} compact />}
                 </div>
               </div>
 

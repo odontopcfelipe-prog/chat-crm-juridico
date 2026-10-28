@@ -17,7 +17,9 @@ import {
   Check,
   Bot,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface InboxInstance {
   id: string;
@@ -67,6 +69,9 @@ const COLOR_PALETTE = [
 const OPERATOR_ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'ASSISTANT', 'FINANCEIRO'];
 
 export default function InboxesSettingsPage() {
+  // Laboratório: sem roteamento por IA (ligar o auto_route religaria a
+  // transferência para especialista, que o laboratório não tem).
+  const lab = isLab(useBusinessType());
   const [inboxes, setInboxes] = useState<Inbox[]>([]);
   const [allUsers, setAllUsers] = useState<SystemUser[]>([]);
   const [whatsappInstances, setWhatsappInstances] = useState<EvolutionInstance[]>([]);
@@ -292,7 +297,7 @@ export default function InboxesSettingsPage() {
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="text-2xl font-black text-foreground">{inbox.name}</h3>
-                              {inbox.auto_route && (
+                              {!lab && inbox.auto_route && (
                                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-500 border border-violet-500/20 flex items-center gap-1">
                                   <Bot size={10} /> Auto
                                 </span>
@@ -305,6 +310,7 @@ export default function InboxesSettingsPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
+                          {!lab && (
                           <button
                             onClick={() => handleToggleAutoRoute(inbox)}
                             className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
@@ -317,6 +323,7 @@ export default function InboxesSettingsPage() {
                             <Bot size={14} className="inline mr-1" />
                             {inbox.auto_route ? 'IA ativada' : 'Ativar IA'}
                           </button>
+                          )}
                           <button
                             onClick={() => handleDeleteInbox(inbox.id)}
                             className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
@@ -572,6 +579,7 @@ export default function InboxesSettingsPage() {
                 </div>
 
                 {/* Auto-route */}
+                {!lab && (
                 <div className="pt-2">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input
@@ -590,6 +598,7 @@ export default function InboxesSettingsPage() {
                     </div>
                   </label>
                 </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 px-6 py-4 border-t border-border shrink-0 bg-foreground/[0.02]">

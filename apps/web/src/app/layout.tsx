@@ -3,6 +3,7 @@ import { Ubuntu_Sans } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { GTMScript, GTMNoScript } from '@/components/GTMScript';
+import { BtBootScript } from '@/components/BtBootScript';
 import { Toaster } from 'react-hot-toast';
 
 const ubuntuSans = Ubuntu_Sans({
@@ -34,6 +35,8 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
+        {/* Laboratório: esconde a casca da clínica até a tela do laboratório montar (anti-piscada no Ctrl+F5) */}
+        <BtBootScript />
         {/* Google Tag Manager */}
         <GTMScript />
       </head>

@@ -8,6 +8,8 @@
  */
 import { useState } from 'react';
 import { ChevronDown, Smartphone } from 'lucide-react';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 type Plataforma = 'ios-safari' | 'ios-chrome' | 'ios-outro' | 'android' | 'computador';
 
@@ -22,7 +24,8 @@ export function detectarPlataforma(ua: string, touchMac = false): Plataforma {
   return 'computador';
 }
 
-const PASSOS: Record<Plataforma, { titulo: string; passos: string[] }> = {
+// Por tipo de conta: o passo do computador fala do local da conta (clínica ou laboratório).
+const passosDe = (bt: unknown): Record<Plataforma, { titulo: string; passos: string[] }> => ({
   'ios-safari': {
     titulo: 'iPhone (Safari)',
     passos: [
@@ -60,19 +63,24 @@ const PASSOS: Record<Plataforma, { titulo: string; passos: string[] }> = {
   computador: {
     titulo: 'Computador',
     passos: [
-      'Computador não tem GPS — o ponto é batido pelo celular, dentro da clínica.',
+      pickBt(
+        bt,
+        'Computador não tem GPS — o ponto é batido pelo celular, dentro da clínica.',
+        'Computador não tem GPS — o ponto é batido pelo celular, dentro do laboratório.',
+      ),
       'Se estiver no celular e vendo isto, abra o sistema pelo navegador do celular (Safari ou Chrome).',
     ],
   },
-};
+});
 
 export function LocationHelp({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
+  const bt = useBusinessType();
   const plataforma =
     typeof navigator === 'undefined'
       ? 'computador'
       : detectarPlataforma(navigator.userAgent, navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const info = PASSOS[plataforma];
+  const info = passosDe(bt)[plataforma];
   return (
     <div className="mt-3 w-full max-w-md text-left border border-slate-200 rounded-xl bg-slate-50">
       <button

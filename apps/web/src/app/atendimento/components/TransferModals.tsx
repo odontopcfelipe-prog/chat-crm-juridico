@@ -4,6 +4,8 @@ import { X, UserCheck } from 'lucide-react';
 import { TransferAudioRecorder } from '@/components/TransferAudioRecorder';
 import { AuthAudioPlayer } from '@/components/AuthAudioPlayer';
 import type { ConversationSummary } from '../types';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -73,6 +75,9 @@ export function TransferModals({
   declineReason, onSetDeclineReason, processingTransfer, onAcceptTransfer, onDeclineTransfer,
   transferSentMsg, onClearTransferSentMsg, onCancelTransfer, transferResponseMsg, onClearTransferResponseMsg,
 }: TransferModalsProps) {
+  // Laboratório (F4): sem transferência para especialista (setor com auto_route
+  // vira lista comum de pessoas) e sem áudio na transferência.
+  const lab = isLab(useBusinessType());
   return (
     <>
       {/* ── Transfer Modal ── */}
@@ -103,13 +108,13 @@ export function TransferModals({
               <>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 px-1 shrink-0">Selecione o destino</p>
                 <div className="flex flex-col gap-4 overflow-y-auto custom-scrollbar flex-1 min-h-0">
-                  {transferGroups.map(g => ({ ...g, users: g.users.filter(u => u.id !== currentUserId) })).filter(g => g.users.length > 0 || (g.type === 'SECTOR' && g.auto_route)).map(group => (
+                  {transferGroups.map(g => ({ ...g, users: g.users.filter(u => u.id !== currentUserId) })).filter(g => g.users.length > 0 || (!lab && g.type === 'SECTOR' && g.auto_route)).map(group => (
                     <div key={group.id}>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 px-1">
                         {group.name}
-                        {group.auto_route && <span className="ml-1 text-violet-400">(auto)</span>}
+                        {!lab && group.auto_route && <span className="ml-1 text-violet-400">(auto)</span>}
                       </p>
-                      {group.type === 'SECTOR' && group.auto_route ? (
+                      {!lab && group.type === 'SECTOR' && group.auto_route ? (
                         <div className="space-y-2">
                           {selected?.assignedDentistId ? (
                             (() => {
@@ -237,12 +242,14 @@ export function TransferModals({
                 rows={3}
               />
               {/* Divisor + gravador dentro da mesma caixa */}
+              {!lab && (
               <div className="border-t border-border/50 px-3 py-2.5 bg-muted/20">
                 <TransferAudioRecorder
                   conversationId={selectedConversationId!}
                   onAudioIdsChange={onSetTransferAudioIds}
                 />
               </div>
+              )}
             </div>
 
             {/* Erro */}

@@ -17,6 +17,8 @@ import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useTenant } from '@/lib/useTenant';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import {
   AddPunchModal, apiErr, dateBr, EspelhoActions, EspelhoTable, exportDetalhadoCsv, exportResumoCsv, fmtMin,
   fmtSaldo, monthLabel, MonthNav, printEspelhos, PunchDetail, saldoCls, scheduleText, TotalsCards, WEEKDAYS,
@@ -86,6 +88,7 @@ export default function PontoEquipePage() {
 ════════════════════════════════════════════════════════════ */
 function EquipeView() {
   const tenant = useTenant();
+  const bt = useBusinessType();
   const [ym, setYm] = useState(currentYm);
   const [data, setData] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,7 +114,7 @@ function EquipeView() {
     setExporting(kind);
     try {
       const res = await api.get<{ ym: string; people: Espelho[] }>('/ponto/report', { params: { month: ym } });
-      const clinic = tenant?.name ?? 'Clínica';
+      const clinic = tenant?.name ?? pickBt(bt, 'Clínica', 'Laboratório');
       if (!res.data.people.length) { showError('Ninguém no ponto neste mês.'); return; }
       if (kind === 'resumo') exportResumoCsv(res.data.people, res.data.ym, clinic);
       else if (kind === 'detalhado') exportDetalhadoCsv(res.data.people, res.data.ym);
@@ -299,6 +302,7 @@ function PersonView({
   onBack: () => void;
 }) {
   const tenant = useTenant();
+  const bt = useBusinessType();
   const [data, setData] = useState<Espelho | null>(null);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<{ p: Punch; date: string } | null>(null);
@@ -340,7 +344,7 @@ function PersonView({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MonthNav ym={ym} maxYm={currentYm()} onChange={onYm} />
-          {data && <EspelhoActions data={data} clinic={tenant?.name ?? 'Clínica'} />}
+          {data && <EspelhoActions data={data} clinic={tenant?.name ?? pickBt(bt, 'Clínica', 'Laboratório')} />}
         </div>
       </div>
 

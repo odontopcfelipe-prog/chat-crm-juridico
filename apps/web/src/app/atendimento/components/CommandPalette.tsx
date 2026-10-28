@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, MessageSquare, Bot, ArrowRightLeft, XCircle, Clock, Kanban, Calendar, Settings, User, Loader2, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { isLab, labAllowsRoute } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import type { ConversationSummary } from '../types';
 
 interface CommandPaletteProps {
@@ -12,7 +14,8 @@ interface CommandPaletteProps {
   conversations: ConversationSummary[];
   selectedId: string | null;
   onSelectConversation: (id: string) => void;
-  onToggleAI: () => void;
+  /** Sem a prop (laboratório), a ação "Alternar modo IA" não aparece. */
+  onToggleAI?: () => void;
   onOpenTransferModal: () => void;
   onCloseConversation: () => void;
 }
@@ -52,6 +55,8 @@ export function CommandPalette({
   onCloseConversation,
 }: CommandPaletteProps) {
   const router = useRouter();
+  // Laboratório (F4): só as telas liberadas para ele e nenhuma ação de IA.
+  const lab = isLab(useBusinessType());
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [leadResults, setLeadResults] = useState<LeadResult[]>([]);
@@ -150,7 +155,7 @@ export function CommandPalette({
         onSelect: () => {
           if (lead.conversationId) {
             onSelectConversation(lead.conversationId);
-          } else {
+          } else if (!lab) {
             router.push(`/atendimento/crm`);
           }
           onClose();
@@ -162,14 +167,14 @@ export function CommandPalette({
   // Quick actions (only when a conversation is selected)
   if (selectedId && !selectedId.startsWith('demo-')) {
     const actions: PaletteItem[] = [
-      {
+      ...(onToggleAI ? [{
         id: 'action-ai',
         type: 'action',
         label: 'Alternar modo IA',
         sublabel: 'Ctrl+Shift+A',
         icon: <Bot size={14} className="text-blue-400" />,
         onSelect: () => { onToggleAI(); onClose(); },
-      },
+      }] satisfies PaletteItem[] : []),
       {
         id: 'action-transfer',
         type: 'action',
@@ -191,16 +196,17 @@ export function CommandPalette({
   }
 
   // Navigation actions
+  const navBase = lab ? NAV_ACTIONS.filter(n => labAllowsRoute(n.href)) : NAV_ACTIONS;
   const filteredNav = q
-    ? NAV_ACTIONS.filter(n => n.label.toLowerCase().includes(q) || n.sublabel.toLowerCase().includes(q))
-    : NAV_ACTIONS;
+    ? navBase.filter(n => n.label.toLowerCase().includes(q) || n.sublabel.toLowerCase().includes(q))
+    : navBase;
 
   filteredNav.forEach(n => {
     items.push({
       id: n.id,
       type: 'nav',
       label: n.label,
-      sublabel: n.sublabel,
+      sublabel: lab ? undefined : n.sublabel,
       icon: n.icon,
       onSelect: () => { router.push(n.href); onClose(); },
     });

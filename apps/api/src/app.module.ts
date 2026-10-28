@@ -97,6 +97,8 @@ import { PatientScopeGuard } from './auth/patient-scope';
 // F2 parte 4 do laboratório — negação por padrão, por handler, para conta de laboratório.
 import { LabTenantGuard } from './business-type/lab-tenant.guard';
 import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
+// F4 do laboratório — textos que a API devolve à conta de laboratório.
+import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
 
 @Module({
   imports: [
@@ -258,6 +260,14 @@ import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.i
     {
       provide: APP_INTERCEPTOR,
       useClass: SensitiveDataInterceptor,
+    },
+    // F4 do laboratório — na conta de laboratório troca a mensagem da API (erro e
+    // message/error do corpo) pelo texto do laboratório (LAB_API_MESSAGES). Registrado
+    // depois do SensitiveDataInterceptor, fica por dentro dele: o erro do handler passa
+    // aqui primeiro. Clínica: sai na 1ª linha com o next.handle() puro.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LabVocabInterceptor,
     },
   ],
 })

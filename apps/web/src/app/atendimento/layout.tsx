@@ -25,7 +25,11 @@ import { useRole } from '@/lib/useRole';
 // tela que o perfil não pode vê "Sem acesso" em vez da tela (ex.: Dentista).
 import { useUserPermissions, resetUserPermissionsCache } from '@/lib/useUserPermissions';
 import { clearSessionTraces } from '@/lib/api';
-import { canAccessRoute } from '@crm/shared';
+import { canAccessRouteBt, isLab, labAllowsRoute } from '@crm/shared';
+// F4 do laboratório — tipo de negócio da sessão (clínica × laboratório) e os
+// textos de laboratório da casca. Na clínica nada muda.
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_TELA_FECHADA } from '@/lib/lab-casca-textos';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { Lock } from 'lucide-react';
 import { SocketProvider } from '@/lib/SocketProvider';
@@ -56,16 +60,17 @@ function resolveSearchContext(pathname: string): { kind: SearchCtxKind; label: s
   return { kind: 'patient', label: 'Localizar paciente' };
 }
 
-function NoRouteAccess({ onHome }: { onHome: () => void }) {
+// `lab`: sessão de laboratório (tela fora da lista de rotas dele ou sem permissão).
+function NoRouteAccess({ onHome, lab }: { onHome: () => void; lab: boolean }) {
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-sm w-full text-center bg-card border border-border rounded-2xl p-8 shadow-sm">
         <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted flex items-center justify-center">
           <Lock size={22} className="text-muted-foreground" />
         </div>
-        <h2 className="text-base font-bold text-foreground">Sem acesso a esta tela</h2>
+        <h2 className="text-base font-bold text-foreground">{lab ? LAB_TELA_FECHADA.titulo : 'Sem acesso a esta tela'}</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Seu perfil não tem permissão pra abrir esta página. Se precisar, peça ao administrador.
+          {lab ? LAB_TELA_FECHADA.texto : 'Seu perfil não tem permissão pra abrir esta página. Se precisar, peça ao administrador.'}
         </p>
         <button
           type="button"
@@ -166,6 +171,10 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   useEffect(() => {
     setAuthToken(localStorage.getItem('token'));
   }, [pathname]); // re-lê token a cada navegação (captura momento pós-login)
+  // F4 do laboratório — sessão de laboratório: telas, atalhos e banners de clínica
+  // ficam de fora. Na clínica `lab` é sempre false e nada muda.
+  const bt = useBusinessType(authToken);
+  const lab = isLab(bt);
 
   // Onda 17.50 — Barra lateral SO pro Adm Geral (ADMIN/SUPER_ADMIN). Derivada
   // do authToken (REATIVO) e nao do useRole (memo fixo na 1a montagem) — senao,
@@ -192,7 +201,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     localStorage.setItem('auth_logout_reason', 'role_changed');
     router.replace('/atendimento/login');
   }, [rolesChanged, pathname, router]);
-  const routeAllowed = canAccessRoute(pathname, hasPermission);
+  const routeAllowed = canAccessRouteBt(pathname, hasPermission, bt);
   const pontoStatus = usePontoStatus(authToken);
   // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
   // da clínica. Se ganhar manage_agenda (admin liberou), volta a ter o calendário.
@@ -305,7 +314,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   // Onda 18.x — atalho "/" abre o "Localizar um paciente" (não dispara enquanto
   // se digita num input/textarea, ex.: campo do chat).
+  // No laboratório o localizador fica fora (sem a busca do topo, o "/" não faz nada).
   useEffect(() => {
+    if (lab) return;
     const h = (e: KeyboardEvent) => {
       if (e.key !== '/') return;
       const el = document.activeElement as HTMLElement | null;
@@ -316,7 +327,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, []);
+  }, [lab]);
 
   // Pilha de telas pro "Voltar" (ver lerPilha). Login zera: sessão nova, histórico novo.
   const [temTelaAnterior, setTemTelaAnterior] = useState(false);
@@ -360,9 +371,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users, match: (p: string) => p.startsWith('/atendimento/pacientes'), badge: 0 },
     { label: 'Pontuação', href: '/atendimento/meu-jogo', icon: Trophy, match: (p: string) => p.startsWith('/atendimento/meu-jogo'), badge: 0 },
   ];
-  const allowedMainTabs = allMainTabs.filter(t => canAccessRoute(t.href, hasPermission));
+  const allowedMainTabs = allMainTabs.filter(t => canAccessRouteBt(t.href, hasPermission, bt));
   const mainTabs = isDentistNav
-    ? dentistTabs.filter(t => canAccessRoute(t.href, hasPermission))
+    ? dentistTabs.filter(t => canAccessRouteBt(t.href, hasPermission, bt))
     : allowedMainTabs.length > 0
       ? allowedMainTabs
       : [{ label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), isCenter: true, badge: 0 }];
@@ -377,7 +388,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     { label: 'Marketing', href: '/atendimento/marketing/analytics', icon: Megaphone, match: (p: string) => p.startsWith('/atendimento/marketing'), show: perms.canViewAnalytics },
     { label: 'Ajustes', href: '/atendimento/settings', icon: Settings, match: (p: string) => p.startsWith('/atendimento/settings'), show: perms.canManageSettings },
   ];
-  const moreItems = allMoreItems.filter(item => item.show && canAccessRoute(item.href, hasPermission))
+  const moreItems = allMoreItems.filter(item => item.show && canAccessRouteBt(item.href, hasPermission, bt))
     // Dentista: no "Mais" só o próprio ponto (se estiver na equipe do ponto).
     .filter(item => !isDentistNav || item.href === '/atendimento/ponto');
 
@@ -478,7 +489,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                   "coloque os ícones para a direita". Antes a busca tinha
                   flex-1 max-w-xl: crescia só até 576px e a sobra de largura ia
                   pra DEPOIS dos ícones, agrupando-os junto da busca (à esquerda). */}
-              {!hideSearch && (
+              {!hideSearch && !lab && (
                 <button
                   type="button"
                   onClick={() => setLocatorOpen(true)}
@@ -505,7 +516,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
         })()}
         {/* Onda 17.32.86 — Banner de trial/inadimplencia (sticky no topo
             do main, abaixo do header global). So aparece se relevante. */}
-        <TrialBanner />
+        {!lab && <TrialBanner />}
         <WhatsappDisconnectedBanner />
         <main className="flex-1 overflow-hidden">
           {/* Antes de /users/me chegar, a decisão usa o fallback do JWT: se ele
@@ -515,7 +526,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
             : routeAllowed
             ? children
             : permsReady
-              ? <NoRouteAccess onHome={() => router.push('/atendimento/dashboard')} />
+              ? <NoRouteAccess onHome={() => router.push('/atendimento/dashboard')} lab={lab && !labAllowsRoute(pathname)} />
               : null}
         </main>
       </div>
@@ -526,10 +537,10 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           Onda 17.32.124 — Quando o OnboardingWizard renderiza (trial +
           onboarding nao completo), ele suprime o TrialWelcomeModal
           via z-index maior. */}
-      <TrialWelcomeModal />
+      {!lab && <TrialWelcomeModal />}
       {/* Onda 17.32.124 — Wizard fullscreen de onboarding (1x na vida do
           tenant — fica dismissable mas sempre volta ate completar). */}
-      <OnboardingWizardLoader />
+      {!lab && <OnboardingWizardLoader />}
 
       {/* ─── Popup de alertas de tarefas (tempo real) ──────── */}
       <TaskAlertPopup />

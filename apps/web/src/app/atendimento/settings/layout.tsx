@@ -7,8 +7,11 @@ import {
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
   Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send, RotateCcw, Clock,
 } from 'lucide-react';
+import { isLab, labAllowsRoute } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
+import { useBusinessType } from '@/lib/useBusinessType';
 import { RouteGuard } from '@/components/RouteGuard';
+import { LAB_CONFIG_POR_ROTA, LAB_CONFIG_POR_SECAO } from './lab-config-textos';
 
 // ─── Menu organizado por seções ────────────────────────────
 
@@ -126,9 +129,12 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const router = useRouter();
   const pathname = usePathname();
   const { isAdmin, isSuperAdmin } = useRole();
+  // Laboratório: o menu só mostra as telas liberadas para a conta (na clínica, nada muda).
+  const lab = isLab(useBusinessType());
 
   const isItemVisible = (href: string) =>
-    (isAdmin || !adminOnlyPaths.has(href)) && (isSuperAdmin || !superAdminOnlyPaths.has(href));
+    (isAdmin || !adminOnlyPaths.has(href)) && (isSuperAdmin || !superAdminOnlyPaths.has(href)) &&
+    (!lab || labAllowsRoute(href));
   const isActive = (href: string) => pathname === href;
 
   return (
@@ -158,7 +164,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
               <div key={section.title} className="py-2">
                 {/* Section header */}
                 <p className="px-5 py-1.5 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest">
-                  {section.title}
+                  {(lab && LAB_CONFIG_POR_SECAO[section.title]) || section.title}
                 </p>
 
                 {/* Section items */}
@@ -179,7 +185,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                           }`}
                         >
                           <item.icon className={`w-4 h-4 mr-3 shrink-0 ${highlight ? 'text-primary' : 'opacity-60'}`} />
-                          <span className="truncate">{item.label}</span>
+                          <span className="truncate">{(lab && LAB_CONFIG_POR_ROTA[item.href]) || item.label}</span>
                         </button>
 
                         {/* Submenu children */}
@@ -198,7 +204,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                                   }`}
                                 >
                                   <child.icon className={`w-3.5 h-3.5 mr-2 shrink-0 ${subActive ? 'text-primary' : 'opacity-50'}`} />
-                                  <span className="truncate">{child.label}</span>
+                                  <span className="truncate">{(lab && LAB_CONFIG_POR_ROTA[child.href]) || child.label}</span>
                                 </button>
                               );
                             })}

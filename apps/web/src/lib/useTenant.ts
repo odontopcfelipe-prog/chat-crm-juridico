@@ -10,6 +10,7 @@
  * SSR: retorna null. Componentes devem ter fallback.
  */
 import { useEffect, useState } from 'react';
+import { decodeJwtPayload } from '@crm/shared';
 import api from '@/lib/api';
 
 export interface TenantBranding {
@@ -98,22 +99,44 @@ export function useIsTenantOwner(): boolean {
   return isOwner;
 }
 
-// Cache em modulo — todas as instancias do hook compartilham.
+// Cache em modulo — todas as instancias do hook compartilham. Amarrado a conta
+// (tenant_id) do token: o login troca de conta na mesma aba (router.push), e sem
+// isso o nome e o logo da conta anterior apareciam na conta nova.
 let cached: TenantBranding | null = null;
+let cachedTid: string | null = null;
 let inflight: Promise<TenantBranding | null> | null = null;
+let inflightTid: string | null = null;
+
+/** tenant_id do token salvo (null sem token, token ilegivel ou sem a conta). */
+function tenantIdDoToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const tid = decodeJwtPayload(localStorage.getItem('token'))?.tenant_id;
+    return typeof tid === 'string' ? tid : null;
+  } catch {
+    return null;
+  }
+}
 
 async function fetchTenant(): Promise<TenantBranding | null> {
-  if (cached) return cached;
-  if (inflight) return inflight;
+  const tid = tenantIdDoToken();
+  if (cached && cachedTid === tid) return cached;
+  if (inflight && inflightTid === tid) return inflight;
+  inflightTid = tid;
   inflight = (async () => {
     try {
       const { data } = await api.get<TenantBranding>('/tenants/me');
       cached = data || null;
+      cachedTid = tid;
       return cached;
     } catch {
       return null;
     } finally {
-      inflight = null;
+      // Outra conta pode ter pedido no meio: so limpa se o pedido em voo e desta.
+      if (inflightTid === tid) {
+        inflight = null;
+        inflightTid = null;
+      }
     }
   })();
   return inflight;
@@ -122,10 +145,14 @@ async function fetchTenant(): Promise<TenantBranding | null> {
 /** Reseta o cache — chamar no logout/login. */
 export function resetTenantCache() {
   cached = null;
+  cachedTid = null;
 }
 
 export function useTenant(): TenantBranding | null {
-  const [tenant, setTenant] = useState<TenantBranding | null>(cached);
+  // So aproveita o cache se ele for da conta do token atual.
+  const [tenant, setTenant] = useState<TenantBranding | null>(() =>
+    cached && cachedTid === tenantIdDoToken() ? cached : null,
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

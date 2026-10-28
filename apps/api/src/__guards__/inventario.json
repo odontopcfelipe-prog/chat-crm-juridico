@@ -4,7 +4,7 @@
   "resumo": {
     "automatismos": { "@Cron": 27, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
-    "globais": 12,
+    "globais": 13,
     "produtores": 24,
     "controllers": 86,
     "handlers": 941,
@@ -84,6 +84,7 @@
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "LabTenantGuard" },
     { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" },
+    { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "LabVocabInterceptor" },
     { "arquivo": "main.ts", "token": "app.use", "classe": "express.json({ limit: '50mb', verify: (função) })" },
     { "arquivo": "main.ts", "token": "app.use", "classe": "express.urlencoded({ limit: '50mb', extended: true })" },
     { "arquivo": "main.ts", "token": "app.useGlobalPipes", "classe": "new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true })" },

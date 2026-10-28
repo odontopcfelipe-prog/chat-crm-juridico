@@ -11,7 +11,9 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { LAB_PURPOSE_LABEL, pickBt } from '@crm/shared';
 import api from '@/lib/api';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 type Chip = { purpose: string | null; status: string; displayName?: string; instanceName?: string };
 
@@ -27,9 +29,14 @@ const isDown = (s?: string) => !!s && s !== 'open' && s !== 'unknown';
 
 export function WhatsappDisconnectedBanner() {
   const router = useRouter();
+  const bt = useBusinessType();
   const [down, setDown] = useState<string[]>([]);
 
+  // Depende do bt: no laboratório a 1ª renderização (hidratação) ainda diz clínica;
+  // quando o tipo vira, a checagem roda de novo com o nome da função do laboratório.
+  // Na clínica o bt não muda e o efeito roda uma vez só, como antes.
   useEffect(() => {
+    const nomes: Readonly<Record<string, string>> = pickBt(bt, PURPOSE_LABEL, LAB_PURPOSE_LABEL);
     let alive = true;
     const check = async () => {
       try {
@@ -41,7 +48,7 @@ export function WhatsappDisconnectedBanner() {
         const chips = Array.isArray(res.data) ? res.data : [];
         const labels = chips
           .filter((c) => isDown(c.status))
-          .map((c) => (c.purpose && PURPOSE_LABEL[c.purpose]) || c.displayName || 'WhatsApp');
+          .map((c) => (c.purpose && nomes[c.purpose]) || c.displayName || 'WhatsApp');
         setDown(labels);
       } catch {
         /* silencioso: não mostra alarme falso se a checagem falhar */
@@ -56,7 +63,7 @@ export function WhatsappDisconnectedBanner() {
       clearInterval(id);
       window.removeEventListener('focus', onFocus);
     };
-  }, []);
+  }, [bt]);
 
   if (down.length === 0) return null;
 

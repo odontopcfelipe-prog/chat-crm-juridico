@@ -13,10 +13,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   ArrowLeft, ChevronUp, ConciergeBell, HandHeart, Headset, LoaderCircle, Lock, MessageCircleMore, MessagesSquare,
-  Search, Send, ShieldCheck, Stethoscope, UserRound, UserRoundPlus, Volume2, VolumeX, Wallet, X,
+  Search, Send, ShieldCheck, Stethoscope, Truck, UserRound, UserRoundPlus, Volume2, VolumeX, Wallet, Wrench, X,
   type LucideIcon,
 } from 'lucide-react';
+import { isLab, LAB_SECTOR_TEXT, pickBt } from '@crm/shared';
 import api from '@/lib/api';
+import { useBusinessType } from '@/lib/useBusinessType';
 import { useSocket, useSocketEvent } from '@/lib/SocketProvider';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import toast from 'react-hot-toast';
@@ -48,6 +50,37 @@ const SETOR: Record<string, { nome: string; cor: string }> = {
   financeiro: { nome: 'Financeiro', cor: '#f59e0b' },
   admin: { nome: 'Administração', cor: '#f43f5e' },
 };
+
+// Laboratório: os mesmos canais (os ids não mudam), com nome e subtítulo de
+// laboratório. Ícone e cor continuam fora daqui (CANAIS, ICONES_DO_LAB e SETOR).
+const LAB_CANAIS: Readonly<Record<string, Readonly<{ nome: string; sub: string }>>> = Object.freeze({
+  geral: { nome: 'Geral', sub: 'O laboratório todo' },
+  recepcao: { nome: 'Atendimento', sub: 'Canal do atendimento' },
+  dentista: { nome: 'Protéticos', sub: 'Canal dos protéticos' },
+  acd_asb: { nome: 'Expedição', sub: 'Canal da expedição' },
+  crc: { nome: 'Comercial', sub: 'Canal do comercial' },
+  financeiro: { nome: 'Financeiro', sub: 'Canal do financeiro' },
+  admin: { nome: 'Administração', sub: 'Canal da administração' },
+});
+
+// Ícones que trocam no laboratório (bancada e entrega); os outros vêm de CANAIS.
+const ICONES_DO_LAB: Readonly<Partial<Record<string, LucideIcon>>> = Object.freeze({
+  dentista: Wrench,
+  acd_asb: Truck,
+});
+
+// Nome do setor de cada pessoa no laboratório (a cor continua saindo de SETOR).
+const NOMES_DE_SETOR_DO_LAB: Readonly<Partial<Record<string, Readonly<{ name: string }>>>> = LAB_SECTOR_TEXT;
+
+function canalDe(id: string, lab: boolean): { nome: string; icon: LucideIcon; sub: string } | undefined {
+  const base = CANAIS[id];
+  if (!base || !lab) return base;
+  return { ...base, ...LAB_CANAIS[id], icon: ICONES_DO_LAB[id] ?? base.icon };
+}
+
+function nomeDoSetor(setor: string, lab: boolean): string | undefined {
+  return lab ? (NOMES_DE_SETOR_DO_LAB[setor]?.name ?? SETOR[setor]?.nome) : SETOR[setor]?.nome;
+}
 
 const SOM_KEY = 'equipe_som';
 
@@ -106,6 +139,8 @@ function Contador({ n, forte = true }: { n: number; forte?: boolean }) {
 
 export default function EquipeChat() {
   const { userId, connected } = useSocket();
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   const pathname = usePathname() || '';
   // Nas telas de conversa do WhatsApp o canto de baixo é do botão de enviar (a bolinha sobe).
   const telaDeConversa = pathname === '/atendimento' || pathname.startsWith('/atendimento/chat');
@@ -323,7 +358,7 @@ export default function EquipeChat() {
     return f ? lista.filter((p) => p.name.toLowerCase().includes(f)) : lista;
   }, [ov?.people, filtroPessoas]);
   const pessoaAtiva = ativo?.startsWith('dm:') ? ov?.people.find((p) => p.channel === ativo) ?? null : null;
-  const canalAtivo = ativo && !ativo.startsWith('dm:') ? CANAIS[ativo] : null;
+  const canalAtivo = ativo && !ativo.startsWith('dm:') ? canalDe(ativo, lab) : null;
 
   if (!userId) return null;
 
@@ -357,7 +392,7 @@ export default function EquipeChat() {
 
   // ─── Balão ──────────────────────────────────────────────────────
   const itemCanal = (c: Canal) => {
-    const meta = CANAIS[c.id];
+    const meta = canalDe(c.id, lab);
     if (!meta) return null;
     const Icon = meta.icon;
     return (
@@ -438,7 +473,7 @@ export default function EquipeChat() {
                   <Avatar nome={p.name} setor={p.sector} online={p.online} size={28} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] text-foreground">{p.name}</span>
-                    <span className="block truncate text-[10.5px] text-muted-foreground">{SETOR[p.sector]?.nome ?? 'Equipe'}</span>
+                    <span className="block truncate text-[10.5px] text-muted-foreground">{nomeDoSetor(p.sector, lab) ?? 'Equipe'}</span>
                   </span>
                   <Contador n={p.unread} />
                 </button>
@@ -471,7 +506,7 @@ export default function EquipeChat() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13.5px] font-bold text-foreground">{canalAtivo.nome}</p>
                     <p className="truncate text-[10.5px] text-muted-foreground">
-                      {ativo === 'geral' ? 'A clínica toda vê e escreve' : 'Qualquer setor pode escrever'}
+                      {ativo === 'geral' ? pickBt(bt, 'A clínica toda vê e escreve', 'O laboratório todo vê e escreve') : 'Qualquer setor pode escrever'}
                     </p>
                   </div>
                 </>
@@ -520,7 +555,7 @@ export default function EquipeChat() {
                         {!agrupa && (
                           <p className="mb-0.5 truncate text-[10.5px] text-muted-foreground">
                             {!meu && <b className="font-semibold text-foreground">{m.sender_name}</b>}
-                            {!meu && m.sender_sector && !pessoaAtiva && <> · {SETOR[m.sender_sector]?.nome}</>}
+                            {!meu && m.sender_sector && !pessoaAtiva && <> · {nomeDoSetor(m.sender_sector, lab)}</>}
                             {!meu && ' · '}{hora(m.created_at)}
                           </p>
                         )}
@@ -533,9 +568,11 @@ export default function EquipeChat() {
                           <div className="mt-1 flex max-w-full items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5 shadow-sm">
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary"><UserRound size={14} /></span>
                             <span className="min-w-0">
-                              <span className="block text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">Paciente</span>
+                              <span className="block text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">{pickBt(bt, 'Paciente', 'Dentista')}</span>
                               <span className="block truncate text-[12.5px] font-semibold text-foreground">{m.patient.name}</span>
                             </span>
+                            {/* Laboratório: a ficha do cliente ainda não abre por aqui. */}
+                            {!lab && (
                             <Link
                               href={`/atendimento/pacientes/${m.patient.id}`}
                               onClick={() => { if (mobile) setAberto(false); }}
@@ -543,6 +580,7 @@ export default function EquipeChat() {
                             >
                               Abrir ficha
                             </Link>
+                            )}
                           </div>
                         )}
                       </div>
@@ -562,7 +600,7 @@ export default function EquipeChat() {
                         autoFocus
                         value={busca}
                         onChange={(e) => setBusca(e.target.value)}
-                        placeholder="Anexar paciente: nome, CPF ou ficha"
+                        placeholder={pickBt(bt, 'Anexar paciente: nome, CPF ou ficha', 'Anexar cliente: nome, CPF/CNPJ ou ficha')}
                         className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
                       />
                       <button type="button" onClick={() => setBuscaAberta(false)} className="text-muted-foreground hover:text-foreground" aria-label="Fechar busca"><X size={14} /></button>
@@ -582,7 +620,7 @@ export default function EquipeChat() {
                         </button>
                       ))}
                       {busca.trim().length >= 2 && buscandoPac && !achados.length && <p className="px-2 py-2 text-[11px] text-muted-foreground">Procurando…</p>}
-                      {busca.trim().length >= 2 && !buscandoPac && !achados.length && <p className="px-2 py-2 text-[11px] text-muted-foreground">Nenhum paciente encontrado.</p>}
+                      {busca.trim().length >= 2 && !buscandoPac && !achados.length && <p className="px-2 py-2 text-[11px] text-muted-foreground">{pickBt(bt, 'Nenhum paciente encontrado.', 'Nenhum cliente encontrado.')}</p>}
                     </div>
                   </div>
                 )}
@@ -590,14 +628,14 @@ export default function EquipeChat() {
                   <div className="mb-2 flex w-fit max-w-full items-center gap-2 rounded-lg border border-border bg-muted/50 px-2.5 py-1 text-[12px] text-foreground">
                     <UserRound size={13} className="text-primary" />
                     <span className="truncate">{anexo.name}</span>
-                    <button type="button" onClick={() => setAnexo(null)} className="text-muted-foreground hover:text-foreground" aria-label="Tirar paciente"><X size={13} /></button>
+                    <button type="button" onClick={() => setAnexo(null)} className="text-muted-foreground hover:text-foreground" aria-label={pickBt(bt, 'Tirar paciente', 'Tirar cliente')}><X size={13} /></button>
                   </div>
                 )}
                 <div className="flex items-end gap-1.5">
                   <button
                     type="button"
                     onClick={() => setBuscaAberta((v) => !v)}
-                    title="Anexar paciente"
+                    title={pickBt(bt, 'Anexar paciente', 'Anexar dentista')}
                     className={`mb-0.5 rounded-lg p-2 transition ${buscaAberta ? 'bg-primary/12 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
                   >
                     <UserRoundPlus size={18} />
