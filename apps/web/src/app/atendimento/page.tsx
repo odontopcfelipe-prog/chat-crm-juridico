@@ -99,7 +99,9 @@ const CONV_PAGE_SIZE = 50;
 
 export default function Dashboard() {
   const router = useRouter();
-  const { isAdmin } = useRole();
+  // contaLaboratorio: conta de laboratório (claim `bt` do token). Usado só no
+  // "Finalizado" do painel lateral (handleChangeLeadStage).
+  const { isAdmin, isLab: contaLaboratorio } = useRole();
   // Não-admin começa no filtro "MINHAS" — admin começa em "TUDO"
   const [leadFilter, setLeadFilter] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -1893,8 +1895,10 @@ export default function Dashboard() {
   const handleChangeLeadStage = async (newStage: string) => {
     const conv = conversations.find(c => c.id === selectedId) ?? adiadoConversations.find(c => c.id === selectedId);
     if (!conv?.leadId) return;
-    // Bloquear FINALIZADO sem área de atendimento definida
-    if (newStage === 'FINALIZADO' && !conv?.specialty) {
+    // Bloquear FINALIZADO sem área de atendimento definida. No laboratório o cliente é
+    // um dentista e a conversa não tem área de atendimento: finalizar não exige (igual
+    // à tela do CRM e à API). Clínica: igual a antes.
+    if (newStage === 'FINALIZADO' && !contaLaboratorio && !conv?.specialty) {
       alert('⚠️ Defina a Área de Atendimento antes de marcar como Finalizado.');
       return;
     }

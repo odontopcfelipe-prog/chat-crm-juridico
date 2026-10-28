@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { Prisma, Conversation } from '@crm/shared';
+import { Prisma, Conversation, isLabTenant } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
 import { clinicTransferBlockReason, workStageAfterDemotion } from '../leads/clinic-transfer-guard';
 import { isChipAiEnabled } from '../settings/chip-ai-enabled.util';
@@ -24,6 +24,15 @@ export class ConversationsService {
   ) {}
 
   async create(data: Prisma.ConversationCreateInput): Promise<Conversation> {
+    // F5 [LAB-GATE] — conversa aberta pela equipe (POST /conversations) numa conta de
+    // laboratório nasce com ai_mode=false: lá a IA não responde, e com true a conversa
+    // aparecia como do robô, fora das filas Minhas/Espera. Clínica: a conta não está
+    // na lista de laboratórios (cache de 60 s) e o create recebe o mesmo objeto.
+    const conta = (data as any)?.tenant?.connect?.id ?? (data as any)?.tenant_id;
+    if (await isLabTenant(this.prisma, conta, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] conversa-nova — conta ${conta} é de laboratório: conversa nasce com ai_mode=false`);
+      return this.prisma.conversation.create({ data: { ...data, ai_mode: false } });
+    }
     return this.prisma.conversation.create({ data });
   }
 
@@ -676,8 +685,15 @@ export class ConversationsService {
     if (!conv) throw new NotFoundException('Conversa não encontrada');
     if (!conv.tenant_id) throw new BadRequestException('Conversa sem tenant');
 
+    // F5 [LAB-GATE] — no laboratório a trava de comparecimento/pagamento não roda
+    // (a regra e o texto dela são de clínica) e a mensagem de "sem WhatsApp" fala de
+    // laboratório. O is_client segue o setor de destino como na clínica (lá ele marca
+    // o cliente dentista), e é ele que escolhe o número de saída no envio. Clínica: a
+    // conta não está na lista de laboratórios (cache de 60 s) e tudo segue como antes.
+    const deLab = await isLabTenant(this.prisma, conv.tenant_id, (m) => this.logger.warn(m));
+
     // Lead agendado só vai pra Clínica depois de comparecer ou pagar.
-    if (purpose === 'CLINICA' && conv.lead_id && !conv.lead?.is_client) {
+    if (!deLab && purpose === 'CLINICA' && conv.lead_id && !conv.lead?.is_client) {
       const blocked = await clinicTransferBlockReason(this.prisma, conv.lead_id);
       if (blocked) throw new BadRequestException(blocked);
     }
@@ -689,6 +705,11 @@ export class ConversationsService {
       select: { name: true, inbox_id: true },
     });
     if (!chip) {
+      if (deLab) {
+        throw new BadRequestException(
+          `Seu laboratório não tem um WhatsApp de ${purpose === 'CLINICA' ? 'Atendimento/Produção' : 'Captação'} conectado.`,
+        );
+      }
       throw new BadRequestException(
         `Sua clínica não tem um WhatsApp ${purpose === 'CLINICA' ? 'Clínica' : 'Comercial'} conectado.`,
       );
@@ -715,6 +736,11 @@ export class ConversationsService {
     // Espelha graduateLeadToClient (promove, idempotente: NÃO re-carimba became_client_at)
     // e demoteLeadFromClient (demove: limpa became_client_at + reverte stage FINALIZADO,
     // senão a conversa some das DUAS abas — is_client=false + stage=FINALIZADO).
+    // Laboratório: a mesma reclassificação (Atendimento/Produção = cliente dentista,
+    // Captação = contato em captação), para o envio sair pelo número do setor novo.
+    if (conv.lead_id && deLab) {
+      this.logger.log(`[LAB-GATE] setor — conversa ${id} de laboratório foi para ${purpose}: is_client segue o setor`);
+    }
     if (conv.lead_id) {
       const leadData = purpose === 'CLINICA'
         ? { is_client: true, became_client_at: conv.lead?.became_client_at ?? new Date() }

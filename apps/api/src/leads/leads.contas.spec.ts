@@ -314,14 +314,16 @@ describe('PATCH /leads/:id/stage — lead e etapa da própria conta', () => {
     expect(m.de('lead.update')).toHaveLength(1);
   });
 
-  it('lead da própria conta, etapa do funil da conta: mesmo lead.update de antes, sem leitura a mais', async () => {
+  it('lead da própria conta, etapa do funil da conta: mesmo lead.update de antes, sem leitura a mais (fora a lista de laboratórios)', async () => {
     const m = montar();
     await m.ctl.updateStage('LA', { stage_id: 'stA' } as any, req(A));
     await esperar();
     expect(m.de('lead.update')).toEqual([
       { where: { id: 'LA' }, data: { stage: 'QUALIFICANDO', stage_entered_at: expect.any(Date), stage_id: 'stA', pipeline_id: 'pA' } },
     ]);
-    expect(m.de('tenantBusinessProfile.findMany')).toEqual([]);
+    // A conferência do funil da conta não lê nada a mais; a única leitura nova é a lista
+    // de laboratórios (cache de 60 s) do freio de laboratório da troca de etapa (F5).
+    expect(m.de('tenantBusinessProfile.findMany').length).toBeLessThanOrEqual(1);
     expect(m.de('leadStageHistory.create')).toEqual([
       { data: { lead_id: 'LA', from_stage: 'NOVO', to_stage: 'QUALIFICANDO', actor_id: 'u-1', loss_reason: null } },
     ]);

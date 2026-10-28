@@ -1,9 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { excludeLabWhere, getLabTenantIds } from '@crm/shared';
+import { excludeLabWhere, getLabTenantIds, isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
 import { EMAIL_EVENTS, getEmailEvent } from './email-events';
+// Laboratório de prótese — texto sem vocabulário de clínica (funções puras, sem DI).
+import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
 
 /**
  * Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
@@ -135,6 +137,19 @@ export class EmailAutomationService {
       });
       if (override && !override.enabled && !opts?.ignoreDisabled) {
         return false; // tenant desligou esse e-mail
+      }
+
+      // Laboratório de prótese: e-mail com texto de clínica (consulta, paciente,
+      // tratamento…) não sai para o cliente do laboratório. Os de cobrança têm texto
+      // neutro e seguem iguais. Clínica: só a leitura da lista de laboratórios (cache).
+      if (
+        (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) &&
+        temVocabularioDeClinica(
+          semVariaveis(`${override?.subject ?? def.defaultSubject}\n${override?.body ?? def.defaultBody}`),
+        )
+      ) {
+        this.logger.log(`[LAB-GATE] email — ${eventKey} tem texto de clínica: não sai na conta de laboratório ${tenantId}`);
+        return false;
       }
 
       const tenant = await this.prisma.tenant.findUnique({

@@ -10,6 +10,7 @@ import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
 import { brazilPhoneMatchVariants, normalizeBrazilianPhone } from '../common/utils/phone';
 import { clinicTransferBlockReason, patientEvidence, workStageAfterDemotion } from './clinic-transfer-guard';
+import { negarLaboratorio } from '../common/lab-gate.util';
 import OpenAI from 'openai';
 
 /**
@@ -890,15 +891,27 @@ export class LeadsService {
       throw new ForbiddenException('Motivo de perda é obrigatório ao marcar como PERDIDO');
     }
 
+    // F5 [LAB-GATE] — o lead é de conta de laboratório? Lido uma vez (lista em cache de
+    // 60 s), antes dos portões e dos disparos, que seguem na mesma ordem. Com conta, é a
+    // do próprio lead (lead de outra conta já foi recusado acima; lead sem conta fica com
+    // a de quem move, como o Drive). Sem conta (SUPER_ADMIN): decide pela conta do lead
+    // logo depois de gravar a etapa.
+    let lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+
     // Stage gate: FINALIZADO exige especialidade definida
     if (stage === 'FINALIZADO') {
-      const conv = await this.prisma.conversation.findFirst({
-        where: { lead_id: id },
-        orderBy: { last_message_at: 'desc' },
-        select: { specialty: true, assigned_dentist_id: true },
-      });
-      if (!conv?.specialty) {
-        throw new ForbiddenException('Lead precisa ter especialidade definida para ser finalizado');
+      if (lab) {
+        // No laboratório não existe área de atendimento (especialidade é da clínica).
+        this.logger.log(`[LAB-GATE] finalizado-sem-especialidade — lead ${id} é de laboratório: ganho sem área de atendimento`);
+      } else {
+        const conv = await this.prisma.conversation.findFirst({
+          where: { lead_id: id },
+          orderBy: { last_message_at: 'desc' },
+          select: { specialty: true, assigned_dentist_id: true },
+        });
+        if (!conv?.specialty) {
+          throw new ForbiddenException('Lead precisa ter especialidade definida para ser finalizado');
+        }
       }
       // FINALIZADO vira cliente (Clínica) — lead agendado só depois de comparecer/pagar.
       const cur = await this.prisma.lead.findUnique({ where: { id }, select: { is_client: true } });
@@ -941,6 +954,7 @@ export class LeadsService {
         } : {}),
       },
     });
+    if (!tenantId) lab = await isLabTenant(this.prisma, lead.tenant_id, (m) => this.logger.warn(m));
 
     // Registra o histórico de mudança de stage
     this.prisma.leadStageHistory.create({
@@ -954,9 +968,14 @@ export class LeadsService {
     }).catch(err => this.logger.warn(`Failed to record stage history for lead ${id}: ${err}`));
 
     // Salva avanço de etapa na memória do lead (contexto para IA)
-    this.appendLeadStageToMemory(id, current?.stage ?? null, stage, lossReason ?? null).catch(err =>
-      this.logger.warn(`[MEMORY] Falha ao registrar etapa CRM na memória do lead ${id}: ${err}`),
-    );
+    if (lab) {
+      // F5 [LAB-GATE] — laboratório não tem IA: a etapa não vai para a memória da IA.
+      this.logger.log(`[LAB-GATE] memoria-etapa — lead ${id} é de laboratório: etapa fora da memória da IA`);
+    } else {
+      this.appendLeadStageToMemory(id, current?.stage ?? null, stage, lossReason ?? null).catch(err =>
+        this.logger.warn(`[MEMORY] Falha ao registrar etapa CRM na memória do lead ${id}: ${err}`),
+      );
+    }
 
     // Lead virou CLIENTE → religa IA automaticamente em todas as conversations
     // pra que a skill "Sophia — Pós-Venda" (area='Acompanhamento') assuma.
@@ -966,7 +985,10 @@ export class LeadsService {
     // Não filtramos por ai_mode_source='MANUAL': o ciclo de venda terminou,
     // a Pós-Venda é o novo estado natural. Operador que quiser manter manual
     // pode desligar de novo via toggle do chat.
-    if (stage === 'FINALIZADO') {
+    if (stage === 'FINALIZADO' && lab) {
+      // F5 [LAB-GATE] — laboratório: a conversa fica como a equipe deixou (sem IA pós-venda).
+      this.logger.log(`[LAB-GATE] pos-venda — lead ${id} é de laboratório: IA não é religada ao virar cliente`);
+    } else if (stage === 'FINALIZADO') {
       this.prisma.conversation.updateMany({
         where: { lead_id: id },
         data: {
@@ -1002,7 +1024,11 @@ export class LeadsService {
     ]);
     const shouldEnsurePatient =
       (stageSlug && PATIENT_TRIGGER_SLUGS.has(stageSlug)) || stage === 'FINALIZADO';
-    if (shouldEnsurePatient) {
+    if (shouldEnsurePatient && lab) {
+      // F5 [LAB-GATE] — no laboratório o cadastro (dentista ou clínica cliente) é feito à
+      // mão, com documento e tipo; a etapa do funil não cria cadastro a partir do contato.
+      this.logger.log(`[LAB-GATE] lead-paciente — lead ${id} é de laboratório (stage=${stageSlug || stage}): cadastro só pela tela`);
+    } else if (shouldEnsurePatient) {
       const tid = tenantId ?? lead.tenant_id ?? undefined;
       if (tid) {
         // Resolve via ModuleRef pra evitar dependência circular no boot do módulo
@@ -1079,6 +1105,12 @@ export class LeadsService {
     if (!lead) throw new NotFoundException('Lead não encontrado');
     const tid = tenantId ?? lead.tenant_id ?? undefined;
     if (!tid) throw new ForbiddenException('Tenant ausente — não é possível criar Patient');
+    // F5 [LAB-GATE] — no laboratório o cadastro do cliente é feito à mão (documento e
+    // tipo); não nasce do contato. Conta do lead (ou, sem conta, a de quem pediu).
+    if (await isLabTenant(this.prisma, lead.tenant_id ?? tid, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] lead-paciente — lead ${leadId} é de laboratório: cadastro só pela tela`);
+      throw negarLaboratorio('Criar cadastro a partir do contato');
+    }
 
     const patientsService = this.moduleRef.get(PatientsService, { strict: false });
     if (!patientsService) {
@@ -1232,6 +1264,11 @@ export class LeadsService {
     if (tenantId ? lead.tenant_id !== tenantId : lead.tenant_id) return { ok: false };
     if (lead.is_client) return { ok: true, leadId: lead.id, alreadyClient: true };
 
+    // F5 — no laboratório o mesmo caminho vale: o 1º pagamento promove o contato que
+    // ainda não é cliente (o do cadastro manual já nasce cliente e sai acima). O
+    // promoteLeadCore do laboratório não troca de setor, e o FINALIZADO do updateStatus
+    // não religa a IA, não grava a memória da IA nem cria cadastro a partir do contato.
+    // Comparecimento não conta: a agenda do laboratório não tem consulta.
     const ev = await patientEvidence(this.prisma, lead.id);
     if (!ev.attended && !ev.paid) {
       this.logger.log(`[LEAD→PACIENTE] Lead ${lead.id} segue LEAD (${source}): sem comparecimento nem pagamento`);
@@ -1305,6 +1342,11 @@ export class LeadsService {
     userId: string | undefined,
     source: string,
   ): Promise<{ ok: boolean; leadId?: string; stageFinalized?: boolean; movedConversations?: number }> {
+    // F5 [LAB-GATE] — conta de laboratório? Lido ANTES do claim (lista em cache), para
+    // não pôr espera entre os passos 2 e 3. No laboratório: claim, follow-ups e
+    // FINALIZADO (que já não religa a IA) seguem; a troca de setor (passo 3) não.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+
     // PASSO 1: Sempre seta is_client=true imediatamente (garantido).
     // Mesmo se PASSO 2 falhar, o paciente ja eh tratado como cliente nas
     // demais visualizacoes (WhatsApp, IA).
@@ -1387,6 +1429,10 @@ export class LeadsService {
 
     // PASSO 3: a conversa do Comercial vai pro setor Clínica (best-effort).
     let movedConversations = 0;
+    if (lab) {
+      this.logger.log(`[LAB-GATE] troca-de-setor — lead ${lead.id} é de laboratório: conversa fica no setor em que está`);
+      return { ok: true, leadId: lead.id, stageFinalized, movedConversations };
+    }
     try {
       movedConversations = await this.moveLeadConversationToSector(lead.id, tenantId, 'CLINICA');
       if (movedConversations) {
@@ -1446,6 +1492,13 @@ export class LeadsService {
     if (tenantId ? lead.tenant_id !== tenantId : lead.tenant_id) return { ok: false, error: 'Acesso negado' };
     if (!lead.is_client) {
       return { ok: true, leadId: lead.id, alreadyLead: true };
+    }
+    // F5 [LAB-GATE] — no laboratório o cliente nasce do cadastro manual e não volta a
+    // ser lead sozinho (ex.: cobranças canceladas): sem rebaixar, sem trocar de setor e
+    // sem mexer na IA.
+    if (await isLabTenant(this.prisma, lead.tenant_id ?? tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] rebaixar-cliente — lead ${lead.id} é de laboratório: segue cliente`);
+      return { ok: false, leadId: lead.id, error: 'Conta de laboratório: o cliente não volta a ser lead.' };
     }
 
     await this.prisma.lead.update({

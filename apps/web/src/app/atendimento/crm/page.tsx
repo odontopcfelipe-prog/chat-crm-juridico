@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2 } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
+import { useRole } from '@/lib/useRole';
 import api, { API_BASE_URL } from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { formatPhone } from '@/lib/utils';
@@ -231,12 +232,16 @@ function getScoreFactors(lead: CrmLead): string[] {
   return factors;
 }
 
-function validateStageTransition(lead: CrmLead, newStage: string): string | null {
+// contaLaboratorio: conta de laboratório (claim `bt` do token, via useRole). No
+// laboratório o cliente é um dentista e a conversa não tem especialidade nem
+// dentista atribuído, então finalizar não exige os dois. Clínica: igual a antes.
+function validateStageTransition(lead: CrmLead, newStage: string, contaLaboratorio = false): string | null {
   const conv = lead.conversations?.[0];
   if (newStage === 'REUNIAO_AGENDADA' && !conv?.specialty) {
     return 'Defina a especialidade antes de agendar reunião.';
   }
   if (newStage === 'FINALIZADO') {
+    if (contaLaboratorio) return null;
     if (!conv?.specialty) return 'Defina a especialidade antes de finalizar.';
     if (!conv?.assigned_dentist_id) return 'Atribua um dentista antes de finalizar.';
   }
@@ -1253,6 +1258,7 @@ function CrmAnalyticsPanel({ leads, onClose }: { leads: CrmLead[]; onClose: () =
 export default function CrmPage() {
   const router = useRouter();
   const { socket } = useSocket();
+  const { isLab: contaLaboratorio } = useRole();
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1673,7 +1679,7 @@ export default function CrmPage() {
     if (!lead) return;
 
     // Stage gate: validar antes de mover
-    const validationError = validateStageTransition(lead, newStage);
+    const validationError = validateStageTransition(lead, newStage, contaLaboratorio);
     if (validationError) {
       showError(validationError);
       return;
@@ -1866,7 +1872,7 @@ export default function CrmPage() {
     setFinalizedModal(null);
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
-    const validationError = validateStageTransition(lead, 'FINALIZADO');
+    const validationError = validateStageTransition(lead, 'FINALIZADO', contaLaboratorio);
     if (validationError) { showError(validationError); return; }
     const prev = lead.stage;
     setPreviousStageMap(m => ({ ...m, [leadId]: prev ?? 'INICIAL' }));

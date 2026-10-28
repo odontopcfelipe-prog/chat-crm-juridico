@@ -5,7 +5,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { ConversationsService } from '../conversations/conversations.service';
-import { Prisma, toBrazilWhatsappNumber } from '@crm/shared';
+import { Prisma, toBrazilWhatsappNumber, isLabTenant } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 import { createHash } from 'crypto';
 // SaaS Fase 4 (Onda 17.32.79) — limites por plano. Import ESTATICO (resolucao
@@ -214,6 +214,18 @@ export class PatientsService {
       } catch (e: any) {
         this.logger.warn(`[PATIENT CREATE] Falha ao auto-criar Lead/Conversation pra ${patient.id}: ${e?.message}`);
       }
+    } else if (patient.lead_id) {
+      // F5 [LAB-GATE] — cadastro feito a partir de um contato que já existe: no
+      // laboratório esse contato vira cliente (dentista ou clínica cliente). Na clínica
+      // só entra a leitura da lista de laboratórios (cache); nada é gravado.
+      // Best-effort, como o bloco acima: não desfaz o cadastro.
+      try {
+        if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+          await this.marcarContatoClienteDoLaboratorio(patient.lead_id, tenantId);
+        }
+      } catch (e: any) {
+        this.logger.warn(`[PATIENT CREATE] Falha ao marcar o contato ${patient.lead_id} como cliente: ${e?.message}`);
+      }
     }
 
     // Hook Indicação Premiada (Fase 21): se foi indicado por outro paciente,
@@ -343,6 +355,13 @@ export class PatientsService {
       }
     }
 
+    // F5 [LAB-GATE] — no laboratório o contato do cadastro (dentista ou clínica cliente)
+    // é cliente desde o cadastro: is_client=true com became_client_at. Só isso: sem
+    // troca de setor, sem IA e sem mensagem. Na clínica só entra a leitura da lista de
+    // laboratórios (cache de 60 s); as gravações e a ordem são as de antes.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (lead && lab) await this.marcarContatoClienteDoLaboratorio(lead.id, tenantId);
+
     // 2. Cria Lead se nao tem
     if (!lead) {
       lead = await this.prisma.lead.create({
@@ -352,10 +371,12 @@ export class PatientsService {
           tenant_id: tenantId,
           stage: 'NOVO',
           origin: 'cadastro_manual',
+          ...(lab ? { is_client: true, became_client_at: new Date() } : {}),
         },
         select: { id: true, name: true },
       });
       this.logger.log(`[PATIENT CREATE] Lead criado pra paciente ${patientId}: lead=${lead.id}`);
+      if (lab) this.logger.log(`[LAB-GATE] cliente-do-cadastro — lead ${lead.id} nasceu cliente (cadastro ${patientId})`);
     }
 
     // 3. Vincula patient.lead_id
@@ -375,6 +396,22 @@ export class PatientsService {
     } catch (e: any) {
       this.logger.warn(`[PATIENT CREATE] Falha ao garantir conversa do lead ${lead.id}: ${e?.message}`);
     }
+  }
+
+  /**
+   * F5 [LAB-GATE] — só para conta de laboratório (quem chama já conferiu): o contato
+   * ligado ao cadastro vira cliente, com is_client=true e became_client_at. Quem já é
+   * cliente fica como está (a data de entrada não muda). Não mexe em etapa, setor,
+   * conversa nem IA, e não manda mensagem.
+   */
+  private async marcarContatoClienteDoLaboratorio(leadId: string, tenantId: string): Promise<void> {
+    const r = await this.prisma.lead.updateMany({
+      where: { id: leadId, tenant_id: tenantId, is_client: false },
+      data: { is_client: true, became_client_at: new Date() },
+    });
+    this.logger.log(
+      `[LAB-GATE] cliente-do-cadastro — lead ${leadId} ${r.count ? 'virou cliente pelo cadastro' : 'já era cliente (ou não é desta conta)'}`,
+    );
   }
 
   /** Lista pacientes com busca, filtros e paginacao. */

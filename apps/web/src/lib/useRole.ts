@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { BT_CLINICA, isLab, resolveBtFromJwtPayload, type BusinessType } from '@crm/shared';
 
 // Onda 17.32.77 — SUPER_ADMIN: cross-tenant, ve todos os tenants do SaaS.
 export type AppRole = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
@@ -38,6 +39,14 @@ export interface RoleInfo {
   canCreatePatient: boolean;          // ADMIN/OPERADOR/ASSISTANT cadastram
   canEditPatientPersonalData: boolean; // SO ADMIN edita dados pessoais
   canArchivePatient: boolean;          // SO ADMIN arquiva
+  // ─── Tipo da conta ──────────────────────────────────────────────────────
+  /**
+   * Tipo de negócio da conta, lido do claim `bt` do token. Só o token de
+   * laboratório traz o claim; sem ele (todo token de clínica) é 'CLINICA'.
+   */
+  businessType: BusinessType;
+  /** true só quando o token é de uma conta de laboratório. */
+  isLab: boolean;
 }
 
 /**
@@ -75,7 +84,7 @@ export function useRole(): RoleInfo {
       // Normaliza legados (ADVOGADO → DENTIST, ESTAGIARIO → ASSISTANT) para
       // que o resto do app só veja os valores canônicos.
       const roles = rawRoles.map(normalizeLegacyRole);
-      return buildInfo(roles, payload?.sub ?? null);
+      return buildInfo(roles, payload?.sub ?? null, resolveBtFromJwtPayload(payload));
     } catch (e) {
       console.error('[useRole] ERRO ao decodificar token:', e);
       return buildInfo([], null);
@@ -84,7 +93,7 @@ export function useRole(): RoleInfo {
   }, []);
 }
 
-function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
+function buildInfo(roles: AppRole[], userId: string | null, businessType: BusinessType = BT_CLINICA): RoleInfo {
   const has = (allowed: AppRole[]) => roles.some(r => allowed.includes(r));
   const isDentist = roles.includes('DENTIST');
   const isAssistant = roles.includes('ASSISTANT');
@@ -117,5 +126,7 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     canCreatePatient: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
     canEditPatientPersonalData: roles.includes('ADMIN'),
     canArchivePatient: roles.includes('ADMIN'),
+    businessType,
+    isLab: isLab(businessType),
   };
 }

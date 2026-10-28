@@ -31,6 +31,14 @@ import { erroSomaFormas, isCartaoMaquineta, motivoBloqueioBaixa, MSG_CARTAO_VALI
 // Fase 0 — import estático (o quotes.service já faz igual): o import() dinâmico não
 // roda no jest sem --experimental-vm-modules e o setup do Asaas precisa de teste.
 import { setTenantSetting } from '../tenants/tenant-settings.helper';
+// Laboratório de prótese — texto de cobrança sem vocabulário de clínica (funções puras).
+import {
+  NOME_PADRAO_DO_LABORATORIO,
+  descricaoParaClienteDoLaboratorio,
+  semVariaveis,
+  temVocabularioDeClinica,
+} from './cobranca-laboratorio';
+import { negarLaboratorio } from '../common/lab-gate.util';
 
 // Mapeamento de status Asaas → interno
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -158,6 +166,7 @@ export class PaymentGatewayService {
     });
 
     // Pagou na clínica (dinheiro / maquineta / PIX da clínica) → o lead vira paciente.
+    // (No laboratório a promoção segue sem efeito de clínica: ver promoteLeadCore/updateStatus.)
     this.promoteLeadFromCharge(charge.id, charge.tenant_id ?? null, 'pagamento na clínica');
 
     // 2. Lança no caixa (RECEITA). Split (2 cartões na maquineta) => UMA receita
@@ -498,6 +507,12 @@ export class PaymentGatewayService {
    */
   private async releaseCommissionsForPlan(tenantId: string | null, treatmentPlanId: string | null, now: Date) {
     if (!tenantId || !treatmentPlanId) return;
+    // Laboratório: comissão é regra da clínica (não nasce no laboratório) — nem procura.
+    // Clínica: só a leitura da lista de laboratórios (cache de 60 s).
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      this.logger.log(`[LAB-GATE] comissao — plano ${treatmentPlanId} é de laboratório: sem liberação de comissão`);
+      return;
+    }
     try {
       // Onda 17.67 — libera por ITEM do plano (comissão de execução) E por QUOTE do
       // plano (comissão de VENDA, que não tem treatment_plan_item_id). Sem o segundo
@@ -1748,6 +1763,12 @@ export class PaymentGatewayService {
       return;
     }
 
+    // Laboratório de prótese (conta da COBRANÇA): baixa, caixa, parcelas e avisos de
+    // cobrança seguem iguais; os ganchos de clínica (pagou → paciente, aviso interno de
+    // venda, cancelou tudo → volta a lead) não rodam. Lido UMA vez, antes de qualquer
+    // efeito; a clínica só ganha a leitura da lista de laboratórios (cache de 60 s).
+    const lab = await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m));
+
     // Atualizar cobranca local
     const updatedCharge = await this.prisma.paymentGatewayCharge.update({
       where: { id: charge.id },
@@ -1831,13 +1852,17 @@ export class PaymentGatewayService {
     // Só evento RECENTE (reentrega em massa não deve avisar venda velha). ModuleRef
     // pelo mesmo motivo do down-payment (evita ciclo PaymentGateway↔Commercial).
     if ((mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') && eventIsRecent) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const qmod = require('../commercial/quotes.service');
-        const quotes = this.moduleRef.get(qmod.QuotesService, { strict: false });
-        if (quotes?.notifyVendaFeitaOnPaid) await quotes.notifyVendaFeitaOnPaid(charge.id);
-      } catch (e: any) {
-        this.logger.warn(`[WEBHOOK] Falha ao disparar "venda realizada" adiada p/ charge ${charge.id}: ${e.message}`);
+      if (lab) {
+        this.logger.log(`[LAB-GATE] venda-feita — cobrança ${charge.id} é de laboratório: aviso interno de venda não sai`);
+      } else {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const qmod = require('../commercial/quotes.service');
+          const quotes = this.moduleRef.get(qmod.QuotesService, { strict: false });
+          if (quotes?.notifyVendaFeitaOnPaid) await quotes.notifyVendaFeitaOnPaid(charge.id);
+        } catch (e: any) {
+          this.logger.warn(`[WEBHOOK] Falha ao disparar "venda realizada" adiada p/ charge ${charge.id}: ${e.message}`);
+        }
       }
     }
 
@@ -2010,7 +2035,12 @@ export class PaymentGatewayService {
       // canceladas/refundadas, demove Lead de volta (volta pra aba
       // "Leads" no WhatsApp + IA volta pro modo comercial).
       // Best-effort: nao bloqueia o webhook se falhar.
-      this.tryDemoteLeadIfAllChargesCancelled(charge);
+      // Laboratório: o cliente nasce no cadastro e não volta a lead por cobrança cancelada.
+      if (lab) {
+        this.logger.log(`[LAB-GATE] demote — cobrança ${charge.id} é de laboratório: o cliente não volta a lead`);
+      } else {
+        this.tryDemoteLeadIfAllChargesCancelled(charge);
+      }
     }
 
     // Emitir update generico de status
@@ -2616,6 +2646,13 @@ export class PaymentGatewayService {
   async importAsaasCustomers(tenantId?: string): Promise<{
     total: number; linked: number; alreadyLinked: number; unlinked: any[];
   }> {
+    // Laboratório: a importação cria contatos já como cliente (FINALIZADO) sozinha — é
+    // rotina da clínica. No laboratório o cliente nasce no cadastro e o vínculo com o
+    // Asaas vem dele (sync/link de um contato). A rota já é só de clínica; isto é o
+    // mesmo freio no serviço. Clínica: só a leitura da lista de laboratórios.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Importar clientes do Asaas');
+    }
     this.logger.log('[CUSTOMER-SYNC] Importando clientes do Asaas...');
     let allCustomers: any[] = [];
     let offset = 0;
@@ -2868,6 +2905,11 @@ export class PaymentGatewayService {
       // evita segurar a tx durante I/O).
       const finInstance = await this.whatsapp.getInstanceForPurpose(tenantId, 'FINANCEIRO');
       const cleanPhone = (phone || '').replace(/\D/g, '');
+      // F5 [LAB-GATE] — conversa do Financeiro de laboratório nasce com ai_mode=false
+      // (lá a IA não responde; com true ela aparecia como do robô, fora das filas da
+      // equipe). Clínica: a conta não está na lista de laboratórios (cache de 60 s) e
+      // o create leva os mesmos campos de antes.
+      const nasceDeLab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
       // Onda 18.x — find-or-create ATOMICO. Sem isso, dois disparos concorrentes
       // (ex.: CONFIRMED + RECEIVED do Asaas quase juntos, ou eco reentrando)
       // faziam os dois findFirst verem null e os dois create rodarem -> DUAS
@@ -2909,9 +2951,13 @@ export class PaymentGatewayService {
             instance_name: finInstance ?? null,
             tenant_id: tenantId,
             last_message_at: new Date(),
+            ...(nasceDeLab ? { ai_mode: false } : {}),
           },
           select: { id: true, instance_name: true },
         });
+        if (nasceDeLab) {
+          this.logger.log(`[LAB-GATE] financeiro — conversa ${created.id} de laboratório nasce com ai_mode=false`);
+        }
         this.logger.log(`[FINANCEIRO] Conversa própria criada pro lead ${leadId}: ${created.id}`);
         return created;
       });
@@ -2967,6 +3013,9 @@ export class PaymentGatewayService {
     // (tenantId)` era pulado e a "Pagamento Confirmado!" saía MESMO com o toggle
     // DESLIGADO. Resolver o tenant pelo lead fecha esse furo.
     const tenantId = (charge as any)?.tenant_id ?? gatewayCustomer.lead.tenant_id ?? null;
+    // Laboratório: a confirmação sai igual (texto neutro), só sem palavra de clínica
+    // na descrição. Clínica: só a leitura da lista de laboratórios (cache de 60 s).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     if (tenantId) {
       const flag = await this.prisma.globalSetting.findUnique({
         where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` },
@@ -2985,7 +3034,9 @@ export class PaymentGatewayService {
     // "(Sinal de fechamento — Fulano [plan:c6f80716-dffe-...])". Limpa só o TEXTO;
     // a coluna description no banco continua com a tag (é ela que casa o plano).
     const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO, stripInternalTags, confirmacaoMetodoLabel } = await import('@crm/shared');
-    const descricao = stripInternalTags(paymentData.description);
+    const descricao = lab
+      ? descricaoParaClienteDoLaboratorio(stripInternalTags(paymentData.description))
+      : stripInternalTags(paymentData.description);
     // {metodo} = " via PIX" / " via boleto" / " via cartão" (do billing_type da cobrança).
     const billingType = paymentData.billingType || (charge as any)?.billing_type;
     const metodoLabel = confirmacaoMetodoLabel(billingType);
@@ -3021,8 +3072,13 @@ export class PaymentGatewayService {
         } catch { /* corrompido — usa o default */ }
       }
     }
+    // Laboratório: texto salvo com palavra de clínica não vai ao cliente — usa o padrão (neutro).
+    if (lab && temVocabularioDeClinica(semVariaveis(tpl))) {
+      this.logger.log(`[LAB-GATE] confirmacao — texto salvo com palavra de clínica (conta ${tenantId}): usa o texto padrão`);
+      tpl = DEFAULT_CONFIRMACAO_PAGAMENTO;
+    }
     // Onda 18.30 — {clinica} = nome do tenant (Tenant.name).
-    let clinicaNome = 'a clínica';
+    let clinicaNome = lab ? NOME_PADRAO_DO_LABORATORIO : 'a clínica';
     if (tenantId) {
       const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
       if (t?.name) clinicaNome = t.name;
@@ -3147,11 +3203,21 @@ export class PaymentGatewayService {
     }
 
     const lead = gatewayCustomer.lead;
+    // Laboratório (conta da cobrança ou do contato, a mesma do aviso): o aviso sai igual
+    // (texto neutro), sem palavra de clínica na descrição e sem regravar o telefone do
+    // cliente. Clínica: só a leitura da lista de laboratórios (cache de 60 s).
+    const lab = await isLabTenant(
+      this.prisma,
+      (charge as any)?.tenant_id || (lead as any)?.tenant_id || null,
+      (m) => this.logger.warn(m),
+    );
     const firstName = (lead.name || 'Cliente').split(' ')[0];
     const valor = Number(paymentData.value || charge.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     // Mesma limpeza da confirmação: a tag [plan:{uuid}] é interna, não vai pro paciente.
     const { stripInternalTags } = await import('@crm/shared');
-    const descricao = stripInternalTags(paymentData.description);
+    const descricao = lab
+      ? descricaoParaClienteDoLaboratorio(stripInternalTags(paymentData.description))
+      : stripInternalTags(paymentData.description);
     const isEstorno = status === 'REFUNDED';
 
     const msg = isEstorno
@@ -3178,7 +3244,11 @@ export class PaymentGatewayService {
     }
 
     // Atualizar telefone do lead para o formato normalizado (evita duplicatas)
-    if (lead.phone !== clientPhone) {
+    if (lab) {
+      if (lead.phone !== clientPhone) {
+        this.logger.log(`[LAB-GATE] telefone — contato ${lead.id} é de laboratório: o telefone do cadastro fica como está`);
+      }
+    } else if (lead.phone !== clientPhone) {
       await this.prisma.lead.update({ where: { id: lead.id }, data: { phone: clientPhone } }).catch(() => {});
     }
 
@@ -3221,6 +3291,8 @@ export class PaymentGatewayService {
             instance_name: finInstance ?? null,
             last_message_at: new Date(),
             ...(notifyTenantId ? { tenant_id: notifyTenantId } : {}),
+            // Laboratório: nasce com a IA desligada, como a do Financeiro acima.
+            ...(lab ? { ai_mode: false } : {}),
           },
         });
         lastConvo = { id: newConvo.id, instance_name: finInstance ?? null };

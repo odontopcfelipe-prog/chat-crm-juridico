@@ -5,6 +5,9 @@ import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 // Fase 0 — regras puras (sem DI): soma das formas = valor, forma do balcão.
 import { erroSomaFormas } from '../payment-gateway/baixa-regras';
 import type { FormaBalcao } from './venda-balcao.util';
+// Laboratório de prótese — descrição da cobrança no Asaas sem vocabulário de clínica.
+import { isLabTenant } from '@crm/shared';
+import { DESCRICAO_DE_EMISSAO_DO_LABORATORIO } from '../payment-gateway/cobranca-laboratorio';
 
 @Injectable()
 export class TreatmentPlanBillingService {
@@ -74,7 +77,11 @@ export class TreatmentPlanBillingService {
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // +7 dias
     const dueDateStr = dueDate.toISOString().slice(0, 10);
 
-    const description = `Plano de tratamento odontológico — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`;
+    // Laboratório: o boleto/fatura que o cliente abre não fala de tratamento odontológico
+    // (o "(Nx)" e a tag [plan:<id>] ficam iguais). Clínica: a mesma descrição de antes;
+    // só a leitura da lista de laboratórios (cache de 60 s).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    const description = `${lab ? DESCRICAO_DE_EMISSAO_DO_LABORATORIO.trabalho : 'Plano de tratamento odontológico'} — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`;
 
     // Asaas NÃO parcela PIX (installmentCount + billingType PIX degrada pra carnê
     // de boleto). O tipo já exclui PIX aqui; guard defensivo (as string) caso um
@@ -248,6 +255,12 @@ export class TreatmentPlanBillingService {
 
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
+    // Laboratório: a entrada e o carnê vão ao Asaas sem o nome do financiamento da
+    // clínica ("Entrada — <nome>", "Parcelado — <nome> (Nx)"); "Entrada", "Parcelado" e a
+    // tag [plan:<id>] ficam. Clínica: as mesmas descrições de antes; só a leitura da
+    // lista de laboratórios (cache de 60 s).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+
     const today = new Date();
     // Onda 15 (etapa 16.4) — Helper pra parsear datas YYYY-MM-DD sem o bug
     // de timezone: new Date("2026-06-21") vira meia-noite UTC = 21h BRT do
@@ -334,7 +347,7 @@ export class TreatmentPlanBillingService {
         billingType: 'BOLETO',
         value: entradaBoletoValue,
         dueDate: downPaymentDue.toISOString().slice(0, 10),
-        description: `Entrada Financiamento Banco PASSOS — ${plan.patient.name} [plan:${planId}]`,
+        description: `${lab ? DESCRICAO_DE_EMISSAO_DO_LABORATORIO.entrada : 'Entrada Financiamento Banco PASSOS'} — ${plan.patient.name} [plan:${planId}]`,
         externalReference: planId,
       }, tenantId);
       this.logger.log(
@@ -382,7 +395,7 @@ export class TreatmentPlanBillingService {
         billingType: 'BOLETO',
         value: totalInstallments,
         dueDate: installmentsFirstDue.toISOString().slice(0, 10),
-        description: `Parcelado Financiamento Banco PASSOS — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`,
+        description: `${lab ? DESCRICAO_DE_EMISSAO_DO_LABORATORIO.parcelado : 'Parcelado Financiamento Banco PASSOS'} — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`,
         externalReference: planId,
         installmentCount: options.installmentCount,
         installmentValue: round2(options.installmentValue),
@@ -835,8 +848,12 @@ export class TreatmentPlanBillingService {
       ? +(options.value / installmentCount).toFixed(2)
       : undefined;
 
+    // Laboratório: a cobrança (no Asaas ou local) diz "Trabalho de prótese" em vez de
+    // "Plano de tratamento"; o "(Nx)"/"(à vista)" e a tag [plan:<id>] ficam iguais.
+    // Clínica: a mesma descrição de antes; só a leitura da lista de laboratórios.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     const descriptionParts = [
-      `Plano de tratamento — ${plan.patient.name}`,
+      `${lab ? DESCRICAO_DE_EMISSAO_DO_LABORATORIO.trabalho : 'Plano de tratamento'} — ${plan.patient.name}`,
       installmentCount ? `(${installmentCount}x)` : '(à vista)',
       `[plan:${planId}]`,
     ];

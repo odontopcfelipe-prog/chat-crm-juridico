@@ -303,17 +303,27 @@ export class EvolutionService implements OnApplicationBootstrap {
       // clínica ANTES de comparecer. No modelo da clínica, o lead só vira paciente no
       // 1º atendimento (evento CONCLUÍDO), nunca por uma mensagem nossa.
       const isClinicaChip = (inbox as any)?.purpose === 'CLINICA';
+      // F5 [LAB-GATE] — no laboratório o número principal recebe cliente, prospect,
+      // fornecedor e entregador: escrever nele não faz ninguém virar cliente (lá o
+      // is_client vem do cadastro de clientes). O bloco inteiro fica de fora, sem a
+      // trava de comparecimento. Clínica: a conta não está na lista de laboratórios
+      // (cache de 60 s) e o bloco segue como antes.
+      const chipClinicaDeLab = !isFromMe && isClinicaChip && !lead.is_client
+        && (await this.contaDeLaboratorio([effectiveTenantId, lead.tenant_id]));
+      if (chipClinicaDeLab) {
+        this.logger.log(`[LAB-GATE] chip-clinica — contato ${lead.id} escreveu no número do laboratório: o cadastro fica como está`);
+      }
       // Regra da clínica: lead que o Comercial AGENDOU só vira paciente depois de
       // comparecer ou pagar — escrever no número da Clínica (ex.: respondeu uma
       // mensagem que saiu por lá) não basta. Sem consulta marcada segue a regra do
       // número privado (paciente antigo, de antes do sistema).
-      const clinicaBlocked = !isFromMe && isClinicaChip && !lead.is_client
+      const clinicaBlocked = !isFromMe && isClinicaChip && !lead.is_client && !chipClinicaDeLab
         ? await clinicTransferBlockReason(this.prisma, lead.id).catch(() => null)
         : null;
       if (clinicaBlocked) {
         this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) escreveu no chip CLINICA mas segue LEAD: agendado sem comparecimento/pagamento`);
       }
-      if (!isFromMe && isClinicaChip && !lead.is_client && !clinicaBlocked) {
+      if (!isFromMe && isClinicaChip && !lead.is_client && !clinicaBlocked && !chipClinicaDeLab) {
         await this.prisma.lead.update({
           where: { id: lead.id },
           data: { is_client: true, became_client_at: (lead as any).became_client_at ?? new Date() },
@@ -403,6 +413,15 @@ export class EvolutionService implements OnApplicationBootstrap {
         //    duplicar (ou quebrar o webhook), o PERDEDOR da corrida (P2002) REUSA a
         //    conversa que o outro acabou de criar. É o fim do "2 conversas same-instance".
         if (!conv) {
+          // F5 [LAB-GATE] — conversa nova de laboratório nasce com a IA desligada
+          // (ai_mode=false): lá a IA não responde, e com ai_mode=true a conversa
+          // aparecia como do robô, fora das filas Minhas/Espera da equipe. Clínica:
+          // a conta não está na lista de laboratórios (cache de 60 s) e o create
+          // leva os mesmos campos de antes (ai_mode fica no padrão do banco).
+          const nasceDeLab = await this.contaDeLaboratorio([effectiveTenantId, lead.tenant_id]);
+          if (nasceDeLab) {
+            this.logger.log(`[LAB-GATE] conversa-nova — contato ${lead.id} de laboratório: conversa nasce com ai_mode=false`);
+          }
           try {
             conv = await this.prisma.conversation.create({
               data: {
@@ -413,6 +432,7 @@ export class EvolutionService implements OnApplicationBootstrap {
                 inbox_id: inboxId,
                 instance_name: instanceName,
                 tenant_id: effectiveTenantId || lead.tenant_id,
+                ...(nasceDeLab ? { ai_mode: false } : {}),
               },
             });
           } catch (e: any) {
@@ -1839,6 +1859,13 @@ export class EvolutionService implements OnApplicationBootstrap {
             },
           });
         } else {
+          // F5 [LAB-GATE] — conversa nova do resync de um chip de laboratório nasce com
+          // ai_mode=false, como a do webhook de mensagem. Clínica: a conta não está na
+          // lista de laboratórios (cache de 60 s) e o create leva os mesmos campos.
+          const nasceDeLab = await this.contaDeLaboratorio([tenantId, lead.tenant_id]);
+          if (nasceDeLab) {
+            this.logger.log(`[LAB-GATE] resync — contato ${lead.id} de laboratório: conversa nasce com ai_mode=false`);
+          }
           try {
             conv = await this.prisma.conversation.create({
               data: {
@@ -1850,6 +1877,7 @@ export class EvolutionService implements OnApplicationBootstrap {
                 instance_name: instanceName,
                 tenant_id: tenantId,
                 last_message_at: lastMsgTs ? new Date(lastMsgTs) : new Date(),
+                ...(nasceDeLab ? { ai_mode: false } : {}),
               },
             });
           } catch (e: any) {
