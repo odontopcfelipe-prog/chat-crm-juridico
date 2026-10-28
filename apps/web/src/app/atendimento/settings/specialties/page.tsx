@@ -171,7 +171,8 @@ function SpecialtyModal({
       }
       onSaved();
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao salvar');
+      const msg = err?.response?.data?.message;
+      showError((Array.isArray(msg) ? msg.join(', ') : msg) || 'Erro ao salvar');
     } finally {
       setSaving(false);
     }

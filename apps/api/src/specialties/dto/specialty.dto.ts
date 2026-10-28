@@ -6,6 +6,8 @@ export class CreateSpecialtyDto {
 
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() icon?: string;
+  // A tela manda "ativa" já na criação; sem isso o whitelist recusa com 400.
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 export class UpdateSpecialtyDto {
