@@ -65,7 +65,8 @@ export class RadiographyService {
    * api_key_hash do provider identificado por tenant_slug).
    *
    * Idempotencia via UNIQUE (source, source_external_id) — se o mesmo
-   * exame chegar 2x, retorna o existente.
+   * exame chegar 2x na mesma conta, retorna o existente; se a chave ja
+   * pertence a outra conta, responde 'ja recebido' sem dados (envioRepetido).
    */
   async webhook(headerKey: string, payload: WebhookPayloadDto) {
     if (!headerKey) throw new UnauthorizedException('Header X-Radiography-Provider-Key obrigatorio');
@@ -73,17 +74,21 @@ export class RadiographyService {
       throw new BadRequestException('image_url ou image_base64 obrigatorio');
     }
 
-    // Resolve tenant via slug (nome do tenant) — primeiro tenant com slug case-insensitive
-    const tenant = await this.prisma.tenant.findFirst({
+    // Resolve tenant via slug (nome do tenant, case-insensitive). O nome nao e
+    // unico: considera todas as contas com esse nome, da mais antiga pra mais
+    // nova, e a conta do exame e a do provider cuja chave bate com o header.
+    const tenants = await this.prisma.tenant.findMany({
       where: { name: { equals: payload.tenant_slug, mode: 'insensitive' } },
       select: { id: true, name: true },
+      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
     });
-    if (!tenant) throw new UnauthorizedException('tenant_slug invalido');
+    if (tenants.length === 0) throw new UnauthorizedException('tenant_slug invalido');
 
-    // Resolve provider ativo neste tenant; valida hash contra a chave do header
-    const providers = await this.prisma.radiographyProvider.findMany({
-      where: { tenant_id: tenant.id, active: true },
-    });
+    // Providers ativos dessas contas; valida hash contra a chave do header
+    const ordem = new Map(tenants.map((t, i) => [t.id, i]));
+    const providers = (await this.prisma.radiographyProvider.findMany({
+      where: { tenant_id: { in: tenants.map((t) => t.id) }, active: true },
+    })).sort((a, b) => ordem.get(a.tenant_id)! - ordem.get(b.tenant_id)!);
 
     let matchedProvider: typeof providers[number] | null = null;
     for (const p of providers) {
@@ -95,23 +100,17 @@ export class RadiographyService {
       } catch { /* ignore */ }
     }
     if (!matchedProvider) {
-      this.logger.warn(`[Radiography] Webhook rejeitado tenant=${tenant.name}: chave nao bate com nenhum provider`);
+      this.logger.warn(
+        `[Radiography] Webhook rejeitado tenant=${tenants[0].name}` +
+        `${tenants.length > 1 ? ` (${tenants.length} contas com esse nome)` : ''}: chave nao bate com nenhum provider`,
+      );
       throw new UnauthorizedException('Chave de provider invalida');
     }
+    const tenant = tenants[ordem.get(matchedProvider.tenant_id)!];
 
-    // Idempotencia
-    const existing = await this.prisma.radiographyExam.findUnique({
-      where: {
-        source_source_external_id: {
-          source: matchedProvider.source_slug,
-          source_external_id: payload.source_external_id,
-        },
-      },
-    });
-    if (existing) {
-      this.logger.log(`[Radiography] Exame ja existente (idempotencia): ${existing.id}`);
-      return existing;
-    }
+    // Idempotencia por (source, source_external_id), so dentro da conta do provider
+    const repetido = await this.envioRepetido(matchedProvider.source_slug, payload.source_external_id, tenant.id);
+    if (repetido) return repetido;
 
     // Baixa/decodifica imagem
     let buffer: Buffer;
@@ -143,26 +142,39 @@ export class RadiographyService {
       if (p) patientId = p.id;
     }
 
-    const exam = await this.prisma.radiographyExam.create({
-      data: {
-        tenant_id: tenant.id,
-        patient_id: patientId,
-        provider_id: matchedProvider.id,
-        source: matchedProvider.source_slug,
-        source_external_id: payload.source_external_id,
-        exam_type: payload.exam_type,
-        tooth_fdi: payload.tooth_fdi,
-        image_s3_key: s3Key,
-        mime_type: mime,
-        report_text: payload.report_text,
-        report_html: payload.report_html,
-        performed_at: payload.performed_at ? new Date(payload.performed_at) : undefined,
-        external_patient_cpf: payload.patient_cpf,
-        external_patient_name: payload.patient_name,
-        status: patientId ? 'LINKED' : 'RECEIVED',
-        linked_at: patientId ? new Date() : undefined,
-      },
-    });
+    let exam;
+    try {
+      exam = await this.prisma.radiographyExam.create({
+        data: {
+          tenant_id: tenant.id,
+          patient_id: patientId,
+          provider_id: matchedProvider.id,
+          source: matchedProvider.source_slug,
+          source_external_id: payload.source_external_id,
+          exam_type: payload.exam_type,
+          tooth_fdi: payload.tooth_fdi,
+          image_s3_key: s3Key,
+          mime_type: mime,
+          report_text: payload.report_text,
+          report_html: payload.report_html,
+          performed_at: payload.performed_at ? new Date(payload.performed_at) : undefined,
+          external_patient_cpf: payload.patient_cpf,
+          external_patient_name: payload.patient_name,
+          status: patientId ? 'LINKED' : 'RECEIVED',
+          linked_at: patientId ? new Date() : undefined,
+        },
+      });
+    } catch (e: any) {
+      // Dois envios do mesmo exame ao mesmo tempo: o segundo bate no indice unico
+      // e recebe a mesma resposta de um envio repetido.
+      if (e?.code === 'P2002') {
+        const repetidoNaCorrida = await this.envioRepetido(
+          matchedProvider.source_slug, payload.source_external_id, tenant.id,
+        );
+        if (repetidoNaCorrida) return repetidoNaCorrida;
+      }
+      throw e;
+    }
 
     // Atualiza contadores no provider
     await this.prisma.radiographyProvider.update({
@@ -175,6 +187,32 @@ export class RadiographyService {
       `paciente=${patientId || 'NAO_VINCULADO'}`,
     );
     return exam;
+  }
+
+  /**
+   * Envio repetido de um exame (mesmo source + source_external_id).
+   * - Exame da conta do provider casado: devolve o existente, como sempre.
+   * - Exame com essa chave em OUTRA conta: nada dela e devolvido. Registra no
+   *   log e responde como 'ja recebido', sem dados. O indice unico de
+   *   (source, source_external_id) e global, entao este exame nao e gravado
+   *   na conta do provider.
+   * - Nenhum: null (segue o fluxo de exame novo).
+   */
+  private async envioRepetido(source: string, sourceExternalId: string, tenantId: string) {
+    const existing = await this.prisma.radiographyExam.findUnique({
+      where: { source_source_external_id: { source, source_external_id: sourceExternalId } },
+    });
+    if (!existing) return null;
+    if (existing.tenant_id === tenantId) {
+      this.logger.log(`[Radiography] Exame ja existente (idempotencia): ${existing.id}`);
+      return existing;
+    }
+    this.logger.warn(
+      `[Radiography] Envio repetido de outra conta: source=${source} source_external_id=${sourceExternalId} ` +
+      `ja recebido na conta ${existing.tenant_id} (exame ${existing.id}); conta do provider ${tenantId} ` +
+      `respondida como ja recebido, sem dados e sem gravar`,
+    );
+    return { status: 'ALREADY_RECEIVED' as const, source_external_id: sourceExternalId };
   }
 
   // ─── Listing / leitura (autenticado pelo CRM) ───────────────────────

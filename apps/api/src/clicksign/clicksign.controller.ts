@@ -125,26 +125,25 @@ export class ClicksignWebhookController {
   @HttpCode(200)
   async handleWebhook(
     @Body() payload: any,
+    @Headers('content-hmac') contentHmac: string,
     @Headers('x-clicksign-hmac-sha256') hmacHeader: string,
     @Req() req: any,
   ) {
-    // Validar assinatura HMAC quando configurada
     const rawBody =
       typeof req.rawBody === 'string'
         ? req.rawBody
         : JSON.stringify(payload);
-    const signature = hmacHeader ?? '';
 
-    // Valida SEMPRE. O verify retorna true quando o token nao esta configurado
-    // (compat). Antes era `if (signature && ...)` — omitir o header x-clicksign
-    // pulava a checagem (bypass). Agora, com token configurado, assinatura
-    // ausente/invalida e rejeitada.
-    if (!(await this.clicksign.verifyWebhookSignature(rawBody, signature))) {
+    // Com o segredo do webhook configurado, a assinatura HMAC é exigida: ausente
+    // ou diferente → 401, nada aplicado. Sem segredo, o service confere o aviso
+    // na API da ClickSign antes de aplicar.
+    const assinatura = await this.clicksign.conferirAssinaturaWebhook(rawBody, [contentHmac, hmacHeader]);
+    if (assinatura === 'invalida') {
       this.logger.warn('[Clicksign] Assinatura HMAC ausente/invalida no webhook — rejeitado');
       throw new UnauthorizedException('Webhook signature inválida');
     }
 
-    await this.clicksign.handleWebhookEvent(payload);
+    await this.clicksign.handleWebhookEvent(payload, { assinaturaConferida: assinatura === 'valida' });
     return { ok: true };
   }
 }

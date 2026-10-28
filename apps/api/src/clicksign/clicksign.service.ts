@@ -36,6 +36,25 @@ interface ClicksignList {
   [k: string]: unknown;
 }
 
+/** Resultado da assinatura HMAC do webhook: 'sem-segredo' = segredo não configurado. */
+export type ConferenciaAssinaturaWebhook = 'valida' | 'invalida' | 'sem-segredo';
+
+/** Leitura do documento na API: o status, ou o motivo de não ter lido (passageira = vale reenviar). */
+type LeituraDocumento = { status: string } | { falha: string; passageira: boolean };
+
+/**
+ * Fechamento que a API ainda mostra 'running': esperas antes de cada nova leitura
+ * (30 s, depois 2 min, depois 10 min — a última sai uns 12 min depois do aviso).
+ */
+const RELEITURAS_FECHAMENTO_MS = [30_000, 2 * 60_000, 10 * 60_000];
+
+/**
+ * Tutorial de biometria no WhatsApp: no máximo 1 por documento nesta janela. Segura
+ * a rajada de avisos repetidos ou simultâneos; uma nova tentativa do paciente, minutos
+ * depois, recebe o tutorial de novo.
+ */
+const JANELA_TUTORIAL_BIOMETRIA_MS = 10 * 60 * 1000;
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -409,23 +428,165 @@ export class ClicksignService {
     return { signingUrl };
   }
 
-  // ── Verificar assinatura HMAC do webhook ──────────────────────────────────
+  // ── Conferir assinatura HMAC do webhook ───────────────────────────────────
+  // A ClickSign manda `Content-Hmac: sha256=<hex>` (HMAC-SHA256 do corpo cru com o
+  // segredo do webhook); o cabeçalho x-clicksign-hmac-sha256 (só o hex) segue aceito.
+  // Sem segredo configurado devolve 'sem-segredo' e o aviso é conferido na API.
 
-  async verifyWebhookSignature(payload: string, signature: string): Promise<boolean> {
+  async conferirAssinaturaWebhook(
+    payload: string,
+    cabecalhos: Array<string | undefined>,
+  ): Promise<ConferenciaAssinaturaWebhook> {
     const { webhookToken } = await this.getCfg();
-    if (!webhookToken) {
-      this.logger.warn('[Clicksign] webhookToken não configurado — verificação ignorada');
-      return true;
+    if (!webhookToken) return 'sem-segredo';
+    const esperado = Buffer.from(
+      crypto.createHmac('sha256', webhookToken).update(payload).digest('hex'),
+    );
+    for (const cabecalho of cabecalhos) {
+      const recebido = Buffer.from(
+        String(cabecalho ?? '').trim().replace(/^sha256=/i, '').toLowerCase(),
+      );
+      if (recebido.length === esperado.length && crypto.timingSafeEqual(recebido, esperado)) {
+        return 'valida';
+      }
     }
-    const expected = crypto
-      .createHmac('sha256', webhookToken)
-      .update(payload)
-      .digest('hex');
-    try {
-      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-    } catch {
+    return 'invalida';
+  }
+
+  // ── Conferir o aviso na API da ClickSign (webhook sem segredo) ────────────
+  // Antes de qualquer efeito, lê o documento com o token da API já configurado e
+  // exige o estado do aviso: 'closed' para assinatura concluída, 'running' para
+  // erro de biometria (o documento segue aberto).
+  //
+  // Nenhum desfecho da conferência vira erro na resposta do webhook (200 sempre).
+  // Desfechos, sempre nesta ordem:
+  //  1. A API respondeu com o status do documento:
+  //     - no estado do aviso → aplica (conferido);
+  //     - fechamento que a API ainda mostra 'running' → nada agora; novas leituras
+  //       ficam agendadas neste processo (30 s, 2 min, 10 min) e aplicam pelo mesmo
+  //       caminho quando a API mostrar 'closed'. Se todas seguirem 'running', nada
+  //       é alterado e fica o [WEBHOOK-VIGIA] "fechamento ainda aberto na API";
+  //     - em outro estado → nenhum efeito (no erro de biometria, o atendente ainda
+  //       recebe o alerta, sem mensagem ao paciente).
+  //  2. Falha passageira na leitura (429, 5xx, rede, tempo esgotado), nas 2
+  //     tentativas → aceita como antes e registra [WEBHOOK-VIGIA]. É de propósito:
+  //     a ClickSign não documenta reenvio de aviso recusado, e recusar aqui
+  //     arriscaria perder o fechamento real de um contrato enquanto ela oscila.
+  //  3. Leitura indisponível (sem token da API, 401/403/404, resposta sem
+  //     status) → também como antes, com [WEBHOOK-VIGIA].
+  // 2 e 3 valem também para as leituras agendadas do item 1.
+
+  private readonly consultaTimeoutMs = 6000;
+  private esperaNovaTentativaMs = 500;
+  private esperar = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  /** Documentos com nova leitura do fechamento já agendada (uma fila por documento). */
+  private readonly releiturasAgendadas = new Set<string>();
+
+  private async lerDocumentoNaClicksign(documentKey: string): Promise<LeituraDocumento> {
+    const { baseUrl, token } = await this.getCfg();
+    if (!token) return { falha: 'token da API ClickSign não configurado', passageira: false };
+    const url = `${baseUrl}/api/v1/documents/${encodeURIComponent(documentKey)}?access_token=${token}`;
+
+    let ultima: LeituraDocumento = { falha: 'sem resposta da ClickSign', passageira: true };
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      try {
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(this.consultaTimeoutMs),
+        });
+        if (res.ok) {
+          const body: any = await res.json().catch(() => null);
+          const status = body?.document?.status;
+          if (typeof status === 'string' && status) return { status };
+          return { falha: 'resposta da ClickSign sem status do documento', passageira: false };
+        }
+        const passageira = res.status === 429 || res.status >= 500;
+        ultima = { falha: `ClickSign respondeu ${res.status}`, passageira };
+        if (!passageira) return ultima;
+      } catch (e: any) {
+        // Sem e.message: pode trazer a URL, que leva o token.
+        const motivo = e?.name === 'TimeoutError' ? 'tempo esgotado' : e?.cause?.code || e?.name || 'erro de rede';
+        ultima = { falha: `consulta à ClickSign não respondeu (${motivo})`, passageira: true };
+      }
+      if (tentativa < 2) await this.esperar(this.esperaNovaTentativaMs);
+    }
+    return ultima;
+  }
+
+  // releiturasFeitas: quantas leituras agendadas já rodaram para este fechamento
+  // (0 no aviso que acabou de chegar).
+  private async conferirAviso(
+    eventName: string,
+    documentKey: string,
+    esperado: 'closed' | 'running',
+    assinaturaConferida: boolean,
+    releiturasFeitas = 0,
+  ): Promise<boolean> {
+    if (assinaturaConferida) return true;
+
+    const leitura = await this.lerDocumentoNaClicksign(documentKey);
+
+    // 1. A API respondeu: o status lido decide.
+    if ('status' in leitura) {
+      if (leitura.status === esperado) {
+        this.logger.log(`[Clicksign] Aviso conferido na ClickSign — event: ${eventName}, doc: ${documentKey}, status: ${leitura.status}`);
+        return true;
+      }
+      if (esperado === 'closed' && leitura.status === 'running') {
+        // A API pode ainda não ter refletido o fechamento: nada agora, relê depois.
+        this.agendarReleituraDoFechamento(eventName, documentKey, releiturasFeitas);
+        return false;
+      }
+      this.logger.warn(
+        `[Clicksign] Aviso não conferido na ClickSign — event: ${eventName}, doc: ${documentKey}: ` +
+        `status lá é '${leitura.status}', o aviso pede '${esperado}'. Nada alterado.`,
+      );
       return false;
     }
+
+    // 2 e 3. A API não pôde ser lida: aplica como antes e deixa o rastro.
+    const tipo = leitura.passageira ? 'falha passageira na leitura' : 'leitura indisponível';
+    this.logger.warn(
+      `[WEBHOOK-VIGIA] ClickSign: aviso aceito sem conferência — ${tipo} (${leitura.falha}), aplicado como antes. ` +
+      `event: ${eventName}, doc: ${documentKey}`,
+    );
+    return true;
+  }
+
+  // Nova leitura de um fechamento que a API ainda mostra 'running'. Roda neste
+  // processo (o webhook já respondeu 200) e refaz o caminho do aviso inteiro
+  // (processarFechamento): documento já assinado no banco → nada; 'closed' →
+  // aplica; ainda 'running' → agenda a próxima; leitura impossível → aplica com
+  // [WEBHOOK-VIGIA]. Um documento tem no máximo uma fila de releituras: aviso
+  // repetido enquanto ela espera não abre outra. Nunca lança.
+  private agendarReleituraDoFechamento(eventName: string, documentKey: string, feitas: number): void {
+    const espera = RELEITURAS_FECHAMENTO_MS[feitas];
+    if (espera === undefined) {
+      this.logger.warn(
+        `[WEBHOOK-VIGIA] ClickSign: fechamento ainda aberto na API — nada alterado ` +
+        `(${feitas} releituras). event: ${eventName}, doc: ${documentKey}`,
+      );
+      return;
+    }
+    if (this.releiturasAgendadas.has(documentKey)) {
+      this.logger.log(`[Clicksign] Fechamento do doc ${documentKey} já tem nova leitura agendada (${eventName})`);
+      return;
+    }
+    this.releiturasAgendadas.add(documentKey);
+    this.logger.log(
+      `[Clicksign] Fechamento ainda aberto na API — nova leitura em ${espera / 1000} s ` +
+      `(${feitas + 1} de ${RELEITURAS_FECHAMENTO_MS.length}). event: ${eventName}, doc: ${documentKey}`,
+    );
+    const timer = setTimeout(() => {
+      this.releiturasAgendadas.delete(documentKey);
+      this.processarFechamento(eventName, documentKey, false, feitas + 1).catch((e: any) =>
+        this.logger.warn(
+          `[WEBHOOK-VIGIA] ClickSign: erro ao aplicar o fechamento na releitura (${e?.message ?? e}). ` +
+          `event: ${eventName}, doc: ${documentKey}`,
+        ),
+      );
+    }, espera);
+    timer.unref?.();
   }
 
   // ── Mapa de eventos de erro biométrico ────────────────────────────────────
@@ -442,7 +603,11 @@ export class ClicksignService {
 
   // ── Handler de erros biométricos — envia tutorial ao cliente ──────────────
 
-  private async handleBiometricError(eventName: string, documentKey: string): Promise<void> {
+  private async handleBiometricError(
+    eventName: string,
+    documentKey: string,
+    assinaturaConferida: boolean,
+  ): Promise<void> {
     const errorType = this.BIOMETRIC_ERROR_EVENTS[eventName] ?? 'verificação';
 
     const sig = await this.prisma.contractSignature.findUnique({
@@ -459,12 +624,64 @@ export class ClicksignService {
     const instanceName  = sig.conversation.instance_name ?? undefined;
     const signingUrl    = sig.signing_url;
 
-    // Atualizar status no banco
-    await this.prisma.contractSignature.update({
-      where: { id: sig.id },
-      data:  { status: 'ERRO_BIOMETRIA' },
-    });
+    if (!(await this.conferirAviso(eventName, documentKey, 'running', assinaturaConferida))) {
+      // O documento já não está aberto na ClickSign: nada muda no banco e o paciente
+      // não recebe mensagem, mas o atendente ainda é avisado (alerta abaixo).
+      this.logger.warn(
+        `[Clicksign][Biometria] Documento ${documentKey} fora de 'running' na ClickSign — ` +
+        `status mantido, sem mensagem ao paciente; atendente avisado (${eventName})`,
+      );
+    } else {
+      // Marca o erro no documento e decide o tutorial: no máximo 1 por documento a
+      // cada 10 min. A marca é o próprio registro do documento (status ERRO_BIOMETRIA
+      // + updated_at) e a troca é condicional: entre avisos repetidos ou simultâneos,
+      // só um por janela leva o tutorial. Os demais mantêm o status e avisam o
+      // atendente, sem nova mensagem ao paciente.
+      const marcadoEm = new Date();
+      const marca = await this.prisma.contractSignature.updateMany({
+        where: {
+          id: sig.id,
+          OR: [
+            { status: { not: 'ERRO_BIOMETRIA' } },
+            { updated_at: { lt: new Date(marcadoEm.getTime() - JANELA_TUTORIAL_BIOMETRIA_MS) } },
+          ],
+        },
+        data: { status: 'ERRO_BIOMETRIA', updated_at: marcadoEm },
+      });
+      if (marca.count > 0) {
+        await this.enviarTutorialBiometria(sig.id, marcadoEm, lead.phone, errorType, signingUrl, instanceName, eventName);
+      } else {
+        this.logger.log(
+          `[Clicksign][Biometria] Tutorial do documento ${documentKey} já enviado nos últimos 10 min — ` +
+          `status mantido, sem nova mensagem (${eventName})`,
+        );
+      }
+    }
 
+    // Notificar atendente via WebSocket (em todos os casos acima)
+    try {
+      this.chatGateway.server
+        ?.to(sig.conversation_id)
+        .emit('contract:biometric_error', {
+          conversationId: sig.conversation_id,
+          leadName:       lead.name ?? 'Cliente',
+          eventName,
+          errorType,
+        });
+    } catch (e: any) {
+      this.logger.warn(`[Clicksign][Biometria] Falha WebSocket: ${e.message}`);
+    }
+  }
+
+  private async enviarTutorialBiometria(
+    signatureId: string,
+    marcadoEm: Date,
+    phone: string,
+    errorType: string,
+    signingUrl: string | null,
+    instanceName: string | undefined,
+    eventName: string,
+  ): Promise<void> {
     // Mensagem de tutorial para o cliente via WhatsApp
     const lines = [
       `⚠️ *Tivemos um problema na etapa de ${errorType}* do seu contrato.`,
@@ -483,24 +700,20 @@ export class ClicksignService {
     ];
 
     try {
-      await this.whatsapp.sendText(lead.phone, lines.join('\n'), instanceName);
-      this.logger.log(`[Clicksign][Biometria] Tutorial enviado para ${lead.phone} (${eventName})`);
+      await this.whatsapp.sendText(phone, lines.join('\n'), instanceName);
+      this.logger.log(`[Clicksign][Biometria] Tutorial enviado para ${phone} (${eventName})`);
     } catch (e: any) {
       this.logger.warn(`[Clicksign][Biometria] Falha ao enviar tutorial: ${e.message}`);
-    }
-
-    // Notificar atendente via WebSocket
-    try {
-      this.chatGateway.server
-        ?.to(sig.conversation_id)
-        .emit('contract:biometric_error', {
-          conversationId: sig.conversation_id,
-          leadName:       lead.name ?? 'Cliente',
-          eventName,
-          errorType,
-        });
-    } catch (e: any) {
-      this.logger.warn(`[Clicksign][Biometria] Falha WebSocket: ${e.message}`);
+      // A mensagem não saiu: devolve a vez, e o próximo aviso de erro deste
+      // documento já manda o tutorial (só desfaz a própria marca).
+      await this.prisma.contractSignature
+        .updateMany({
+          where: { id: signatureId, updated_at: marcadoEm },
+          data: { updated_at: new Date(marcadoEm.getTime() - JANELA_TUTORIAL_BIOMETRIA_MS - 1) },
+        })
+        .catch((err: any) =>
+          this.logger.warn(`[Clicksign][Biometria] Marca do tutorial mantida: ${err?.message ?? err}`),
+        );
     }
   }
 
@@ -630,7 +843,13 @@ export class ClicksignService {
 
   // ── Processar evento do webhook ───────────────────────────────────────────
 
-  async handleWebhookEvent(payload: any): Promise<void> {
+  // assinaturaConferida: HMAC do webhook bateu com o segredo configurado. Sem ela,
+  // o aviso é conferido na API da ClickSign antes de qualquer efeito (conferirAviso).
+  async handleWebhookEvent(
+    payload: any,
+    opts: { assinaturaConferida?: boolean } = {},
+  ): Promise<void> {
+    const assinaturaConferida = opts.assinaturaConferida === true;
     // Clicksign envia diferentes estruturas — suportar v1 e v2
     const eventName: string =
       payload?.event?.name ?? payload?.event ?? '';
@@ -646,7 +865,7 @@ export class ClicksignService {
 
     // Tratar erros biométricos antes de qualquer outra lógica
     if (this.BIOMETRIC_ERROR_EVENTS[eventName]) {
-      await this.handleBiometricError(eventName, documentKey);
+      await this.handleBiometricError(eventName, documentKey, assinaturaConferida);
       return;
     }
 
@@ -656,6 +875,21 @@ export class ClicksignService {
       return;
     }
 
+    await this.processarFechamento(eventName, documentKey, assinaturaConferida, 0);
+  }
+
+  // Fechamento do documento: o mesmo caminho para o aviso que chegou e para as
+  // leituras agendadas depois dele (releiturasFeitas > 0, ver agendarReleituraDoFechamento).
+  private async processarFechamento(
+    eventName: string,
+    documentKey: string,
+    assinaturaConferida: boolean,
+    releiturasFeitas: number,
+  ): Promise<void> {
+    if (releiturasFeitas > 0) {
+      this.logger.log(`[Clicksign] Releitura ${releiturasFeitas} do fechamento — event: ${eventName}, doc: ${documentKey}`);
+    }
+
     // Onda 14.24 Fase 2 — Dispatch: checa primeiro se eh Contract novo
     // (vinculado a Quote). Se nao for, cai no fluxo legado (ContractSignature
     // do sistema antigo de advocacia / TCLE de TreatmentPlan).
@@ -663,6 +897,11 @@ export class ClicksignService {
       where: { clicksign_document_id: documentKey },
     });
     if (newContract) {
+      if (newContract.status === 'SIGNED') {
+        this.logger.debug(`[Clicksign] Contract ${newContract.id} ja esta SIGNED, ignorando webhook duplicado`);
+        return;
+      }
+      if (!(await this.conferirAviso(eventName, documentKey, 'closed', assinaturaConferida, releiturasFeitas))) return;
       await this.handleNewContractWebhook(newContract.id, documentKey);
       return;
     }
@@ -679,6 +918,7 @@ export class ClicksignService {
       this.logger.debug(`[Clicksign] Documento ${documentKey} já processado`);
       return;
     }
+    if (!(await this.conferirAviso(eventName, documentKey, 'closed', assinaturaConferida, releiturasFeitas))) return;
 
     // Buscar conversa + lead
     const convo = await this.prisma.conversation.findUnique({
