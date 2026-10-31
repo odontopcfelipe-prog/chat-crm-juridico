@@ -23,10 +23,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { SuppliersService } from './suppliers.service';
 import { ProductsService } from './products.service';
+import { ProductCategoriesService } from './product-categories.service';
 import { StockMovementsService } from './stock-movements.service';
 import { ProcedureConsumablesService } from './procedure-consumables.service';
 import { CreateSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
-import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { CreateProductDto, UpdateProductDto, ProductCategoryDto } from './dto/product.dto';
 import { CreateStockMovementDto } from './dto/stock-movement.dto';
 import { CreateProcedureConsumableDto } from './dto/procedure-consumable.dto';
 
@@ -50,6 +51,7 @@ export class InventoryController {
   constructor(
     private readonly suppliers: SuppliersService,
     private readonly products: ProductsService,
+    private readonly categories: ProductCategoriesService,
     private readonly movements: StockMovementsService,
     private readonly consumables: ProcedureConsumablesService,
   ) {}
@@ -153,6 +155,42 @@ export class InventoryController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.suppliers.archive(id, tenantId);
+  }
+
+  // ─── Categorias de produto (cada conta cria as suas) ─────────
+
+  /** Categorias ativas da conta, com quantos produtos cada uma tem. */
+  @Get('product-categories')
+  listProductCategories(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.categories.list(tenantId);
+  }
+
+  @RequiresPermission('manage_inventory')
+  @Post('product-categories')
+  createProductCategory(@Body() dto: ProductCategoryDto, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.categories.create(tenantId, dto.name);
+  }
+
+  /** Renomeia — e renomeia junto nos produtos que usam a categoria. */
+  @RequiresPermission('manage_inventory')
+  @Patch('product-categories/:id')
+  renameProductCategory(@Param('id') id: string, @Body() dto: ProductCategoryDto, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.categories.rename(id, tenantId, dto.name);
+  }
+
+  /** Tira da lista; os produtos continuam com o nome. */
+  @RequiresPermission('manage_inventory')
+  @Delete('product-categories/:id')
+  removeProductCategory(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.categories.remove(id, tenantId);
   }
 
   // ─── Products ────────────────────────────────────────────────

@@ -6,19 +6,19 @@ import {
   IsUUID,
   IsIn,
   Min,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { NOME_CATEGORIA_MAX } from '../product-categories';
 
 const VALID_UNIT = ['UN', 'ML', 'MG', 'UI', 'CAIXA', 'KIT', 'G', 'L'] as const;
 
-const VALID_CATEGORY = [
-  // Odonto
-  'ANESTESICO', 'RESINA', 'BRACKETS', 'EQUIPAMENTO', 'DESCARTAVEL',
-  // Estetica facial
-  'TOXINA_BOTULINICA', 'ACIDO_HIALURONICO', 'BIOESTIMULADOR',
-  'FIO_PDO', 'FIO_PLLA', 'ENZIMA', 'PEELING_QUIMICO',
-  'SKINBOOSTER', 'ANESTESICO_TOPICO', 'COSMETICO', 'OUTRO',
-] as const;
+/** Nome de uma categoria da conta (Estoque → Categorias). */
+export class ProductCategoryDto {
+  @IsString({ message: 'Nome da categoria e obrigatorio' })
+  @MaxLength(NOME_CATEGORIA_MAX, { message: `Nome da categoria com no maximo ${NOME_CATEGORIA_MAX} caracteres` })
+  name: string;
+}
 
 export class CreateProductDto {
   @IsOptional()
@@ -32,9 +32,10 @@ export class CreateProductDto {
   @IsOptional() @IsString() sku?: string;
   @IsOptional() @IsString() barcode?: string;
 
+  // Nome da categoria da conta (antes: lista fixa de códigos)
   @IsOptional()
   @IsString()
-  @IsIn(VALID_CATEGORY, { message: `category invalida. Use: ${VALID_CATEGORY.join(', ')}` })
+  @MaxLength(NOME_CATEGORIA_MAX)
   category?: string;
 
   @IsOptional()
@@ -69,7 +70,7 @@ export class UpdateProductDto {
   @IsOptional() @IsString() brand?: string;
   @IsOptional() @IsString() sku?: string;
   @IsOptional() @IsString() barcode?: string;
-  @IsOptional() @IsString() @IsIn(VALID_CATEGORY) category?: string;
+  @IsOptional() @IsString() @MaxLength(NOME_CATEGORIA_MAX) category?: string;
   @IsOptional() @IsString() @IsIn(VALID_UNIT) unit?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() anvisa_registration?: string;

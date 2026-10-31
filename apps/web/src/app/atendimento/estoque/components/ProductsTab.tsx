@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Camera, Loader2, Package, Plus, Search, Trash2, X,
+  AlertTriangle, Camera, Check, Loader2, Package, Pencil, Plus, Search, Tags, Trash2, X,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -99,23 +99,40 @@ function ProductThumb({ product, size = 40 }: { product: Product; size?: number 
   );
 }
 
-const CATEGORIES = [
-  '', 'ANESTESICO', 'RESINA', 'BRACKETS', 'EQUIPAMENTO', 'DESCARTAVEL',
-  'TOXINA_BOTULINICA', 'ACIDO_HIALURONICO', 'BIOESTIMULADOR',
-  'FIO_PDO', 'FIO_PLLA', 'ENZIMA', 'PEELING_QUIMICO',
-  'SKINBOOSTER', 'ANESTESICO_TOPICO', 'COSMETICO', 'OUTRO',
-];
+/** Categoria criada pela própria clínica (Estoque → Categorias). */
+interface ProductCategory {
+  id: string;
+  name: string;
+  products: number;
+}
 
 const UNITS = ['UN', 'ML', 'MG', 'UI', 'CAIXA', 'KIT', 'G', 'L'];
 
 export default function ProductsTab() {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[] | null>(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [showLowStock, setShowLowStock] = useState(false);
   const [openModal, setOpenModal] = useState(false);
+  const [openCategories, setOpenCategories] = useState(false);
   const [photoFor, setPhotoFor] = useState<Product | null>(null);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const { data } = await api.get<ProductCategory[]>('/product-categories');
+      setCategories(data || []);
+    } catch (err: any) {
+      setCategories((atual) => atual ?? []);
+      showError(errMsg(err, 'Erro ao carregar categorias'));
+    }
+  }, []);
+
+  useEffect(() => { loadCategories(); }, [loadCategories]);
+  // A primeira leitura das categorias converte os códigos antigos dos produtos
+  // em nome — a lista de produtos espera por ela pra não mostrar "RESINA".
+  const categoriesReady = categories !== null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -134,9 +151,10 @@ export default function ProductsTab() {
   }, [search, category, showLowStock]);
 
   useEffect(() => {
+    if (!categoriesReady) return;
     const debounce = setTimeout(load, 300);
     return () => clearTimeout(debounce);
-  }, [load]);
+  }, [load, categoriesReady]);
 
   return (
     <div>
@@ -158,8 +176,8 @@ export default function ProductsTab() {
           className="px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         >
           <option value="">Todas as categorias</option>
-          {CATEGORIES.filter(Boolean).map((c) => (
-            <option key={c} value={c}>{c}</option>
+          {(categories ?? []).map((c) => (
+            <option key={c.id} value={c.name}>{c.name}</option>
           ))}
         </select>
         <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm cursor-pointer hover:bg-accent">
@@ -171,6 +189,13 @@ export default function ProductsTab() {
           />
           <span>Baixo estoque</span>
         </label>
+        <button
+          onClick={() => setOpenCategories(true)}
+          className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent"
+          title="Criar, renomear ou remover categorias"
+        >
+          <Tags size={16} /> Categorias
+        </button>
         <button
           onClick={() => setOpenModal(true)}
           className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
@@ -271,9 +296,25 @@ export default function ProductsTab() {
 
       {openModal && (
         <NewProductModal
+          categories={categories ?? []}
+          onCategoriesChanged={loadCategories}
           onClose={() => setOpenModal(false)}
           onCreated={() => {
             setOpenModal(false);
+            load();
+            loadCategories();
+          }}
+        />
+      )}
+
+      {openCategories && (
+        <CategoriesModal
+          categories={categories ?? []}
+          onClose={() => setOpenCategories(false)}
+          onChanged={async () => {
+            // Renomear/remover muda o nome nos produtos e pode tirar a do filtro
+            setCategory('');
+            await loadCategories();
             load();
           }}
         />
@@ -289,6 +330,174 @@ export default function ProductsTab() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Categorias da clínica: criar, renomear (renomeia nos produtos) e remover. */
+function CategoriesModal({
+  categories, onClose, onChanged,
+}: { categories: ProductCategory[]; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [newName, setNewName] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<unknown>, ok: string, fallback: string) => {
+    setBusy(true);
+    try {
+      await action();
+      showSuccess(ok);
+      await onChanged();
+      return true;
+    } catch (err: any) {
+      showError(errMsg(err, fallback));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    if (await run(() => api.post('/product-categories', { name }), 'Categoria criada', 'Erro ao criar categoria')) {
+      setNewName('');
+    }
+  };
+
+  const rename = async (c: ProductCategory) => {
+    const name = editName.trim();
+    if (!name || name === c.name) {
+      setEditingId(null);
+      return;
+    }
+    if (await run(() => api.patch(`/product-categories/${c.id}`, { name }), 'Categoria renomeada', 'Erro ao renomear')) {
+      setEditingId(null);
+    }
+  };
+
+  const remove = async (c: ProductCategory) => {
+    const aviso = c.products > 0
+      ? `Remover a categoria "${c.name}"? Os ${c.products} produto(s) dela continuam com esse nome, mas ela sai da lista.`
+      : `Remover a categoria "${c.name}"?`;
+    if (!confirm(aviso)) return;
+    await run(() => api.delete(`/product-categories/${c.id}`), 'Categoria removida', 'Erro ao remover');
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl w-full max-w-md shadow-2xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Tags size={20} className="text-primary" /> Categorias de produto
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={create} className="p-4 flex gap-2 border-b border-border">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            maxLength={60}
+            autoFocus
+            placeholder="Nova categoria (ex: Pulseira, Resina, Luva)"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <button
+            type="submit"
+            disabled={busy || !newName.trim()}
+            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+          >
+            <Plus size={16} /> Adicionar
+          </button>
+        </form>
+
+        <div className="overflow-y-auto">
+          {categories.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted-foreground">
+              Nenhuma categoria. Crie a primeira acima.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {categories.map((c) => (
+                <li key={c.id} className="px-4 py-2 flex items-center gap-2">
+                  {editingId === c.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); rename(c); }
+                          if (e.key === 'Escape') setEditingId(null);
+                        }}
+                        maxLength={60}
+                        autoFocus
+                        className="flex-1 min-w-0 px-2 py-1 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => rename(c)}
+                        className="p-1 text-primary hover:bg-accent rounded disabled:opacity-50"
+                        title="Salvar"
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="p-1 text-muted-foreground hover:bg-accent rounded"
+                        title="Cancelar"
+                      >
+                        <X size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {c.products === 0 ? 'Nenhum produto' : `${c.products} produto(s)`}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { setEditingId(c.id); setEditName(c.name); }}
+                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded disabled:opacity-50"
+                        title="Renomear"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => remove(c)}
+                        className="p-1 text-muted-foreground hover:text-destructive hover:bg-accent rounded disabled:opacity-50"
+                        title="Remover"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -387,12 +596,25 @@ function ProductPhotoModal({
   );
 }
 
-function NewProductModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+const NOVA_CATEGORIA = '__nova__';
+
+function NewProductModal({
+  categories, onCategoriesChanged, onClose, onCreated,
+}: {
+  categories: ProductCategory[];
+  onCategoriesChanged: () => Promise<void>;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('');
+  // "+ Nova categoria…" troca o select por um campo, sem sair do cadastro
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
   const [unit, setUnit] = useState('UN');
   const [anvisa, setAnvisa] = useState('');
   const [isInjectable, setIsInjectable] = useState(false);
@@ -404,6 +626,23 @@ function NewProductModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
+
+  const createCategory = async () => {
+    const nome = newCategory.trim();
+    if (!nome) return;
+    setSavingCategory(true);
+    try {
+      const { data } = await api.post<{ id: string; name: string }>('/product-categories', { name: nome });
+      await onCategoriesChanged();
+      setCategory(data.name);
+      setCreatingCategory(false);
+      setNewCategory('');
+    } catch (err: any) {
+      showError(errMsg(err, 'Erro ao criar categoria'));
+    } finally {
+      setSavingCategory(false);
+    }
+  };
 
   const pickPhoto = (file: File | undefined) => {
     if (!file) return;
@@ -555,15 +794,60 @@ function NewProductModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1">Categoria</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c || '—'}</option>
-                ))}
-              </select>
+              {creatingCategory ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter cria a categoria (não envia o cadastro do produto)
+                      if (e.key === 'Enter') { e.preventDefault(); createCategory(); }
+                      if (e.key === 'Escape') { e.preventDefault(); setCreatingCategory(false); }
+                    }}
+                    maxLength={60}
+                    autoFocus
+                    placeholder="Nova categoria"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingCategory || !newCategory.trim()}
+                    onClick={createCategory}
+                    className="p-2 rounded-lg text-primary hover:bg-accent disabled:opacity-50"
+                    title="Criar categoria"
+                  >
+                    {savingCategory ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreatingCategory(false)}
+                    className="p-2 rounded-lg text-muted-foreground hover:bg-accent"
+                    title="Cancelar"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={category}
+                  onChange={(e) => {
+                    if (e.target.value === NOVA_CATEGORIA) {
+                      setNewCategory('');
+                      setCreatingCategory(true);
+                    } else {
+                      setCategory(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="">—</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                  <option value={NOVA_CATEGORIA}>+ Nova categoria…</option>
+                </select>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium mb-1">Unidade</label>

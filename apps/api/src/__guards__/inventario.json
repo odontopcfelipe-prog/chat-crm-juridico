@@ -7,7 +7,7 @@
     "globais": 13,
     "produtores": 24,
     "controllers": 86,
-    "handlers": 941,
+    "handlers": 945,
     "@Public": 29
   },
   "automatismos": [
@@ -943,6 +943,10 @@
         { "metodo": "InventoryController.getSupplier", "verbo": "GET", "path": "suppliers/:id", "rota": "GET /suppliers/:id", "acesso": [] },
         { "metodo": "InventoryController.updateSupplier", "verbo": "PATCH", "path": "suppliers/:id", "rota": "PATCH /suppliers/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.archiveSupplier", "verbo": "DELETE", "path": "suppliers/:id", "rota": "DELETE /suppliers/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.listProductCategories", "verbo": "GET", "path": "product-categories", "rota": "GET /product-categories", "acesso": [] },
+        { "metodo": "InventoryController.createProductCategory", "verbo": "POST", "path": "product-categories", "rota": "POST /product-categories", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.renameProductCategory", "verbo": "PATCH", "path": "product-categories/:id", "rota": "PATCH /product-categories/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
+        { "metodo": "InventoryController.removeProductCategory", "verbo": "DELETE", "path": "product-categories/:id", "rota": "DELETE /product-categories/:id", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.createProduct", "verbo": "POST", "path": "products", "rota": "POST /products", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.listProducts", "verbo": "GET", "path": "products", "rota": "GET /products", "acesso": [] },
         { "metodo": "InventoryController.listLowStock", "verbo": "GET", "path": "products/low-stock", "rota": "GET /products/low-stock", "acesso": [] },

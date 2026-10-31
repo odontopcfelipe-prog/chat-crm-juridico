@@ -8,6 +8,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { Prisma } from '@crm/shared';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { normalizarCategoria } from './product-categories';
+
+/** Categoria vem como nome da conta; código antigo (tela velha em cache) vira o nome. */
+function comCategoriaNormalizada<T extends { category?: string | null }>(dto: T): T {
+  return dto.category === undefined ? dto : ({ ...dto, category: normalizarCategoria(dto.category) } as T);
+}
 
 /** Foto do produto: mesmo formato e limite da foto do paciente. */
 const PHOTO_MIMES: Record<string, string> = {
@@ -39,7 +45,7 @@ export class ProductsService {
     await this.assertSupplierDaConta(tenantId, dto.supplier_id);
 
     return this.prisma.product.create({
-      data: { ...dto, tenant_id: tenantId },
+      data: { ...comCategoriaNormalizada(dto), tenant_id: tenantId },
     });
   }
 
@@ -128,7 +134,7 @@ export class ProductsService {
     });
     if (!existing) throw new NotFoundException('Produto nao encontrado');
     await this.assertSupplierDaConta(tenantId, dto.supplier_id);
-    return this.prisma.product.update({ where: { id }, data: dto });
+    return this.prisma.product.update({ where: { id }, data: comCategoriaNormalizada(dto) });
   }
 
   /** Fornecedor do produto só da própria conta (vazio/null limpa o vínculo, sem consulta). */

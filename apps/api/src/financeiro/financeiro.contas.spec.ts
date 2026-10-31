@@ -577,7 +577,7 @@ describe('ProductsService — fornecedor do produto só da própria conta', () =
     return { svc: new ProductsService(prisma, {} as any), prisma, escritas };
   }
 
-  const PRODUTO = { name: 'Luva', category: 'DESCARTAVEL', unit: 'CX', sku: 'LUV-1' };
+  const PRODUTO = { name: 'Luva', category: 'Descartável', unit: 'CX', sku: 'LUV-1' };
 
   it('create com fornecedor de outra conta → 404 e nada é gravado', async () => {
     const m = montar();

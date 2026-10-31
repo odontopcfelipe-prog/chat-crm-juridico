@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { InventoryController } from './inventory.controller';
 import { SuppliersService } from './suppliers.service';
 import { ProductsService } from './products.service';
+import { ProductCategoriesService } from './product-categories.service';
 import { StockMovementsService } from './stock-movements.service';
 import { ProcedureConsumablesService } from './procedure-consumables.service';
 import { FileStorageService } from '../media/filesystem.service';
@@ -11,6 +12,7 @@ import { FileStorageService } from '../media/filesystem.service';
   providers: [
     SuppliersService,
     ProductsService,
+    ProductCategoriesService,
     StockMovementsService,
     ProcedureConsumablesService,
     // Foto do produto. Provider direto (como Patients/Users/SmileDesign) em vez de

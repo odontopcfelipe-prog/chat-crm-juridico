@@ -98,6 +98,7 @@ model Tenant {
   // Estetica facial + estoque (Fase 6)
   suppliers                   Supplier[]
   products                    Product[]
+  product_categories          ProductCategory[]
   stock_movements             StockMovement[]
   esthetic_applications       EstheticApplication[]
   adverse_reactions           AdverseReaction[]
@@ -3705,11 +3706,9 @@ model Product {
   sku     String?
   barcode String?
 
-  /// Categorias suportadas:
-  /// Odonto:    "ANESTESICO" | "RESINA" | "BRACKETS" | "EQUIPAMENTO" | "DESCARTAVEL"
-  /// Estetica:  "TOXINA_BOTULINICA" | "ACIDO_HIALURONICO" | "BIOESTIMULADOR"
-  ///            "FIO_PDO" | "FIO_PLLA" | "ENZIMA" | "PEELING_QUIMICO"
-  ///            "SKINBOOSTER" | "ANESTESICO_TOPICO" | "COSMETICO"
+  /// NOME de uma ProductCategory da conta (texto livre, ex.: "Resina", "Pulseira").
+  /// Os códigos antigos (RESINA, TOXINA_BOTULINICA…) viram nome na primeira leitura
+  /// das categorias da conta (inventory/product-categories.ts).
   category    String?
   unit        String  @default("UN") // "UN" | "ML" | "MG" | "UI" | "CAIXA" | "KIT"
   description String?
@@ -3747,6 +3746,22 @@ model Product {
   @@index([tenant_id, category])
   @@index([anvisa_registration])
   @@index([active])
+}
+
+/// Categoria de produto do estoque, criada por cada conta (Estoque → Categorias).
+/// Product.category guarda o NOME: renomear aqui renomeia nos produtos da conta.
+/// Remover = active false (os produtos continuam com o nome; ela só sai da lista).
+model ProductCategory {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  name       String
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, name])
 }
 
 /// Movimento de estoque: entrada de compra, saida por procedimento,
