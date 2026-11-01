@@ -116,6 +116,7 @@ export default function ProductsTab() {
   const [category, setCategory] = useState('');
   const [showLowStock, setShowLowStock] = useState(false);
   const [openModal, setOpenModal] = useState(false);
+  const [editing, setEditing] = useState<Product | null>(null);
   const [openCategories, setOpenCategories] = useState(false);
   const [photoFor, setPhotoFor] = useState<Product | null>(null);
 
@@ -225,6 +226,7 @@ export default function ProductsTab() {
                 <th className="px-3 py-2">Lote ANVISA</th>
                 <th className="px-3 py-2">Fornecedor</th>
                 <th className="px-3 py-2 text-right">Custo</th>
+                <th className="px-3 py-2 w-10"><span className="sr-only">Editar</span></th>
               </tr>
             </thead>
             <tbody>
@@ -245,7 +247,14 @@ export default function ProductsTab() {
                           <ProductThumb product={p} />
                         </button>
                         <div className="min-w-0">
-                          <div className="font-medium">{p.name}</div>
+                          <button
+                            type="button"
+                            onClick={() => setEditing(p)}
+                            className="font-medium text-left hover:text-primary hover:underline"
+                            title="Editar produto"
+                          >
+                            {p.name}
+                          </button>
                           {p.brand && <div className="text-xs text-muted-foreground">{p.brand}</div>}
                           {p.sku && <div className="text-[10px] text-muted-foreground font-mono">SKU: {p.sku}</div>}
                         </div>
@@ -286,6 +295,17 @@ export default function ProductsTab() {
                     <td className="px-3 py-2 text-right text-xs font-mono">
                       {p.cost_price ? `R$ ${Number(p.cost_price).toFixed(2)}` : '—'}
                     </td>
+                    <td className="px-2 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(p)}
+                        className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-primary"
+                        title="Editar produto"
+                        aria-label={`Editar ${p.name}`}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -294,13 +314,17 @@ export default function ProductsTab() {
         </div>
       )}
 
-      {openModal && (
-        <NewProductModal
+      {(openModal || editing) && (
+        <ProductFormModal
+          // key: trocar de produto remonta o formulário com os dados certos
+          key={editing?.id ?? 'novo'}
+          product={editing}
           categories={categories ?? []}
           onCategoriesChanged={loadCategories}
-          onClose={() => setOpenModal(false)}
-          onCreated={() => {
+          onClose={() => { setOpenModal(false); setEditing(null); }}
+          onSaved={() => {
             setOpenModal(false);
+            setEditing(null);
             load();
             loadCategories();
           }}
@@ -598,34 +622,63 @@ function ProductPhotoModal({
 
 const NOVA_CATEGORIA = '__nova__';
 
-function NewProductModal({
-  categories, onCategoriesChanged, onClose, onCreated,
+/** Decimal da API ("12.500") → texto do campo ("12.5"); vazio quando não tem. */
+function decimalParaCampo(valor: string | null | undefined): string {
+  return valor === null || valor === undefined || valor === '' ? '' : String(Number(valor));
+}
+
+/** Cadastro (sem `product`) ou edição de um produto já cadastrado. */
+function ProductFormModal({
+  product, categories, onCategoriesChanged, onClose, onSaved,
 }: {
+  product: Product | null;
   categories: ProductCategory[];
   onCategoriesChanged: () => Promise<void>;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
+  const editando = !!product;
   const [saving, setSaving] = useState(false);
-  const [name, setName] = useState('');
-  const [brand, setBrand] = useState('');
-  const [sku, setSku] = useState('');
-  const [category, setCategory] = useState('');
+  const [name, setName] = useState(product?.name ?? '');
+  const [brand, setBrand] = useState(product?.brand ?? '');
+  const [sku, setSku] = useState(product?.sku ?? '');
+  const [category, setCategory] = useState(product?.category ?? '');
   // "+ Nova categoria…" troca o select por um campo, sem sair do cadastro
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
-  const [unit, setUnit] = useState('UN');
-  const [anvisa, setAnvisa] = useState('');
-  const [isInjectable, setIsInjectable] = useState(false);
-  const [requiresLot, setRequiresLot] = useState(false);
-  const [minStock, setMinStock] = useState('');
-  const [costPrice, setCostPrice] = useState('');
+  const [unit, setUnit] = useState(product?.unit ?? 'UN');
+  const [anvisa, setAnvisa] = useState(product?.anvisa_registration ?? '');
+  const [isInjectable, setIsInjectable] = useState(product?.is_injectable ?? false);
+  const [requiresLot, setRequiresLot] = useState(product?.requires_lot_tracking ?? false);
+  const [minStock, setMinStock] = useState(decimalParaCampo(product?.min_stock));
+  const [costPrice, setCostPrice] = useState(decimalParaCampo(product?.cost_price));
+  const [supplierId, setSupplierId] = useState(product?.supplier?.id ?? '');
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  // Edição: "Remover" tira a foto que já estava salva (só ao clicar em Salvar)
+  const [removeSavedPhoto, setRemoveSavedPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
+  const savedPhotoUrl = product?.photo_url
+    ? `${API_BASE_URL}/products/${product.id}/photo?v=${encodeURIComponent(product.updated_at)}`
+    : null;
+  const { src: savedPhotoSrc } = useAuthedImage(savedPhotoUrl);
+  const shownPhoto = photoPreview ?? (removeSavedPhoto ? null : savedPhotoSrc);
+
   useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
+
+  useEffect(() => {
+    api.get<{ data: { id: string; name: string }[] }>('/suppliers?active=true&limit=100')
+      .then(({ data }) => setSuppliers(data?.data || []))
+      .catch(() => setSuppliers([]));
+  }, []);
+
+  // Categoria removida da lista continua no produto: mostra ela pra não sumir do campo
+  const categoriaForaDaLista = !!category && !categories.some((c) => c.name === category);
+  // Mesmo caso com fornecedor arquivado
+  const fornecedorForaDaLista = !!supplierId && !suppliers.some((s) => s.id === supplierId);
 
   const createCategory = async () => {
     const nome = newCategory.trim();
@@ -652,11 +705,13 @@ function NewProductModal({
     }
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
+    setRemoveSavedPhoto(false);
   };
 
   const clearPhoto = () => {
     setPhotoFile(null);
     setPhotoPreview(null);
+    if (product?.photo_url) setRemoveSavedPhoto(true);
     if (photoInputRef.current) photoInputRef.current.value = '';
   };
 
@@ -668,31 +723,55 @@ function NewProductModal({
     }
     setSaving(true);
     try {
-      const { data } = await api.post<{ id: string }>('/products', {
-        name: name.trim(),
-        brand: brand.trim() || undefined,
-        sku: sku.trim() || undefined,
-        category: category || undefined,
-        unit,
-        anvisa_registration: anvisa.trim() || undefined,
-        is_injectable: isInjectable,
-        requires_lot_tracking: requiresLot,
-        min_stock: minStock ? parseFloat(minStock) : undefined,
-        cost_price: costPrice ? parseFloat(costPrice) : undefined,
-      });
-      // Foto depois de criar: se falhar, o produto já existe — avisa e dá pra
-      // colocar a foto pela miniatura na lista.
-      if (photoFile && data?.id) {
-        try {
-          await uploadProductPhoto(data.id, photoFile);
-        } catch (err: any) {
-          showError(`Produto cadastrado, mas a foto falhou: ${errMsg(err, 'tente de novo clicando na miniatura')}`);
-        }
+      let productId: string | undefined;
+      if (product) {
+        // Edição: campo apagado vai como null (limpa no banco). Estoque atual
+        // não entra — ele só muda por entrada/saída em Movimentações.
+        await api.patch(`/products/${product.id}`, {
+          name: name.trim(),
+          brand: brand.trim() || null,
+          sku: sku.trim() || null,
+          category: category || null,
+          unit,
+          anvisa_registration: anvisa.trim() || null,
+          is_injectable: isInjectable,
+          requires_lot_tracking: requiresLot,
+          min_stock: minStock !== '' ? parseFloat(minStock) : null,
+          cost_price: costPrice !== '' ? parseFloat(costPrice) : null,
+          supplier_id: supplierId || null,
+        });
+        productId = product.id;
+      } else {
+        const { data } = await api.post<{ id: string }>('/products', {
+          name: name.trim(),
+          brand: brand.trim() || undefined,
+          sku: sku.trim() || undefined,
+          category: category || undefined,
+          unit,
+          anvisa_registration: anvisa.trim() || undefined,
+          is_injectable: isInjectable,
+          requires_lot_tracking: requiresLot,
+          min_stock: minStock ? parseFloat(minStock) : undefined,
+          cost_price: costPrice ? parseFloat(costPrice) : undefined,
+          supplier_id: supplierId || undefined,
+        });
+        productId = data?.id;
       }
-      showSuccess('Produto cadastrado');
-      onCreated();
+      // Foto depois de salvar os dados: se falhar, o produto já está salvo —
+      // avisa e dá pra colocar a foto pela miniatura na lista.
+      try {
+        if (photoFile && productId) {
+          await uploadProductPhoto(productId, photoFile);
+        } else if (removeSavedPhoto && product) {
+          await api.delete(`/products/${product.id}/photo`);
+        }
+      } catch (err: any) {
+        showError(`Produto salvo, mas a foto falhou: ${errMsg(err, 'tente de novo clicando na miniatura')}`);
+      }
+      showSuccess(editando ? 'Produto atualizado' : 'Produto cadastrado');
+      onSaved();
     } catch (err: any) {
-      showError(errMsg(err, 'Erro ao cadastrar'));
+      showError(errMsg(err, editando ? 'Erro ao salvar' : 'Erro ao cadastrar'));
     } finally {
       setSaving(false);
     }
@@ -709,7 +788,9 @@ function NewProductModal({
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Package size={20} className="text-primary" /> Novo produto
+            {editando
+              ? <><Pencil size={20} className="text-primary" /> Editar produto</>
+              : <><Package size={20} className="text-primary" /> Novo produto</>}
           </h2>
           <button onClick={onClose} className="p-1 hover:bg-accent rounded">
             <X size={18} />
@@ -724,9 +805,9 @@ function NewProductModal({
               title="Foto do produto"
               className="w-20 h-20 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-muted text-muted-foreground border border-dashed border-border hover:ring-2 hover:ring-primary/40"
             >
-              {photoPreview ? (
+              {shownPhoto ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={photoPreview} alt="Foto do produto" className="w-full h-full object-cover" />
+                <img src={shownPhoto} alt="Foto do produto" className="w-full h-full object-cover" />
               ) : (
                 <Camera size={24} className="opacity-60" />
               )}
@@ -737,9 +818,9 @@ function NewProductModal({
                 onClick={() => photoInputRef.current?.click()}
                 className="text-sm font-medium text-primary hover:underline"
               >
-                {photoPreview ? 'Trocar foto' : 'Adicionar foto'}
+                {shownPhoto ? 'Trocar foto' : 'Adicionar foto'}
               </button>
-              {photoPreview && (
+              {shownPhoto && (
                 <button
                   type="button"
                   onClick={clearPhoto}
@@ -842,6 +923,9 @@ function NewProductModal({
                   className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 >
                   <option value="">—</option>
+                  {categoriaForaDaLista && (
+                    <option value={category}>{category} (fora da lista)</option>
+                  )}
                   {categories.map((c) => (
                     <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
@@ -859,6 +943,23 @@ function NewProductModal({
                 {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Fornecedor</label>
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">—</option>
+              {fornecedorForaDaLista && (
+                <option value={supplierId}>{product?.supplier?.name ?? 'Fornecedor atual'}</option>
+              )}
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -922,6 +1023,14 @@ function NewProductModal({
             </div>
           </div>
 
+          {product && (
+            <p className="text-xs text-muted-foreground">
+              Estoque atual: <span className="font-mono font-medium text-foreground">
+                {Number(product.current_stock)} {product.unit}
+              </span>. Para mudar a quantidade, lance uma entrada ou saída na aba Movimentacoes.
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-3 border-t border-border">
             <button
               type="button"
@@ -935,8 +1044,10 @@ function NewProductModal({
               disabled={saving}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-              Cadastrar
+              {saving
+                ? <Loader2 size={16} className="animate-spin" />
+                : editando ? <Check size={16} /> : <Plus size={16} />}
+              {editando ? 'Salvar' : 'Cadastrar'}
             </button>
           </div>
         </form>

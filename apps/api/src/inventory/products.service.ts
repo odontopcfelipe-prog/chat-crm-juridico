@@ -133,8 +133,24 @@ export class ProductsService {
       where: { id, tenant_id: tenantId },
     });
     if (!existing) throw new NotFoundException('Produto nao encontrado');
-    await this.assertSupplierDaConta(tenantId, dto.supplier_id);
-    return this.prisma.product.update({ where: { id }, data: comCategoriaNormalizada(dto) });
+
+    const data = comCategoriaNormalizada(dto);
+    if (data.name !== undefined) {
+      data.name = data.name.trim();
+      if (!data.name) throw new BadRequestException('Nome e obrigatorio');
+    }
+    // SKU é único na conta: sem isso a troca pra um SKU já usado vira erro 500
+    if (data.sku && data.sku !== existing.sku) {
+      const outro = await this.prisma.product.findUnique({
+        where: { tenant_id_sku: { tenant_id: tenantId, sku: data.sku } },
+        select: { id: true },
+      });
+      if (outro && outro.id !== id) {
+        throw new BadRequestException(`Ja existe um produto com SKU "${data.sku}"`);
+      }
+    }
+    await this.assertSupplierDaConta(tenantId, data.supplier_id);
+    return this.prisma.product.update({ where: { id }, data });
   }
 
   /** Fornecedor do produto só da própria conta (vazio/null limpa o vínculo, sem consulta). */
