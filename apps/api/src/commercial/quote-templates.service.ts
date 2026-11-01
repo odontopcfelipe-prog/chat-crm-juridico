@@ -10,6 +10,7 @@
  * resolvendo unit_price (template.unit_price OU procedure.base_price atual).
  */
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface CreateTemplateDto {
@@ -32,6 +33,34 @@ export class QuoteTemplatesService {
   private readonly logger = new Logger(QuoteTemplatesService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * F6 — no laboratório o modelo só leva serviço da PRÓPRIA conta. A clínica não passa
+   * por aqui (pode ter serviço antigo sem conta, e a regra mudaria o resultado dela).
+   */
+  private async ehLaboratorio(tenantId: string): Promise<boolean> {
+    return isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+  }
+
+  /** Ids (sem repetição) que são serviços desta conta. */
+  private async servicosDaConta(ids: string[], tenantId: string): Promise<Set<string>> {
+    const unicos = [...new Set(ids.filter((id) => typeof id === 'string' && id))];
+    if (!unicos.length) return new Set();
+    const linhas = await this.prisma.procedure.findMany({
+      where: { id: { in: unicos }, tenant_id: tenantId },
+      select: { id: true },
+    });
+    return new Set(linhas.map((l) => l.id));
+  }
+
+  /** Laboratório: recusa item com serviço de fora da conta (create/update). */
+  private async recusarServicoDeOutraConta(items: CreateTemplateDto['items'], tenantId: string): Promise<void> {
+    if (!items?.length || !(await this.ehLaboratorio(tenantId))) return;
+    const daConta = await this.servicosDaConta(items.map((it) => it.procedure_id), tenantId);
+    if (items.some((it) => !daConta.has(it.procedure_id))) {
+      throw new BadRequestException('Item do modelo com serviço que não é desta conta — escolha um serviço da lista.');
+    }
+  }
 
   async list(tenantId: string, opts: { activeOnly?: boolean } = {}) {
     return (this.prisma as any).quoteTemplate.findMany({
@@ -67,6 +96,7 @@ export class QuoteTemplatesService {
     if (!data.name?.trim()) {
       throw new BadRequestException('Nome do template e obrigatorio');
     }
+    await this.recusarServicoDeOutraConta(data.items, tenantId);
     return (this.prisma as any).quoteTemplate.create({
       data: {
         tenant_id: tenantId,
@@ -94,6 +124,7 @@ export class QuoteTemplatesService {
 
   async update(id: string, tenantId: string, data: UpdateTemplateDto) {
     await this.findOne(id, tenantId);
+    await this.recusarServicoDeOutraConta(data.items, tenantId);
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await (tx as any).quoteTemplate.update({
@@ -149,10 +180,17 @@ export class QuoteTemplatesService {
       throw new BadRequestException('Templates so podem ser aplicados em rascunhos');
     }
 
+    // F6 — laboratório: só copia os itens com serviço da própria conta.
+    let itensDoModelo: any[] = tpl.items;
+    if (await this.ehLaboratorio(tenantId)) {
+      const daConta = await this.servicosDaConta(tpl.items.map((ti: any) => ti.procedure_id), tenantId);
+      itensDoModelo = tpl.items.filter((ti: any) => daConta.has(ti.procedure_id));
+    }
+
     // Pega quantos items ja existem pra continuar order_index
     const existingCount = await this.prisma.quoteItem.count({ where: { quote_id: quoteId } });
 
-    const newItems = tpl.items.map((ti: any, idx: number) => {
+    const newItems = itensDoModelo.map((ti: any, idx: number) => {
       const unitPrice = ti.unit_price !== null
         ? Number(ti.unit_price)
         : Number(ti.procedure?.base_price || 0);

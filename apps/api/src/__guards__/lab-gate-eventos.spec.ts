@@ -476,7 +476,7 @@ describe('Fechamento — negociação aprovada, entrada e comprovante: laborató
   });
 });
 
-describe('Envio do orçamento pelo WhatsApp (portal) — laboratório recusa', () => {
+describe('Envio do orçamento pelo WhatsApp (portal) — laboratório sem portal', () => {
   function montar(labs: string[], conta = CLINICA) {
     const b = banco(labs, {
       'quote.findUnique': ({ where }) => ({
@@ -525,14 +525,18 @@ describe('Envio do orçamento pelo WhatsApp (portal) — laboratório recusa', (
     expect(depois.portal.createMagicLink.mock.calls).toEqual(antes.portal.createMagicLink.mock.calls);
   });
 
-  it('laboratório: recusa (VERTICAL_DENIED) sem link, sem conversa, sem envio', async () => {
+  // F6 — o laboratório tem envio próprio (orcamento-whatsapp-laboratorio.ts, coberto em
+  // commercial/quote-whatsapp.lab.spec.ts): sem link do portal e com o PDF anexado. Aqui,
+  // sem o serviço de PDF, o envio é recusado antes de mandar qualquer coisa.
+  it('laboratório: sem link do portal; sem o PDF do orçamento, recusa sem enviar', async () => {
     const m = montar([LAB], LAB);
     const e = await erro(m.svc.sendByWhatsapp('orc-lab', LAB, 'usuario-1'));
-    expect(codigo(e)).toBe(CODIGO_VERTICAL_NEGADA);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(codigo(e)).not.toBe(CODIGO_VERTICAL_NEGADA);
     expect(m.nomes()).toEqual(['quote.findUnique']);
     expect(m.portal.createMagicLink).not.toHaveBeenCalled();
-    expect(m.conversations.findOrCreatePatientConversationId).not.toHaveBeenCalled();
     expect(m.messages.sendPatientText).not.toHaveBeenCalled();
+    expect(m.messages.sendPatientFile).not.toHaveBeenCalled();
   });
 });
 

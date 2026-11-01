@@ -54,8 +54,8 @@ describe('business-type — na dúvida, clínica', () => {
 });
 
 /**
- * A lista exata, na mesma ordem de ALLOWED_LAB_ROUTES. Os blocos F5a, F5b e F5c são os
- * mesmos de business-type.ts: cada deploy da F5 tira (ou põe) o bloco inteiro nos quatro
+ * A lista exata, na mesma ordem de ALLOWED_LAB_ROUTES. Os blocos F5a, F5b, F5c e F6a são os
+ * mesmos de business-type.ts: cada deploy tira (ou põe) o bloco inteiro nos quatro
  * arquivos de rota, sem mexer no resto.
  */
 const ROTAS_ESPERADAS: unknown[] = [
@@ -91,6 +91,10 @@ const ROTAS_ESPERADAS: unknown[] = [
   '/atendimento/settings/users',
   '/atendimento/estoque',
   // [/F5c]
+  // [F6a]
+  '/atendimento/orcamentos',
+  '/atendimento/settings/quote-templates',
+  // [/F6a]
 ];
 
 describe('labAllowsRoute — negação por padrão', () => {
@@ -112,7 +116,8 @@ describe('labAllowsRoute — negação por padrão', () => {
     '/atendimento/settings/disparos',
     '/atendimento/settings/ai',
     '/atendimento/settings/specialties',
-    '/atendimento/settings/quote-templates',
+    '/atendimento/settings/quotes-trash',
+    '/atendimento/settings/quote-coupons',
     '/atendimento/settings/permissions',
     '/atendimento/financeiro/dashboard',
     '/atendimento/financeiro-antigo',
@@ -156,6 +161,11 @@ describe('labAllowsRoute — negação por padrão', () => {
     '/atendimento/settings/users',
     '/atendimento/estoque',
     // [/F5c]
+    // [F6a]
+    '/atendimento/orcamentos',
+    '/atendimento/orcamentos?status=SENT',
+    '/atendimento/settings/quote-templates',
+    // [/F6a]
     '/atendimento/chat',
   ])('na lista, %p abre', (rota) => {
     expect(labAllowsRoute(rota)).toBe(true);

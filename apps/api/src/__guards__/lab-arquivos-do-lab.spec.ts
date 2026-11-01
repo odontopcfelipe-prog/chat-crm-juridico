@@ -1,6 +1,6 @@
 /**
- * F5 do laboratório — componentes que SÓ o laboratório monta (o cadastro do cliente e o
- * painel do contato). Como a clínica nunca passa por eles, o texto inteiro é do
+ * F5/F6 do laboratório — componentes que SÓ o laboratório monta (o cadastro do cliente, o
+ * painel do contato e a aba Orçamento) e os arquivos de textos novos da F6. Como a clínica nunca passa por eles, o texto inteiro é do
  * laboratório e a trava de textos (scripts/ci/check-pick-literals.mjs) não os enxerga
  * quando não têm pickBt/LAB_. Este spec cobre isso:
  *   - nenhum texto visível (string, template ou texto de JSX) com palavra de clínica —
@@ -8,8 +8,8 @@
  *   - nenhuma chamada a rota que é só de clínica (agenda, odontograma, anamnese,
  *     memória da IA, Drive, honorários, alergias, medicamentos, atender, aniversários,
  *     primeiras consultas, portal do paciente).
- * Os arquivos são criados pelas telas da F5 (cadastro e contato): até lá este spec
- * acusa "não existe".
+ * Os arquivos são criados pelas telas da F5 (cadastro e contato) e da F6 (orçamento,
+ * propostas, trabalhos e painel): até lá este spec acusa "não existe".
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -21,6 +21,12 @@ const RAIZ = path.resolve(__dirname, '..', '..', '..', '..');
 const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/pacientes/components/LabClienteModal.tsx',
   'apps/web/src/components/LabClientPanel.tsx',
+  // F6 — aba Orçamento do laboratório e os textos novos das telas do orçamento de trabalho
+  'apps/web/src/app/atendimento/pacientes/components/LabOrcamentoTab.tsx',
+  'apps/web/src/app/atendimento/pacientes/lab-orcamento-textos.ts',
+  'apps/web/src/app/atendimento/pacientes/lab-propostas-textos.ts',
+  'apps/web/src/app/atendimento/pacientes/lab-trabalhos-textos.ts',
+  'apps/web/src/app/atendimento/orcamentos/lab-orcamentos-textos.ts',
 ];
 
 /** Trechos de rota que são só de clínica (negados ao laboratório na API). */
@@ -37,6 +43,15 @@ const ROTAS_DE_CLINICA = [
   '/birthdays',
   '/first-visits',
   '/portal/',
+  // F6 — sugestões do odontograma, duplicar como opção, contrato, consulta de crédito,
+  // aceite sem cobrança, afiliados e o prefixo '/commercial/' (que a API não tem: 404)
+  '/state-suggestions',
+  '/duplicate-as-option',
+  '/contract',
+  '/credit-check',
+  '/accept-no-charge',
+  '/affiliates/options',
+  '/commercial/',
 ];
 
 /** Textos que chegam à tela: string, template (partes fixas) e texto de JSX. Fora: import/export e tipos. */

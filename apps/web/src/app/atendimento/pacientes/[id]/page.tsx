@@ -14,13 +14,14 @@
  *  - Card "Alergias" / "Medicações": botão "+ Adicionar" + lixeira por item
  */
 import { useEffect, useRef, useState, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
-  Layers, HandCoins,
+  Layers, HandCoins, ClipboardList,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
@@ -53,7 +54,15 @@ import ChatPane from '../../split/components/ChatPane';
 import { formatCpfCnpj, isLab, tipoDoDocumento } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { LAB_CADASTRO, LAB_FICHA } from '../lab-dentistas-textos';
-import { abasProntasNoLab } from '../lab-ficha';
+import { ABA_ORCAMENTO_DO_LAB, abasProntasNoLab, ordemNoLab } from '../lab-ficha';
+// F6 do laboratório — aba Orçamento (só o laboratório monta) e o nome das abas que mudam.
+import { LAB_ABAS_DA_FICHA } from '../lab-trabalhos-textos';
+const LabOrcamentoTab = dynamic(() => import('../components/LabOrcamentoTab'), { ssr: false });
+
+/** Laboratório: abas na ordem da ficha dele (lab-ficha.ts). Clínica: a mesma lista, na ordem de TABS. */
+function naOrdemDaFicha<T extends { id: string }>(lista: T[], lab: boolean): T[] {
+  return lab ? [...lista].sort((a, b) => ordemNoLab(a.id) - ordemNoLab(b.id)) : lista;
+}
 
 interface Patient {
   id: string;
@@ -112,6 +121,9 @@ const TABS = [
   // pra fluxo de dia-a-dia ficar à esquerda, documentação à direita.
   // Operational
   { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
+  // F6 do laboratório — aba Orçamento: só o laboratório vê (filtrada na barra e no efeito
+  // que volta para a Visão geral).
+  { id: ABA_ORCAMENTO_DO_LAB, label: LAB_ABAS_DA_FICHA.orcamento, icon: ClipboardList, group: 'operational' as const },
   // Anamnese movida pra logo depois da Visão geral (pedido do operador).
   { id: 'anamnesis',      label: 'Anamnese',        icon: FileText,    group: 'operational' as const },
   { id: 'odontogram',     label: 'Avaliação',       icon: Activity,    group: 'operational' as const },
@@ -179,6 +191,10 @@ function PacienteFichaInner() {
   const canManageProposals = hasPermission('manage_proposals');
   const canProposals = canManageProposals || hasPermission('view_proposals');
   const proposalsReadOnly = canProposals && !canManageProposals;
+  // F6 do laboratório — aba Orçamento: abre para quem negocia (Propostas) ou monta o
+  // orçamento (create_evaluation); montar = manage_proposals ou create_evaluation.
+  const canQuotes = canProposals || hasPermission('create_evaluation');
+  const podeMontar = canManageProposals || hasPermission('create_evaluation');
   const canFinancial = hasPermission('view_financial');
   // Out/2026 — regra do Dentista: sem chat, sem agendar (a agenda dele é a lista),
   // sem valores (selo de dívida/afiliado) e sem contato do paciente. A API já apaga
@@ -233,10 +249,15 @@ function PacienteFichaInner() {
     }
   }, [permsReady, tab, canProposals, canFinancial]);
   // Laboratório: aba que ainda não abre para ele (ex.: ?tab=odontogram num link) volta
-  // para a Visão geral antes de a ficha carregar.
+  // para a Visão geral antes de a ficha carregar; a aba Orçamento sem permissão também.
+  // Clínica: ?tab=orcamento (aba só do laboratório) volta para a Visão geral. O btAgora()
+  // segura a 1ª renderização da hidratação, em que o hook ainda diz clínica numa sessão
+  // de laboratório (senão o ?tab=orcamento do laboratório se perderia no Ctrl+F5).
   useEffect(() => {
-    if (lab && !abasProntasNoLab().includes(tab)) setTab('overview');
-  }, [lab, tab]);
+    if (lab
+      ? (!abasProntasNoLab().includes(tab) || (tab === ABA_ORCAMENTO_DO_LAB && permsReady && !canQuotes))
+      : tab === ABA_ORCAMENTO_DO_LAB && !isLab(btAgora())) setTab('overview');
+  }, [lab, tab, permsReady, canQuotes]);
   const [editOpen, setEditOpen] = useState(false);
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
   const [addMedOpen, setAddMedOpen] = useState(false);
@@ -888,7 +909,7 @@ function PacienteFichaInner() {
           pra ganhar mais espaco horizontal. */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
         <div className="flex gap-0.5 items-end">
-          {TABS.filter((t) => t.group === 'operational')
+          {naOrdemDaFicha(TABS.filter((t) => t.group === 'operational')
             // Aba "Afiliado" so aparece quando o paciente esta no programa.
             // Default off — toggle em Editar paciente > Programa de Afiliado.
             .filter((t) => t.id !== 'affiliate' || (patient.is_affiliate && canSeeValues))
@@ -896,6 +917,9 @@ function PacienteFichaInner() {
             .filter((t) => (t.id !== 'proposals' || canProposals) && (t.id !== 'financial' || canFinancial))
             // Laboratório: só as abas prontas para ele (lab-ficha.ts).
             .filter((t) => !lab || abasProntasNoLab().includes(t.id))
+            // F6 do laboratório — aba Orçamento: só no laboratório e só com permissão.
+            .filter((t) => lab || t.id !== ABA_ORCAMENTO_DO_LAB)
+            .filter((t) => t.id !== ABA_ORCAMENTO_DO_LAB || canQuotes), lab)
             .map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -909,7 +933,7 @@ function PacienteFichaInner() {
                 } ${t.id === 'affiliate' ? 'text-emerald-600 hover:text-emerald-700' : ''}`}
               >
                 <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
-                {t.label}
+                {(lab && LAB_ABAS_DA_FICHA[t.id as keyof typeof LAB_ABAS_DA_FICHA]) || t.label}
               </button>
             );
           })}
@@ -927,7 +951,7 @@ function PacienteFichaInner() {
                 }`}
               >
                 <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
-                {t.label}
+                {(lab && LAB_ABAS_DA_FICHA[t.id as keyof typeof LAB_ABAS_DA_FICHA]) || t.label}
               </button>
             );
           })}
@@ -1003,9 +1027,23 @@ function PacienteFichaInner() {
           // Onda 14.23 — dialog "Nova proposta" tem empty state que precisa
           // mandar o operador pra aba Avaliacao quando nao ha orcamentos.
           onGoToEvaluation={() => {
+            // Laboratório: o orçamento se monta na aba Orçamento (não há Avaliação).
+            if (lab) {
+              setTab(ABA_ORCAMENTO_DO_LAB);
+              router.push(`/atendimento/pacientes/${patient.id}?tab=${ABA_ORCAMENTO_DO_LAB}`);
+            } else {
             setTab('odontogram');
             router.push(`/atendimento/pacientes/${patient.id}?tab=odontogram`);
+            }
           }}
+        />
+      )}
+      {/* F6 do laboratório — aba Orçamento (montar o orçamento de trabalho). */}
+      {lab && tab === ABA_ORCAMENTO_DO_LAB && canQuotes && (
+        <LabOrcamentoTab
+          patientId={patient.id}
+          readOnly={!podeMontar}
+          onGoToProposals={canProposals && abasProntasNoLab().includes('proposals') ? () => setTab('proposals') : undefined}
         />
       )}
       {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} patientName={patient.name} />}

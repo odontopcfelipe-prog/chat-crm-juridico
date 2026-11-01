@@ -3,6 +3,8 @@
  * "sem acesso", o Início do laboratório (LabInicio) e os nomes dos atalhos dele.
  * F5 — também os nomes do menu (barra lateral e abas do celular) e o "Localizar"
  * do topo.
+ * F6 — também o item do menu e os atalhos do painel de orçamentos (Orçamentos de
+ * trabalho e Propostas).
  *
  * Só texto. A clínica não usa nada daqui: quem usa escolhe pelo tipo de negócio
  * da sessão (`lab ? LAB_X.y : 'texto de hoje da clínica'`). Este arquivo só tem
@@ -38,6 +40,8 @@ export const LAB_BALOES = Object.freeze({
   financeiro: Object.freeze({ label: 'Financeiro', desc: 'Entradas, clientes e log.' }),
   cobrancas: Object.freeze({ label: 'Cobranças', desc: 'Boletos, parcelas e atrasos.' }),
   equipe: Object.freeze({ label: 'Equipe', desc: 'Cadastro da equipe e dos protéticos.' }),
+  orcamentos: Object.freeze({ label: 'Orçamentos de trabalho', desc: 'Monte, envie e acompanhe os orçamentos.' }),
+  propostas: Object.freeze({ label: 'Propostas', desc: 'Orçamentos enviados aguardando o cliente.' }),
 });
 
 /** Nomes do menu: item da lista na barra lateral, nome do grupo dela e aba do celular. */
@@ -45,6 +49,7 @@ export const LAB_MENU = Object.freeze({
   listaDentistas: 'Dentistas',
   grupoClientes: 'Clientes',
   abaDentistas: 'Dentistas',
+  orcamentos: 'Orçamentos de trabalho',
 });
 
 /** "Localizar" do topo, pelo tipo de busca da seção (o mesmo de resolveSearchContext). */

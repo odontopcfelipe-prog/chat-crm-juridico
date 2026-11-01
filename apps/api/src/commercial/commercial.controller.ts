@@ -74,6 +74,9 @@ import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
 import { ContractPdfService, isPdfBuffer } from './contract-pdf.service';
 import { ContractWhatsappService } from './contract-whatsapp.service';
+// F6 — nome do arquivo do PDF sem valores do laboratório.
+import { isLab } from '@crm/shared';
+import { LAB_ORCAMENTO_PDF } from './lab-orcamento-textos';
 
 /**
  * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
@@ -774,7 +777,7 @@ export class CommercialController {
     res.set('Content-Type', 'application/pdf');
     res.set(
       'Content-Disposition',
-      `inline; filename="${withValues ? 'orcamento' : 'procedimentos'}-${id.slice(0, 8)}.pdf"`,
+      `inline; filename="${withValues ? 'orcamento' : (isLab(req.user?.bt) ? LAB_ORCAMENTO_PDF.arquivoSemValores : 'procedimentos')}-${id.slice(0, 8)}.pdf"`,
     );
     res.set('Content-Length', String(buffer.length));
     res.end(buffer);

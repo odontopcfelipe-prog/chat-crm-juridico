@@ -30,6 +30,10 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+// F6 do laboratório — aba Trabalhos: textos próprios e o protético vê só os serviços dele.
+import { isLab } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
+import { LAB_TRABALHOS } from '../lab-trabalhos-textos';
 
 interface ItemRow {
   plan_id: string;
@@ -95,6 +99,7 @@ interface Props {
 export default function TratamentoTab({ patientId }: Props) {
   const router = useRouter();
   const role = useRole();
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Data | null>(null);
   const [validatingId, setValidatingId] = useState<string | null>(null);
@@ -106,7 +111,7 @@ export default function TratamentoTab({ patientId }: Props) {
       const res = await api.get(`/patients/${patientId}/treatment-items`);
       setData(res.data);
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao carregar plano de tratamento');
+      showError(e?.response?.data?.message || (isLab(btAgora()) ? LAB_TRABALHOS.erroCarregar : 'Erro ao carregar plano de tratamento'));
     } finally {
       setLoading(false);
     }
@@ -119,34 +124,45 @@ export default function TratamentoTab({ patientId }: Props) {
   const validateItem = async (row: ItemRow) => {
     // Onda 17.72 — gate: bloqueia confirmação enquanto o Financeiro não validar.
     if (!row.plan_validated_by_financial_at) {
-      showError('Aguardando validação do Financeiro — o tratamento ainda não foi liberado.');
+      showError(lab ? LAB_TRABALHOS.aguardandoFinanceiro : 'Aguardando validação do Financeiro — o tratamento ainda não foi liberado.');
       return;
     }
     const procedureLabel = row.item.tooth_fdi
-      ? `${row.item.procedure_name} (dente ${row.item.tooth_fdi})`
+      ? (lab ? LAB_TRABALHOS.rotuloElemento(row.item.procedure_name, row.item.tooth_fdi) : `${row.item.procedure_name} (dente ${row.item.tooth_fdi})`)
       : row.item.procedure_name;
-    if (!confirm(
+    if (!confirm(lab ? LAB_TRABALHOS.confirmarConcluir(procedureLabel) : (
       `Validar "${procedureLabel}" como concluído?\n\n` +
       `• Marca status = DONE\n` +
       `• Registra você como dentista executante\n` +
-      `• Data de execução = agora`,
-    )) return;
+      `• Data de execução = agora`
+    ))) return;
     setValidatingId(row.item.id);
     try {
       await api.post(`/treatment-plan-items/${row.item.id}/execute`, {});
-      showSuccess('Procedimento validado');
+      showSuccess(lab ? LAB_TRABALHOS.servicoConcluido : 'Procedimento validado');
       await fetchData();
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao validar');
+      showError(e?.response?.data?.message || (lab ? LAB_TRABALHOS.erroConcluir : 'Erro ao validar'));
     } finally {
       setValidatingId(null);
     }
   };
 
+  // Laboratório: o protético vê só os serviços dele e os sem responsável (esses qualquer
+  // protético pode concluir). Administrador e Atendimento veem todos. Na clínica a lista é
+  // a mesma de sempre. Vale para os grupos e para os números abaixo.
+  const soOsMeus = lab && role.isDentist && !role.isAdmin && !role.isSuperAdmin;
+  const itens = useMemo(
+    () => (data && soOsMeus
+      ? data.items.filter((r) => r.item.dentist?.id === role.userId || !r.item.dentist)
+      : data?.items ?? []),
+    [data, soOsMeus, role.userId],
+  );
+
   const grouped = useMemo(() => {
     if (!data) return [] as { plan_id: string; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; validated_by_financial_at: string | null; items: ItemRow[] }[];
     const map = new Map<string, ItemRow[]>();
-    for (const row of data.items) {
+    for (const row of itens) {
       if (!map.has(row.plan_id)) map.set(row.plan_id, []);
       map.get(row.plan_id)!.push(row);
     }
@@ -163,13 +179,13 @@ export default function TratamentoTab({ patientId }: Props) {
       // sem validação do Financeiro NÃO aparece aqui, mesmo que a API antiga ainda
       // o devolva. Defense in depth — funciona com backend antigo ou novo.
       .filter((g) => g.items.length > 0 && g.validated_by_financial_at);
-  }, [data, hideDone]);
+  }, [data, itens, hideDone]);
 
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
         <Loader2 size={20} className="animate-spin mr-2" />
-        Carregando plano de tratamento…
+        {lab ? LAB_TRABALHOS.carregando : 'Carregando plano de tratamento…'}
       </div>
     );
   }
@@ -177,7 +193,7 @@ export default function TratamentoTab({ patientId }: Props) {
   // KPIs e contagem de pendentes recomputados NO FRONT a partir dos itens (que já
   // trazem plan_validated_by_financial_at). Não confiamos no kpis do backend: a API
   // antiga conta os planos não-validados. Assim os números batem com o que aparece.
-  const validatedItems = (data?.items ?? []).filter((r) => r.plan_validated_by_financial_at);
+  const validatedItems = itens.filter((r) => r.plan_validated_by_financial_at);
   const doneItems = validatedItems.filter((r) => r.item.status === 'DONE');
   const kpis = {
     total: validatedItems.length,
@@ -189,7 +205,7 @@ export default function TratamentoTab({ patientId }: Props) {
   // Planos aceitos porém ainda NÃO liberados pelo Financeiro (pra mostrar o aviso
   // certo em vez de "nenhum procedimento").
   const pendingValidationCount = new Set(
-    (data?.items ?? []).filter((r) => !r.plan_validated_by_financial_at).map((r) => r.plan_id),
+    itens.filter((r) => !r.plan_validated_by_financial_at).map((r) => r.plan_id),
   ).size;
   const progressPct = kpis.total > 0 ? Math.round((kpis.feitos / kpis.total) * 100) : 0;
   // Aviso geral de "somente leitura". O botão de cada linha usa a regra do item (podeEste).
@@ -202,10 +218,10 @@ export default function TratamentoTab({ patientId }: Props) {
         <div>
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Activity size={18} className="text-emerald-600" />
-            Plano de Tratamento
+            {lab ? LAB_TRABALHOS.titulo : 'Plano de Tratamento'}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Procedimentos fechados — dentista responsável valida cada um quando realizado.
+            {lab ? LAB_TRABALHOS.subtitulo : 'Procedimentos fechados — dentista responsável valida cada um quando realizado.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -216,7 +232,7 @@ export default function TratamentoTab({ patientId }: Props) {
               onChange={(e) => setHideDone(e.target.checked)}
               className="accent-emerald-600"
             />
-            Esconder feitos
+            {lab ? LAB_TRABALHOS.esconderConcluidos : 'Esconder feitos'}
           </label>
           <button
             onClick={fetchData}
@@ -234,7 +250,7 @@ export default function TratamentoTab({ patientId }: Props) {
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between gap-3 mb-2">
             <span className="text-xs font-bold text-foreground">
-              Progresso do tratamento
+              {lab ? LAB_TRABALHOS.progresso : 'Progresso do tratamento'}
             </span>
             <span className="text-xs tabular-nums text-muted-foreground">
               {kpis.feitos} de {kpis.total} ({progressPct}%)
@@ -269,16 +285,15 @@ export default function TratamentoTab({ patientId }: Props) {
             <Lock size={32} className="mx-auto mb-2 opacity-60" />
             <p className="text-sm font-bold">Aguardando validação do Financeiro</p>
             <p className="text-xs mt-1">
-              O tratamento foi aceito, mas o Financeiro precisa conferir e liberar antes
-              de aparecer aqui pra confirmação dos procedimentos.
+              {lab ? LAB_TRABALHOS.aguardandoValidacaoVazio : 'O tratamento foi aceito, mas o Financeiro precisa conferir e liberar antes de aparecer aqui pra confirmação dos procedimentos.'}
             </p>
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
             <FileText size={32} className="mx-auto mb-2 opacity-40" />
-            <p className="text-sm font-medium">Nenhum procedimento fechado ainda</p>
+            <p className="text-sm font-medium">{lab ? LAB_TRABALHOS.nenhumTrabalho : 'Nenhum procedimento fechado ainda'}</p>
             <p className="text-xs mt-1">
-              Quando um orçamento for aceito pelo paciente, os procedimentos aparecem aqui.
+              {lab ? LAB_TRABALHOS.nenhumTrabalhoDica : 'Quando um orçamento for aceito pelo paciente, os procedimentos aparecem aqui.'}
             </p>
           </div>
         )
@@ -294,13 +309,13 @@ export default function TratamentoTab({ patientId }: Props) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <FileText size={14} className="text-emerald-600" />
                   <h3 className="text-sm font-bold text-foreground truncate">
-                    {plan.quote_title || 'Plano de tratamento'}
+                    {plan.quote_title || (lab ? LAB_TRABALHOS.trabalho : 'Plano de tratamento')}
                   </h3>
                   <PlanStatusBadge status={plan.plan_status} />
                 </div>
                 {plan.quote_accepted_at && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Aceito em {formatDate(plan.quote_accepted_at)}
+                    {lab ? LAB_TRABALHOS.aprovadoEm : 'Aceito em '}{formatDate(plan.quote_accepted_at)}
                   </p>
                 )}
               </div>
@@ -312,8 +327,7 @@ export default function TratamentoTab({ patientId }: Props) {
                 <Lock size={14} className="shrink-0 mt-0.5" />
                 <div>
                   <strong className="font-bold">🔒 Aguardando validação do Financeiro.</strong>{' '}
-                  O Financeiro precisa conferir e liberar este tratamento antes que os
-                  procedimentos possam ser confirmados como feitos.
+                  {lab ? LAB_TRABALHOS.bloqueadoTexto : 'O Financeiro precisa conferir e liberar este tratamento antes que os procedimentos possam ser confirmados como feitos.'}
                 </div>
               </div>
             )}
@@ -322,10 +336,10 @@ export default function TratamentoTab({ patientId }: Props) {
               <table className="w-full text-sm">
                 <thead className="bg-muted/20 text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2 text-left font-bold">Procedimento</th>
-                    <th className="px-4 py-2 text-center font-bold">Dente</th>
+                    <th className="px-4 py-2 text-left font-bold">{lab ? LAB_TRABALHOS.colServico : 'Procedimento'}</th>
+                    <th className="px-4 py-2 text-center font-bold">{lab ? LAB_TRABALHOS.colElemento : 'Dente'}</th>
                     <th className="px-4 py-2 text-center font-bold">Status</th>
-                    <th className="px-4 py-2 text-left font-bold">Executado por</th>
+                    <th className="px-4 py-2 text-left font-bold">{lab ? LAB_TRABALHOS.colConcluidoPor : 'Executado por'}</th>
                     <th className="px-4 py-2 text-center font-bold">Ação</th>
                   </tr>
                 </thead>
@@ -359,7 +373,7 @@ export default function TratamentoTab({ patientId }: Props) {
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${style.color} ${style.bg} ${style.border}`}>
-                            {style.label}
+                            {(lab && LAB_TRABALHOS.statusServico[it.status]) || style.label}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-xs">
@@ -375,6 +389,13 @@ export default function TratamentoTab({ patientId }: Props) {
                               )}
                             </div>
                           ) : it.scheduled_appointment_id ? (
+                            // Laboratório: sem link (a agenda dele ainda não abre); só o selo.
+                            lab ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400">
+                                <Calendar size={11} />
+                                {it.scheduled_appointment_title || 'Agendado'}
+                              </span>
+                            ) : (
                             <button
                               onClick={() => router.push(`/atendimento/agenda`)}
                               className="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400 hover:underline"
@@ -383,6 +404,7 @@ export default function TratamentoTab({ patientId }: Props) {
                               <Calendar size={11} />
                               {it.scheduled_appointment_title || 'Agendado'}
                             </button>
+                            )
                           ) : (
                             <span className="text-muted-foreground italic text-[11px]">—</span>
                           )}
@@ -395,12 +417,12 @@ export default function TratamentoTab({ patientId }: Props) {
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                               title={
                                 locked
-                                  ? '🔒 Aguardando validação do Financeiro — o tratamento precisa ser liberado antes de confirmar os procedimentos'
+                                  ? (lab ? LAB_TRABALHOS.bloqueadoDica : '🔒 Aguardando validação do Financeiro — o tratamento precisa ser liberado antes de confirmar os procedimentos')
                                   : podeEste
-                                  ? 'Validar — marca este procedimento como feito'
+                                  ? (lab ? LAB_TRABALHOS.concluirDica : 'Validar — marca este procedimento como feito')
                                   : deOutroDentista
-                                  ? `Procedimento de ${it.dentist?.name}`
-                                  : 'Apenas dentistas/admin podem validar'
+                                  ? (lab ? LAB_TRABALHOS.servicoDe(it.dentist?.name) : `Procedimento de ${it.dentist?.name}`)
+                                  : (lab ? LAB_TRABALHOS.soProteticoOuAdmin : 'Apenas dentistas/admin podem validar')
                               }
                             >
                               {validatingId === it.id ? (
@@ -410,12 +432,12 @@ export default function TratamentoTab({ patientId }: Props) {
                               ) : (
                                 <CheckCircle2 size={11} />
                               )}
-                              Validar
+                              {lab ? LAB_TRABALHOS.concluir : 'Validar'}
                             </button>
                           )}
                           {done && (
                             <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
-                              <CheckCircle2 size={12} /> Validado
+                              <CheckCircle2 size={12} />{lab ? <> {LAB_TRABALHOS.concluido}</> : ' Validado'}
                             </span>
                           )}
                         </td>
@@ -434,10 +456,17 @@ export default function TratamentoTab({ patientId }: Props) {
       {kpis.total > 0 && !canValidate && (
         <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-3 text-xs text-blue-900 dark:text-blue-300 flex items-start gap-2">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          {lab ? (
+            <div>
+              {LAB_TRABALHOS.avisoLeitura.inicio} <strong>{LAB_TRABALHOS.avisoLeitura.protetico}</strong> {LAB_TRABALHOS.avisoLeitura.meio}{' '}
+              <strong>{LAB_TRABALHOS.avisoLeitura.administrador}</strong> {LAB_TRABALHOS.avisoLeitura.fim}
+            </div>
+          ) : (
           <div>
             Apenas <strong>dentistas</strong> e <strong>admin</strong> podem validar procedimentos como feitos.
             Sua visão é somente leitura.
           </div>
+          )}
         </div>
       )}
     </div>
@@ -445,6 +474,7 @@ export default function TratamentoTab({ patientId }: Props) {
 }
 
 function PlanStatusBadge({ status }: { status: string }) {
+  const lab = isLab(useBusinessType());
   const map: Record<string, { label: string; cls: string }> = {
     PENDING_SIGNATURE: { label: 'Aguardando assinatura', cls: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900' },
     ACTIVE:            { label: 'Ativo',                 cls: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900' },
@@ -455,7 +485,7 @@ function PlanStatusBadge({ status }: { status: string }) {
   const m = map[status] || { label: status, cls: 'text-muted-foreground bg-muted border-border' };
   return (
     <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${m.cls}`}>
-      {m.label}
+      {(lab && LAB_TRABALHOS.statusTrabalho[status]) || m.label}
     </span>
   );
 }

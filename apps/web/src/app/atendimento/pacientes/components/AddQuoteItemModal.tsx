@@ -20,6 +20,9 @@ import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ORC_ITENS } from '../lab-orcamento-textos';
 import { DenteReal, ArcoFundo, ResumoProcedimentos, RECUO_FUNDO, classificarProcedimento, type MarcaDente, type ItemResumo } from '@/components/odontograma/DenteReal';
 
 interface Procedure {
@@ -92,6 +95,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   // Out/2026 — quem só monta a avaliação (Dentista) não fala em orçamento.
   const { hasPermission } = useUserPermissions();
   const canNegotiate = hasPermission('manage_proposals') || hasPermission('view_proposals');
+  // F6 do laboratório — orçamento de trabalho: serviços e elementos, sem prioridade
+  // clínica, sem TUSS/duração e sem horas de cadeira. Textos de ../lab-orcamento-textos.
+  const lab = isLab(useBusinessType());
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'noturno' || resolvedTheme === 'cyber';
   const tintIdle  = isDark ? '24' : '0d';  // ~14% dark / ~5% light
@@ -159,7 +165,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         const items: BasketItem[] = data.items.map((it) => ({
           id: it.id,
           procedure_id: it.procedure_id,
-          procedure_name: it.procedure?.name || 'procedimento',
+          procedure_name: it.procedure?.name || (lab ? LAB_ORC_ITENS.servico : 'procedimento'),
           unit_price: String(it.unit_price ?? ''),
           quantity: it.quantity,
           tooth_fdis: it.tooth_fdi ? [it.tooth_fdi] : [],
@@ -179,6 +185,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       }
     })();
     return () => { cancelled = true; };
+    // `lab` só escolhe o nome de reserva do item sem cadastro: recarregar a cesta
+    // continua dependendo só do orçamento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteId]);
 
   // Contagem por especialidade (pra exibir nos pills)
@@ -186,12 +195,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     const counts: Record<string, { name: string; count: number }> = {};
     for (const p of procedures) {
       const key = p.specialty?.id || p.specialty_id || '__none__';
-      const name = p.specialty?.name || 'Sem especialidade';
+      const name = p.specialty?.name || (lab ? LAB_ORC_ITENS.semGrupo : 'Sem especialidade');
       if (!counts[key]) counts[key] = { name, count: 0 };
       counts[key].count++;
     }
     return counts;
-  }, [procedures]);
+  }, [procedures, lab]);
 
   // Lista plana filtrada por search + especialidade
   const filteredProcedures = useMemo(() => {
@@ -254,7 +263,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
 
   const toggleToothInActive = (fdi: string) => {
     if (activeBasketIdx === null) {
-      showError('Selecione um procedimento da cesta primeiro');
+      showError(lab ? LAB_ORC_ITENS.selecioneServico : 'Selecione um procedimento da cesta primeiro');
       return;
     }
     const item = basket[activeBasketIdx];
@@ -355,7 +364,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       return;
     }
     if (!hasChanges) {
-      showError('Nada pra salvar — adicione, remova procedimentos ou edite o nome');
+      showError(lab ? LAB_ORC_ITENS.nadaPraSalvar : 'Nada pra salvar — adicione, remova procedimentos ou edite o nome');
       return;
     }
     setSaving(true);
@@ -412,7 +421,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         titleChanged && titleDraft.trim() ? `nome: "${titleDraft.trim()}"` : null,
         priorityChanged ? `prioridade: ${priority}` : null,
       ].filter(Boolean).join(' · ');
-      showSuccess(summary || (canNegotiate ? 'Orçamento atualizado' : 'Avaliação atualizada'));
+      showSuccess(summary || (lab ? LAB_ORC_ITENS.atualizado : canNegotiate ? 'Orçamento atualizado' : 'Avaliação atualizada'));
       await onAdded();
       if (keepOpen) {
         setBasket((prev) => prev.filter((it) => it.id));
@@ -454,7 +463,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Plus size={18} className="text-primary" />
-            <h2 className="text-base font-semibold">{canNegotiate ? 'Adicionar procedimentos ao orçamento' : 'Adicionar procedimentos à avaliação'}</h2>
+            <h2 className="text-base font-semibold">{lab ? LAB_ORC_ITENS.tituloModal : canNegotiate ? 'Adicionar procedimentos ao orçamento' : 'Adicionar procedimentos à avaliação'}</h2>
           </div>
           <button
             onClick={onClose}
@@ -484,9 +493,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {quoteStatus === 'ACCEPTED'
-                ? 'Pra mudar procedimentos, crie uma nova versão do plano na aba Propostas.'
+                ? (lab ? LAB_ORC_ITENS.aceitoMudar : 'Pra mudar procedimentos, crie uma nova versão do plano na aba Propostas.')
                 : quoteStatus === 'SENT'
-                ? 'O orçamento já foi enviado ao paciente. Pra editar, primeiro retorne pra DRAFT na aba Orçamentos.'
+                ? (lab ? LAB_ORC_ITENS.enviadoMudar : 'O orçamento já foi enviado ao paciente. Pra editar, primeiro retorne pra DRAFT na aba Orçamentos.')
                 : 'Crie uma nova versão ou duplique este orçamento.'}
             </p>
           </div>
@@ -499,13 +508,15 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             type="text"
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
-            placeholder="Ex: Reabilitação superior, Canal + coroa 36 (opcional)"
+            placeholder={lab ? LAB_ORC_ITENS.nomeExemplo : 'Ex: Reabilitação superior, Canal + coroa 36 (opcional)'}
             maxLength={100}
             className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
           />
         </div>
 
         {/* ─── PRIORIDADE CLÍNICA (Onda 6.4) ────────────────── */}
+        {/* F6 — o orçamento de trabalho do laboratório não tem prioridade clínica. */}
+        {!lab && (
         <div className="px-5 pb-3 flex items-center gap-3 flex-wrap">
           <label className="text-sm font-medium text-foreground shrink-0">Prioridade</label>
           <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs font-semibold">
@@ -547,6 +558,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             </button>
           </div>
         </div>
+        )}
 
         {/* ─── ODONTOGRAMA ──────────────────────────────────── */}
         {/* Onda 18 (fix v2) — A PROVA DE BALA: shrink-0 = o odontograma NUNCA encolhe
@@ -586,7 +598,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por nome ou código TUSS..."
+                  placeholder={lab ? LAB_ORC_ITENS.buscar : 'Buscar por nome ou código TUSS...'}
                   className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
                 />
               </div>
@@ -618,14 +630,14 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-2">
               {procedures.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
-                  Nenhum procedimento cadastrado.{' '}
+                  {lab ? LAB_ORC_ITENS.nenhumCadastrado : 'Nenhum procedimento cadastrado.'}{' '}
                   <a href="/atendimento/settings/procedures" className="text-primary underline">
-                    Cadastrar tabela de preços
+                    {lab ? LAB_ORC_ITENS.cadastrarTabela : 'Cadastrar tabela de preços'}
                   </a>
                 </div>
               ) : filteredProcedures.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
-                  Nenhum procedimento corresponde aos filtros.
+                  {lab ? LAB_ORC_ITENS.nenhumFiltro : 'Nenhum procedimento corresponde aos filtros.'}
                 </div>
               ) : (
                 filteredProcedures.map((p) => {
@@ -668,12 +680,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                           {p.name}
                         </div>
                         <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                          {p.duration_minutes && (
+                          {!lab && p.duration_minutes && (
                             <span className="inline-flex items-center gap-0.5">
                               ⏱ {p.duration_minutes} min
                             </span>
                           )}
-                          {p.code_tuss && <span>TUSS {p.code_tuss}</span>}
+                          {!lab && p.code_tuss && <span>TUSS {p.code_tuss}</span>}
                         </div>
                       </div>
                       {/* Botão + */}
@@ -710,12 +722,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
               {loadingExisting ? (
                 <div className="p-6 text-center text-xs text-muted-foreground">
                   <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
-                  Carregando procedimentos...
+                  {lab ? LAB_ORC_ITENS.carregando : 'Carregando procedimentos...'}
                 </div>
               ) : basket.length === 0 ? (
                 <div className="p-6 text-center text-xs text-muted-foreground">
                   <ShoppingCart size={24} className="mx-auto mb-2 opacity-30" />
-                  Click nos procedimentos da esquerda pra adicionar à cesta.
+                  {lab ? LAB_ORC_ITENS.cestaVazia : 'Click nos procedimentos da esquerda pra adicionar à cesta.'}
                 </div>
               ) : (
                 basket.map((it, idx) => {
@@ -763,7 +775,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                                   });
                                 }}
                                 className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-amber-200 text-amber-900 hover:bg-amber-300 group"
-                                title={`Remover dente ${fdi}`}
+                                title={lab ? LAB_ORC_ITENS.removerElemento(fdi) : `Remover dente ${fdi}`}
                               >
                                 {fdi}
                                 <X size={9} className="opacity-50 group-hover:opacity-100" />
@@ -771,7 +783,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                             ))
                           ) : (
                             <span className="text-[10px] text-muted-foreground italic">
-                              clique no odontograma acima
+                              {lab ? LAB_ORC_ITENS.semElemento : 'clique no odontograma acima'}
                             </span>
                           )}
                         </div>
@@ -779,7 +791,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                         {/* Controles - 1 + */}
                         {hasTeeth ? (
                           <span className="text-[10px] text-muted-foreground italic shrink-0">
-                            {effectiveQty}× (1/dente)
+                            {effectiveQty}{lab ? LAB_ORC_ITENS.porElemento : '× (1/dente)'}
                           </span>
                         ) : (
                           <div
@@ -819,10 +831,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Info size={12} />
             <span>
-              <strong className="text-foreground">{summaryStats.dentes}</strong> dente{summaryStats.dentes === 1 ? '' : 's'}
+              <strong className="text-foreground">{summaryStats.dentes}</strong>{lab ? LAB_ORC_ITENS.rodapeElemento : ' dente'}{summaryStats.dentes === 1 ? '' : 's'}
               {' · '}
-              <strong className="text-foreground">{summaryStats.procedimentos}</strong> procedimento{summaryStats.procedimentos === 1 ? '' : 's'}
-              {summaryStats.tempo && (
+              <strong className="text-foreground">{summaryStats.procedimentos}</strong>{lab ? LAB_ORC_ITENS.rodapeServico : ' procedimento'}{summaryStats.procedimentos === 1 ? '' : 's'}
+              {!lab && summaryStats.tempo && (
                 <>
                   {' · '}
                   <strong className="text-foreground">{summaryStats.tempo}</strong> de cadeira
@@ -862,7 +874,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
               }
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              {canNegotiate ? 'Adicionar ao orçamento' : 'Adicionar à avaliação'}
+              {lab ? LAB_ORC_ITENS.adicionar : canNegotiate ? 'Adicionar ao orçamento' : 'Adicionar à avaliação'}
             </button>
           </div>
         </div>
@@ -939,6 +951,7 @@ function Odontograma({
   dentitionMode: 'adult' | 'child';
   onDentitionChange: (m: 'adult' | 'child') => void;
 }) {
+  const lab = isLab(useBusinessType());
   const activeSet = new Set(activeFdis);
   const isAdult = dentitionMode === 'adult';
   const supDir = isAdult ? FDI_PERM_SUP_DIR : FDI_DEC_SUP_DIR;
@@ -956,11 +969,11 @@ function Odontograma({
             <span>
               {hasActive ? (
                 <>
-                  Selecione os dentes para{' '}
+                  {lab ? LAB_ORC_ITENS.selecioneElementosPara : 'Selecione os dentes para'}{' '}
                   <strong className="text-primary">{activeProcedureName}</strong>
                 </>
               ) : (
-                'Selecione os dentes envolvidos no tratamento'
+                lab ? LAB_ORC_ITENS.selecioneElementos : 'Selecione os dentes envolvidos no tratamento'
               )}
             </span>
           </div>
@@ -972,7 +985,7 @@ function Odontograma({
                 isAdult ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Adulto
+              {lab ? LAB_ORC_ITENS.permanentes : 'Adulto'}
             </button>
             <button
               type="button"
@@ -981,7 +994,7 @@ function Odontograma({
                 !isAdult ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Infantil
+              {lab ? LAB_ORC_ITENS.deciduos : 'Infantil'}
             </button>
           </div>
         </div>
@@ -1010,7 +1023,7 @@ function Odontograma({
               </div>
             </div>
           </div>
-          <ResumoProcedimentos itens={resumo} className="w-full lg:w-60 shrink-0" />
+          <ResumoProcedimentos itens={resumo} className="w-full lg:w-60 shrink-0" textos={lab ? LAB_ORC_ITENS.resumo : undefined} />
         </div>
       </div>
     </div>
@@ -1030,6 +1043,7 @@ function ToothRow({
 }) {
   // Out/2026 — dente realista (formato pelo tipo + raízes) com o procedimento
   // desenhado nele. Coroas das duas arcadas se encontram no meio, como na boca.
+  const lab = isLab(useBusinessType());
   return (
     <div className={`flex gap-1 ${isUpper ? 'items-end pt-3' : 'items-start pb-3'}`}>
       {fdiList.map((fdi) => {
@@ -1038,7 +1052,15 @@ function ToothRow({
         const isOtherUsed = !!otherProcName && !isActive;
         const doDente = marcas.get(fdi) ?? [];
         const nomes = [...new Set(doDente.map((m) => m.nome))].join(' · ');
-        const title = isActive
+        const title = lab
+          ? (isActive
+            ? LAB_ORC_ITENS.elementoAtivo(fdi, nomes)
+            : isOtherUsed
+            ? LAB_ORC_ITENS.elementoUsado(fdi, nomes || otherProcName || '')
+            : hasActive
+            ? LAB_ORC_ITENS.elementoAdicionar(fdi)
+            : nomes ? LAB_ORC_ITENS.elementoUsado(fdi, nomes) : LAB_ORC_ITENS.selecioneServico)
+          : isActive
           ? `Dente ${fdi}${nomes ? ` — ${nomes}` : ''} · clique pra remover`
           : isOtherUsed
           ? `Dente ${fdi} — ${nomes || otherProcName}`

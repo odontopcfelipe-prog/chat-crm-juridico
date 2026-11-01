@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ORC_VERSOES } from '../lab-orcamento-textos';
 
 interface QuoteVersion {
   id: string;
@@ -186,6 +189,8 @@ function VersionDetailModal({
 }
 
 function VersionSnapshotView({ snapshot }: { snapshot: any }) {
+  // F6 do laboratório — o hook fica antes do retorno antecipado.
+  const lab = isLab(useBusinessType());
   if (!snapshot) return <p className="text-muted-foreground text-sm">Snapshot vazio.</p>;
   return (
     <div className="space-y-4">
@@ -223,12 +228,12 @@ function VersionSnapshotView({ snapshot }: { snapshot: any }) {
       {/* Items */}
       {Array.isArray(snapshot.items) && snapshot.items.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-muted-foreground mb-2">PROCEDIMENTOS</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-2">{lab ? LAB_ORC_VERSOES.titulo : 'PROCEDIMENTOS'}</p>
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground">
               <tr className="border-b border-border">
-                <th className="text-left py-1.5 font-medium">Procedimento</th>
-                <th className="text-center py-1.5 font-medium">Dente</th>
+                <th className="text-left py-1.5 font-medium">{lab ? LAB_ORC_VERSOES.servico : 'Procedimento'}</th>
+                <th className="text-center py-1.5 font-medium">{lab ? LAB_ORC_VERSOES.elemento : 'Dente'}</th>
                 <th className="text-right py-1.5 font-medium">Qtd</th>
                 <th className="text-right py-1.5 font-medium">Unit.</th>
                 <th className="text-right py-1.5 font-medium">Total</th>

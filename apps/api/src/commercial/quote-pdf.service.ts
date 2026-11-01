@@ -15,7 +15,9 @@
  */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
+import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { desenharOrcamentoDoLaboratorio } from './quote-pdf-laboratorio';
 
 @Injectable()
 export class QuotePdfService {
@@ -52,6 +54,16 @@ export class QuotePdfService {
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
     if (quote.patient.tenant_id !== tenantId) {
       throw new NotFoundException('Orcamento nao pertence ao tenant');
+    }
+
+    // F6 — conta de laboratório: orçamento de trabalho com o nome e a logo da própria
+    // conta (quote-pdf-laboratorio.ts). Clínica: só a leitura cacheada da lista.
+    if (await isLabTenant(this.prisma, quote.patient.tenant_id, (m) => this.logger.warn(m))) {
+      const conta = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, logo_url: true, phone: true, email: true, cpf_cnpj: true, city: true, state: true },
+      });
+      return desenharOrcamentoDoLaboratorio(quote, conta, withValues);
     }
 
     return this.renderPdf(quote, withValues);

@@ -140,6 +140,19 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
   semContatoAsaas: 'Paciente nao vinculado a Lead — necessario para Asaas',
   // payment-gateway.service.ts
   clienteOuContaNaoIdentificados: 'Paciente/clínica não identificados',
+
+  // ─── F6: abas Propostas e Trabalhos da ficha ──────────────────────────────────
+  // execucao-regras.ts (MSG_ITEM_OUTRO_DENTISTA)
+  itemDeOutroResponsavel: 'Este procedimento é de outro dentista — só ele ou o administrador pode confirmar.',
+  // execucao-regras.ts (MSG_SO_DENTISTA)
+  soResponsavelConclui: 'Só um dentista ou o administrador pode confirmar procedimento.',
+  // execucao-regras.ts (MSG_AGUARDANDO_FINANCEIRO)
+  aguardandoFinanceiro: 'Aguardando validação do Financeiro — o tratamento ainda não foi liberado.',
+  // execucao-regras.ts (MSG_PLANO_CANCELADO)
+  trabalhoCanceladoNaoConclui: 'Plano de tratamento cancelado — procedimento não pode ser confirmado.',
+  // quotes.service.ts (applyFinancing com parcelas já emitidas)
+  parcelasJaEmitidas:
+    'Este plano já tem parcelas emitidas. Recarregue a página. Se precisar reemitir, cancele as cobranças ativas primeiro.',
 });
 
 export const MOLDES_API_CLINICA = Object.freeze({

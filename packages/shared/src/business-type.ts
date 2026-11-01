@@ -125,6 +125,10 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   '/atendimento/settings/users',
   '/atendimento/estoque',
   // [/F5c]
+  // [F6a] orçamento de trabalho: painel, abas Orçamento/Propostas/Trabalhos da ficha e modelos
+  '/atendimento/orcamentos',
+  '/atendimento/settings/quote-templates',
+  // [/F6a]
 ]);
 
 /** Caminho sem query/# e sem barra final ('/' continua '/'). */

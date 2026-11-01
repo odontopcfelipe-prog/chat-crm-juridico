@@ -97,7 +97,10 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/crm',
       '/atendimento/settings/ai',
       '/atendimento/settings/specialties',
-      '/atendimento/settings/quote-templates',
+      '/atendimento/settings/quotes-trash',
+      '/atendimento/settings/quote-coupons',
+      '/atendimento/fechamentos',
+      '/atendimento/progresso',
       '/atendimento/billing',
       '/atendimento/financeiro/dashboard',
       '/atendimento/relatorios',
@@ -106,7 +109,7 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       expect(canAccessRoute(tela, admin)).toBe(true); // na clínica o admin abre
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(false);
     }
-    // E as liberadas continuam abrindo para ele (os blocos F5a/F5b/F5c são os de business-type.ts).
+    // E as liberadas continuam abrindo para ele (os blocos de cada fase são os de business-type.ts).
     for (const tela of [
       '/atendimento',
       '/atendimento/chat/abc',
@@ -134,6 +137,11 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/settings/users',
       '/atendimento/estoque',
       // [/F5c]
+      // [F6a]
+      '/atendimento/orcamentos',
+      '/atendimento/orcamentos?status=SENT',
+      '/atendimento/settings/quote-templates',
+      // [/F6a]
     ]) {
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(true);
     }
@@ -190,6 +198,30 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
     }
   });
   // [/F5c]
+
+  // [F6a]
+  it('no laboratório, o painel de orçamentos abre para quem cuida de propostas e os modelos só para o admin', () => {
+    // Mesma regra da clínica (manage_proposals/view_proposals): admin, recepção, CRC e financeiro.
+    for (const setor of ['admin', 'recepcao', 'crc', 'financeiro']) {
+      expect(canAccessRouteBt('/atendimento/orcamentos', temDoSetor(setor), BT_LABORATORIO)).toBe(true);
+      expect(canAccessRouteBt('/atendimento/orcamentos?status=SENT', temDoSetor(setor), BT_LABORATORIO)).toBe(true);
+    }
+    for (const setor of ['dentista', 'acd_asb']) {
+      expect(canAccessRouteBt('/atendimento/orcamentos', temDoSetor(setor), BT_LABORATORIO)).toBe(false);
+    }
+    // Modelos de orçamento: tela de configuração, só o admin.
+    expect(canAccessRouteBt('/atendimento/settings/quote-templates', temDoSetor('admin'), BT_LABORATORIO)).toBe(true);
+    for (const setor of ['recepcao', 'crc', 'financeiro', 'dentista', 'acd_asb']) {
+      expect(canAccessRouteBt('/atendimento/settings/quote-templates', temDoSetor(setor), BT_LABORATORIO)).toBe(false);
+    }
+    // Cada caso igual ao da clínica: a lista do laboratório não muda permissão nenhuma.
+    for (const setor of ['admin', 'recepcao', 'crc', 'financeiro', 'dentista', 'acd_asb']) {
+      for (const tela of ['/atendimento/orcamentos', '/atendimento/settings/quote-templates']) {
+        expect(canAccessRouteBt(tela, temDoSetor(setor), BT_LABORATORIO)).toBe(canAccessRoute(tela, temDoSetor(setor)));
+      }
+    }
+  });
+  // [/F6a]
 
   it('no laboratório, a lista não abre o que a permissão do setor fecha', () => {
     // O dentista (Protético) não tem view_chat: o inbox continua fechado para ele.

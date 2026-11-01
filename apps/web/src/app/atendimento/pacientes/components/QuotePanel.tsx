@@ -23,6 +23,9 @@ import api from '@/lib/api';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ORC_ITENS } from '../lab-orcamento-textos';
 
 interface Procedure {
   id: string;
@@ -129,6 +132,9 @@ export default function QuotePanel({
   // Out/2026 — quem só monta a avaliação (Dentista) não negocia: sem link pra
   // aba de orçamentos/propostas (ela nem abre pra ele).
   const { hasPermission } = useUserPermissions();
+  // F6 do laboratório — orçamento de trabalho: serviço, elemento e protético; serviço
+  // sem elemento é válido (por arcada). Textos de ../lab-orcamento-textos.
+  const lab = isLab(useBusinessType());
   // Out/2026 — cada procedimento vai pro dentista da área (o sistema já sugere pela
   // especialidade); aqui dá pra trocar. Lista = GET /users/lawyers (cache do módulo).
   const [dentists, setDentists] = useState<DentistOpt[]>(dentistsCache ?? []);
@@ -235,14 +241,14 @@ export default function QuotePanel({
     const groups: Record<string, { name: string; key: string; items: Procedure[] }> = {};
     for (const p of filtered) {
       const key = p.specialty?.id || p.specialty_id || '__none__';
-      const name = p.specialty?.name || 'Sem especialidade';
+      const name = p.specialty?.name || (lab ? LAB_ORC_ITENS.semGrupo : 'Sem especialidade');
       if (!groups[key]) groups[key] = { name, key, items: [] };
       groups[key].items.push(p);
     }
     return Object.values(groups).sort((a, b) =>
       a.name.localeCompare(b.name, 'pt-BR'),
     );
-  }, [procedures, search]);
+  }, [procedures, search, lab]);
 
   const addProcedure = async (p: Procedure) => {
     if (!quote) return;
@@ -305,7 +311,7 @@ export default function QuotePanel({
   };
 
   const removeItem = async (id: string) => {
-    if (!confirm('Remover este procedimento do orcamento?')) return;
+    if (!confirm(lab ? LAB_ORC_ITENS.confirmarRemover : 'Remover este procedimento do orcamento?')) return;
     try {
       await api.delete(`/quote-items/${id}`);
       showSuccess('Removido');
@@ -346,7 +352,7 @@ export default function QuotePanel({
               onClick={() => setPickerOpen(true)}
               className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              <Plus size={12} /> procedimentos
+              <Plus size={12} />{lab ? LAB_ORC_ITENS.botaoServicos : ' procedimentos'}
             </button>
           )}
         </div>
@@ -359,7 +365,7 @@ export default function QuotePanel({
             onClick={() => setPickerOpen(true)}
             className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
           >
-            <Plus size={12} /> procedimentos
+            <Plus size={12} />{lab ? LAB_ORC_ITENS.botaoServicos : ' procedimentos'}
           </button>
         </div>
       )}
@@ -492,10 +498,10 @@ export default function QuotePanel({
         <div className="p-10 text-center">
           <ShoppingCart size={28} className="mx-auto text-muted-foreground/50 mb-3" />
           <p className="text-sm font-medium text-foreground mb-1">
-            Comece adicionando procedimentos
+            {lab ? LAB_ORC_ITENS.comeceTitulo : 'Comece adicionando procedimentos'}
           </p>
           <p className="text-xs text-muted-foreground mb-5 max-w-md mx-auto">
-            Clique em um dente para anotar · Ctrl+clique em varios para orcar em lote · Ou use o botao abaixo
+            {lab ? LAB_ORC_ITENS.comeceTexto : 'Clique em um dente para anotar · Ctrl+clique em varios para orcar em lote · Ou use o botao abaixo'}
           </p>
           <button
             onClick={() => setPickerOpen(true)}
@@ -511,10 +517,10 @@ export default function QuotePanel({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-background/50 text-xs text-muted-foreground">
-                    <th className="text-left px-4 py-2 font-medium w-16">Dente</th>
-                    <th className="text-left px-3 py-2 font-medium">Procedimento</th>
+                    <th className="text-left px-4 py-2 font-medium w-16">{lab ? LAB_ORC_ITENS.colunaElemento : 'Dente'}</th>
+                    <th className="text-left px-3 py-2 font-medium">{lab ? LAB_ORC_ITENS.colunaServico : 'Procedimento'}</th>
                     <th className="text-center px-2 py-2 font-medium w-20">Qtd</th>
-                    <th className="text-left px-2 py-2 font-medium w-40">Dentista</th>
+                    <th className="text-left px-2 py-2 font-medium w-40">{lab ? LAB_ORC_ITENS.colunaProtetico : 'Dentista'}</th>
                     <th className="w-12" />
                   </tr>
                 </thead>
@@ -542,7 +548,7 @@ export default function QuotePanel({
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar procedimento por nome ou TUSS..."
+                  placeholder={lab ? LAB_ORC_ITENS.buscar : 'Buscar procedimento por nome ou TUSS...'}
                   className="flex-1 px-2 py-1.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
                 <button
@@ -556,17 +562,17 @@ export default function QuotePanel({
               <div className="max-h-72 overflow-y-auto p-3 space-y-1.5">
                 {procedures.length === 0 ? (
                   <div className="p-4 text-center text-xs text-muted-foreground">
-                    Nenhum procedimento cadastrado.{' '}
+                    {lab ? LAB_ORC_ITENS.nenhumCadastrado : 'Nenhum procedimento cadastrado.'}{' '}
                     <a
                       href="/atendimento/settings/procedures"
                       className="text-primary underline"
                     >
-                      Cadastrar tabela de precos
+                      {lab ? LAB_ORC_ITENS.cadastrarTabela : 'Cadastrar tabela de precos'}
                     </a>
                   </div>
                 ) : grouped.length === 0 ? (
                   <div className="p-4 text-center text-xs text-muted-foreground">
-                    Nenhum procedimento corresponde a &quot;{search}&quot;
+                    {lab ? LAB_ORC_ITENS.nenhumCorresponde(search) : <>Nenhum procedimento corresponde a &quot;{search}&quot;</>}
                   </div>
                 ) : (
                   grouped.map((g) => {
@@ -600,8 +606,8 @@ export default function QuotePanel({
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium truncate">{p.name}</div>
                                 <div className="text-[10px] text-muted-foreground">
-                                  {p.code_tuss && `TUSS ${p.code_tuss}`}
-                                  {p.duration_minutes ? ` · ${p.duration_minutes} min` : ''}
+                                  {!lab && p.code_tuss && `TUSS ${p.code_tuss}`}
+                                  {!lab && p.duration_minutes ? ` · ${p.duration_minutes} min` : ''}
                                 </div>
                               </div>
                             </button>
@@ -663,6 +669,7 @@ function ItemRow({
   onUpdate: (patch: Partial<QuoteItem>) => void | Promise<void>;
   onRemove: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [toothDraft, setToothDraft] = useState<string | null>(null);
   const [qtyDraft, setQtyDraft] = useState<number | null>(null);
   const editingTooth = toothDraft !== null;
@@ -678,6 +685,9 @@ function ItemRow({
         onUpdate({ tooth_fdi: null });
       } else if (FDI_REGEX.test(trimmed) && trimmed !== item.tooth_fdi) {
         onUpdate({ tooth_fdi: trimmed });
+      } else if (lab && trimmed !== '' && !FDI_REGEX.test(trimmed)) {
+        // F6 — no laboratório, elemento é só FDI ou vazio (por arcada): o inválido avisa.
+        showError(LAB_ORC_ITENS.elementoInvalido);
       }
     }
     setToothDraft(null);
@@ -730,17 +740,21 @@ function ItemRow({
               borderColor: specColor.bar,
               color: specColor.bar,
             }}
-            title={`Clique para editar dente · ${item.procedure?.specialty?.name || 'sem especialidade'}`}
+            title={lab
+              ? LAB_ORC_ITENS.editarElemento(item.procedure?.specialty?.name || LAB_ORC_ITENS.semGrupoMinusculo)
+              : `Clique para editar dente · ${item.procedure?.specialty?.name || 'sem especialidade'}`}
           >
             {item.tooth_fdi}
           </button>
         ) : (
           <button
             onClick={startEditTooth}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md border-2 border-dashed border-amber-500 text-amber-700 font-mono font-bold text-xs hover:bg-amber-500/10 transition animate-pulse"
-            title="Clique para vincular um dente FDI (ex: 12, 36)"
+            className={lab
+              ? 'inline-flex items-center justify-center w-8 h-8 rounded-md border-2 border-dashed border-border text-muted-foreground font-mono font-bold text-xs hover:bg-accent transition'
+              : 'inline-flex items-center justify-center w-8 h-8 rounded-md border-2 border-dashed border-amber-500 text-amber-700 font-mono font-bold text-xs hover:bg-amber-500/10 transition animate-pulse'}
+            title={lab ? LAB_ORC_ITENS.informarElemento : 'Clique para vincular um dente FDI (ex: 12, 36)'}
           >
-            ?
+            {lab ? LAB_ORC_ITENS.semElementoMarca : '?'}
           </button>
         )}
       </td>
@@ -753,7 +767,7 @@ function ItemRow({
             {item.notes}
           </div>
         )}
-        {toothEmpty && (
+        {!lab && toothEmpty && (
           <div className="text-[10px] text-amber-700 mt-0.5">
             Vincule um dente para que apareca no odontograma
           </div>
@@ -789,10 +803,10 @@ function ItemRow({
           value={item.dentist_id ?? ''}
           onChange={(e) => onUpdate({ dentist_id: e.target.value === '' ? ('' as unknown as null) : e.target.value })}
           className="w-full max-w-[10rem] px-2 py-1 rounded-md border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-          title="Dentista que vai fazer este procedimento"
-          aria-label="Dentista do procedimento"
+          title={lab ? LAB_ORC_ITENS.proteticoTitulo : 'Dentista que vai fazer este procedimento'}
+          aria-label={lab ? LAB_ORC_ITENS.proteticoAria : 'Dentista do procedimento'}
         >
-          <option value="">Sem dentista</option>
+          <option value="">{lab ? LAB_ORC_ITENS.semProtetico : 'Sem dentista'}</option>
           {dentists.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}{d.specialties?.filter((x) => !/or[cç]amentista/i.test(x)).length ? ` · ${d.specialties.filter((x) => !/or[cç]amentista/i.test(x)).join(', ')}` : ''}

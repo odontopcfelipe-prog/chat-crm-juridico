@@ -30,6 +30,10 @@ import { negarPermissao } from '../auth/require-any-permission';
 import { erroSomaFormas, round2 } from '../payment-gateway/baixa-regras';
 import { notasVendaBalcao, roteamentoBalcao, type FormaBalcao } from './venda-balcao.util';
 import type { VendaBalcaoDto } from './dto/commercial.dto';
+// F6 — orçamento de trabalho do laboratório: envio pelo WhatsApp (função pura) e texto
+// da recusa do elemento fora da numeração FDI.
+import { enviarOrcamentoDoLaboratorio } from './orcamento-whatsapp-laboratorio';
+import { LAB_ORCAMENTO_ITENS } from './lab-orcamento-textos';
 
 type ItemInput = {
   procedure_id: string;
@@ -884,8 +888,12 @@ export class QuotesService {
       this.logger.log(`[APPROVE-AND-BILL] [step:findOne] Quote ${quoteId} status=${quote.status}, items=${quote.items.length}`);
 
       // F5 — venda de balcão do laboratório: cobrança local, o CPF/CNPJ do cliente é opcional.
+      // F6 — idem no aprovar e cobrar do laboratório com recebimento manual (espécie, PIX em
+      // conta, PIX ou cartão na maquineta). O || vem antes do await: sem forma manual nem
+      // balcão, a clínica não faz leitura nova.
       const documentoOpcional =
-        internal?.origem === 'venda-balcao' && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)));
+        (internal?.origem === 'venda-balcao' || !!data.manual_payment_method) &&
+        (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)));
       await this.ensurePatientReadyForBilling(quote.patient_id, tenantId, documentoOpcional);
       this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
 
@@ -2440,6 +2448,13 @@ export class QuotesService {
       );
     }
 
+    // F6 — o financiamento aprovado (decision_id/source) é só da clínica: no laboratório é
+    // recusado antes de aceitar. Sem decision_id nem source (boleto parcelado/carnê) nada muda
+    // e não há leitura nova.
+    if ((data.decision_id || data.source) && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      throw negarLaboratorio('Financiamento PASSOS');
+    }
+
     // Guarda contra data de vencimento no PASSADO (ex.: ano digitado errado tipo "0206" →
     // Asaas recusa "invalid_dueDate: não é permitido data inferior a hoje"). Rejeita LOCAL,
     // antes de aceitar o quote / criar plano / chamar o Asaas — mensagem clara, sem round-trip.
@@ -3481,6 +3496,7 @@ export class QuotesService {
     if (item.quote.status !== 'DRAFT') {
       throw new BadRequestException('Itens so podem ser editados em rascunhos');
     }
+    await this.recusarElementoForaDoFdiNoLab([data.tooth_fdi], tenantId);
 
     const patch: Prisma.QuoteItemUncheckedUpdateInput = { ...data };
 
@@ -3543,9 +3559,28 @@ export class QuotesService {
 
   // ─── Helpers ──────────────────────────────────────────────────
 
+  /**
+   * F6 — no laboratório o elemento do item é só numeração FDI (11-18, 21-28, 31-38,
+   * 41-48, 51-55, 61-65, 71-75, 81-85) ou vazio (serviço por arcada, com quantidade).
+   * O teste do formato vem ANTES da leitura: com elemento FDI ou vazio nada é lido, e
+   * a clínica (que aceita 'SUP'/'INF') continua como hoje.
+   */
+  private async recusarElementoForaDoFdiNoLab(elementos: Array<string | null | undefined>, tenantId: string) {
+    const foraDoFdi = elementos.some(
+      (e) =>
+        typeof e === 'string' &&
+        e.trim() !== '' &&
+        !/^(1[1-8]|2[1-8]|3[1-8]|4[1-8]|5[1-5]|6[1-5]|7[1-5]|8[1-5])$/.test(e),
+    );
+    if (foraDoFdi && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      throw new BadRequestException(LAB_ORCAMENTO_ITENS.elementoInvalido);
+    }
+  }
+
   /** Carrega procedures pra pegar preco base (quando unit_price nao informado). */
   private async resolveItems(items: ItemInput[], tenantId: string, actorUserId?: string | null) {
     if (items.length === 0) return [];
+    await this.recusarElementoForaDoFdiNoLab(items.map((i) => i.tooth_fdi), tenantId);
     const procIds = [...new Set(items.map((i) => i.procedure_id))];
     const procs = await this.prisma.procedure.findMany({
       where: { id: { in: procIds }, tenant_id: tenantId },
@@ -5428,11 +5463,25 @@ export class QuotesService {
       throw new BadRequestException('Servico de portal nao disponivel');
     }
     const quote = await this.findOne(quoteId, tenantId);
-    // F2 [LAB-GATE] — o envio leva o portal do paciente e texto de clínica ("na clínica",
-    // procedimentos): conta de laboratório recusa (o envio próprio do laboratório vem
-    // na fase de textos). Clínica: só a leitura cacheada.
+    // F2 [LAB-GATE] — o envio da clínica leva o portal do paciente e texto de clínica.
+    // F6 — conta de laboratório: envio próprio, sem portal nem link, com o PDF do
+    // orçamento de trabalho (orcamento-whatsapp-laboratorio.ts). Clínica: só a leitura cacheada.
     if (await isLabTenant(this.prisma, quote.patient?.tenant_id, (m) => this.logger.warn(m))) {
-      throw negarLaboratorio('Envio do orçamento pelo WhatsApp (portal do paciente)');
+      return enviarOrcamentoDoLaboratorio(
+        {
+          prisma: this.prisma,
+          messages: this.messages,
+          conversations: this.conversations,
+          pdfService: this.pdfService,
+          versions: this.versions,
+          logger: this.logger,
+          resolverLead: (p, t) => this.resolvePatientWhatsappLead(p, t),
+        },
+        quote,
+        quoteId,
+        tenantId,
+        userId,
+      );
     }
     if (!['DRAFT', 'SENT'].includes(quote.status)) {
       throw new BadRequestException(

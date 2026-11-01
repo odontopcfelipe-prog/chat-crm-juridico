@@ -79,6 +79,13 @@ export const LAB_API_MESSAGES = Object.freeze({
   semContatoCobranca: 'Cliente não vinculado a um contato — necessário para gerar cobrança via Asaas',
   semContatoAsaas: 'Cliente não vinculado a um contato — necessário para o Asaas',
   clienteOuContaNaoIdentificados: 'Cliente/conta não identificados',
+
+  itemDeOutroResponsavel: 'Este serviço é de outro protético — só ele ou o administrador pode concluir.',
+  soResponsavelConclui: 'Só um protético ou o administrador pode concluir o serviço.',
+  aguardandoFinanceiro: 'Aguardando validação do Financeiro — o trabalho ainda não foi liberado para a produção.',
+  trabalhoCanceladoNaoConclui: 'Trabalho cancelado — o serviço não pode ser concluído.',
+  parcelasJaEmitidas:
+    'Este trabalho já tem parcelas emitidas. Recarregue a página. Se precisar reemitir, cancele as cobranças ativas primeiro.',
 } satisfies Record<keyof typeof MENSAGENS_API_CLINICA, string>);
 
 export const LAB_API_MOLDES = Object.freeze({

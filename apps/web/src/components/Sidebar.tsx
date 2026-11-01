@@ -651,7 +651,7 @@ export function Sidebar() {
       show: true,
     },
     orcamentos: {
-      label: 'Avaliação',
+      label: lab ? LAB_MENU.orcamentos : 'Avaliação',
       href: '/atendimento/orcamentos',
       icon: <FileText size={20} strokeWidth={2} />,
       // Onda 17.32.41 — Nao destaca quando query string e status=SENT
@@ -930,6 +930,8 @@ export function Sidebar() {
         // seguem acessíveis por URL; reative descomentando.
         // allItems.financeiroVisaoGeral, // Visão Geral (KPIs + graficos)
         // allItems.orcamentos,           // Avaliação (orcamentos)
+        // Laboratório: "Orçamentos de trabalho" entra no menu (na clínica segue comentado acima).
+        ...(lab ? [allItems.orcamentos] : []),
         allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
         allItems.boletos,              // Boletos (cobranças / PaymentGatewayCharge)

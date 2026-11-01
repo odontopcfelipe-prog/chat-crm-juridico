@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Clock, LayoutGrid, MessageSquare, Receipt, ReceiptText, Settings, UserCog, Users, Wallet, Zap,
+  ArrowRight, Clock, FileText, Layers, LayoutGrid, MessageSquare, Receipt, ReceiptText, Settings, UserCog, Users, Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -39,7 +39,7 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { LAB_BALOES, LAB_INICIO } from '@/lib/lab-casca-textos';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
-import { BoletoArt, ChatArt, ClockArt, GearArt, MoneyArt, PatientCardsArt } from './dentist-illustrations';
+import { BoletoArt, ChatArt, ClockArt, DocArt, GearArt, MoneyArt, PatientCardsArt } from './dentist-illustrations';
 import './dentist-home.css';
 
 interface Props {
@@ -71,11 +71,23 @@ const BALAO_DA_ROTA: Readonly<Record<string, ChaveBalao>> = Object.freeze({
   '/atendimento/financeiro/contas-a-pagar': 'financeiro',
   '/atendimento/financeiro/boletos': 'cobrancas',
   '/atendimento/settings/users': 'equipe',
+  '/atendimento/orcamentos': 'orcamentos',
+  '/atendimento/orcamentos?status=SENT': 'propostas',
+});
+
+/**
+ * Atalho que pede uma permissão a mais que a da rota. O painel de orçamentos abre
+ * pela rota com manage_proposals ou view_proposals, mas a lista (GET /quotes) pede
+ * manage_proposals: sem ela o atalho não aparece (como o item do menu).
+ */
+const PERMISSAO_DO_ATALHO: Readonly<Partial<Record<ChaveBalao, Permission>>> = Object.freeze({
+  orcamentos: 'manage_proposals',
+  propostas: 'manage_proposals',
 });
 
 /** Ícone pelo nome do lucide do balão (HomeAction.lucide). */
 const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({
-  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog,
+  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog, FileText, Layers,
 });
 
 /**
@@ -97,6 +109,8 @@ const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
   financeiro: MoneyArt,
   cobrancas: BoletoArt,
   equipe: PatientCardsArt,
+  orcamentos: DocArt,
+  propostas: DocArt,
 });
 
 function saudacao(hora: number): string {
@@ -139,7 +153,10 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
     hrefsVistos.add(a.href);
     if (!canAccessRouteBt(a.href, hasPermission, BT_LABORATORIO)) continue;
     const chave = BALAO_DA_ROTA[a.href];
-    if (chave) atalhos.push({ href: a.href, chave, lucide: a.lucide });
+    if (!chave) continue;
+    const permissaoExtra = PERMISSAO_DO_ATALHO[chave];
+    if (permissaoExtra && !hasPermission(permissaoExtra)) continue;
+    atalhos.push({ href: a.href, chave, lucide: a.lucide });
   }
 
   const nome = (userName || '').trim().replace(/\s+/g, ' ');

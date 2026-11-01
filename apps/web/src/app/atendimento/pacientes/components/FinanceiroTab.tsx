@@ -30,6 +30,7 @@ import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 import { isLab } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_FICHA_FINANCEIRO } from '@/lib/lab-financeiro-textos';
+import { LAB_TRABALHOS } from '../lab-trabalhos-textos';
 
 interface Props {
   patientId: string;
@@ -2466,8 +2467,6 @@ function ProceduresListModal({
         {quoteDetail?.items?.length ? (
           <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0 flex-wrap">
             <div className="flex items-center gap-1.5 flex-wrap">
-              {/* Laboratório: o PDF do orçamento ainda sai com os textos da clínica (até a F6). */}
-              {!lab && (
               <button
                 type="button"
                 onClick={() => openPdf(true)}
@@ -2477,18 +2476,15 @@ function ProceduresListModal({
               >
                 {pdfLoading === 'com' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF com valores
               </button>
-              )}
-              {!lab && (
               <button
                 type="button"
                 onClick={() => openPdf(false)}
                 disabled={!!pdfLoading}
-                title="Baixar o PDF só com a lista de procedimentos (sem valores)"
+                title={lab ? LAB_TRABALHOS.pdfSemValoresDica : 'Baixar o PDF só com a lista de procedimentos (sem valores)'}
                 className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-60"
               >
                 {pdfLoading === 'sem' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF sem valores
               </button>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total</span>

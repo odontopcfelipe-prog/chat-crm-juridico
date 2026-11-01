@@ -33,6 +33,13 @@ import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 import {
   OdontogramaPrancha, ResumoProcedimentos, classificarProcedimento, type MarcaDente, type ItemResumo,
 } from '@/components/odontograma/DenteReal';
+// F6 do laboratório — o laboratório entra só com portão e texto importado.
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import {
+  LAB_PROPOSTAS, LAB_PROPOSTAS_COBRANCA, LAB_PROPOSTAS_BOLETO, LAB_PROPOSTAS_PIX, LAB_PROPOSTAS_CARTAO,
+  LAB_PROPOSTAS_VERSOES, LAB_PROPOSTAS_ARQUIVAR, LAB_PROPOSTAS_RESULTADO,
+} from '../lab-propostas-textos';
 // Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
 // Onda 14.24.1 — Painel desativado (operador pediu pra remover). Componente
 // + backend continuam no repo. Pra reativar: descomentar este import + bloco
@@ -584,6 +591,7 @@ function PixQrDialog({
   subtitle?: string;
   onClose: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [copied, setCopied] = useState(false);
   return (
     <ModalPortal>
@@ -657,9 +665,9 @@ function PixQrDialog({
                 type="button"
                 onClick={() => window.open(invoiceUrl, '_blank', 'noopener,noreferrer')}
                 className="w-full text-xs px-3 py-2 rounded-md border border-border hover:bg-accent/50 text-muted-foreground transition-colors"
-                title="Abre a página hospedada do Asaas — útil pra copiar o link e mandar pro paciente via WhatsApp"
+                title={lab ? LAB_PROPOSTAS.pixQr.abrirPaginaTitulo : 'Abre a página hospedada do Asaas — útil pra copiar o link e mandar pro paciente via WhatsApp'}
               >
-                🔗 Abrir página de pagamento (pra enviar ao paciente)
+                {lab ? LAB_PROPOSTAS.pixQr.abrirPagina : <>🔗 Abrir página de pagamento (pra enviar ao paciente)</>}
               </button>
             )}
           </div>
@@ -741,11 +749,12 @@ function getVariantConfig(variant: CardVariant): VariantConfig {
  * boleto). Wordmark em CSS na cor da marca (sem depender de imagem externa).
  */
 function AsaasBadge({ className = '' }: { className?: string }) {
+  const lab = isLab(useBusinessType());
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-extrabold leading-none tracking-[0.12em] text-white ${className}`}
       style={{ background: '#1A2BF0' }}
-      title="Cobrança ONLINE gerada no Asaas — o paciente paga pelo link/QR"
+      title={lab ? LAB_PROPOSTAS.badge.asaasTitulo : 'Cobrança ONLINE gerada no Asaas — o paciente paga pelo link/QR'}
     >
       ASAAS
     </span>
@@ -756,18 +765,21 @@ function AsaasBadge({ className = '' }: { className?: string }) {
  *  operador NÃO confundir "cobrança online Asaas" com "recebido na clínica" na
  *  hora de escolher a forma — a marca é simétrica nos dois lados. */
 function ClinicaBadge({ className = '' }: { className?: string }) {
+  const lab = isLab(useBusinessType());
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-extrabold leading-none tracking-[0.1em] text-white ${className}`}
       style={{ background: '#059669' }}
-      title="Recebido na clínica — entra direto no caixa, sem cobrança no Asaas"
+      title={lab ? LAB_PROPOSTAS.badge.laboratorioTitulo : 'Recebido na clínica — entra direto no caixa, sem cobrança no Asaas'}
     >
-      NA CLÍNICA
+      {lab ? LAB_PROPOSTAS.badge.laboratorio : <>NA CLÍNICA</>}
     </span>
   );
 }
 
 export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation, readOnly = false, onOpenPatientChat }: Props) {
+  // F6 do laboratório — hook no topo, antes de qualquer return antecipado.
+  const lab = isLab(useBusinessType());
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Onda 8.1 — picker pra atribuir orcamento a slot vazio (Completo/Essencial/Urgente).
@@ -930,6 +942,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       .then((r) => { if (typeof r.data?.pct === 'number') setAvistaDiscountPct(r.data.pct); })
       .catch(() => {});
   }, []);
+  // F6 do laboratório — boleto, PIX QR e atalhos de entrada pelo Asaas só com a conta
+  // Asaas PRÓPRIA do laboratório (own_account). null = ainda não sei. A clínica não
+  // faz esta chamada.
+  const [labAsaasProprio, setLabAsaasProprio] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!lab) return;
+    api.get<{ own_account?: boolean }>('/payment-gateway/settings')
+      .then(({ data }) => setLabAsaasProprio(data?.own_account ?? false))
+      .catch(() => setLabAsaasProprio(null));
+  }, [lab]);
 
   const chooseAsProposal = useCallback(async (
     quoteId: string,
@@ -984,14 +1006,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         avista_discount_enabled: opts?.avista_discount_enabled ?? false,
         sem_juros_enabled: opts?.sem_juros_enabled ?? false,
       });
-      showSuccess('Proposta salva — aguardando decisão do paciente');
+      showSuccess(lab ? LAB_PROPOSTAS.avisos.propostaSalva : 'Proposta salva — aguardando decisão do paciente');
       load(); // refetch da lista em background pra garantir consistencia
     } catch (err: unknown) {
       await load(); // reverte
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao salvar proposta');
     }
-  }, [load, avistaDiscountPct]);
+  }, [load, avistaDiscountPct, lab]);
 
 
   // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
@@ -1035,7 +1057,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     try {
       // 1. Cria (ou reusa) DRAFT vazio pro paciente
       const draftResp = await api.post<{ id: string }>(
-        `/commercial/patients/${patientId}/quotes/draft-or-create`,
+        lab ? `/patients/${patientId}/quotes/draft-or-create` : `/commercial/patients/${patientId}/quotes/draft-or-create`,
       );
       const newQuoteId = (draftResp.data as any)?.id;
       if (!newQuoteId) {
@@ -1047,7 +1069,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         visible_in_proposals: true,
       });
       const label = priority ? PRIORITY_CONFIG[priority].label : 'Livre';
-      showSuccess(`Proposta ${label} criada. Adicione os procedimentos pela aba Avaliacao quando puder.`);
+      showSuccess(lab ? LAB_PROPOSTAS.criada(label) : `Proposta ${label} criada. Adicione os procedimentos pela aba Avaliacao quando puder.`);
       setNewVersionOpen(false);
       load();
     } catch (err: unknown) {
@@ -1056,7 +1078,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     } finally {
       setCreatingVersion(false);
     }
-  }, [patientId, load]);
+  }, [patientId, load, lab]);
 
   const attachQuoteToPriority = useCallback(async (quoteId: string, priority: Priority | null) => {
     setCreatingVersion(true);
@@ -1090,14 +1112,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     setSending(true);
     try {
       await api.post(`/quotes/${selectedDetail.id}/send-whatsapp`);
-      showSuccess('Proposta enviada pro paciente');
+      showSuccess(lab ? LAB_PROPOSTAS.avisos.enviada : 'Proposta enviada pro paciente');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao enviar');
     } finally {
       setSending(false);
     }
-  }, [selectedDetail]);
+  }, [selectedDetail, lab]);
 
   // Onda 12 — Consulta de credito do Financiamento Banco PASSOS
   const [creditCheckOpen, setCreditCheckOpen] = useState(false);
@@ -1208,7 +1230,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     const totalBruto = Number(selectedDetail.total_value);
     const hasPartial = selectedDetail.items.some((it) => !!it.approved_at);
     const baseTotal = hasPartial ? approvedValue : totalBruto;
-    const customDp = extras?.customDownPayment ?? 0;
+    // F6 do laboratório — cartão é maquineta, sem entrada: o valor inteiro vai no cartão.
+    const customDp = lab && activeOpt.variant === 'cartao' ? 0 : (extras?.customDownPayment ?? 0);
     const calc = applyPaymentOption(baseTotal, activeOpt, customDp);
 
     // Onda 15 (etapa 16) — Boleto parcelado COM consulta DISPENSADA: chama
@@ -1223,7 +1246,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // vista unico).
     const temEntradaOuSinal = customDp > 0 || (extras?.customSignalValue ?? 0) > 0;
     if (activeOpt.variant === 'parcelado' && (activeOpt.installments > 1 || temEntradaOuSinal)) {
-      const ccRequired = selectedDetail.requires_credit_check !== false;
+      const ccRequired = !lab && selectedDetail.requires_credit_check !== false;
       if (ccRequired) {
         showError(
           'Boleto parcelado com consulta EXIGIDA: clique no card do Boleto, ' +
@@ -1273,11 +1296,17 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         `${activeOpt.installments}x de R$ ${calc.installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         `Total final: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         '',
-        '⚠ Consulta de crédito DISPENSADA — operador assume o risco.',
-        '',
+      );
+      if (!lab) {
+        confirmLines.push(
+          '⚠ Consulta de crédito DISPENSADA — operador assume o risco.',
+          '',
+        );
+      }
+      confirmLines.push(
         'Isso vai:',
         '• Aceitar o orçamento (ACCEPTED)',
-        '• Ativar o plano',
+        lab ? LAB_PROPOSTAS.aprovar.ativarTrabalho : '• Ativar o plano',
       );
       if (isCashSignal) {
         confirmLines.push(`• Registrar o sinal R$ ${signalAmt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} como recebido em espécie`);
@@ -1343,13 +1372,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         showSuccess(
           isCashSignal
             ? 'Sinal em espécie registrado + entrada e parcelas geradas.'
-            : 'Proposta aprovada e boletos gerados (consulta dispensada).',
+            : (lab ? LAB_PROPOSTAS.avisos.aprovadaBoletos : 'Proposta aprovada e boletos gerados (consulta dispensada).'),
         );
         // Onda 17.32.15 — Pos-emissao: busca charges recem-criadas do plano
         // e abre dialog com elas + acoes (QR, 2a via, WhatsApp).
         try {
           const planId = financingData?.plan_id;
-          if (planId) {
+          if (planId && !lab) {
             const { data: planCharges } = await api.get(`/commercial/treatment-plans/${planId}/charges`);
             if (Array.isArray(planCharges) && planCharges.length > 0) {
               setChargesGeneratedDialog({ open: true, charges: planCharges });
@@ -1435,18 +1464,18 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       : 'PIX em conta';
     const confirmMsg = manualPixMethod
       ? `Encaminhar ao financeiro?\n\n` +
-        `Forma: ${manualLabel} (recebido na clínica, sem Asaas)\n` +
+        (lab ? LAB_PROPOSTAS.formaManual(manualLabel) : `Forma: ${manualLabel} (recebido na clínica, sem Asaas)\n`) +
         `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
         `Isso vai:\n` +
         `• Aceitar o orçamento (vira ACCEPTED)\n` +
-        `• Ativar o plano de tratamento\n` +
+        (lab ? LAB_PROPOSTAS.aprovar.ativarTrabalhoLinha : `• Ativar o plano de tratamento\n`) +
         `• Lançar no caixa como ${manualLabel}`
       : cartaoManual
       ? `Aprovar venda no cartão?\n\n` +
         `Forma: Cartão ${installmentCount}x (maquineta)\n` +
         `Valor total: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
         `Isso vai:\n` +
-        `• Aceitar o orçamento + ativar o plano\n` +
+        (lab ? LAB_PROPOSTAS.aprovar.aceitarEAtivar : `• Aceitar o orçamento + ativar o plano\n`) +
         `• Registrar como RECEBIDO no cartão (passado na maquineta agora) — entra nas Entradas como cartão\n` +
         `• Sem boleto, sem cobrança no Asaas e sem parcelas vencendo`
       : `Aprovar proposta?\n\n` +
@@ -1454,9 +1483,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
         `Isso vai:\n` +
         `• Aceitar o orçamento (vira ACCEPTED)\n` +
-        `• Ativar o plano de tratamento\n` +
+        (lab ? LAB_PROPOSTAS.aprovar.ativarTrabalhoLinha : `• Ativar o plano de tratamento\n`) +
         `• Gerar cobrança no Asaas\n` +
-        `• Enviar pro paciente`;
+        (lab ? LAB_PROPOSTAS.aprovar.enviarCliente : `• Enviar pro paciente`);
     if (!window.confirm(confirmMsg)) return;
 
     setApprovingBill(true);
@@ -1519,7 +1548,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       clearTimeout(timeoutId);
       setApprovingBill(false);
     }
-  }, [selectedDetail, activePaymentKey, load]);
+  }, [selectedDetail, activePaymentKey, load, lab]);
 
   // Onda 18.x — MIGRACAO ASAAS: adiciona os procedimentos ao tratamento SEM
   // gerar cobranca. Pra pacientes importados do Asaas que ja tem os boletos
@@ -1699,6 +1728,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
             {hasAnyQuotes
               ? <>Você já tem orçamentos criados. Clique em <strong>“+ Nova proposta”</strong> pra atribuir prioridade (Urgente, Essencial, Completo ou Livre).</>
+              : lab
+              ? <>{LAB_PROPOSTAS.vazio.antes}<strong>{LAB_PROPOSTAS.vazio.aba}</strong>{LAB_PROPOSTAS.vazio.depois}</>
               : <>Crie uma proposta direto agora ou monte o orçamento detalhado na aba <strong>Avaliação</strong> primeiro.</>
             }
           </p>
@@ -1728,7 +1759,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
                 disabled={!onGoToEvaluation}
                 className="text-xs font-semibold text-foreground border border-border bg-card hover:bg-accent/40 px-3 py-1.5 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
               >
-                Ir para Avaliação
+                {lab ? LAB_PROPOSTAS.vazio.irPara : <>Ir para Avaliação</>}
               </button>
             </div>
           )}
@@ -1768,7 +1799,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             <Layers size={18} className="text-orange-600" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-foreground">Plano de tratamento</h2>
+            <h2 className="text-base font-bold text-foreground">{lab ? LAB_PROPOSTAS.cabecalho.titulo : <>Plano de tratamento</>}</h2>
             <p className="text-xs text-muted-foreground">
               Do mais enxuto ao mais completo · clique num card pra abrir a proposta com as formas de pagamento
             </p>
@@ -1944,9 +1975,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           }}
           onAddBonus={() => setBonusOpen(true)}
           onApproveAndBill={approveAndBill}
-          onAcceptNoCharge={acceptNoCharge}
+          onAcceptNoCharge={lab ? undefined : acceptNoCharge}
           // Onda 14.26 — toggle "exige consulta de credito" no card boleto
-          onToggleRequiresCreditCheck={(value) => toggleRequiresCreditCheck(selectedId!, value)}
+          onToggleRequiresCreditCheck={lab ? undefined : (value) => toggleRequiresCreditCheck(selectedId!, value)}
+          // F6 do laboratório — conta Asaas própria (só o laboratório lê)
+          asaasProprio={labAsaasProprio ?? undefined}
           // Onda 14.33 / 14.38 — salvar proposta como "aguardando decisão do
           // paciente" + persistir forma de pagamento e entrada que o operador
           // configurou no painel (pra PDF/whatsapp mostrarem a oferta).
@@ -2126,7 +2159,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         </div>
       )}
 
-      {creditCheckOpen && selectedDetail && (() => {
+      {!lab && creditCheckOpen && selectedDetail && (() => {
         const totalForCheck = (() => {
           const approved = selectedDetail.items
             .filter((it) => !!it.approved_at)
@@ -2207,6 +2240,8 @@ function PropostaCard({
    *  Para variant=LIVRE este botao some (nao ha priority pra limpar). */
   onRemoveFromSlot: () => void;
 }) {
+  // F6 do laboratório — hook antes do return antecipado abaixo.
+  const lab = isLab(useBusinessType());
   const priority = variant === 'LIVRE' ? null : variant;
   // Quote nao existe → empty state clicavel: click abre picker pra escolher
   // qual orcamento (sem priority ou em outro slot) vai pra esse slot.
@@ -2222,7 +2257,7 @@ function PropostaCard({
           <h3 className={`text-sm font-bold ${cfg.iconCls}`}>{cfg.label}</h3>
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">
-          {cfg.description}
+          {lab ? (LAB_PROPOSTAS.prioridade[variant]?.descricao ?? cfg.description) : cfg.description}
         </p>
         <p className="text-xs text-muted-foreground italic mb-3">
           Sem proposta {cfg.label.toLowerCase()} criada ainda.
@@ -2246,7 +2281,7 @@ function PropostaCard({
   const total = hasPartialApproval ? approvedValue : totalBruto;
   const isSent = quote.status === 'SENT';
   const isAccepted = quote.status === 'ACCEPTED';
-  const cadeira = formatCadeira(quote.total_duration_minutes);
+  const cadeira = lab ? null : formatCadeira(quote.total_duration_minutes);
   // Diferenca vs Completo (so faz sentido pra Essencial/Urgente).
   // Usa approved value de ambos os lados pra comparacao justa do que vai
   // ser efetivamente pago.
@@ -2305,7 +2340,7 @@ function PropostaCard({
         }}
         className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
         aria-label="Remover desta aba"
-        title="Remover desta aba (continua em Avaliação e Orçamentos)"
+        title={lab ? LAB_PROPOSTAS.card.removerTitulo : 'Remover desta aba (continua em Avaliação e Orçamentos)'}
       >
         <Trash2 size={12} />
       </span>
@@ -2318,7 +2353,7 @@ function PropostaCard({
         <h3 className={`text-base font-bold ${cfg.iconCls}`}>{cfg.label}</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-3 leading-snug">
-        {cfg.description}
+        {lab ? (LAB_PROPOSTAS.prioridade[variant]?.descricao ?? cfg.description) : cfg.description}
       </p>
 
       {/* Titulo custom + contagem + horas cadeira */}
@@ -4290,6 +4325,7 @@ function PropostaPainel({
   onToggleRequiresCreditCheck,
   onChooseAsProposal,
   onReload,
+  asaasProprio,
 }: {
   readOnly?: boolean;
   onOpenPatientChat?: () => void | Promise<void>;
@@ -4354,7 +4390,12 @@ function PropostaPainel({
     sem_juros_enabled?: boolean | null;
   }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
+  /** F6 do laboratório — a conta Asaas PRÓPRIA do laboratório está cadastrada
+   *  (own_account). undefined = ainda não sei. Só o laboratório lê. */
+  asaasProprio?: boolean;
 }) {
+  // F6 do laboratório — hook junto dos demais, antes dos returns antecipados.
+  const lab = isLab(useBusinessType());
   // Onda 14.29 (fix) — Hooks DEVEM ser declarados antes de qualquer early return
   // (rules-of-hooks). Antes estavam apos `if (!detail) return null` e quebravam
   // o build na production.
@@ -4460,6 +4501,11 @@ function PropostaPainel({
   // PIX na maquineta. ASAAS gera o QR (fluxo existente); CONTA/MAQUINETA = recebimento
   // manual (sem Asaas), entram no caixa como PIX / PIX maquininha.
   const [pixKind, setPixKind] = useState<'ASAAS' | 'CONTA' | 'MAQUINETA'>('ASAAS');
+  // F6 do laboratório — sem a conta Asaas própria não há QR do Asaas: o PIX começa
+  // em "Em conta" (senão o Salvar gravaria o PIX do Asaas, que fica escondido).
+  useEffect(() => {
+    if (lab && asaasProprio !== true && pixKind === 'ASAAS') setPixKind('CONTA');
+  }, [lab, asaasProprio, pixKind]);
   // Valor em ESPECIE no modo MIXED. O valor PIX = pixCalc.finalValue - este.
   const [pixModalSplitCash, setPixModalSplitCash] = useState<number>(0);
   // Onda 17.32.9 — Data de vencimento do sinal de fechamento (editavel no
@@ -4703,7 +4749,7 @@ function PropostaPainel({
     if (!detail || customDownPayment <= 0) return;
     const ok = window.confirm(
       `Registrar entrada R$ ${fmtBRL(customDownPayment)} como recebida em espécie?\n\n` +
-      `Confirme que o paciente entregou o dinheiro em mãos. ` +
+      (lab ? LAB_PROPOSTAS.painel.confirmeEspecie : `Confirme que o paciente entregou o dinheiro em mãos. `) +
       `Isso cria o registro e já dá baixa automática.`,
     );
     if (!ok) return;
@@ -4797,7 +4843,7 @@ function PropostaPainel({
       showSuccess(
         emitData?.idempotent
           ? 'PIX da entrada já estava emitido — abrindo QR Code'
-          : 'PIX da entrada gerado — mostre o QR Code pro paciente',
+          : (lab ? LAB_PROPOSTAS.painel.pixEntradaGerado : 'PIX da entrada gerado — mostre o QR Code pro paciente'),
       );
       onReload?.();
     } catch (err: unknown) {
@@ -5017,6 +5063,7 @@ function PropostaPainel({
       */}
 
       {/* Afiliado SO desta venda (comissao de indicacao restrita a esta proposta) */}
+      {!lab && (
       <AfiliadoDaVenda
         quoteId={detail.id}
         status={detail.status}
@@ -5024,10 +5071,11 @@ function PropostaPainel({
         readOnly={readOnly}
         onChanged={() => onReload?.()}
       />
+      )}
 
       {/* Out/2026 — o plano desenhado no odontograma + resumo por item (só quando
           algum procedimento tem dente; sem dente a lista abaixo já basta). */}
-      {marcasProposta.size > 0 && (
+      {!lab && marcasProposta.size > 0 && (
         <div className="mb-4">
           <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-3 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-rose-700" />
@@ -5083,7 +5131,7 @@ function PropostaPainel({
                   </span>
                   {it.tooth_fdi && (
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20 shrink-0">
-                      Dente {it.tooth_fdi}
+                      {lab ? LAB_PROPOSTAS.elemento(it.tooth_fdi) : <>Dente {it.tooth_fdi}</>}
                     </span>
                   )}
                   {isOutOfProposal && (
@@ -5169,7 +5217,7 @@ function PropostaPainel({
             <p className="text-sm text-emerald-700/80 dark:text-emerald-400/80 font-medium mt-1">
               {hasPartialApproval && pendingValue > 0
                 ? <>itens aprovados · R$ {fmtBRL(pendingValue)} em aberto não incluídos</>
-                : <>{detail.items.length} {detail.items.length === 1 ? 'procedimento incluído' : 'procedimentos incluídos'}</>}
+                : <>{detail.items.length} {lab ? LAB_PROPOSTAS.servicosIncluidos(detail.items.length) : (detail.items.length === 1 ? 'procedimento incluído' : 'procedimentos incluídos')}</>}
             </p>
           </div>
           <p className="text-4xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none">
@@ -5217,7 +5265,7 @@ function PropostaPainel({
         const activeBoletoOpt = options.parcelado.find((o: any) => o.key === activePaymentKey);
         const boletoDisplayOpt = activeBoletoOpt || boletoOpt;
         const boletoDisplayCalc = boletoDisplayOpt ? applyPaymentOption(total, boletoDisplayOpt, customDownPayment) : null;
-        const requiresCC = detail.requires_credit_check !== false;
+        const requiresCC = !lab && detail.requires_credit_check !== false;
         return (
           <div className="mb-5">
             {/* Onda 17.32.26 — Headline + subtitulo deixam claro que e nos cards
@@ -5303,7 +5351,7 @@ function PropostaPainel({
               )}
 
               {/* Boleto financiado — clique abre o modal */}
-              {boletoDisplayCalc && boletoDisplayOpt && (
+              {(!lab || asaasProprio === true) && boletoDisplayCalc && boletoDisplayOpt && (
                 <button type="button"
                   onClick={() => setBoletoModalOpen(true)}
                   className={`group text-left p-5 rounded-xl border-2 transition-all flex flex-col ${
@@ -5313,7 +5361,7 @@ function PropostaPainel({
                   } ${sel && sel !== 'boleto' ? 'opacity-40 grayscale hover:opacity-90 hover:grayscale-0' : ''}`}>
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <Building2 size={16} className="text-amber-600" />
-                    <p className="text-sm font-bold text-foreground">Boleto financiado</p>
+                    <p className="text-sm font-bold text-foreground">{lab ? LAB_PROPOSTAS.painel.boletoParcelado : <>Boleto financiado</>}</p>
                   </div>
                   <p className="text-xs text-muted-foreground font-medium flex-1">
                     Parcele em 1x a 24x · entrada + parcelas mensais
@@ -5352,7 +5400,8 @@ function PropostaPainel({
                 options={options.cartao}
                 total={total}
                 activePaymentKey={activePaymentKey}
-                customDownPayment={customDownPayment}
+                // F6 do laboratório — cartão na maquineta, sem entrada.
+                customDownPayment={lab ? 0 : customDownPayment}
                 onChangeCustomDownPayment={handleChangeDownPayment}
                 customSignalValue={customSignalValue}
                 onChangeCustomSignalValue={setCustomSignalValue}
@@ -5371,9 +5420,9 @@ function PropostaPainel({
                   // sai no "Encaminhar ao financeiro" do rodapé.
                   onChooseAsProposal?.({
                     payment_key: activePaymentKey || null,
-                    down_payment: customDownPayment > 0 ? customDownPayment : 0,
-                    signal_value: customSignalValue > 0 ? customSignalValue : null,
-                    signal_method: customSignalValue > 0 ? customSignalMethod : null,
+                    down_payment: lab ? 0 : (customDownPayment > 0 ? customDownPayment : 0),
+                    signal_value: !lab && customSignalValue > 0 ? customSignalValue : null,
+                    signal_method: !lab && customSignalValue > 0 ? customSignalMethod : null,
                     entrada_due_date: customEntradaDueDate || null,
                     installments_start_date: customInstallmentsStartDate || null,
                     avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
@@ -5409,10 +5458,10 @@ function PropostaPainel({
                 customRestMethod={customRestMethod}
                 onChangeCustomRestMethod={setCustomRestMethod}
                 requiresCreditCheck={requiresCC}
-                onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
+                onToggleRequiresCreditCheck={lab ? undefined : onToggleRequiresCreditCheck}
                 onMarkCashReceived={handleQuickCashEntry}
-                onGeneratePixQr={handleQuickPixQrEntry}
-                onGenerateBoleto={handleQuickBoletoEntry}
+                onGeneratePixQr={lab && asaasProprio !== true ? undefined : handleQuickPixQrEntry}
+                onGenerateBoleto={lab && asaasProprio !== true ? undefined : handleQuickBoletoEntry}
                 quickActionsLoading={quickActionLoading}
                 onSelectParcelas={(opt) => {
                   // Onda 17.32.6 — Click na parcela apenas SELECIONA agora.
@@ -5470,6 +5519,7 @@ function PropostaPainel({
                 onChangeMode={setPixModalMode}
                 pixKind={pixKind}
                 onChangePixKind={setPixKind}
+                asaasProprio={asaasProprio}
                 splitCash={pixModalSplitCash}
                 onChangeSplitCash={setPixModalSplitCash}
                 quickActionsLoading={quickActionLoading}
@@ -5530,6 +5580,7 @@ function PropostaPainel({
           Onda 14.34 — Agora aparece em DRAFT/SENT tambem (nao so ACCEPTED).
           Operador pode preparar o contrato durante a negociacao — assinatura
           NAO e mais obrigatoria pra aprovar/cobrar (gate desativado em 14.34). */}
+      {!lab && (
       <ContratoCard
         quoteId={detail.id}
         proposalLabel={cfg?.label || getQuoteDisplayName(detail) || 'Proposta'}
@@ -5545,6 +5596,7 @@ function PropostaPainel({
         readOnly={readOnly}
         onOpenPatientChat={onOpenPatientChat}
       />
+      )}
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
           "Ajustar" / "Salvar contraproposta" (pedido do operador).
@@ -5583,10 +5635,10 @@ function PropostaPainel({
           className={`text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ${
             detail.is_chosen_proposal ? 'ml-auto' : ''
           }`}
-          title="Envia link da proposta pro paciente abrir e decidir"
+          title={lab ? LAB_PROPOSTAS.painel.enviarTitulo : 'Envia link da proposta pro paciente abrir e decidir'}
         >
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-          Enviar pro paciente
+          {lab ? LAB_PROPOSTAS.painel.enviar : <>Enviar pro paciente</>}
         </button>
         {/* Onda 18.x — MIGRACAO ASAAS: adiciona os procedimentos ao tratamento
             SEM gerar cobranca. Pro paciente importado que ja tem os boletos.
@@ -5618,7 +5670,7 @@ function PropostaPainel({
           })}
           className="group ml-auto text-sm px-6 py-2.5 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-2 font-semibold uppercase tracking-wide shadow-sm shadow-emerald-500/25 hover:shadow-md hover:shadow-emerald-500/40 transition-all"
           title={detail.is_chosen_proposal
-            ? 'Aprova a venda: cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente'
+            ? (lab ? LAB_PROPOSTAS.painel.aprovarTitulo : 'Aprova a venda: cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente')
             : 'Salve a proposta primeiro (botão "Salvar proposta") pra liberar a aprovação da venda'}
         >
           Aprovar venda
@@ -6146,6 +6198,7 @@ function BoletoCobrancaUnificadaModal({
   semJuros: boolean;
   onChangeSemJuros: (v: boolean) => void;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais.
   const highlightOption = options.find((o) => o.isAVistaHighlight);
   const tableOptions = options.filter((o) => !o.isAVistaHighlight);
@@ -6225,7 +6278,7 @@ function BoletoCobrancaUnificadaModal({
               </button>
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-foreground leading-tight">
-                  Cobrança do tratamento
+                  {lab ? LAB_PROPOSTAS_COBRANCA.titulo : <>Cobrança do tratamento</>}
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                   Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › Cobrança
@@ -6252,10 +6305,10 @@ function BoletoCobrancaUnificadaModal({
                   </div>
                   <div className="min-w-0">
                     <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
-                      Valor total do tratamento
+                      {lab ? LAB_PROPOSTAS_COBRANCA.valorTotal : <>Valor total do tratamento</>}
                     </p>
                     <p className="text-xs text-white/80 truncate">
-                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                      {detail.title || (lab ? LAB_PROPOSTAS_COBRANCA.trabalhoPadrao : 'Tratamento')} · {detail.items.length} {detail.items.length === 1 ? (lab ? LAB_PROPOSTAS_COBRANCA.servico : 'procedimento') : (lab ? LAB_PROPOSTAS_COBRANCA.servicos : 'procedimentos')}
                     </p>
                   </div>
                 </div>
@@ -6287,7 +6340,7 @@ function BoletoCobrancaUnificadaModal({
                 )}
                 <label
                   className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                  title="S/J (sem juros): as parcelas do boleto saem SEM os 1,5%/mês e dispensam a consulta de crédito. Independente do desconto à vista."
+                  title={lab ? LAB_PROPOSTAS_BOLETO.sjTitulo : 'S/J (sem juros): as parcelas do boleto saem SEM os 1,5%/mês e dispensam a consulta de crédito. Independente do desconto à vista.'}
                 >
                   <input
                     type="checkbox"
@@ -6308,7 +6361,7 @@ function BoletoCobrancaUnificadaModal({
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Entrada</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Quanto o paciente paga no fechamento — sem juros
+                      {lab ? LAB_PROPOSTAS_BOLETO.pagaNoFechamento : <>Quanto o paciente paga no fechamento — sem juros</>}
                     </p>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded">
@@ -6513,7 +6566,7 @@ function BoletoCobrancaUnificadaModal({
                       Escolha à vista com desconto ou parcelado
                     </p>
                   </div>
-                  {onToggleRequiresCreditCheck && (
+                  {!lab && onToggleRequiresCreditCheck && (
                     <label className="text-[11px] flex items-center gap-1.5 text-muted-foreground cursor-pointer select-none shrink-0">
                       <input
                         type="checkbox"
@@ -6556,11 +6609,11 @@ function BoletoCobrancaUnificadaModal({
                           <span className="text-muted-foreground">/mês</span>
                           {hasInterest ? (
                             <span className="block text-[10px] text-amber-700 leading-tight mt-0.5">
-                              juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}
+                              {lab ? LAB_PROPOSTAS_BOLETO.jurosParcela : <>juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}</>}
                             </span>
                           ) : semJuros ? (
                             <span className="block text-[10px] text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
-                              sem juros · consulta dispensada
+                              {lab ? LAB_PROPOSTAS_BOLETO.semJuros : <>sem juros · consulta dispensada</>}
                             </span>
                           ) : null}
                         </span>
@@ -6762,8 +6815,8 @@ function BoletoCobrancaUnificadaModal({
                       title={!canEmit
                         ? 'Configure entrada, parcelas e datas pra salvar'
                         : alreadySavedThis
-                        ? 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".'
-                        : 'Salva esta forma de pagamento como a escolhida pra apresentar ao paciente. Cobranças no Asaas só serão criadas quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
+                        ? (lab ? LAB_PROPOSTAS_COBRANCA.jaSalvaTitulo : 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".')
+                        : (lab ? LAB_PROPOSTAS_BOLETO.salvarTitulo : 'Salva esta forma de pagamento como a escolhida pra apresentar ao paciente. Cobranças no Asaas só serão criadas quando o operador clicar "Encaminhar ao financeiro" no rodapé.')}
                       className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
                         alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
                       }`}
@@ -6780,10 +6833,10 @@ function BoletoCobrancaUnificadaModal({
                   type="button"
                   onClick={onSend}
                   className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  title="Enviar link da proposta no WhatsApp pra ele revisar antes"
+                  title={lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsappTitulo : 'Enviar link da proposta no WhatsApp pra ele revisar antes'}
                 >
                   <MessageSquare size={12} />
-                  Enviar link no WhatsApp
+                  {lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsapp : <>Enviar link no WhatsApp</>}
                 </button>
               )}
 
@@ -6793,10 +6846,10 @@ function BoletoCobrancaUnificadaModal({
                   Ambiente seguro
                 </p>
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Boletos e PIX emitidos via Asaas. Análise de crédito (parcelamentos) via Serasa Crediscore. Sinal/entrada são idempotentes — não re-emite se já existir.
+                  {lab ? LAB_PROPOSTAS_BOLETO.ambienteSeguro : <>Boletos e PIX emitidos via Asaas. Análise de crédito (parcelamentos) via Serasa Crediscore. Sinal/entrada são idempotentes — não re-emite se já existir.</>}
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {['Asaas', 'Serasa Crediscore', 'PIX'].map((b) => (
+                  {(lab ? [...LAB_PROPOSTAS_BOLETO.selos] : ['Asaas', 'Serasa Crediscore', 'PIX']).map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
@@ -6829,6 +6882,7 @@ function ArchiveQuotesDialog({
   onClose: () => void;
   onArchive: (ids: string[]) => Promise<void>;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 17.32.40 — Operador tem que MARCAR ativamente cada um que quer
   // arquivar. Default = nenhum selecionado (so arquiva com autorizacao
   // explicita pra cada versao).
@@ -6872,7 +6926,7 @@ function ArchiveQuotesDialog({
               Arquivar versões em aberto?
             </h3>
             <p className="text-[11px] text-muted-foreground mt-1">
-              A proposta foi encaminhada ao financeiro. O paciente tem {quotes.length} {quotes.length === 1 ? 'outra versão' : 'outras versões'} em aberto. Quais quer arquivar?
+              {lab ? LAB_PROPOSTAS_ARQUIVAR.outrasVersoes(quotes.length) : <>A proposta foi encaminhada ao financeiro. O paciente tem {quotes.length} {quotes.length === 1 ? 'outra versão' : 'outras versões'} em aberto. Quais quer arquivar?</>}
             </p>
           </div>
 
@@ -6915,9 +6969,13 @@ function ArchiveQuotesDialog({
           <div className="px-5 py-2.5 bg-amber-500/5 border-t border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
             <AlertTriangle size={12} className="shrink-0 mt-0.5" />
             <span>
+              {lab ? (
+                <><strong>{LAB_PROPOSTAS_ARQUIVAR.avisoForte}</strong>{LAB_PROPOSTAS_ARQUIVAR.avisoAntes}<em>{LAB_PROPOSTAS_ARQUIVAR.avisoOnde}</em>{LAB_PROPOSTAS_ARQUIVAR.avisoDepois}</>
+              ) : (<>
               <strong>Só arquiva o que você marcar acima.</strong> Arquivados somem de
               "Plano de tratamento" e ficam em <em>Orçamentos › Arquivado</em> por 30 dias.
               Você pode desarquivar quando quiser.
+              </>)}
             </span>
           </div>
 
@@ -6977,6 +7035,7 @@ function PixCobrancaUnificadaModal({
   onChangeMode,
   pixKind,
   onChangePixKind,
+  asaasProprio,
   splitCash,
   onChangeSplitCash,
   quickActionsLoading,
@@ -7000,6 +7059,8 @@ function PixCobrancaUnificadaModal({
   onChangeMode: (v: 'PIX' | 'CASH' | 'MIXED' | 'PIX_POS') => void;
   pixKind: 'ASAAS' | 'CONTA' | 'MAQUINETA';
   onChangePixKind: (v: 'ASAAS' | 'CONTA' | 'MAQUINETA') => void;
+  /** F6 do laboratório — conta Asaas PRÓPRIA do laboratório (só o laboratório lê). */
+  asaasProprio?: boolean;
   splitCash: number;
   onChangeSplitCash: (v: number) => void;
   quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
@@ -7007,6 +7068,7 @@ function PixCobrancaUnificadaModal({
   onClose: () => void;
   onSend?: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 17.32.16 — Validacao do modo MIXED: valor em especie nao pode
   // passar do total. Valor PIX = total - cash.
   const splitCashClamped = Math.max(0, Math.min(splitCash, pixCalc.finalValue));
@@ -7051,7 +7113,7 @@ function PixCobrancaUnificadaModal({
               </button>
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-foreground leading-tight">
-                  Cobrança do tratamento
+                  {lab ? LAB_PROPOSTAS_COBRANCA.titulo : <>Cobrança do tratamento</>}
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                   Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › PIX à vista
@@ -7093,10 +7155,10 @@ function PixCobrancaUnificadaModal({
                   </div>
                   <div className="min-w-0">
                     <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
-                      Valor total do tratamento
+                      {lab ? LAB_PROPOSTAS_COBRANCA.valorTotal : <>Valor total do tratamento</>}
                     </p>
                     <p className="text-xs text-white/80 truncate">
-                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                      {detail.title || (lab ? LAB_PROPOSTAS_COBRANCA.trabalhoPadrao : 'Tratamento')} · {detail.items.length} {detail.items.length === 1 ? (lab ? LAB_PROPOSTAS_COBRANCA.servico : 'procedimento') : (lab ? LAB_PROPOSTAS_COBRANCA.servicos : 'procedimentos')}
                     </p>
                   </div>
                 </div>
@@ -7155,9 +7217,11 @@ function PixCobrancaUnificadaModal({
                     1
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Como o paciente vai pagar?</p>
+                    <p className="text-sm font-bold text-foreground">{lab ? LAB_PROPOSTAS_PIX.comoPaga : <>Como o paciente vai pagar?</>}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      PIX (QR Code) · PIX maquineta (sem QR) · Espécie · Misto
+                      {lab
+                        ? (asaasProprio ? LAB_PROPOSTAS_PIX.formasComAsaas : LAB_PROPOSTAS_PIX.formasSemAsaas)
+                        : <>PIX (QR Code) · PIX maquineta (sem QR) · Espécie · Misto</>}
                     </p>
                   </div>
                 </div>
@@ -7165,10 +7229,10 @@ function PixCobrancaUnificadaModal({
                 {/* 3 botoes: PIX / Especie / Misto */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {([
-                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR (Asaas) ou na clínica', asaas: false, clinica: false, asaasLogoTop: false },
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: lab ? (asaasProprio ? LAB_PROPOSTAS_PIX.descPixComAsaas : LAB_PROPOSTAS_PIX.descPixSemAsaas) : 'QR (Asaas) ou na clínica', asaas: false, clinica: false, asaasLogoTop: false },
                     { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false, clinica: true, asaasLogoTop: false },
                     { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true, clinica: false, asaasLogoTop: false },
-                  ]).map((m) => {
+                  ]).filter((m) => !lab || m.key !== 'MIXED').map((m) => {
                     const isActive = mode === m.key;
                     return (
                       <button
@@ -7208,7 +7272,7 @@ function PixCobrancaUnificadaModal({
                 )}
 
 
-                {mode === 'MIXED' && (
+                {!lab && mode === 'MIXED' && (
                   <div className="pt-3 border-t border-border space-y-2.5">
                     <p className="text-[11px] text-muted-foreground">
                       Divida a forma de pagamento. Soma deve ser <strong className="text-foreground tabular-nums">R$ {fmtBRL(pixCalc.finalValue)}</strong>.
@@ -7257,15 +7321,15 @@ function PixCobrancaUnificadaModal({
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold text-foreground">Qual a forma do PIX?</p>
-                      <p className="text-[11px] text-muted-foreground">Banco Asaas (QR), em conta ou na maquineta</p>
+                      <p className="text-[11px] text-muted-foreground">{lab && !asaasProprio ? LAB_PROPOSTAS_PIX.formaDoPixSemAsaas : <>Banco Asaas (QR), em conta ou na maquineta</>}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {([
                       { k: 'ASAAS' as const, label: 'Banco Asaas', sub: 'QR · online', logo: true, clinica: false, icon: '' },
-                      { k: 'CONTA' as const, label: 'Em conta', sub: 'recebido na clínica', logo: false, clinica: true, icon: '🏦' },
-                      { k: 'MAQUINETA' as const, label: 'Maquineta', sub: 'recebido na clínica', logo: false, clinica: true, icon: '📱' },
-                    ]).map((s) => {
+                      { k: 'CONTA' as const, label: 'Em conta', sub: lab ? LAB_PROPOSTAS_PIX.recebidoNoLab : 'recebido na clínica', logo: false, clinica: true, icon: '🏦' },
+                      { k: 'MAQUINETA' as const, label: 'Maquineta', sub: lab ? LAB_PROPOSTAS_PIX.recebidoNoLab : 'recebido na clínica', logo: false, clinica: true, icon: '📱' },
+                    ]).filter((s) => !lab || s.k !== 'ASAAS' || asaasProprio).map((s) => {
                       const active = pixKind === s.k;
                       return (
                         <button
@@ -7310,7 +7374,7 @@ function PixCobrancaUnificadaModal({
 
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground text-xs">Valor do tratamento</span>
+                  <span className="text-muted-foreground text-xs">{lab ? LAB_PROPOSTAS_COBRANCA.valorDoTrabalho : <>Valor do tratamento</>}</span>
                   <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(total)}</span>
                 </div>
                 {pixCalc.savedValue > 0 && (
@@ -7365,8 +7429,8 @@ function PixCobrancaUnificadaModal({
                 onClick={onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
                 title={alreadySavedThis
-                  ? 'Esta já é a forma salva. Clique pra re-salvar com os valores atuais. Fica validada até "Encaminhar ao financeiro".'
-                  : 'Salva como forma escolhida. O lançamento (caixa/cobrança) só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
+                  ? (lab ? LAB_PROPOSTAS_COBRANCA.jaSalvaTitulo : 'Esta já é a forma salva. Clique pra re-salvar com os valores atuais. Fica validada até "Encaminhar ao financeiro".')
+                  : (lab ? LAB_PROPOSTAS_PIX.salvarTitulo : 'Salva como forma escolhida. O lançamento (caixa/cobrança) só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.')}
                 className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
                   alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
                 }`}
@@ -7380,10 +7444,10 @@ function PixCobrancaUnificadaModal({
                   type="button"
                   onClick={onSend}
                   className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  title="Enviar link da proposta no WhatsApp pra ele revisar antes"
+                  title={lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsappTitulo : 'Enviar link da proposta no WhatsApp pra ele revisar antes'}
                 >
                   <MessageSquare size={12} />
-                  Enviar link no WhatsApp
+                  {lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsapp : <>Enviar link no WhatsApp</>}
                 </button>
               )}
 
@@ -7395,7 +7459,7 @@ function PixCobrancaUnificadaModal({
                 <p className="text-[10px] text-muted-foreground leading-snug">
                   {mode === 'PIX' && (pixKind === 'ASAAS'
                     ? 'PIX emitido via Asaas. QR Code válido por 24h ou até a data configurada.'
-                    : 'PIX recebido na clínica (em conta / maquineta), lançado no caixa. Sem QR/cobrança Asaas, com baixa automática.')}
+                    : (lab ? LAB_PROPOSTAS_PIX.ambienteSeguroLocal : 'PIX recebido na clínica (em conta / maquineta), lançado no caixa. Sem QR/cobrança Asaas, com baixa automática.'))}
                   {mode === 'CASH' && 'Recebimento em espécie registrado localmente. Sem cobrança Asaas, com baixa automática.'}
                   {mode === 'MIXED' && 'Gera 2 cobranças: PIX (Asaas) + Espécie (baixa automática).'}
                   {' '}Idempotente — não re-emite se já existir.
@@ -7474,6 +7538,7 @@ function CartaoCobrancaUnificadaModal({
   onClose: () => void;
   onSend?: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 17.32.24 — Opcao ativa do cartao + calculo das parcelas considerando
   // entrada (total - customDownPayment vai pro cartao). Se nao tem entrada,
   // funciona igual antes (cartao paga integral).
@@ -7527,7 +7592,7 @@ function CartaoCobrancaUnificadaModal({
               </button>
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-foreground leading-tight">
-                  Cobrança do tratamento
+                  {lab ? LAB_PROPOSTAS_COBRANCA.titulo : <>Cobrança do tratamento</>}
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                   Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › Cartão de crédito
@@ -7554,10 +7619,10 @@ function CartaoCobrancaUnificadaModal({
                   </div>
                   <div className="min-w-0">
                     <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
-                      Valor total do tratamento
+                      {lab ? LAB_PROPOSTAS_COBRANCA.valorTotal : <>Valor total do tratamento</>}
                     </p>
                     <p className="text-xs text-white/80 truncate">
-                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                      {detail.title || (lab ? LAB_PROPOSTAS_COBRANCA.trabalhoPadrao : 'Tratamento')} · {detail.items.length} {detail.items.length === 1 ? (lab ? LAB_PROPOSTAS_COBRANCA.servico : 'procedimento') : (lab ? LAB_PROPOSTAS_COBRANCA.servicos : 'procedimentos')}
                     </p>
                   </div>
                 </div>
@@ -7594,7 +7659,7 @@ function CartaoCobrancaUnificadaModal({
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
                           {hasEntry && <>entrada R$ {fmtBRL(customDownPayment)} + </>}
-                          {activeOpt.installments}x de R$ {fmtBRL(activeCalc.installmentValue)} · processado pelo Asaas
+                          {activeOpt.installments}x de R$ {fmtBRL(activeCalc.installmentValue)}{lab ? LAB_PROPOSTAS_CARTAO.naMaquineta : <> · processado pelo Asaas</>}
                         </p>
                       </div>
                     </div>
@@ -7616,6 +7681,7 @@ function CartaoCobrancaUnificadaModal({
               )}
 
               {/* Step 1: Entrada (opcional) — Onda 17.32.24 */}
+              {!lab && (
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
@@ -7672,6 +7738,7 @@ function CartaoCobrancaUnificadaModal({
                   </p>
                 </div>
               </div>
+              )}
 
               {/* Step 2: Em quantas parcelas */}
               <div className="rounded-xl border border-border bg-card p-4">
@@ -7684,6 +7751,8 @@ function CartaoCobrancaUnificadaModal({
                     <p className="text-[11px] text-muted-foreground">
                       {hasEntry
                         ? <>Parcelas em cima de <strong className="text-foreground">R$ {fmtBRL(total - customDownPayment)}</strong> (após entrada)</>
+                        : lab
+                        ? LAB_PROPOSTAS_CARTAO.escolhaParcelamento
                         : <>Escolha o parcelamento · paciente preenche os dados do cartão na página segura do Asaas</>}
                     </p>
                   </div>
@@ -7967,8 +8036,8 @@ function CartaoCobrancaUnificadaModal({
                 onClick={onEmitir}
                 disabled={!activeOpt}
                 title={alreadySavedThis
-                  ? 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".'
-                  : "Salva Cartão como forma escolhida. Link Asaas só será gerado quando o operador clicar 'Encaminhar ao financeiro' no rodapé."}
+                  ? (lab ? LAB_PROPOSTAS_COBRANCA.jaSalvaTitulo : 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".')
+                  : (lab ? LAB_PROPOSTAS_CARTAO.salvarTitulo : "Salva Cartão como forma escolhida. Link Asaas só será gerado quando o operador clicar 'Encaminhar ao financeiro' no rodapé.")}
                 className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
                   alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
                 }`}
@@ -7982,14 +8051,15 @@ function CartaoCobrancaUnificadaModal({
                   type="button"
                   onClick={onSend}
                   className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  title="Enviar link da proposta no WhatsApp pra o paciente revisar"
+                  title={lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsappTitulo : 'Enviar link da proposta no WhatsApp pra o paciente revisar'}
                 >
                   <MessageSquare size={12} />
-                  Enviar link no WhatsApp
+                  {lab ? LAB_PROPOSTAS_COBRANCA.enviarWhatsapp : <>Enviar link no WhatsApp</>}
                 </button>
               )}
 
               {/* Asaas Tap CTA — disponivel apos emitir */}
+              {!lab && (
               <div className="mt-4 p-3 rounded-lg bg-sky-500/5 border border-sky-500/20">
                 <p className="text-[11px] font-semibold text-sky-800 dark:text-sky-300 flex items-center gap-1.5 mb-1">
                   <span>📱</span>
@@ -7999,6 +8069,7 @@ function CartaoCobrancaUnificadaModal({
                   Depois de emitir, vai aparecer o botão "Cobrar com Asaas Tap" pra processar o cartão pelo celular Android da recepção (NFC). Aproxime o cartão e pronto — sem maquininha.
                 </p>
               </div>
+              )}
 
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
@@ -8006,10 +8077,10 @@ function CartaoCobrancaUnificadaModal({
                   Ambiente seguro
                 </p>
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Pagamento processado pelo Asaas + PagBank. Paciente preenche os dados do cartão em página segura hospedada (PCI-DSS) — ou paga presencialmente via Asaas Tap.
+                  {lab ? LAB_PROPOSTAS_CARTAO.ambienteSeguro : <>Pagamento processado pelo Asaas + PagBank. Paciente preenche os dados do cartão em página segura hospedada (PCI-DSS) — ou paga presencialmente via Asaas Tap.</>}
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {['Asaas', 'PagBank', 'Visa', 'Master', 'Tap'].map((b) => (
+                  {(lab ? [...LAB_PROPOSTAS_CARTAO.selos] : ['Asaas', 'PagBank', 'Visa', 'Master', 'Tap']).map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
@@ -8089,6 +8160,7 @@ function QuotePicker({
   onCancel: () => void;
   onSelect: (quoteId: string) => void;
 }) {
+  const lab = isLab(useBusinessType());
   const cfg = PRIORITY_CONFIG[targetPriority];
 
   // Separa: 1) sem prioridade (alvo natural) 2) em outro slot (permite trocar)
@@ -8140,7 +8212,11 @@ function QuotePicker({
                 Nenhum orçamento disponível pra atribuir.
               </p>
               <p className="text-[11px] text-muted-foreground italic mt-1">
+                {lab ? (
+                  <>{LAB_PROPOSTAS_VERSOES.semOrcamentoAntes}<strong>{LAB_PROPOSTAS_VERSOES.aba}</strong>{LAB_PROPOSTAS_VERSOES.semOrcamentoDepois}</>
+                ) : (<>
                 Crie um orçamento na aba <strong>Avaliação</strong> primeiro.
+                </>)}
               </p>
             </div>
           )}
@@ -8313,6 +8389,7 @@ function NewVersionDialog({
   /** Onda 14.23 — atalho pra criar orcamento na aba Avaliacao. */
   onGoToAvaliacao: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 14.23 — priorities canonicas RESTANTES (sem orcamento atribuido).
   // Versao livre sempre aparece (aceita variacoes ilimitadas).
   const remainingPriorities = PRIORITY_ORDER.filter((p) => !existingPriorities.has(p));
@@ -8423,7 +8500,7 @@ function NewVersionDialog({
                       <span className={cfg.iconCls}>{cfg.icon}</span>
                       <div className="min-w-0">
                         <p className={`text-sm font-bold ${cfg.iconCls}`}>{cfg.label}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">{cfg.description}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{lab ? (LAB_PROPOSTAS.prioridade[p]?.descricao ?? cfg.description) : cfg.description}</p>
                       </div>
                     </div>
                   </button>
@@ -8464,7 +8541,11 @@ function NewVersionDialog({
                   <Layers size={28} className="mx-auto text-muted-foreground/60 mb-2" />
                   <p className="text-sm font-semibold mb-1">Nenhum orçamento criado ainda</p>
                   <p className="text-xs text-muted-foreground mb-4">
+                    {lab ? (
+                      <>{LAB_PROPOSTAS_VERSOES.criarOuIrAntes}<strong>{LAB_PROPOSTAS_VERSOES.aba}</strong>{LAB_PROPOSTAS_VERSOES.criarOuIrDepois}</>
+                    ) : (<>
                     Criar a proposta direto agora ou ir pra aba <strong>Avaliação</strong> primeiro?
+                    </>)}
                   </p>
                   {/* Onda 17.32.64 — 2 opcoes: criar direto (rapido) ou ir
                       pra Avaliacao (montar orcamento detalhado primeiro). */}
@@ -8485,11 +8566,11 @@ function NewVersionDialog({
                       className="text-xs font-semibold text-foreground border border-border bg-card hover:bg-accent/40 px-3 py-2 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
                     >
                       <ArrowLeft size={12} className="rotate-180" />
-                      Ir para Avaliação
+                      {lab ? LAB_PROPOSTAS_VERSOES.irParaOrcamento : <>Ir para Avaliação</>}
                     </button>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-3">
-                    "Criar agora" gera proposta vazia — adicione procedimentos depois pela aba Avaliação.
+                    {lab ? LAB_PROPOSTAS_VERSOES.criarAgoraNota : <>"Criar agora" gera proposta vazia — adicione procedimentos depois pela aba Avaliação.</>}
                   </p>
                 </div>
               ) : (
@@ -8562,7 +8643,7 @@ function NewVersionDialog({
                     className="w-full text-center p-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-accent/30 hover:text-foreground inline-flex items-center justify-center gap-1"
                   >
                     <Plus size={12} />
-                    Criar novo orçamento na Avaliação
+                    {lab ? LAB_PROPOSTAS_VERSOES.criarNovo : <>Criar novo orçamento na Avaliação</>}
                   </button>
                 </>
               )}
@@ -9614,15 +9695,18 @@ function BoletoRow({
 
 /** Onda 13 — Histórico de bônus de fechamento (ativos, expirando, expirados) */
 function BonusesHistory({ notes }: { notes: string | null }) {
+  const lab = isLab(useBusinessType());
   const bonuses = useMemo(() => parseBonuses(notes), [notes]);
   if (bonuses.length === 0) return null;
+  // F6 do laboratório — textos do bônus trocados na hora de mostrar (o tipo gravado não muda).
+  const templates: BonusTemplate[] = lab ? BONUS_TEMPLATES.map((t) => ({ ...t, ...LAB_PROPOSTAS.bonus[t.type] })) : BONUS_TEMPLATES;
   const active = bonuses.filter((b) => !b.expired);
   const expired = bonuses.filter((b) => b.expired);
   return (
     <div className="mt-4 pt-3 border-t border-border space-y-3">
       {/* Ativos (com destaque dourado) */}
       {active.map((b, idx) => {
-        const tpl = BONUS_TEMPLATES.find((t) => t.type === b.type);
+        const tpl = templates.find((t) => t.type === b.type);
         return (
           <div
             key={`act-${idx}`}
@@ -9660,7 +9744,7 @@ function BonusesHistory({ notes }: { notes: string | null }) {
           </p>
           <ul className="space-y-1">
             {expired.map((b, idx) => {
-              const tpl = BONUS_TEMPLATES.find((t) => t.type === b.type);
+              const tpl = templates.find((t) => t.type === b.type);
               return (
                 <li
                   key={`exp-${idx}`}
@@ -9707,13 +9791,16 @@ function BonusDialog({
     discount_percent_delta?: number;
   }) => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [type, setType] = useState<BonusType>('CORTESIA');
   const [description, setDescription] = useState('');
   const [validityChoice, setValidityChoice] = useState<'HOJE' | '48H' | '7D' | 'CUSTOM'>('48H');
   const [customDate, setCustomDate] = useState('');
   const [discountDelta, setDiscountDelta] = useState<string>('');
 
-  const tpl = BONUS_TEMPLATES.find((t) => t.type === type)!;
+  // F6 do laboratório — textos do bônus trocados na hora de mostrar (o tipo gravado não muda).
+  const templates: BonusTemplate[] = lab ? BONUS_TEMPLATES.map((t) => ({ ...t, ...LAB_PROPOSTAS.bonus[t.type] })) : BONUS_TEMPLATES;
+  const tpl = templates.find((t) => t.type === type)!;
   const needsDiscount = tpl.hasDiscountInput;
 
   // Calcula valid_until ISO
@@ -9792,7 +9879,7 @@ function BonusDialog({
               1. Tipo de bônus
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {BONUS_TEMPLATES.map((t) => {
+              {templates.map((t) => {
                 const isActive = type === t.type;
                 return (
                   <button
@@ -9802,7 +9889,7 @@ function BonusDialog({
                       setType(t.type);
                       // Pré-preenche description com placeholder por tipo
                       setDescription((prev) =>
-                        prev && prev !== BONUS_TEMPLATES.find((bt) => prev.includes(bt.placeholder.slice(0, 20)))?.placeholder
+                        prev && prev !== templates.find((bt) => prev.includes(bt.placeholder.slice(0, 20)))?.placeholder
                           ? prev
                           : '',
                       );
@@ -10361,6 +10448,7 @@ function ApproveBillResultDialog({
   };
   onClose: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [copied, setCopied] = useState(false);
   const copyPasteCode = result.pix?.copyPaste || '';
 
@@ -10451,7 +10539,7 @@ function ApproveBillResultDialog({
           {result.is_existing && (
             <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-md p-3">
               <p className="text-xs font-semibold text-amber-800 mb-1">
-                ⚠ Esta cobrança já existia pra este plano
+                {lab ? LAB_PROPOSTAS_RESULTADO.cobrancaExistente : <>⚠ Esta cobrança já existia pra este plano</>}
               </p>
               <p className="text-[11px] text-amber-700">
                 Em vez de criar uma cobrança duplicada, o sistema retornou a
@@ -10471,17 +10559,17 @@ function ApproveBillResultDialog({
                 Pagamento efetuado com sucesso!
               </p>
               <p className="text-lg font-semibold text-foreground">
-                Obrigado por ser nosso paciente 💚
+                {lab ? LAB_PROPOSTAS_RESULTADO.obrigado : <>Obrigado por ser nosso paciente 💚</>}
               </p>
               <p className="text-[11px] text-muted-foreground mt-4">
-                Pagamento confirmado pelo Asaas e lançado no financeiro do paciente.
+                {lab ? LAB_PROPOSTAS_RESULTADO.confirmadoFinanceiro : <>Pagamento confirmado pelo Asaas e lançado no financeiro do paciente.</>}
               </p>
             </div>
           )}
           {result.billing_type === 'PIX' && result.pix && !paid && (
             <div className="text-center">
               <p className="text-sm font-bold text-foreground mb-1">
-                Mostre o QR Code abaixo pro paciente
+                {lab ? LAB_PROPOSTAS_RESULTADO.mostreQr : <>Mostre o QR Code abaixo pro paciente</>}
               </p>
               <p className="text-xs text-muted-foreground mb-4">
                 Ele abre o app do banco, aponta a câmera e paga.
@@ -10547,7 +10635,11 @@ function ApproveBillResultDialog({
                     Venda registrada no cartão{result.installment_count ? ` (${result.installment_count}x)` : ''}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
+                    {lab ? (
+                      <>{LAB_PROPOSTAS_RESULTADO.cartaoAntes}<strong>{LAB_PROPOSTAS_RESULTADO.cartaoAReceber}</strong>{LAB_PROPOSTAS_RESULTADO.cartaoDepois}</>
+                    ) : (<>
                     Entrou como <strong>a receber</strong> (sem Asaas). Passe o cartão na maquineta e confirme o recebimento — cai no caixa como cartão. Dá pra confirmar depois no Financeiro do paciente também.
+                    </>)}
                   </p>
                   {podeConfirmarCartao ? (
                     <button
@@ -10572,11 +10664,13 @@ function ApproveBillResultDialog({
           {result.billing_type === 'CREDIT_CARD' && result.invoice_url && (
             <div className="bg-sky-500/10 border border-sky-500/30 rounded-md p-4">
               <p className="text-xs font-semibold text-sky-800 mb-2">
-                💳 Link de pagamento pro paciente
+                {lab ? LAB_PROPOSTAS_RESULTADO.linkCliente : <>💳 Link de pagamento pro paciente</>}
               </p>
               <p className="text-[11px] text-muted-foreground mb-3">
+                {lab ? LAB_PROPOSTAS_RESULTADO.compartilheLink : (<>
                 Compartilhe esse link com o paciente. Ele vai preencher os dados
                 do cartão em página segura do Asaas.
+                </>)}
               </p>
               <a
                 href={result.invoice_url}
@@ -10643,8 +10737,12 @@ function ApproveBillResultDialog({
           )}
 
           <div className="bg-muted/20 border border-border rounded-md p-3 text-[11px] text-muted-foreground">
+            {lab ? (
+              <>{LAB_PROPOSTAS_RESULTADO.acompanheAntes}<strong>{LAB_PROPOSTAS_RESULTADO.acompanheAba}</strong>{LAB_PROPOSTAS_RESULTADO.acompanheDepois}</>
+            ) : (<>
             🔔 O Asaas envia automaticamente por email/WhatsApp pro paciente.
             Você acompanha o status na aba <strong>Financeiro</strong> do paciente.
+            </>)}
           </div>
         </div>
 

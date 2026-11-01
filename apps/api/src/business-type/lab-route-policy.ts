@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (352). */
+/** Handlers que a conta de laboratório alcança (358). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // BillingController — plano da própria conta
   'BillingController.getMine',
@@ -109,6 +109,13 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'CommercialController.validatePlan',
   'CommercialController.completePlan',
   'CommercialController.executePlanItem',
+  // CommercialController — modelos de orçamento (F6; só serviço da própria conta)
+  'CommercialController.listTemplates',
+  'CommercialController.findTemplate',
+  'CommercialController.createTemplate',
+  'CommercialController.updateTemplate',
+  'CommercialController.removeTemplate',
+  'CommercialController.applyTemplate',
   // ConversationsController — atendimento
   'ConversationsController.findAll',
   'ConversationsController.getPendingTransfers',
@@ -459,7 +466,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);
 
-/** Handlers negados dentro de controllers que o laboratório também usa (217). */
+/** Handlers negados dentro de controllers que o laboratório também usa (211). */
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
@@ -528,12 +535,6 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CommercialController.unchooseQuoteAsProposal',
   'CommercialController.unarchiveQuote',
   'CommercialController.expireOldQuotes',
-  'CommercialController.listTemplates',
-  'CommercialController.findTemplate',
-  'CommercialController.createTemplate',
-  'CommercialController.updateTemplate',
-  'CommercialController.removeTemplate',
-  'CommercialController.applyTemplate',
   'CommercialController.duplicateAsOption',
   'CommercialController.listPlans',
   'CommercialController.findPlan',

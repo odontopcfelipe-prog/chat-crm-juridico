@@ -355,6 +355,64 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'InventoryController.archiveSupplier',
   ],
   // [/F5c]
+  // [F6a]
+  // painel "Orçamentos de trabalho" (orcamentos/page.tsx) e a rota que abre as abas Orçamento,
+  // Propostas e Trabalhos da ficha (lab-ficha.ts: LabOrcamentoTab, PropostasTab e TratamentoTab)
+  '/atendimento/orcamentos': [
+    ...CASCA,
+    'CommercialController.listAllQuotes',
+    'CommercialController.listArchivedQuotes',
+    'CommercialController.quotesDashboard',
+    'CommercialController.sendQuoteByWhatsapp',
+    'CommercialController.listQuotes',
+    'CommercialController.createQuote',
+    'CommercialController.findQuote',
+    'CommercialController.updateQuote',
+    'CommercialController.removeQuote',
+    'CommercialController.addQuoteItem',
+    'CommercialController.updateQuoteItem',
+    'CommercialController.removeQuoteItem',
+    'CommercialController.overrideItemPrice',
+    'CommercialController.quotePdf',
+    'CommercialController.listVersions',
+    'CommercialController.findVersion',
+    'CommercialController.listAttachments',
+    'CommercialController.uploadAttachment',
+    'CommercialController.getAttachmentFile',
+    'CommercialController.removeAttachment',
+    'CommercialController.listTemplates',
+    'CommercialController.applyTemplate',
+    'CommercialController.getAvistaDiscountConfig',
+    'CommercialController.chooseQuoteAsProposal',
+    'CommercialController.getOrCreateDraft',
+    'CommercialController.emitDownPaymentByQuote',
+    'CommercialController.markCashReceived',
+    'CommercialController.approveAndBill',
+    'CommercialController.applyFinancing',
+    'CommercialController.addBonus',
+    'CommercialController.saveCounterProposal',
+    'CommercialController.archiveQuote',
+    'CommercialController.renegotiateQuote',
+    'CommercialController.listPatientTreatmentItems',
+    'CommercialController.executePlanItem',
+    'PatientsController.getAvatar',
+    'ProceduresController.findAll',
+    'UsersController.findLawyers',
+    'PaymentGatewayController.getSettings',
+    'PaymentGatewayController.confirmCartao',
+    'PaymentGatewayController.getAsaasChargeStatus',
+  ],
+  // modelos de orçamento (só o administrador; serviço só da própria conta)
+  '/atendimento/settings/quote-templates': [
+    ...CASCA,
+    'CommercialController.listTemplates',
+    'CommercialController.findTemplate',
+    'CommercialController.createTemplate',
+    'CommercialController.updateTemplate',
+    'CommercialController.removeTemplate',
+    'ProceduresController.findAll',
+  ],
+  // [/F6a]
 };
 
 /** Componente que aparece em toda tela (balão da conversa da equipe). */
@@ -397,13 +455,12 @@ const ESCONDIDOS_NO_LAB = [
   // F5 — aba Financeiro da ficha: contrato do orçamento e envio de teste do boleto
   'CommercialController.getQuoteContract',
   'PaymentGatewayController.testBoletoDelivery',
-  // F5 — venda e propostas: aceite sem cobrança, consulta de crédito, contrato e modelos
+  // F5 — venda e propostas: aceite sem cobrança, consulta de crédito e contrato
   'CommercialController.acceptQuoteNoCharge',
   'CommercialController.simulateCreditCheck',
   'CommercialController.getContractCompleteness',
   'CommercialController.createQuoteContract',
   'CommercialController.previewQuoteContractPdf',
-  'CommercialController.listTemplates',
   ...doController('ContractsController'),
   // F5 — equipe: horários da agenda, jogo, avisos de disparo e vínculo de dentista
   'CalendarController.getSchedule',
@@ -421,6 +478,19 @@ const ESCONDIDOS_NO_LAB = [
   'SpecialtiesController.remove',
   'SpecialtiesController.addDentist',
   'SpecialtiesController.removeDentist',
+  // F6 — propostas: contrato, duplicar e cobranças do plano
+  'CommercialController.duplicateAsOption',
+  'CommercialController.listPlanCharges',
+  'CommercialController.setContractDentist',
+  'CommercialController.updateContractDocuments',
+  'CommercialController.previewContractPdf',
+  'CommercialController.previewContractTemplate',
+  'CommercialController.previewContractWhatsapp',
+  'CommercialController.sendContractWhatsapp',
+  'CommercialController.sendContract',
+  'CommercialController.sendContractViaClickSign',
+  'CommercialController.signContractClinic',
+  'CommercialController.cancelContract',
 ];
 
 /** Controllers expandidos com doController acima: cada um tem de existir e ter handlers. */
@@ -439,8 +509,8 @@ const CONTROLLERS_EXPANDIDOS = [
 ];
 
 /**
- * Os quatro arquivos de rota com os blocos F5a, F5b e F5c (cada deploy tira ou põe blocos
- * inteiros). Fora das linhas de abrir e fechar, nenhum texto destes arquivos cita o
+ * Os quatro arquivos de rota com os blocos de cada fase (F5a, F5b, F5c, F6a...; cada deploy
+ * tira ou põe blocos inteiros). Fora das linhas de abrir e fechar, nenhum texto destes arquivos cita o
  * marcador entre colchetes: assim um corte por linha (sed de faixa) não pega linha errada.
  */
 const ARQUIVOS_COM_BLOCOS = [
@@ -451,7 +521,7 @@ const ARQUIVOS_COM_BLOCOS = [
 ];
 
 /**
- * Linhas de cada bloco (o comentário que abre e o que fecha levam o nome F5a, F5b...);
+ * Linhas de cada bloco (o comentário que abre e o que fecha levam o nome F5a, F6a...);
  * vários blocos com o mesmo nome se somam. Sem aninhar. O nome entre colchetes só pode
  * aparecer nas linhas de abrir e fechar.
  */
@@ -459,10 +529,10 @@ function linhasDosBlocos(arq: string): Map<string, string[]> {
   const src = fs.readFileSync(path.join(RAIZ, arq), 'utf8');
   const blocos = new Map<string, string[]>();
   let aberto: string | null = null;
-  const MARCA_SOLTA = new RegExp('\\[\\/?F5[a-z]\\]');
+  const MARCA_SOLTA = new RegExp('\\[\\/?F\\d[a-z]\\]');
   src.split(/\r?\n/).forEach((linha, i) => {
-    const abre = /^\s*\/\/\s*\[(F5[a-z])\]/.exec(linha);
-    const fecha = /^\s*\/\/\s*\[\/(F5[a-z])\]/.exec(linha);
+    const abre = /^\s*\/\/\s*\[(F\d[a-z])\]/.exec(linha);
+    const fecha = /^\s*\/\/\s*\[\/(F\d[a-z])\]/.exec(linha);
     if (!abre && !fecha && MARCA_SOLTA.test(linha)) {
       throw new Error(`${arq}:${i + 1} cita o marcador fora da linha de abrir/fechar (o corte por linha pegaria esta linha)`);
     }
@@ -499,7 +569,7 @@ describe('Telas do laboratório × política de rotas da API', () => {
     }
   });
 
-  it('os blocos F5a/F5b/F5c fecham nos 4 arquivos de rota e listam as mesmas telas aqui e em business-type.ts', () => {
+  it('os blocos de cada fase fecham nos 4 arquivos de rota e listam as mesmas telas aqui e em business-type.ts', () => {
     const porArquivo = new Map(ARQUIVOS_COM_BLOCOS.map((arq) => [arq, linhasDosBlocos(arq)]));
     const daLista = porArquivo.get('packages/shared/src/business-type.ts')!;
     const daTabela = porArquivo.get('apps/api/src/__guards__/lab-telas-x-politica.spec.ts')!;

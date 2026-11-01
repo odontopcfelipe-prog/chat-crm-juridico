@@ -22,6 +22,9 @@ import {
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ORC_ANEXOS } from '../lab-orcamento-textos';
 
 interface Attachment {
   id: string;
@@ -64,12 +67,15 @@ function isPdf(mime: string): boolean {
 }
 
 export default function QuoteAttachments({ quoteId, quoteStatus }: Props) {
+  // F6 do laboratório — categorias do orçamento de trabalho (foto do caso, print do escaneamento...).
+  const lab = isLab(useBusinessType());
+  const categorias = lab ? LAB_ORC_ANEXOS.categorias : PRESET_CATEGORIES;
   const fileRef = useRef<HTMLInputElement>(null);
   const [list, setList] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [category, setCategory] = useState('Antes/Depois');
+  const [category, setCategory] = useState<string>(lab ? LAB_ORC_ANEXOS.categorias[0] : 'Antes/Depois');
   const [description, setDescription] = useState('');
 
   const canEdit = !['REJECTED', 'EXPIRED'].includes(quoteStatus);
@@ -203,7 +209,7 @@ export default function QuoteAttachments({ quoteId, quoteStatus }: Props) {
               onChange={(e) => setCategory(e.target.value)}
               className="px-2 py-1.5 rounded bg-background border border-border text-xs"
             >
-              {PRESET_CATEGORIES.map((c) => (
+              {categorias.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -235,7 +241,7 @@ export default function QuoteAttachments({ quoteId, quoteStatus }: Props) {
           <Paperclip size={20} className="mx-auto mb-2 text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">
             Nenhum anexo ainda.
-            {canEdit && ' Adicione fotos antes/depois, exames ou documentos auxiliares.'}
+            {canEdit && (lab ? LAB_ORC_ANEXOS.dica : ' Adicione fotos antes/depois, exames ou documentos auxiliares.')}
           </p>
         </div>
       ) : (

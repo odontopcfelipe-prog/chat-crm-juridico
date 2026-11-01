@@ -10,8 +10,11 @@ import { useEffect, useState, FormEvent } from 'react';
 import {
   FileStack, Loader2, Plus, Pencil, Trash2, X, Save, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_MODELOS } from '../lab-config-textos';
 
 interface Procedure {
   id: string;
@@ -40,6 +43,8 @@ interface Template {
 }
 
 export default function QuoteTemplatesSettingsPage() {
+  // Laboratório: "serviços" e "grupo" no lugar dos nomes da clínica.
+  const lab = isLab(useBusinessType());
   const [list, setList] = useState<Template[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,11 +94,15 @@ export default function QuoteTemplatesSettingsPage() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <FileStack size={24} className="text-primary" /> Modelos de Orçamento
+            <FileStack size={24} className="text-primary" /> {lab ? LAB_MODELOS.titulo : 'Modelos de Orçamento'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Cestas pré-prontas de procedimentos por especialidade. Operador clica
-            "Usar modelo" no orçamento e ganha minutos de cadastro.
+            {lab ? LAB_MODELOS.descricao : (
+              <>
+                Cestas pré-prontas de procedimentos por especialidade. Operador clica
+                "Usar modelo" no orçamento e ganha minutos de cadastro.
+              </>
+            )}
           </p>
         </div>
         <button
@@ -139,7 +148,7 @@ export default function QuoteTemplatesSettingsPage() {
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {t._count?.items || 0} procedimento(s)
+                  {t._count?.items || 0} {lab ? LAB_MODELOS.servicos : 'procedimento(s)'}
                   {t.description && ` · ${t.description}`}
                 </p>
               </div>
@@ -184,6 +193,7 @@ function TemplateModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const isEdit = !!template;
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
@@ -277,16 +287,16 @@ function TemplateModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                placeholder="Ex: Implante unitário completo"
+                placeholder={lab ? LAB_MODELOS.exemploNome : 'Ex: Implante unitário completo'}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Especialidade (tag)</label>
+              <label className="block text-xs font-medium mb-1">{lab ? LAB_MODELOS.grupo : 'Especialidade (tag)'}</label>
               <input
                 value={specialty}
                 onChange={(e) => setSpecialty(e.target.value)}
-                placeholder="Ex: Implante, Estética, Endodontia"
+                placeholder={lab ? LAB_MODELOS.exemploGrupo : 'Ex: Implante, Estética, Endodontia'}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
@@ -310,12 +320,12 @@ function TemplateModal({
               onChange={(e) => setIsActive(e.target.checked)}
               className="w-4 h-4 rounded border-border"
             />
-            Modelo ativo (operador pode usar)
+            {lab ? LAB_MODELOS.ativo : 'Modelo ativo (operador pode usar)'}
           </label>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-medium">Procedimentos</label>
+              <label className="block text-xs font-medium">{lab ? LAB_MODELOS.listaServicos : 'Procedimentos'}</label>
               <button
                 type="button"
                 onClick={addItem}
@@ -326,7 +336,7 @@ function TemplateModal({
             </div>
             {items.length === 0 ? (
               <p className="text-xs text-muted-foreground italic py-2">
-                Nenhum procedimento. Adicione pelo menos 1 pra o modelo ser útil.
+                {lab ? LAB_MODELOS.semServicos : 'Nenhum procedimento. Adicione pelo menos 1 pra o modelo ser útil.'}
               </p>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -337,7 +347,7 @@ function TemplateModal({
                       onChange={(e) => updateItem(idx, { procedure_id: e.target.value })}
                       className="flex-1 px-2 py-1 rounded bg-card border border-border text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
-                      <option value="">Selecione procedimento</option>
+                      <option value="">{lab ? LAB_MODELOS.selecione : 'Selecione procedimento'}</option>
                       {procedures.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
@@ -357,7 +367,7 @@ function TemplateModal({
                       value={it.unit_price}
                       onChange={(e) => updateItem(idx, { unit_price: e.target.value })}
                       placeholder="Preço (auto)"
-                      title="Deixe vazio pra usar preço base do procedimento"
+                      title={lab ? LAB_MODELOS.precoDaTabela : 'Deixe vazio pra usar preço base do procedimento'}
                       className="w-24 px-2 py-1 rounded bg-card border border-border text-xs"
                     />
                     <button

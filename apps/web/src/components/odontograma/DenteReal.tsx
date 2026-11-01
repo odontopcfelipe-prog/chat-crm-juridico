@@ -498,8 +498,20 @@ export interface ItemResumo {
  * dono: "separe por itens". Somar por TIPO contava duas vezes o que é um item só
  * ("coroa sobre implante" = a coroa em cima e o implante embaixo, 1 procedimento).
  * Mesmo procedimento em vários dentes vira uma linha com a soma.
+ *
+ * `textos` (opcional) troca os rótulos — quem chama decide (o laboratório passa os
+ * dele). Sem a prop, ficam os rótulos de sempre.
  */
-export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResumo[]; className?: string }) {
+export interface TextosDoResumo {
+  titulo: string;
+  vazio: string;
+  elemento: string;
+  elementos: string;
+  servico: string;
+  servicos: string;
+}
+
+export function ResumoProcedimentos({ itens, className = '', textos }: { itens: ItemResumo[]; className?: string; textos?: TextosDoResumo }) {
   const por = new Map<string, { nome: string; tipos: MarcaTipo[]; n: number; dentes: Set<string> }>();
   const todosDentes = new Set<string>();
   let total = 0;
@@ -521,10 +533,10 @@ export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResu
   const linhas = [...por.values()].sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome));
   return (
     <aside className={`rounded-2xl border border-border bg-background p-3 ${className}`}>
-      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Resumo do plano</p>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{textos ? textos.titulo : 'Resumo do plano'}</p>
       {linhas.length === 0 ? (
         <p className="py-2 text-xs leading-snug text-muted-foreground">
-          Os procedimentos que você marcar aparecem somados aqui.
+          {textos ? textos.vazio : 'Os procedimentos que você marcar aparecem somados aqui.'}
         </p>
       ) : (
         <>
@@ -545,7 +557,7 @@ export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResu
                   </span>
                   {g.dentes.size > 0 && (
                     <span className="block truncate text-[10.5px] tabular-nums text-muted-foreground" title={[...g.dentes].sort().join(', ')}>
-                      {g.dentes.size === 1 ? 'Dente ' : 'Dentes '}{[...g.dentes].sort().join(', ')}
+                      {textos ? `${g.dentes.size === 1 ? textos.elemento : textos.elementos} ` : g.dentes.size === 1 ? 'Dente ' : 'Dentes '}{[...g.dentes].sort().join(', ')}
                     </span>
                   )}
                 </span>
@@ -553,9 +565,9 @@ export function ResumoProcedimentos({ itens, className = '' }: { itens: ItemResu
             ))}
           </ul>
           <p className="mt-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
-            <strong className="text-foreground">{total}</strong> procedimento{total === 1 ? '' : 's'}
+            <strong className="text-foreground">{total}</strong>{textos ? ` ${total === 1 ? textos.servico : textos.servicos}` : ' procedimento'}{textos ? '' : total === 1 ? '' : 's'}
             {' · '}
-            <strong className="text-foreground">{todosDentes.size}</strong> dente{todosDentes.size === 1 ? '' : 's'}
+            <strong className="text-foreground">{todosDentes.size}</strong>{textos ? ` ${(todosDentes.size === 1 ? textos.elemento : textos.elementos).toLowerCase()}` : ' dente'}{textos ? '' : todosDentes.size === 1 ? '' : 's'}
           </p>
         </>
       )}

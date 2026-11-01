@@ -18,18 +18,27 @@ import {
   AlertTriangle, TrendingUp, Users,
   ShieldCheck,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { getQuoteNumberBadge } from '@/lib/quote-display';
+import { abaDoOrcamentoNoLab } from '../pacientes/lab-ficha';
+import { LAB_PAINEL_ORCAMENTOS } from './lab-orcamentos-textos';
 
 interface Quote {
   id: string;
+  /** Número do orçamento na conta (o laboratório mostra como nº do trabalho). */
+  quote_number?: number | null;
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
   sent_at: string | null;
   accepted_at: string | null;
+  /** Arquivado (a aba Arquivado do painel). */
+  archived_at?: string | null;
   patient: { id: string; name: string | null; phone: string | null; avatar_url?: string | null };
   created_by: { id: string; name: string } | null; // quem criou o orçamento no sistema
   avaliacao_dentist?: { id: string; name: string } | null; // dentista da avaliação
@@ -102,6 +111,8 @@ export default function OrcamentosPage() {
 
 function OrcamentosPageInner() {
   const router = useRouter();
+  // Laboratório: o painel vira "Orçamentos de trabalho" (cliente, protético, nº do trabalho).
+  const lab = isLab(useBusinessType());
   // Onda 17.32.41 — Le ?status= da URL pra pre-selecionar o filtro
   // (atalho "Propostas" no sidebar abre /atendimento/orcamentos?status=SENT).
   const searchParams = useSearchParams();
@@ -148,7 +159,7 @@ function OrcamentosPageInner() {
     const map = new Map<string, { id: string; name: string; count: number; total: number; accepted: number; sent: number }>();
     for (const q of list) {
       const id = q.created_by?.id || 'SEM_DENTISTA';
-      const name = q.created_by?.name || 'Sem dentista atribuído';
+      const name = q.created_by?.name || (lab ? LAB_PAINEL_ORCAMENTOS.semResponsavel : 'Sem dentista atribuído');
       const existing = map.get(id) || { id, name, count: 0, total: 0, accepted: 0, sent: 0 };
       existing.count += 1;
       existing.total += Number(q.total_value) || 0;
@@ -157,7 +168,7 @@ function OrcamentosPageInner() {
       map.set(id, existing);
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [list]);
+  }, [list, lab]);
 
   // Lista filtrada (status + busca + dentista) — usada nas duas views.
   const filteredList = useMemo(() => {
@@ -355,7 +366,9 @@ function OrcamentosPageInner() {
   }, [load]);
 
   const sendWhatsApp = async (q: Quote) => {
-    if (!confirm(`Enviar orçamento de ${formatBRL(q.total_value)} pra ${q.patient.name || 'paciente'} via WhatsApp?`)) return;
+    if (!confirm(lab
+      ? LAB_PAINEL_ORCAMENTOS.confirmarEnvio(formatBRL(q.total_value), q.patient.name || LAB_PAINEL_ORCAMENTOS.oCliente)
+      : `Enviar orçamento de ${formatBRL(q.total_value)} pra ${q.patient.name || 'paciente'} via WhatsApp?`)) return;
     try {
       const { data } = await api.post(`/quotes/${q.id}/send-whatsapp`);
       showSuccess(`Enviado pra ${data.sent_to}`);
@@ -373,16 +386,20 @@ function OrcamentosPageInner() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <DollarSign size={26} className="text-primary" /> {isPropostas ? 'Propostas' : 'Avaliação'}
+            <DollarSign size={26} className="text-primary" /> {isPropostas ? 'Propostas' : (lab ? LAB_PAINEL_ORCAMENTOS.titulo : 'Avaliação')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isPropostas
               ? (tipoFilter === 'todas'
                 ? 'Tudo junto — propostas e vendas rápidas, aprovadas e em negociação.'
                 : propostaTab === 'aprovados'
-                ? `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} aprovadas — quem fechou, por ordem. Clique na ficha pra agendar a consulta e não perder ninguém.`
-                : `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.`)
-              : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.'}
+                ? (lab
+                  ? (tipoFilter === 'vendas' ? LAB_PAINEL_ORCAMENTOS.vendasAprovadas : LAB_PAINEL_ORCAMENTOS.propostasAprovadas)
+                  : `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} aprovadas — quem fechou, por ordem. Clique na ficha pra agendar a consulta e não perder ninguém.`)
+                : (lab
+                  ? (tipoFilter === 'vendas' ? LAB_PAINEL_ORCAMENTOS.vendasAFazer : LAB_PAINEL_ORCAMENTOS.propostasAFazer)
+                  : `${tipoFilter === 'vendas' ? 'Vendas rápidas' : 'Propostas'} a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.`))
+              : (lab ? LAB_PAINEL_ORCAMENTOS.subtitulo : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.')}
           </p>
         </div>
       </div>
@@ -405,9 +422,9 @@ function OrcamentosPageInner() {
               info: SENT, R$ vs count). */}
           <FunnelCard
             icon={Users}
-            label="Avaliações realizadas"
+            label={lab ? LAB_PAINEL_ORCAMENTOS.clientesComOrcamento : 'Avaliações realizadas'}
             value={displayStats.patients_evaluated}
-            sub="pacientes únicos com orçamento"
+            sub={lab ? LAB_PAINEL_ORCAMENTOS.clientesUnicos : 'pacientes únicos com orçamento'}
             colorClass="blue"
           />
           <FunnelCard
@@ -428,7 +445,7 @@ function OrcamentosPageInner() {
             icon={ShieldCheck}
             label="Aprovadas (fechadas)"
             value={displayStats.approved_count}
-            sub={displayStats.approved_count > 0 ? formatBRL(displayStats.approved_value) : 'aceita + plano ativado'}
+            sub={displayStats.approved_count > 0 ? formatBRL(displayStats.approved_value) : (lab ? LAB_PAINEL_ORCAMENTOS.aprovadasSemValor : 'aceita + plano ativado')}
             colorClass="violet"
           />
           <FunnelCard
@@ -539,7 +556,7 @@ function OrcamentosPageInner() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por paciente, telefone ou CPF..."
+              placeholder={lab ? LAB_PAINEL_ORCAMENTOS.buscar : 'Buscar por paciente, telefone ou CPF...'}
               className="w-full pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
@@ -558,9 +575,13 @@ function OrcamentosPageInner() {
               className="text-xs px-3 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 max-w-xs flex-1 sm:flex-initial disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {dentists.length === 0
-                  ? 'Nenhum dentista (sem orçamentos)'
-                  : `Todos os dentistas (${dentists.length})`}
+                {lab
+                  ? (dentists.length === 0
+                    ? LAB_PAINEL_ORCAMENTOS.ninguem
+                    : LAB_PAINEL_ORCAMENTOS.todosResponsaveis(dentists.length))
+                  : (dentists.length === 0
+                    ? 'Nenhum dentista (sem orçamentos)'
+                    : `Todos os dentistas (${dentists.length})`)}
               </option>
               {dentists.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -572,7 +593,7 @@ function OrcamentosPageInner() {
               <button
                 onClick={() => setDentistFilter('')}
                 className="text-xs px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent shrink-0"
-                title="Limpar filtro de dentista"
+                title={lab ? LAB_PAINEL_ORCAMENTOS.limparResponsavel : 'Limpar filtro de dentista'}
               >
                 Limpar
               </button>
@@ -658,6 +679,7 @@ function OrcamentosPageInner() {
  * Financeiro (a validar / validado). Ordenada por data da venda (no caller).
  */
 function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<typeof useRouter> }) {
+  const lab = isLab(useBusinessType());
   // "Ver venda" → aba Financeiro do paciente: o tratamento fechado com valores,
   // juros, parcelas (cobranças) e a negociação do fechamento.
   const openFicha = (q: Quote) => router.push(`/atendimento/pacientes/${q.patient.id}?tab=financial`);
@@ -677,10 +699,10 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
     <table className="w-full text-sm min-w-[1040px]">
       <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
         <tr>
-          <th className="text-left px-4 py-2.5 font-medium">Venda</th>
+          <th className="text-left px-4 py-2.5 font-medium">{lab ? LAB_PAINEL_ORCAMENTOS.colunaNumero : 'Venda'}</th>
           <th className="text-left px-4 py-2.5 font-medium">Data</th>
           <th className="text-left px-4 py-2.5 font-medium">Cliente</th>
-          <th className="text-left px-4 py-2.5 font-medium">Avaliação</th>
+          <th className="text-left px-4 py-2.5 font-medium">{lab ? LAB_PAINEL_ORCAMENTOS.colunaProtetico : 'Avaliação'}</th>
           <th className="text-left px-4 py-2.5 font-medium">Fechamento</th>
           <th className="text-left px-4 py-2.5 font-medium">Itens</th>
           <th className="text-right px-4 py-2.5 font-medium">Total</th>
@@ -708,7 +730,9 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
                 className="hover:bg-muted/30 cursor-pointer"
               >
               <td className="px-4 py-3 whitespace-nowrap">
-                <span className="font-mono text-xs text-primary font-semibold">#{q.id.slice(0, 6).toUpperCase()}</span>
+                <span className="font-mono text-xs text-primary font-semibold">
+                  {lab ? (getQuoteNumberBadge(q) || `#${q.id.slice(0, 6).toUpperCase()}`) : <>#{q.id.slice(0, 6).toUpperCase()}</>}
+                </span>
               </td>
               <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                 {fmtDate(q.accepted_at || q.created_at)}
@@ -790,11 +814,13 @@ function QuoteTable({
   // Propostas → "Ver negociação" (aba Propostas); Avaliação → "Ver avaliação" (aba Avaliação).
   isPropostas?: boolean;
 }) {
+  // Laboratório: a ficha do cliente não tem a aba Avaliação; o link vai para a aba Orçamento.
+  const lab = isLab(useBusinessType());
   return (
     <table className="w-full text-sm">
       <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
         <tr>
-          <th className="text-left px-4 py-2 font-medium">Paciente</th>
+          <th className="text-left px-4 py-2 font-medium">{lab ? LAB_PAINEL_ORCAMENTOS.colunaCliente : 'Paciente'}</th>
           <th className="text-left px-4 py-2 font-medium">Status</th>
           <th className="text-right px-4 py-2 font-medium">Valor</th>
           <th className="text-left px-4 py-2 font-medium">Validade</th>
@@ -811,11 +837,12 @@ function QuoteTable({
             <tr key={q.id} className="hover:bg-muted/30">
               <td className="px-4 py-3">
                 <button
-                  onClick={() => router.push(
-                    `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
+                  onClick={() => router.push(lab
+                    ? `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : abaDoOrcamentoNoLab(q)}`
+                    : `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
                   )}
                   className="text-left hover:text-primary flex items-center gap-2.5"
-                  title={isPropostas ? 'Abrir as propostas pra aprovar' : 'Abrir a avaliação do paciente'}
+                  title={isPropostas ? 'Abrir as propostas pra aprovar' : (lab ? LAB_PAINEL_ORCAMENTOS.abrirOrcamento : 'Abrir a avaliação do paciente')}
                 >
                   <PatientAvatar
                     patientId={q.patient.id}
@@ -874,15 +901,20 @@ function QuoteTable({
                     </button>
                   )}
                   <button
-                    onClick={() => router.push(
-                      `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
+                    onClick={() => router.push(lab
+                      ? `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : abaDoOrcamentoNoLab(q)}`
+                      : `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
                     )}
                     className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
-                    title={isPropostas
-                      ? (q.status === 'ACCEPTED' ? 'Abrir a ficha do paciente pra agendar' : 'Abrir a negociação (aba Propostas do paciente)')
-                      : 'Abrir a avaliação do paciente'}
+                    title={lab
+                      ? (isPropostas
+                        ? (q.status === 'ACCEPTED' ? LAB_PAINEL_ORCAMENTOS.abrirFicha : LAB_PAINEL_ORCAMENTOS.abrirNegociacao)
+                        : LAB_PAINEL_ORCAMENTOS.abrirOrcamento)
+                      : (isPropostas
+                        ? (q.status === 'ACCEPTED' ? 'Abrir a ficha do paciente pra agendar' : 'Abrir a negociação (aba Propostas do paciente)')
+                        : 'Abrir a avaliação do paciente')}
                   >
-                    {isPropostas ? (q.status === 'ACCEPTED' ? 'Ver ficha' : 'Ver negociação') : 'Ver avaliação'}
+                    {isPropostas ? (q.status === 'ACCEPTED' ? 'Ver ficha' : 'Ver negociação') : (lab ? LAB_PAINEL_ORCAMENTOS.verOrcamento : 'Ver avaliação')}
                   </button>
                 </div>
               </td>
