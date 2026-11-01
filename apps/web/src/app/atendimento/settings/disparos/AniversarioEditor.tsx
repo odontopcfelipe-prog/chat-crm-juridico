@@ -7,6 +7,9 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, Cake, Gift, Heart, Eye, Variable, Clock } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab, LAB_AGENDA_TEXTOS } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ANIVERSARIO_EDITOR } from './lab-disparos-textos';
 
 const PREVIEW = { nome: 'Felipe', clinica: 'sua clínica' };
 
@@ -39,16 +42,18 @@ const META: Record<1 | 2 | 3, { titulo: string; sub: string; tplField: string; a
   3: { titulo: 'O presente', sub: 'No meio do dia (ex.: 12:00) — oferta/agrado', tplField: 'message3_template', atField: 'message3_send_at', icon: <Gift size={16} className="text-amber-500" /> },
 };
 
-function applyPreview(t: string): string {
+function applyPreview(t: string, p: { nome: string; clinica: string } = PREVIEW): string {
   return (t || '')
-    .replace(/\{nome\}/g, PREVIEW.nome)
-    .replace(/\{clinica\}/g, PREVIEW.clinica)
+    .replace(/\{nome\}/g, p.nome)
+    .replace(/\{clinica\}/g, p.clinica)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2 | 3; onCurrentTextChange?: (t: string) => void }) {
   const meta = META[which];
+  // Laboratório: só a mensagem clássica, com o texto e os rótulos do laboratório.
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
@@ -59,7 +64,7 @@ export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2
       .then((r) => {
         // Se a config ainda não tem o texto dessa mensagem, mostra o padrão (pra
         // aparecer na hora; salvar persiste). Não depende do deploy do backend.
-        setTemplate((r.data?.[meta.tplField] || '').trim() || DEFAULT_TPL[which]);
+        setTemplate((r.data?.[meta.tplField] || '').trim() || (isLab(btAgora()) ? LAB_AGENDA_TEXTOS.aniversario : DEFAULT_TPL[which]));
         setSendAt(r.data?.[meta.atField] || DEFAULT_AT[which]);
       })
       .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar a mensagem'))
@@ -103,11 +108,11 @@ export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
             <div className="flex items-baseline gap-1.5 text-[11px]">
               <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">{'{nome}'}</code>
-              <span className="text-muted-foreground">Primeiro nome do paciente</span>
+              <span className="text-muted-foreground">{lab ? LAB_ANIVERSARIO_EDITOR.variavelNome : 'Primeiro nome do paciente'}</span>
             </div>
             <div className="flex items-baseline gap-1.5 text-[11px]">
               <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">{'{clinica}'}</code>
-              <span className="text-muted-foreground">Nome da clínica</span>
+              <span className="text-muted-foreground">{lab ? LAB_ANIVERSARIO_EDITOR.variavelClinica : 'Nome da clínica'}</span>
             </div>
           </div>
         </div>
@@ -136,10 +141,10 @@ export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2
 
         <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
           <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-1.5 flex items-center gap-1">
-            <Eye size={11} /> Preview (como o paciente vai receber)
+            <Eye size={11} /> {lab ? LAB_ANIVERSARIO_EDITOR.previewLabel : 'Preview (como o paciente vai receber)'}
           </div>
           <div className="text-xs text-foreground whitespace-pre-wrap">
-            {applyPreview(template) || <em className="text-muted-foreground">(mensagem vazia)</em>}
+            {applyPreview(template, lab ? LAB_ANIVERSARIO_EDITOR.preview : PREVIEW) || <em className="text-muted-foreground">(mensagem vazia)</em>}
           </div>
         </div>
 

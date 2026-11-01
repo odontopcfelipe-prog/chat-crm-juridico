@@ -8,9 +8,14 @@
  * (canAccessRouteBt com BT_LABORATORIO), com os textos do laboratório
  * (lab-casca-textos e LAB_SECTOR_TEXT), mais o nome da pessoa e o da conta.
  *
- * Rede: só /users/me (permissões), /tenants/me (nome, logo e cor da conta) e
- * /ponto/status (equipe do ponto). Nada de agenda, contadores de módulo ou
- * procedimentos: essas telas ainda não fazem parte do laboratório.
+ * Rede: /users/me (permissões), /tenants/me (nome, logo e cor da conta),
+ * /ponto/status (equipe do ponto) e, para quem abre a agenda, UMA leitura de
+ * /calendar/events (a mesma listagem da agenda) para o quadro das próximas coletas,
+ * provas e entregas. Nada de contadores de módulo, jogo ou procedimentos.
+ *
+ * F7 — atalho da Agenda pelos balões do setor, atalho da Central de Disparos para
+ * quem abre a Central e o quadro das próximas visitas (7 dias, só os tipos do
+ * laboratório). O quadro some se a leitura falhar.
  *
  * O admin troca o setor visto ("Ver como"): os atalhos passam a ser os do setor
  * escolhido, sem os ajustes individuais e sem os do ponto (que são da pessoa).
@@ -18,7 +23,8 @@
 import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Clock, FileText, Layers, LayoutGrid, MessageSquare, Receipt, ReceiptText, Settings, UserCog, Users, Wallet, Zap,
+  ArrowRight, Calendar, Clock, FileText, Layers, LayoutGrid, MessageSquare, Receipt, ReceiptText, Send, Settings, UserCog, Users,
+  Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -28,18 +34,25 @@ import {
   PONTO_BALAO,
   SECTORS,
   canAccessRouteBt,
+  dataCurtaNaive,
+  horaCurtaNaive,
+  isLab,
   resolveHomeActions,
+  rotuloTipoDoLaboratorio,
+  tipoSoDoLaboratorio,
   type HomeAction,
   type Permission,
   type Sector,
 } from '@crm/shared';
+import api from '@/lib/api';
+import { btAgora } from '@/lib/useBusinessType';
 import { useTenant } from '@/lib/useTenant';
 import { tenantAccent } from '@/lib/tenant-accent';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { LAB_BALOES, LAB_INICIO } from '@/lib/lab-casca-textos';
+import { LAB_BALOES, LAB_INICIO, LAB_PROXIMAS } from '@/lib/lab-casca-textos';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
-import { BoletoArt, ChatArt, ClockArt, DocArt, GearArt, MoneyArt, PatientCardsArt } from './dentist-illustrations';
+import { BoletoArt, CalendarArt, ChatArt, ClockArt, DocArt, GearArt, MoneyArt, PatientCardsArt } from './dentist-illustrations';
 import './dentist-home.css';
 
 interface Props {
@@ -73,7 +86,12 @@ const BALAO_DA_ROTA: Readonly<Record<string, ChaveBalao>> = Object.freeze({
   '/atendimento/settings/users': 'equipe',
   '/atendimento/orcamentos': 'orcamentos',
   '/atendimento/orcamentos?status=SENT': 'propostas',
+  '/atendimento/agenda': 'agenda',
 });
+
+/** Agenda e Central de Disparos (F7). */
+const AGENDA = '/atendimento/agenda';
+const CENTRAL = '/atendimento/settings/disparos';
 
 /**
  * Atalho que pede uma permissão a mais que a da rota. O painel de orçamentos abre
@@ -87,7 +105,7 @@ const PERMISSAO_DO_ATALHO: Readonly<Partial<Record<ChaveBalao, Permission>>> = O
 
 /** Ícone pelo nome do lucide do balão (HomeAction.lucide). */
 const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({
-  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog, FileText, Layers,
+  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog, FileText, Layers, Calendar, Send,
 });
 
 /**
@@ -111,6 +129,8 @@ const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
   equipe: PatientCardsArt,
   orcamentos: DocArt,
   propostas: DocArt,
+  agenda: CalendarArt,
+  avisos: GearArt,
 });
 
 function saudacao(hora: number): string {
@@ -125,10 +145,44 @@ interface Atalho {
   lucide?: string;
 }
 
+/** O que o quadro das próximas visitas lê de cada evento (GET /calendar/events). */
+interface EventoDaAgenda {
+  id: string;
+  type: string;
+  status?: string | null;
+  start_at: string;
+  patient?: { name?: string | null } | null;
+  lead?: { name?: string | null } | null;
+}
+
+/** Agenda naive-UTC: a hora de Maceió fica gravada como UTC (agora = Date.now() − 3 h). */
+const TRES_HORAS_MS = 3 * 60 * 60 * 1000;
+const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000;
+const MAXIMO_DE_PROXIMAS = 5;
+/** Desmarcado, não realizado e feito saem do quadro (só o que ainda vai acontecer). */
+const FORA_DAS_PROXIMAS = new Set(['CANCELADO', 'NO_SHOW', 'CONCLUIDO']);
+
+function proximasDaLista(lista: unknown): EventoDaAgenda[] {
+  if (!Array.isArray(lista)) return [];
+  return (lista as EventoDaAgenda[])
+    .filter((e) => e && tipoSoDoLaboratorio(e.type) && !FORA_DAS_PROXIMAS.has(e.status ?? ''))
+    .sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)))
+    .slice(0, MAXIMO_DE_PROXIMAS);
+}
+
+/** A agenda abre o evento guardado aqui (o mesmo caminho da busca do topo). */
+function abrirNaAgenda(id: string): void {
+  try {
+    sessionStorage.setItem('open_event_id', id);
+  } catch {
+    // sem sessionStorage a agenda abre sem o evento
+  }
+}
+
 export default function LabInicio({ sector, userName, extraGrants, extraRevokes, allowSwitch }: Props) {
   const tenant = useTenant();
   const ponto = usePontoStatus();
-  const { hasPermission } = useUserPermissions();
+  const { hasPermission, ready: permissoesProntas } = useUserPermissions();
 
   const [visto, setVisto] = useState<Sector>(sector);
   useEffect(() => { setVisto(sector); }, [sector]);
@@ -149,15 +203,49 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
   const hrefsVistos = new Set<string>();
   const atalhos: Atalho[] = [];
   for (const a of baloes) {
-    if (hrefsVistos.has(a.href)) continue;
-    hrefsVistos.add(a.href);
-    if (!canAccessRouteBt(a.href, hasPermission, BT_LABORATORIO)) continue;
-    const chave = BALAO_DA_ROTA[a.href];
+    // A lista do protético (/minha-agenda) é fechada no laboratório: o balão leva à agenda,
+    // que o servidor já filtra pelos eventos dele. O link com ?validar=1 não muda.
+    const href = a.href === '/atendimento/minha-agenda' ? AGENDA : a.href;
+    if (hrefsVistos.has(href)) continue;
+    hrefsVistos.add(href);
+    if (!canAccessRouteBt(href, hasPermission, BT_LABORATORIO)) continue;
+    const chave = BALAO_DA_ROTA[href];
     if (!chave) continue;
     const permissaoExtra = PERMISSAO_DO_ATALHO[chave];
     if (permissaoExtra && !hasPermission(permissaoExtra)) continue;
-    atalhos.push({ href: a.href, chave, lucide: a.lucide });
+    atalhos.push({ href, chave, lucide: a.lucide });
   }
+  // Central de Disparos: atalho da pessoa (não do setor visto), só para quem abre a tela.
+  if (proprio && !atalhos.some((x) => x.href === CENTRAL) && canAccessRouteBt(CENTRAL, hasPermission, BT_LABORATORIO)) {
+    atalhos.push({ href: CENTRAL, chave: 'avisos', lucide: 'Send' });
+  }
+
+  // Próximas coletas, provas e entregas: só para quem abre a agenda (o protético vê
+  // as dele, porque o servidor filtra), com as permissões reais já carregadas.
+  const verProximas = proprio && permissoesProntas && canAccessRouteBt(AGENDA, hasPermission, BT_LABORATORIO);
+  const [proximas, setProximas] = useState<EventoDaAgenda[] | null>(null);
+  useEffect(() => {
+    if (!verProximas || !isLab(btAgora())) {
+      setProximas(null);
+      return;
+    }
+    let cancelado = false;
+    const agora = Date.now() - TRES_HORAS_MS;
+    api
+      .get<EventoDaAgenda[]>('/calendar/events', {
+        params: { start: new Date(agora).toISOString(), end: new Date(agora + SETE_DIAS_MS).toISOString() },
+      })
+      .then(({ data }) => {
+        if (!cancelado) setProximas(proximasDaLista(data));
+      })
+      .catch(() => {
+        // erro: o quadro some
+        if (!cancelado) setProximas(null);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [verProximas]);
 
   const nome = (userName || '').trim().replace(/\s+/g, ' ');
   const accent = useMemo(() => tenantAccent(tenant?.theme_color), [tenant?.theme_color]);
@@ -249,6 +337,36 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
         ) : (
           <section className="dh-panel">
             <p className="dh-empty">{LAB_INICIO.vazio}</p>
+          </section>
+        )}
+
+        {verProximas && proximas && (
+          <section className="dh-panel" aria-label={LAB_PROXIMAS.titulo}>
+            <div className="dh-panel-head">
+              <h2>
+                <span className="dh-panel-ico"><Calendar size={15} /></span>
+                {LAB_PROXIMAS.titulo}
+              </h2>
+              <Link href={AGENDA} className="dh-panel-link">
+                {LAB_PROXIMAS.abrir} <ArrowRight size={13} />
+              </Link>
+            </div>
+            {proximas.length > 0 ? (
+              <ul className="dh-tasks">
+                {proximas.map((ev) => (
+                  <li key={ev.id}>
+                    <Link href={AGENDA} className="dh-task" onClick={() => abrirNaAgenda(ev.id)}>
+                      <span className="dh-task-time">{dataCurtaNaive(ev.start_at)}</span>
+                      <span className="dh-task-time">{horaCurtaNaive(ev.start_at)}</span>
+                      <span className="dh-task-time">{rotuloTipoDoLaboratorio(ev.type)}</span>
+                      <span className="dh-task-title">{ev.patient?.name || ev.lead?.name || LAB_PROXIMAS.semCliente}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="dh-empty">{LAB_PROXIMAS.vazio}</p>
+            )}
           </section>
         )}
       </div>

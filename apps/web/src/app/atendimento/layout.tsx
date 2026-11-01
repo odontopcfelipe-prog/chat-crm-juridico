@@ -206,7 +206,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
   // da clínica. Se ganhar manage_agenda (admin liberou), volta a ter o calendário.
   // (Esconde o calendário já pelo fallback do JWT; só redireciona com /users/me pronto.)
-  const dentistListAgenda = permSector === 'dentista'
+  // F7 do laboratório — o protético abre a própria agenda (o servidor já devolve só
+  // os eventos dele) e /minha-agenda é fechada no laboratório: lá não redireciona.
+  const dentistListAgenda = !lab && permSector === 'dentista'
     && !hasPermission('manage_agenda')
     && pathname.startsWith('/atendimento/agenda');
   useEffect(() => {
@@ -369,7 +371,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const isDentistNav = permSector === 'dentista';
   const dentistTabs = [
     { label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), badge: 0 },
-    { label: 'Agenda', href: '/atendimento/minha-agenda', icon: Calendar, match: (p: string) => p.startsWith('/atendimento/minha-agenda'), isCenter: true, badge: 0 },
+    { label: 'Agenda', href: lab ? '/atendimento/agenda' : '/atendimento/minha-agenda', icon: Calendar, match: (p: string) => p.startsWith(lab ? '/atendimento/agenda' : '/atendimento/minha-agenda'), isCenter: true, badge: 0 },
     { label: lab ? LAB_MENU.abaDentistas : 'Pacientes', href: '/atendimento/pacientes', icon: Users, match: (p: string) => p.startsWith('/atendimento/pacientes'), badge: 0 },
     { label: 'Pontuação', href: '/atendimento/meu-jogo', icon: Trophy, match: (p: string) => p.startsWith('/atendimento/meu-jogo'), badge: 0 },
   ];

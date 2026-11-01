@@ -5,7 +5,14 @@
  */
 import {
   AI_CHIP_PURPOSES,
+  BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO,
   CATEGORIAS_FINANCEIRAS_DO_LABORATORIO,
+  DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO,
+  LAB_AGENDA_EMAIL,
+  LAB_AGENDA_TEXTOS,
+  LAB_NEGOCIACAO,
+  REMINDER_CONFIG_PADRAO_DO_LABORATORIO,
+  emailsDaAgendaDoLaboratorio,
   DEFAULT_PROCEDURES,
   DEFAULT_SPECIALTIES,
   FUNIL_CAPTACAO_DE_DENTISTAS,
@@ -93,7 +100,7 @@ function textosDoLaboratorio(): string[] {
   ];
 }
 
-describe('lab-defaults — chaves desligadas da conta de laboratório', () => {
+describe('lab-defaults — chaves da conta de laboratório', () => {
   it('GlobalSetting: toda chave termina com _<id do laboratório> (nada global)', () => {
     const { globaisDaConta } = chavesDesligadasDoLaboratorio(LAB);
     expect(globaisDaConta.length).toBeGreaterThan(0);
@@ -113,9 +120,14 @@ describe('lab-defaults — chaves desligadas da conta de laboratório', () => {
         'TASK_ALERTS_ENABLED',
         'REMINDER_CONFIG',
         'APPOINTMENT_CONFIRMATION_ENABLED',
+        'APPOINTMENT_CONFIRMATION_TEMPLATE',
         'APPOINTMENT_RESCHEDULED_ENABLED',
+        'APPOINTMENT_RESCHEDULED_TEMPLATE',
         'PAYMENT_CONFIRMATION_ENABLED',
+        'DENTIST_DAILY_SUMMARY',
         'BIRTHDAY_GREETING',
+        'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA',
+        'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA_AVISTA',
         'BOLETO_1D_ANTES',
         'BOLETO_NO_DIA',
         'BOLETO_ATRASO_1D',
@@ -131,14 +143,63 @@ describe('lab-defaults — chaves desligadas da conta de laboratório', () => {
         'POST_CARE_CONFIG',
       ].sort(),
     );
-    // Os liga/desliga em texto: só 'false'.
+    // Os liga/desliga em texto: a agenda (aviso na hora e confirmação, remarcação) nasce
+    // 'true'; o resto, 'false'.
+    const JSON_DA_CONTA = [
+      'REMINDER_CONFIG',
+      'APPOINTMENT_CONFIRMATION_TEMPLATE',
+      'APPOINTMENT_RESCHEDULED_TEMPLATE',
+      'DENTIST_DAILY_SUMMARY',
+      'BIRTHDAY_GREETING',
+      'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA',
+      'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA_AVISTA',
+      'COMMISSION_MISSIONS',
+      'POST_CARE_CONFIG',
+    ];
+    const LIGADOS = ['APPOINTMENT_CONFIRMATION_ENABLED', 'APPOINTMENT_RESCHEDULED_ENABLED'];
     for (const [k, v] of Object.entries(valor)) {
-      if (!['REMINDER_CONFIG', 'BIRTHDAY_GREETING', 'COMMISSION_MISSIONS', 'POST_CARE_CONFIG'].includes(k)) expect(v).toBe('false');
+      if (LIGADOS.includes(k)) expect([k, v]).toEqual([k, 'true']);
+      else if (!JSON_DA_CONTA.includes(k)) expect([k, v]).toEqual([k, 'false']);
     }
-    // Os JSON: desligados como os leitores entendem (lembrete: enabled === false;
-    // aniversário: as 3 mensagens; missões: enabled false e lista presente e vazia).
-    expect(JSON.parse(valor.REMINDER_CONFIG)).toEqual({ enabled: false });
-    expect(JSON.parse(valor.BIRTHDAY_GREETING)).toEqual({ enabled: false, message2_enabled: false, message3_enabled: false });
+    // Lembretes: ligados, só 48 h e 24 h pelo WhatsApp, com os textos do laboratório.
+    expect(JSON.parse(valor.REMINDER_CONFIG)).toEqual({
+      enabled: true,
+      default_antecedencias: [
+        { minutes_before: 2880, channel: 'WHATSAPP' },
+        { minutes_before: 1440, channel: 'WHATSAPP' },
+      ],
+      templates: {
+        consulta_confirmacao: LAB_AGENDA_TEXTOS.lembrete48h,
+        consulta_24h: LAB_AGENDA_TEXTOS.lembrete24h,
+        consulta_1h: '',
+        consulta_15min: '',
+      },
+    });
+    expect(JSON.parse(valor.REMINDER_CONFIG)).toEqual(REMINDER_CONFIG_PADRAO_DO_LABORATORIO);
+    // Textos editáveis: o mesmo JSON {template} que a Central grava.
+    expect(JSON.parse(valor.APPOINTMENT_CONFIRMATION_TEMPLATE)).toEqual({ template: LAB_AGENDA_TEXTOS.confirmacao24h });
+    expect(JSON.parse(valor.APPOINTMENT_RESCHEDULED_TEMPLATE)).toEqual({ template: LAB_AGENDA_TEXTOS.remarcacao });
+    expect(JSON.parse(valor.COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA)).toEqual({ template: LAB_NEGOCIACAO.parcelado });
+    expect(JSON.parse(valor.COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA_AVISTA)).toEqual({ template: LAB_NEGOCIACAO.avista });
+    // Resumo do protético e aniversário: texto do laboratório e desligados (aniversário: as 3 mensagens).
+    expect(JSON.parse(valor.DENTIST_DAILY_SUMMARY)).toEqual({
+      enabled: false,
+      send_at: '08:00',
+      channel: 'WHATSAPP',
+      template: LAB_AGENDA_TEXTOS.resumoProtetico,
+    });
+    expect(JSON.parse(valor.DENTIST_DAILY_SUMMARY)).toEqual(DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO);
+    const aniversario = JSON.parse(valor.BIRTHDAY_GREETING);
+    expect(aniversario).toEqual(BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO);
+    expect(aniversario).toMatchObject({
+      enabled: false,
+      template: LAB_AGENDA_TEXTOS.aniversario,
+      message2_enabled: false,
+      message2_template: '',
+      message3_enabled: false,
+      message3_template: '',
+    });
+    // Missões: enabled false e lista presente e vazia.
     expect(JSON.parse(valor.COMMISSION_MISSIONS)).toEqual({ enabled: false, missions: [] });
     // pós-atendimento: o leitor junta com o padrão ({...DEFAULT_CONFIG, ...salvo}), então enabled false desliga.
     expect(JSON.parse(valor.POST_CARE_CONFIG)).toEqual({ enabled: false });
@@ -164,32 +225,86 @@ describe('lab-defaults — chaves desligadas da conta de laboratório', () => {
     for (const c of [...daConta, ...globaisDaConta]) expect(c.key.startsWith('LAB' + '_')).toBe(false);
   });
 
+  it('os textos gravados na conta (mensagens e e-mails) não têm texto de clínica', () => {
+    const { globaisDaConta } = chavesDesligadasDoLaboratorio(LAB);
+    const valor = Object.fromEntries(globaisDaConta.map((c) => [c.key.slice(0, -(LAB.length + 1)), c.value]));
+    const lembretes = JSON.parse(valor.REMINDER_CONFIG).templates;
+    const textos = [
+      lembretes.consulta_confirmacao,
+      lembretes.consulta_24h,
+      ...[
+        'APPOINTMENT_CONFIRMATION_TEMPLATE',
+        'APPOINTMENT_RESCHEDULED_TEMPLATE',
+        'DENTIST_DAILY_SUMMARY',
+        'BIRTHDAY_GREETING',
+        'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA',
+        'COBRANCA_TEMPLATE_NEGOCIACAO_APROVADA_AVISTA',
+      ].map((k) => JSON.parse(valor[k]).template),
+      ...emailsDaAgendaDoLaboratorio(LAB).flatMap((e) => [e.subject, e.body]),
+    ];
+    expect(textos.every((t) => typeof t === 'string' && t.trim().length > 0)).toBe(true);
+    const semVariaveis = (t: string) => t.replace(/\{\{\s*\w+\s*\}\}/g, ' ').replace(/\{\s*\w+\s*\}/g, ' ');
+    expect(textos.map((t) => [t, textoDeClinica(semVariaveis(t))]).filter(([, termo]) => termo)).toEqual([]);
+  });
+
+  it('e-mails de agenda: agendamento e remarcação, ligados, com o texto do laboratório, na conta', () => {
+    expect(emailsDaAgendaDoLaboratorio(LAB)).toEqual([
+      {
+        tenant_id: LAB,
+        event_key: 'agendamento_criado',
+        enabled: true,
+        subject: LAB_AGENDA_EMAIL.agendado.assunto,
+        body: LAB_AGENDA_EMAIL.agendado.corpo,
+      },
+      {
+        tenant_id: LAB,
+        event_key: 'agendamento_remarcado',
+        enabled: true,
+        subject: LAB_AGENDA_EMAIL.remarcado.assunto,
+        body: LAB_AGENDA_EMAIL.remarcado.corpo,
+      },
+    ]);
+  });
+
   it.each([undefined, null, '', '   ', 42])('sem conta (%p) não monta chave nenhuma', (id) => {
     expect(() => chavesDesligadasDoLaboratorio(id as any)).toThrow();
+    expect(() => emailsDaAgendaDoLaboratorio(id as any)).toThrow();
   });
 });
 
 describe('lab-defaults — ensureLabDefaults', () => {
   it('só createMany com skipDuplicates: grava o que falta, nunca atualiza nem apaga', async () => {
-    const g = gravador({ 'tenantSetting.createMany': () => ({ count: 7 }), 'globalSetting.createMany': () => ({ count: 18 }) });
+    const g = gravador({
+      'tenantSetting.createMany': () => ({ count: 7 }),
+      'globalSetting.createMany': () => ({ count: 18 }),
+      'tenantEmailTemplate.createMany': () => ({ count: 2 }),
+    });
     const r = await ensureLabDefaults(g.prisma, LAB);
 
-    expect(g.chamadas.map((c) => c.op)).toEqual(['tenantSetting.createMany', 'globalSetting.createMany']);
-    expect(r).toEqual({ daConta: 7, globais: 18 });
+    expect(g.chamadas.map((c) => c.op)).toEqual(['tenantSetting.createMany', 'globalSetting.createMany', 'tenantEmailTemplate.createMany']);
+    expect(r).toEqual({ daConta: 7, globais: 18, emails: 2 });
     const [ts] = g.de('tenantSetting.createMany');
     const [gs] = g.de('globalSetting.createMany');
+    const [em] = g.de('tenantEmailTemplate.createMany');
     expect(ts.skipDuplicates).toBe(true);
     expect(gs.skipDuplicates).toBe(true);
+    expect(em.skipDuplicates).toBe(true);
     for (const linha of ts.data) expect(linha.tenant_id).toBe(LAB);
     for (const linha of gs.data) {
       expect(linha.key.endsWith(`_${LAB}`)).toBe(true);
       expect(Object.keys(linha).sort()).toEqual(['key', 'value']);
     }
+    expect(em.data).toEqual(emailsDaAgendaDoLaboratorio(LAB));
+    for (const linha of em.data) expect(linha.tenant_id).toBe(LAB);
   });
 
   it('2ª execução (tudo já existe): nada gravado, nenhuma outra chamada', async () => {
-    const g = gravador({ 'tenantSetting.createMany': () => ({ count: 0 }), 'globalSetting.createMany': () => ({ count: 0 }) });
-    expect(await ensureLabDefaults(g.prisma, LAB)).toEqual({ daConta: 0, globais: 0 });
+    const g = gravador({
+      'tenantSetting.createMany': () => ({ count: 0 }),
+      'globalSetting.createMany': () => ({ count: 0 }),
+      'tenantEmailTemplate.createMany': () => ({ count: 0 }),
+    });
+    expect(await ensureLabDefaults(g.prisma, LAB)).toEqual({ daConta: 0, globais: 0, emails: 0 });
     expect(g.chamadas.every((c) => c.op.endsWith('.createMany'))).toBe(true);
   });
 
@@ -216,6 +331,7 @@ describe('lab-defaults — seedLabTenantDefaults', () => {
       'pipeline.create',
       'tenantSetting.createMany',
       'globalSetting.createMany',
+      'tenantEmailTemplate.createMany',
     ]);
     expect(r.funil).toBe(true);
     // Nada de anamnese (nem a master) e nenhuma escrita que sobrescreva.

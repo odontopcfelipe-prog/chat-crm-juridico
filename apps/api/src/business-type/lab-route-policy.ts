@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (358). */
+/** Handlers que a conta de laboratório alcança (378). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // BillingController — plano da própria conta
   'BillingController.getMine',
@@ -58,6 +58,18 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'CalendarController.deleteScheduleBlock',
   'CalendarController.search',
   'CalendarController.exportRangeIcs',
+  'CalendarController.exportEventIcs',
+  // CalendarController — Central de Disparos do laboratório (F7; ramo de laboratório no serviço)
+  'CalendarController.setReminderConfig',
+  'CalendarController.getAppointmentConfirmationConfig',
+  'CalendarController.setAppointmentConfirmationConfig',
+  'CalendarController.getAppointmentRescheduledConfig',
+  'CalendarController.setAppointmentRescheduledConfig',
+  'CalendarController.getDentistDailySummaryConfig',
+  'CalendarController.setDentistDailySummaryConfig',
+  'CalendarController.getBirthdayGreetingConfig',
+  'CalendarController.setBirthdayGreetingConfig',
+  'CalendarController.sendTestDisparo',
   // CommercialController — propostas, venda rápida e trabalhos
   'CommercialController.createQuote',
   'CommercialController.getOrCreateDraft',
@@ -157,6 +169,16 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'FinanceiroController.monthCharges',
   'FinanceiroController.findCharges',
   'FinanceiroController.getPatientsSummary',
+  // FollowupController — Central de Disparos do laboratório (F7; o resto do controller é negado por nome)
+  'FollowupController.getOperacional',
+  'FollowupController.setOperacionalToggle',
+  'FollowupController.getCobrancaTemplate',
+  'FollowupController.setCobrancaTemplate',
+  'FollowupController.getDailySummaryConfig',
+  'FollowupController.setDailySummaryConfig',
+  'FollowupController.getVendaFeitaConfig',
+  'FollowupController.setVendaFeitaConfig',
+  'FollowupController.getDisparoDetail',
   // InboxesController — setores do atendimento
   'InboxesController.findAll',
   'InboxesController.getAllOperators',
@@ -415,7 +437,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'WhatsappController.renameMyNumber',
 ]);
 
-/** Controllers só de clínica/IA/plataforma (47): TODO handler deles (inclusive os novos) é negado. */
+/** Controllers só de clínica/IA/plataforma (46): TODO handler deles (inclusive os novos) é negado. */
 export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'AdverseReactionsController', // reação adversa (clínico)
   'AgendaExtendedController', // agenda de consulta: salas, retornos, marcadores
@@ -436,7 +458,6 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'DisparoAnexosController', // disparos (entram na fase F6b)
   'EmailAutomationController', // e-mails automáticos de clínica
   'EstheticApplicationsController', // estética (clínico)
-  'FollowupController', // follow-up e robôs de disparo de clínica
   'GlobalAnamnesisController', // anamnese (clínico)
   'GoogleDriveController', // integração da plataforma
   'HomeHighlightsController', // início de clínica
@@ -466,7 +487,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);
 
-/** Handlers negados dentro de controllers que o laboratório também usa (211). */
+/** Handlers negados dentro de controllers que o laboratório também usa (227). */
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
@@ -490,11 +511,6 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CalendarController.resendReminder',
   'CalendarController.cancelReminder',
   'CalendarController.getReminderPreview',
-  'CalendarController.setReminderConfig',
-  'CalendarController.getDentistDailySummaryConfig',
-  'CalendarController.setDentistDailySummaryConfig',
-  'CalendarController.getAppointmentConfirmationConfig',
-  'CalendarController.setAppointmentConfirmationConfig',
   'CalendarController.getComercialAgendaTemplate',
   'CalendarController.setComercialAgendaTemplate',
   'CalendarController.getAppointmentConfirmationOrtoConfig',
@@ -503,19 +519,13 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CalendarController.setAppointmentOrtoReminderConfig',
   'CalendarController.getAppointmentOrtoImmediateConfig',
   'CalendarController.setAppointmentOrtoImmediateConfig',
-  'CalendarController.getAppointmentRescheduledConfig',
-  'CalendarController.setAppointmentRescheduledConfig',
-  'CalendarController.getBirthdayGreetingConfig',
-  'CalendarController.setBirthdayGreetingConfig',
   'CalendarController.getUpcomingBirthdays',
   'CalendarController.openConversation',
   'CalendarController.sendTestConfirmation',
-  'CalendarController.sendTestDisparo',
   'CalendarController.sendDentistDailySummaryNow',
   'CalendarController.getRemindersHealth',
   'CalendarController.exportRemindersCSV',
   'CalendarController.createScheduleBlock',
-  'CalendarController.exportEventIcs',
   'CalendarController.migrateTasks',
   // CommercialController — propostas, venda rápida e trabalhos
   'CommercialController.quotesClosingBoard',
@@ -576,6 +586,34 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'FinanceiroController.deleteTransaction',
   'FinanceiroController.partialPayment',
   'FinanceiroController.getSummary',
+  // FollowupController — estatísticas, histórico, recall, sequências, inscrições, aprovações e broadcasts
+  'FollowupController.getStats',
+  'FollowupController.getDisparoHistory',
+  'FollowupController.getRecallTemplate',
+  'FollowupController.setRecallTemplate',
+  'FollowupController.listSequences',
+  'FollowupController.createSequence',
+  'FollowupController.updateSequence',
+  'FollowupController.deleteSequence',
+  'FollowupController.addStep',
+  'FollowupController.updateStep',
+  'FollowupController.deleteStep',
+  'FollowupController.listEnrollments',
+  'FollowupController.enrollLead',
+  'FollowupController.pauseEnrollment',
+  'FollowupController.resumeEnrollment',
+  'FollowupController.cancelEnrollment',
+  'FollowupController.markConverted',
+  'FollowupController.listPendingApprovals',
+  'FollowupController.approveMessage',
+  'FollowupController.rejectMessage',
+  'FollowupController.regenerateMessage',
+  'FollowupController.previewBroadcast',
+  'FollowupController.listBroadcasts',
+  'FollowupController.getBroadcast',
+  'FollowupController.createBroadcast',
+  'FollowupController.cancelBroadcast',
+  'FollowupController.seedDefaultSequences',
   // InventoryController — estoque
   'InventoryController.linkConsumable',
   'InventoryController.listConsumables',

@@ -321,6 +321,66 @@ describe('F5 — mensagens do cadastro do cliente, da venda e do Validar', () =>
   });
 });
 
+describe('F7 — mensagens da agenda e da Central de Disparos', () => {
+  const TIPO_DTO =
+    'type must be one of the following values: CONSULTA, PROCEDIMENTO, RETORNO, ORTODONTIA, BLOQUEIO, TAREFA, OUTRO, AUDIENCIA, PERICIA, PRAZO';
+
+  it.each<[string, string]>([
+    [TIPO_DTO, 'Tipo de agendamento inválido. Use Coleta, Prova, Entrega, Tarefa, Outro ou Bloqueio.'],
+    [
+      'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
+      'Nenhum WhatsApp conectado neste laboratório. Conecte o WhatsApp primeiro.',
+    ],
+    [
+      'Paciente com 2 boleto(s) em atraso (R$ 350,00). Regularize no Financeiro ou peça a um administrador para liberar.',
+      'Cliente com 2 boleto(s) em atraso (R$ 350,00). Regularize no Financeiro ou peça a um administrador para liberar.',
+    ],
+    [
+      'Sem permissao para alterar: title, start_at. Dentista pode mudar apenas o status do proprio evento.',
+      'Sem permissão para alterar: title, start_at. O protético pode mudar apenas o status do próprio evento.',
+    ],
+    [
+      'Não enviou: tempo esgotado. Verifique se o WhatsApp da clínica está conectado.',
+      'Não enviou: tempo esgotado. Verifique se o WhatsApp do laboratório está conectado.',
+    ],
+  ])('laboratório: %j vira o texto do laboratório', (clinica, lab) => {
+    expect(trocarTexto(clinica)).toBe(lab);
+  });
+
+  it('o 400 da validação do tipo (message em lista) troca item a item no laboratório', async () => {
+    const interceptor = new LabVocabInterceptor();
+    const original = new BadRequestException([TIPO_DTO]);
+    const e = (await pegarErro(interceptor.intercept(contexto(LAB), { handle: () => throwError(() => original) }))) as HttpException;
+    expect(e.getStatus()).toBe(400);
+    expect((e.getResponse() as any).message).toEqual(['Tipo de agendamento inválido. Use Coleta, Prova, Entrega, Tarefa, Outro ou Bloqueio.']);
+  });
+
+  it('bloqueio de devedor no laboratório: troca o texto e mantém o code e o overdue', async () => {
+    const interceptor = new LabVocabInterceptor();
+    const original = new BadRequestException({
+      code: 'SCHEDULING_BLOCKED_OVERDUE',
+      message: 'Paciente com 1 boleto(s) em atraso (R$ 100,00). Regularize no Financeiro ou peça a um administrador para liberar.',
+      overdue: { count: 1, total: 100 },
+    });
+    const e = (await pegarErro(interceptor.intercept(contexto(LAB), { handle: () => throwError(() => original) }))) as HttpException;
+    expect(e.getStatus()).toBe(400);
+    expect(e.getResponse()).toEqual({
+      code: 'SCHEDULING_BLOCKED_OVERDUE',
+      message: 'Cliente com 1 boleto(s) em atraso (R$ 100,00). Regularize no Financeiro ou peça a um administrador para liberar.',
+      overdue: { count: 1, total: 100 },
+    });
+  });
+
+  it('clínica: o mesmo 400 chega com a MESMA referência (o interceptor sai na 1ª linha)', async () => {
+    const interceptor = new LabVocabInterceptor();
+    const original = new BadRequestException([TIPO_DTO]);
+    const obs = throwError(() => original);
+    const saida = interceptor.intercept(contexto({ id: 'u1', tenant_id: 't1' }), { handle: () => obs });
+    expect(saida).toBe(obs);
+    expect(await pegarErro(saida)).toBe(original);
+  });
+});
+
 describe('LabVocabInterceptor — o erro trocado no AllExceptionsFilter', () => {
   function rodarFiltro(e: unknown) {
     const json = jest.fn();

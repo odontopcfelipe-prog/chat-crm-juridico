@@ -7,8 +7,12 @@ import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess, showInfo } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_TESTE_ENVIO } from './lab-disparos-textos';
 
 export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }) {
+  const lab = isLab(useBusinessType());
   // `phone` guarda só o DDD+número (sem o 55) — o +55 fica FIXO no campo pra nunca
   // ser esquecido (esquecer o 55 = WhatsApp não entrega).
   const [phone, setPhone] = useState('');
@@ -78,8 +82,8 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
       <p className="text-[10px] text-muted-foreground mt-1">
         O <b>+55</b> já vai fixo — digite só o DDD + número.{' '}
         {text != null
-          ? 'Manda o texto que está NA TELA agora (com dados de exemplo) — não precisa salvar pra testar. Precisa do WhatsApp da clínica conectado.'
-          : 'Manda a mensagem deste disparo (com dados de exemplo). Precisa do WhatsApp da clínica conectado.'}
+          ? (lab ? LAB_TESTE_ENVIO.comTexto : 'Manda o texto que está NA TELA agora (com dados de exemplo) — não precisa salvar pra testar. Precisa do WhatsApp da clínica conectado.')
+          : (lab ? LAB_TESTE_ENVIO.semTexto : 'Manda a mensagem deste disparo (com dados de exemplo). Precisa do WhatsApp da clínica conectado.')}
       </p>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   normalizeAiChipProfile,
   DEFAULT_ASSISTANT_NAME,
   getLabTenantIds,
+  TIPOS_AVISO_LAB,
   type DestinatarioAviso,
 } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,6 +27,7 @@ import {
   togglesPorClinica,
   type OrigemAgendamento,
 } from './admin-agendamento-regras';
+import { montarTextoNovoAgendamentoDoLaboratorio } from './admin-agendamento-laboratorio';
 
 const LOG = '[ADMIN-AGENDAMENTO]';
 /** Aviso "clínica ligou mas não tem número" no log: no máx. 1×/hora por clínica. */
@@ -87,15 +89,14 @@ export class AdminAgendamentoAlertService {
     // F2 [LAB-GATE] — o aviso é de CONSULTA (texto e tipos de clínica): laboratório
     // não entra, nem busca, nem reivindica (admin_notified_at fica como está).
     // Clínica: nenhum id casa e o laço é o de antes.
+    // F7 — o laboratório avisa da coleta, da prova e da entrega marcadas pela equipe
+    // (sem a origem IA), com o texto do laboratório.
     const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     let total = 0;
     for (const [tenantId, ligados] of togglesPorClinica(rows)) {
-      if (labs.has(tenantId)) {
-        this.logger.log(`[LAB-GATE] admin-agendamento — conta ${tenantId} é laboratório: sem aviso de agendamento`);
-        continue;
-      }
+      const lab = labs.has(tenantId);
       try {
-        total += await this.processarClinica(tenantId, ligados, agora);
+        total += await this.processarClinica(tenantId, ligados, agora, lab);
       } catch (e: any) {
         this.logger.warn(`${LOG} clínica ${tenantId}: ${e?.message}`);
       }
@@ -107,6 +108,7 @@ export class AdminAgendamentoAlertService {
     tenantId: string,
     ligados: Partial<Record<OrigemAgendamento, Date>>,
     agora: Date,
+    lab = false,
   ): Promise<number> {
     // Quem recebe cada origem (números da Central + ADMs com o aviso marcado no cadastro,
     // menos quem desligou). Origem sem ninguém NÃO busca/reivindica os eventos dela:
@@ -116,6 +118,7 @@ export class AdminAgendamentoAlertService {
     for (const origem of ['IA', 'EQUIPE'] as const) {
       const desde = ligados[origem];
       if (!desde) continue;
+      if (lab && origem === 'IA') continue; // laboratório: só o que a equipe marcou
       const lista = await adminAlertRecipients(this.prisma, tenantId, ADMIN_AGENDAMENTO_DISPARO[origem]);
       if (!lista.length) continue;
       destinos[origem] = lista;
@@ -137,7 +140,7 @@ export class AdminAgendamentoAlertService {
         tenant_id: tenantId,
         admin_notified_at: null,
         parent_event_id: null, // série recorrente: só a 1ª (o pai) avisa
-        type: { in: ADMIN_AGENDAMENTO_TIPOS },
+        type: { in: lab ? [...TIPOS_AVISO_LAB] : ADMIN_AGENDAMENTO_TIPOS },
         status: { in: ADMIN_AGENDAMENTO_STATUS },
         // registro retroativo (consulta que já passou) não é "novo agendamento"
         start_at: { gte: new Date(agoraNaiveMaceio(agora).getTime() - ADMIN_AGENDAMENTO_PASSADO_TOLERANCIA_MS) },
@@ -181,7 +184,7 @@ export class AdminAgendamentoAlertService {
       const assistente =
         origem === 'IA' ? await this.nomeAssistente(tenantId, ev.conversation?.instance_name, assistentes) : null;
       const nome = ev.patient?.name || ev.lead?.name || ev.title;
-      const texto = montarTextoNovoAgendamento({
+      const texto = (lab ? montarTextoNovoAgendamentoDoLaboratorio : montarTextoNovoAgendamento)({
         pacienteNome: nome,
         telefone: ev.patient?.phone || ev.lead?.phone || null,
         startNaive: ev.start_at,

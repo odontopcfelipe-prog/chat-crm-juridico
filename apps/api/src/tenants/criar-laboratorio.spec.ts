@@ -434,7 +434,7 @@ describe('GET /tenants/me do laboratório', () => {
   });
 });
 
-describe('cron diário das chaves desligadas (PadroesLaboratorioService.garantir)', () => {
+describe('cron diário das chaves e e-mails do laboratório (PadroesLaboratorioService.garantir)', () => {
   const A = '1abe1abe-0000-4000-8000-00000000000a';
   const B = '1abe1abe-0000-4000-8000-00000000000b';
   let offAntes: string | undefined;
@@ -454,29 +454,38 @@ describe('cron diário das chaves desligadas (PadroesLaboratorioService.garantir
     expect(g.de('tenantBusinessProfile.findMany')).toEqual([{ where: { business_type: 'LABORATORIO' }, select: { tenant_id: true } }]);
   });
 
-  it('com laboratórios: só createMany com skipDuplicates, cada chave na conta certa', async () => {
+  it('com laboratórios: só createMany com skipDuplicates, cada chave e cada e-mail na conta certa', async () => {
     const g = gravador({
       'tenantBusinessProfile.findMany': () => [{ tenant_id: A }, { tenant_id: B }],
       'tenantSetting.createMany': (a: any) => ({ count: a.data.length }),
       'globalSetting.createMany': (a: any) => ({ count: a.data.length }),
+      'tenantEmailTemplate.createMany': (a: any) => ({ count: a.data.length }),
     });
     const r = await new PadroesLaboratorioService(g.prisma).garantir();
 
     expect(g.ops()).toEqual([
       'tenantBusinessProfile.findMany',
-      'tenantSetting.createMany', 'globalSetting.createMany',
-      'tenantSetting.createMany', 'globalSetting.createMany',
+      'tenantSetting.createMany', 'globalSetting.createMany', 'tenantEmailTemplate.createMany',
+      'tenantSetting.createMany', 'globalSetting.createMany', 'tenantEmailTemplate.createMany',
     ]);
     const [tsA, tsB] = g.de('tenantSetting.createMany');
     const [gsA, gsB] = g.de('globalSetting.createMany');
-    for (const [ts, gs, id] of [[tsA, gsA, A], [tsB, gsB, B]] as const) {
+    const [emA, emB] = g.de('tenantEmailTemplate.createMany');
+    for (const [ts, gs, em, id] of [[tsA, gsA, emA, A], [tsB, gsB, emB, B]] as const) {
       expect(ts.skipDuplicates).toBe(true);
       expect(gs.skipDuplicates).toBe(true);
+      expect(em.skipDuplicates).toBe(true);
       expect(ts.data.every((l: any) => l.tenant_id === id)).toBe(true);
       expect(gs.data.every((l: any) => l.key.endsWith(`_${id}`))).toBe(true);
+      expect(em.data.map((l: any) => [l.tenant_id, l.event_key])).toEqual([
+        [id, 'agendamento_criado'],
+        [id, 'agendamento_remarcado'],
+      ]);
     }
     expect(r.laboratorios).toBe(2);
-    expect(r.gravadas).toBe(tsA.data.length + gsA.data.length + tsB.data.length + gsB.data.length);
+    expect(r.gravadas).toBe(
+      tsA.data.length + gsA.data.length + emA.data.length + tsB.data.length + gsB.data.length + emB.data.length,
+    );
   });
 
   it('idempotente: 2ª rodada não grava nada e nunca atualiza o que a conta mudou', async () => {
@@ -484,6 +493,7 @@ describe('cron diário das chaves desligadas (PadroesLaboratorioService.garantir
       'tenantBusinessProfile.findMany': () => [{ tenant_id: A }],
       'tenantSetting.createMany': () => ({ count: 0 }),
       'globalSetting.createMany': () => ({ count: 0 }),
+      'tenantEmailTemplate.createMany': () => ({ count: 0 }),
     });
     const svc = new PadroesLaboratorioService(g.prisma);
     expect(await svc.garantir()).toEqual({ laboratorios: 1, gravadas: 0 });

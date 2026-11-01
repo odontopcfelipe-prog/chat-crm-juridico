@@ -6,16 +6,17 @@
  *
  *  - retorno de manutenção (cron da Central de Disparos);
  *  - regras "sem resposta" 24/48 h (ENROLL_FOLLOWUP, tarefa, nota, etapa);
- *  - resumo diário do dentista (cron e sendDentistDailySummaryNow, inclusive a chave
- *    global sem conta);
- *  - aniversário (o laboratório nem marca last_run_date);
  *  - "pacientes sem agendamento" aos ADMs;
  *  - backfill do retorno pós-tratamento (cron das 4 h e boot);
  *  - fila calendar-reminders: lembretes 48/24 h, 1 h e 15 min (WhatsApp e e-mail) e o
  *    aviso de audiência/perícia;
- *  - fila fechamento-jobs (negociação aprovada + boleto da entrada);
  *  - régua por e-mail ("vence amanhã" e "pagamento em atraso");
  *  - apresentação do Financeiro/âncora no fechamento e a entrega automática do carnê D+2.
+ *
+ * Na F7 o resumo diário do dentista e o aniversário (que passam a ter ramo de
+ * laboratório) foram para lab-gate-agenda-avisos.spec.ts, e a fila fechamento-jobs
+ * (negociação aprovada e boleto da entrada) foi para lab-gate-vendas-avisos.spec.ts,
+ * com os casos da clínica iguais aos daqui.
  *
  * Cada freio tem três casos: (a) sem laboratório cadastrado (o caso de produção hoje)
  * = mesmas chamadas de antes (esses casos passam também contra o código anterior);
@@ -30,7 +31,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { BadRequestException, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import {
   __limparCacheLabTenants,
   lembreteClinicoIdFor,
@@ -39,10 +40,8 @@ import {
 } from '@crm/shared';
 import { RetornoDisparosService } from '../agenda-extended/retorno-disparos.service';
 import { AutomationsService } from '../automations/automations.service';
-import { CalendarCronService } from '../calendar/calendar-cron.service';
 import { CalendarReminderWorker } from '../calendar/calendar-reminder.worker';
 import { QuotesService } from '../commercial/quotes.service';
-import { FechamentoProcessor } from '../commercial/fechamento.processor';
 import { TreatmentPlansService } from '../commercial/treatment-plans.service';
 import { EmailAutomationService } from '../email-automation/email-automation.service';
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
@@ -400,155 +399,6 @@ describe('Regras "sem resposta" 24/48 h (cron) — conversa de laboratório fica
   });
 });
 
-// ─── resumo diário do dentista ───────────────────────────────────────────────
-
-describe('Resumo diário do dentista (cron) — conta de laboratório não recebe', () => {
-  const cfg = JSON.stringify({ enabled: true, send_at: '12:00' });
-  function montar(labs: string[]) {
-    const b = banco(labs, {
-      'globalSetting.findMany': () => [
-        { key: `DENTIST_DAILY_SUMMARY_${CLINICA}`, value: cfg },
-        { key: `DENTIST_DAILY_SUMMARY_${LAB}`, value: cfg },
-        { key: 'DENTIST_DAILY_SUMMARY', value: cfg },
-        { key: `DENTIST_DAILY_SUMMARY_${OUTRA_CLINICA}`, value: cfg },
-      ],
-    });
-    const agenda = { sendDentistDailySummaryNow: jest.fn(async () => ({ total: 1, results: [] })) };
-    return { svc: new CalendarCronService(b.prisma, {} as any, agenda as any), agenda, ...b };
-  }
-
-  // A chave sem conta (legado) é ignorada pelo cron — o resumo é sempre por clínica
-  // (resumo-dentista-por-conta.spec). Aqui só o freio de laboratório.
-  it('sem laboratório cadastrado: dispara para cada chave de conta ligada, na ordem de antes', async () => {
-    const m = montar([]);
-    await m.svc.checkDentistDailySummary();
-    expect(m.agenda.sendDentistDailySummaryNow.mock.calls).toEqual([[CLINICA], [LAB], [OUTRA_CLINICA]]);
-  });
-
-  it('clínica com OUTRA conta laboratório: igual, sem a do laboratório', async () => {
-    const m = montar([LAB]);
-    await m.svc.checkDentistDailySummary();
-    expect(m.agenda.sendDentistDailySummaryNow.mock.calls).toEqual([[CLINICA], [OUTRA_CLINICA]]);
-  });
-
-  it('laboratório: o resumo dele não é disparado', async () => {
-    const m = montar([LAB]);
-    await m.svc.checkDentistDailySummary();
-    expect(m.agenda.sendDentistDailySummaryNow.mock.calls.some((c: any[]) => c[0] === LAB)).toBe(false);
-  });
-});
-
-describe('Resumo diário do dentista (envio: cron e "Enviar agora")', () => {
-  const ROLES = [{ roles: { has: 'DENTIST' } }, { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } }];
-  const SELECT = { id: true, name: true, phone: true, disparos_off: true };
-  const USUARIOS = [
-    { id: `u-${CLINICA}`, name: 'Dra. Ana Exemplo', phone: '5582900000011', disparos_off: [], tenant_id: CLINICA },
-    { id: `u-${LAB}`, name: 'Dr. Lab Exemplo', phone: '5582900000013', disparos_off: [], tenant_id: LAB },
-    { id: 'u-sem-conta', name: 'Dr. Sem Conta', phone: '5582900000019', disparos_off: [], tenant_id: null },
-  ];
-  function montar(labs: string[]) {
-    const b = banco(labs, {
-      'globalSetting.findUnique': ({ where }) =>
-        where.key.startsWith('DENTIST_DAILY_SUMMARY') ? { value: JSON.stringify({ enabled: true, channel: 'WHATSAPP' }) } : null,
-      'user.findMany': ({ where, select }) =>
-        USUARIOS.filter((u) => !where.tenant_id || u.tenant_id === where.tenant_id).map((u: any) =>
-          Object.fromEntries(Object.keys(select).map((k) => [k, u[k]])),
-        ),
-      'calendarEvent.findMany': ({ where }) => [
-        { start_at: new Date('2026-10-21T14:30:00.000Z'), type: 'CONSULTA', patient: { name: `Paciente de ${where.assigned_user_id}` }, lead: null },
-      ],
-      'instance.findFirst': ({ where }) => ({ name: `chip-${where.tenant_id}` }),
-    });
-    const whatsapp = { sendText: jest.fn(async (tel: string, ..._resto: any[]) => ({ key: { id: `wamid-${tel}` } })) };
-    const svc = new CalendarService(b.prisma, {} as any, {} as any, {} as any, whatsapp, {} as any, {} as any);
-    return { svc, whatsapp, ...b };
-  }
-
-  it('clínica, sem laboratório cadastrado: mesma consulta de antes e o dentista recebe', async () => {
-    const m = montar([]);
-    const r = await m.svc.sendDentistDailySummaryNow(CLINICA);
-    expect(m.de('user.findMany')).toEqual([{ where: { tenant_id: CLINICA, OR: ROLES }, select: SELECT }]);
-    expect(m.whatsapp.sendText.mock.calls.map((c: any[]) => [c[0], c[2], c[3], c[4]])).toEqual([
-      ['5582900000011', `chip-${CLINICA}`, undefined, CLINICA],
-    ]);
-    expect(m.whatsapp.sendText.mock.calls[0][1]).toContain('Paciente de u-tenant-clinica');
-    expect(r.total).toBe(1);
-  });
-
-  it('clínica com OUTRA conta laboratório: o mesmo rastro e o mesmo envio', async () => {
-    const antes = montar([]);
-    await antes.svc.sendDentistDailySummaryNow(CLINICA);
-    const depois = montar([LAB]);
-    await depois.svc.sendDentistDailySummaryNow(CLINICA);
-    expect(depois.ops).toEqual(antes.ops);
-    expect(depois.whatsapp.sendText.mock.calls).toEqual(antes.whatsapp.sendText.mock.calls);
-  });
-
-  it('laboratório ("Enviar agora" ou cron): nada é lido, nada sai', async () => {
-    const m = montar([LAB]);
-    expect(await m.svc.sendDentistDailySummaryNow(LAB)).toEqual({ total: 0, results: [] });
-    expect(m.ops).toEqual([]);
-    expect(m.whatsapp.sendText).not.toHaveBeenCalled();
-  });
-
-  it('sem conta (chave global antiga): recusado antes de ler qualquer coisa, com ou sem laboratório', async () => {
-    for (const labs of [[], [LAB]]) {
-      const m = montar(labs);
-      const e = await m.svc.sendDentistDailySummaryNow(undefined).catch((x: any) => x);
-      expect(e).toBeInstanceOf(BadRequestException);
-      expect(m.ops).toEqual([]);
-      expect(m.whatsapp.sendText).not.toHaveBeenCalled();
-    }
-  });
-});
-
-// ─── aniversário ─────────────────────────────────────────────────────────────
-
-describe('Aniversário (cron) — laboratório não manda nem marca last_run_date', () => {
-  const cfg = JSON.stringify({ enabled: true, send_at: '12:00' });
-  function montar(labs: string[]) {
-    const b = banco(labs, {
-      'globalSetting.findMany': () => [CLINICA, LAB, OUTRA_CLINICA].map((t) => ({ key: `BIRTHDAY_GREETING_${t}`, value: cfg })),
-    });
-    const chamadas: any[] = [];
-    const agenda = {
-      setBirthdayGreetingConfig: jest.fn(async (...a: any[]) => chamadas.push(['marca', ...a])),
-      sendBirthdayGreetingsNow: jest.fn(async (...a: any[]) => chamadas.push(['envia', ...a])),
-    };
-    return { svc: new CalendarCronService(b.prisma, {} as any, agenda as any), chamadas, ...b };
-  }
-
-  it('sem laboratório cadastrado: marca e envia em cada conta, na ordem de antes', async () => {
-    const m = montar([]);
-    await m.svc.checkBirthdayGreetings();
-    expect(m.chamadas).toEqual([
-      ['marca', CLINICA, { last_run_date: '2026-10-21' }],
-      ['envia', CLINICA, 1],
-      ['marca', LAB, { last_run_date: '2026-10-21' }],
-      ['envia', LAB, 1],
-      ['marca', OUTRA_CLINICA, { last_run_date: '2026-10-21' }],
-      ['envia', OUTRA_CLINICA, 1],
-    ]);
-  });
-
-  it('clínica com OUTRA conta laboratório: igual, sem as do laboratório', async () => {
-    const m = montar([LAB]);
-    await m.svc.checkBirthdayGreetings();
-    expect(m.chamadas).toEqual([
-      ['marca', CLINICA, { last_run_date: '2026-10-21' }],
-      ['envia', CLINICA, 1],
-      ['marca', OUTRA_CLINICA, { last_run_date: '2026-10-21' }],
-      ['envia', OUTRA_CLINICA, 1],
-    ]);
-  });
-
-  it('laboratório: nem grava last_run_date, nem envia', async () => {
-    const m = montar([LAB]);
-    await m.svc.checkBirthdayGreetings();
-    expect(tocaLab(m.chamadas)).toBe(false);
-  });
-});
-
 // ─── pacientes sem agendamento ───────────────────────────────────────────────
 
 describe('"Pacientes sem agendamento" aos ADMs (cron) — laboratório não recebe', () => {
@@ -816,50 +666,6 @@ describe('Aviso de audiência/perícia (fila calendar-reminders) — evento de l
     expect(m.ops.map(([o]) => o)).toEqual(['calendarEvent.findUnique']);
     expect(m.settings.getAiConfig).not.toHaveBeenCalled();
     expect(m.whatsapp.sendText).not.toHaveBeenCalled();
-  });
-});
-
-// ─── fila fechamento-jobs ────────────────────────────────────────────────────
-
-describe('Fechamento deferido (fila fechamento-jobs e fallback) — laboratório não recebe', () => {
-  const TERMOS = { entrada: 500, parcelas: 10, valorParcela: 250, total: 3000, forma: 'BOLETO' };
-  const PACIENTE = { name: 'Maria Exemplo', phone: TEL[CLINICA] };
-  function montar(labs: string[]) {
-    const b = banco(labs, { 'treatmentPlan.findUnique': () => ({ patient: PACIENTE }) });
-    const svc = new QuotesService(b.prisma, {} as any, {} as any, {} as any);
-    const negociacao = jest.spyOn(svc as any, 'sendNegociacaoAprovada').mockImplementation(async () => undefined);
-    const entrada = jest.spyOn(svc as any, 'sendEntradaCobranca').mockImplementation(async () => undefined);
-    return { svc, negociacao, entrada, processor: new FechamentoProcessor(svc), ...b };
-  }
-
-  it('sem laboratório cadastrado: mesma consulta e os dois envios, como antes', async () => {
-    const m = montar([]);
-    await m.svc.runFechamentoDeferido({ tenantId: CLINICA, planId: 'plano-1', terms: TERMOS });
-    expect(m.ops).toEqual([
-      ['treatmentPlan.findUnique', { where: { id: 'plano-1' }, select: { patient: { select: { name: true, phone: true } } } }],
-    ]);
-    expect(m.negociacao.mock.calls).toEqual([[CLINICA, 'plano-1', PACIENTE, TERMOS]]);
-    expect(m.entrada.mock.calls).toEqual([[CLINICA, 'plano-1', PACIENTE]]);
-  });
-
-  it('clínica com OUTRA conta laboratório (pela fila): igual', async () => {
-    const antes = montar([]);
-    await antes.processor.process({ name: 'deferido', id: 'f1', data: { tenantId: CLINICA, planId: 'plano-1', terms: TERMOS } } as any);
-    const depois = montar([LAB]);
-    await depois.processor.process({ name: 'deferido', id: 'f1', data: { tenantId: CLINICA, planId: 'plano-1', terms: TERMOS } } as any);
-    expect(depois.ops).toEqual(antes.ops);
-    expect(depois.negociacao.mock.calls).toEqual(antes.negociacao.mock.calls);
-    expect(depois.entrada.mock.calls).toEqual(antes.entrada.mock.calls);
-    expect(depois.negociacao).toHaveBeenCalledTimes(1);
-  });
-
-  it('laboratório (fila e fallback): nem negociação, nem boleto da entrada', async () => {
-    const m = montar([LAB]);
-    await m.processor.process({ name: 'deferido', id: 'f1', data: { tenantId: LAB, planId: 'plano-lab', terms: TERMOS } } as any);
-    await m.svc.runFechamentoDeferido({ tenantId: LAB, planId: 'plano-lab', terms: TERMOS });
-    expect(m.ops).toEqual([]);
-    expect(m.negociacao).not.toHaveBeenCalled();
-    expect(m.entrada).not.toHaveBeenCalled();
   });
 });
 

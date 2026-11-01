@@ -22,6 +22,10 @@ import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Clock, MapPin, User, Printer, Stethoscope } from 'lucide-react';
 import { AgendaFlagChips } from './agenda-flags';
+// F7 do laboratório — tipos e status do laboratório, sem o atalho clínico "Avaliação".
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AGENDA_UI, LAB_AGENDA_STATUS, LAB_AGENDA_LISTA } from './lab-agenda-textos';
 
 interface CalendarEventLike {
   id: string;
@@ -115,6 +119,7 @@ export function AgendaListView({
   onEventClick,
 }: Props) {
   const router = useRouter();
+  const lab = isLab(useBusinessType());
 
   // Agrupar eventos por dia (próximos 14 dias a partir de hoje).
   const groupedByDay = useMemo(() => {
@@ -198,7 +203,7 @@ export function AgendaListView({
 
       {/* Cabeçalho de impressão (só aparece quando imprimindo) */}
       <div className="agenda-print-header hidden">
-        <h1 className="text-2xl font-bold">Instituto Odonto Passos — Agenda</h1>
+        <h1 className="text-2xl font-bold">{lab ? LAB_AGENDA_LISTA.tituloImpressao : 'Instituto Odonto Passos — Agenda'}</h1>
         <p className="text-sm text-gray-600">
           Próximos 14 dias — Gerado em {new Date().toLocaleString('pt-BR')}
         </p>
@@ -232,14 +237,16 @@ export function AgendaListView({
             {/* Lista de eventos do dia */}
             <div className="divide-y divide-border/50">
               {eventsOfDay.map((ev) => {
-                const status = STATUS_CONFIG[ev.status] ?? { icon: '', label: ev.status, color: 'text-muted-foreground' };
+                const statusBase = STATUS_CONFIG[ev.status] ?? { icon: '', label: ev.status, color: 'text-muted-foreground' };
+                // F7 — no laboratório: rótulo do status e do tipo do laboratório.
+                const status = lab && LAB_AGENDA_STATUS[ev.status] ? { ...statusBase, label: LAB_AGENDA_STATUS[ev.status] } : statusBase;
                 const dentistName = ev.assigned_user?.name || (ev.assigned_user_id ? usersById.get(ev.assigned_user_id) : null) || '—';
-                const typeLabel = TYPE_LABEL[ev.type] ?? ev.type;
+                const typeLabel = (lab ? LAB_AGENDA_UI.tipos.find((t) => t.id === ev.type)?.label : undefined) ?? TYPE_LABEL[ev.type] ?? ev.type;
                 const isCancelled = ev.status === 'CANCELADO';
 
                 // Atender so faz sentido em evento clinico com paciente vinculado.
-                // Bloqueio/tarefa nao tem ficha pra abrir.
-                const canAttend = !!ev.patient_id && !isCancelled
+                // Bloqueio/tarefa nao tem ficha pra abrir. (F7: nunca no laboratório.)
+                const canAttend = !lab && !!ev.patient_id && !isCancelled
                   && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'].includes(ev.type);
 
                 return (

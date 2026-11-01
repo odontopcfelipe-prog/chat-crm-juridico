@@ -51,9 +51,10 @@ import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPi
 // Onda 18.x — chat embutido na ficha ("Conversar"): reusa o painel do split view.
 import ChatPane from '../../split/components/ChatPane';
 // F5 do laboratório — ficha do cliente: abas prontas para ele, portões e textos próprios.
-import { formatCpfCnpj, isLab, tipoDoDocumento } from '@crm/shared';
+import { formatCpfCnpj, isLab, labAllowsRoute, tipoDoDocumento } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { LAB_CADASTRO, LAB_FICHA } from '../lab-dentistas-textos';
+import { LAB_FICHA_AGENDA } from '@/lib/lab-casca-textos';
 import { ABA_ORCAMENTO_DO_LAB, abasProntasNoLab, ordemNoLab } from '../lab-ficha';
 // F6 do laboratório — aba Orçamento (só o laboratório monta) e o nome das abas que mudam.
 import { LAB_ABAS_DA_FICHA } from '../lab-trabalhos-textos';
@@ -589,6 +590,20 @@ function PacienteFichaInner() {
               title="Agendar consulta para este paciente"
             >
               <Calendar size={14} /> Agendar
+            </button>
+          )}
+          {/* F7 do laboratório — "Agendar coleta": abre a agenda com o cliente e o tipo
+              Coleta (some junto com a agenda se ela sair da lista de rotas). */}
+          {lab && labAllowsRoute('/atendimento/agenda') && patient.status !== 'ARCHIVED' && canSchedule && (
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({ new: '1', patient_id: patient.id, type: 'COLETA' });
+                router.push(`/atendimento/agenda?${params.toString()}`);
+              }}
+              className="text-xs text-white bg-primary hover:bg-primary/90 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
+              title={LAB_FICHA_AGENDA.dica}
+            >
+              <Calendar size={14} /> {LAB_FICHA_AGENDA.agendarColeta}
             </button>
           )}
           {/* Onda 18.x — "Conversar": abre o chat DESTE paciente num painel ao lado,

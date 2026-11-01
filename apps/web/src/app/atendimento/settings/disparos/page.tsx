@@ -19,7 +19,11 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { isDisparoComAnexo } from '@crm/shared';
+import { isDisparoComAnexo, isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { catalogoDoLaboratorio, categoriasDoLaboratorio, setoresDoLaboratorio, travadoNoLaboratorio } from './catalogo-laboratorio';
+import { EditorDoLaboratorio, SeloDaReguaDoLaboratorio } from './EditorDoLaboratorio';
+import { LAB_CENTRAL } from './lab-disparos-textos';
 import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
@@ -141,6 +145,12 @@ function getScrollParent(el: HTMLElement | null): HTMLElement | null {
 
 export default function CentralDisparosPage() {
   const { isAdmin } = useRole();
+  // Laboratório: a mesma Central com o catálogo, os setores e as categorias do
+  // laboratório (lista permitida do @crm/shared). Na clínica são os objetos de sempre.
+  const lab = isLab(useBusinessType());
+  const catalogo = lab ? catalogoDoLaboratorio() : DISPAROS;
+  const setores = lab ? setoresDoLaboratorio() : SETORES;
+  const categorias = lab ? categoriasDoLaboratorio() : CATEGORIAS;
   const [op, setOp] = useState<OperacionalData | null>(null);
   const [cfg, setCfg] = useState<ReminderConfig | null>(null);
   const [birthday, setBirthday] = useState<BirthdayCfg | null>(null);
@@ -292,7 +302,7 @@ export default function CentralDisparosPage() {
   };
 
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
-  const openItem = DISPAROS.find((d) => d.id === openId) || null;
+  const openItem = catalogo.find((d) => d.id === openId) || null;
   // Aba de config/permissão: só abre pra EDITAR o texto. Cards só-toggle
   // (liga/desliga na face) não abrem; resultados/métricas ficam no Operacional.
   if (openItem && openItem.editor && !openItem.emBreve) {
@@ -312,6 +322,7 @@ export default function CentralDisparosPage() {
         >
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
+        {lab ? <EditorDoLaboratorio item={openItem} onCurrentTextChange={setLiveText} /> : (<>
         {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} onCurrentTextChange={setLiveText} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'orto_immediate' && (
@@ -607,14 +618,16 @@ export default function CentralDisparosPage() {
             sua própria UI — pula o TesteEnvio genérico (texto de template ao paciente).
             Reativação também pula: o texto é MODELO que a IA reescreve por contato, e o
             teste genérico sairia pelo chip da Clínica — a régua só sai pelo Comercial. */}
+        </>)}
         {/* Fotos/áudio do disparo (só os cards já ligados ao envio de anexos). */}
-        {isDisparoComAnexo(openItem.id) && <AnexosDisparo disparo={openItem.id} podeEditar={isAdmin} />}
+        {!lab && isDisparoComAnexo(openItem.id) && <AnexosDisparo disparo={openItem.id} podeEditar={isAdmin} />}
         {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'sem_agendamento_orto' && openItem.editor !== 'resumo_diario' && openItem.editor !== 'venda_feita' && openItem.editor !== 'reativacao' && openItem.editor !== 'reativacao_coluna' && openItem.editor !== 'audio_teste' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }
 
-  const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null));
+  // No laboratório a régua de cobrança (travada) fica fora da contagem.
+  const configuraveis = catalogo.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null) && !(lab && travadoNoLaboratorio(d)));
   // Disparos de ortô em fluxo sem a regra "ordem de chegada" ligada não têm efeito
   // (a ortô da clínica é por hora marcada) — não contam como ligados.
   const ortoFluxoOn = !!(op as any)?.orto_ordem_chegada?.enabled;
@@ -625,7 +638,7 @@ export default function CentralDisparosPage() {
   // (nada sai) — o card avisa. E a régua NUNCA cai pro chip da Clínica: sem chip
   // Comercial o card geral avisa que não envia (a nota do setor fala em fallback).
   const reativEnvioOn = !!op?.reativacao_leads?.enabled;
-  const reativAlgumaColuna = DISPAROS.some((d) => !!d.reativacaoColuna && enabledOf(d));
+  const reativAlgumaColuna = catalogo.some((d) => !!d.reativacaoColuna && enabledOf(d));
   const semChipComercial = !!chips && !chips.some((c) => c.purpose === 'COMERCIAL');
 
   // Semáforo: status do chip de cada setor (purpose ↔ setor). null = sem chip próprio.
@@ -646,9 +659,12 @@ export default function CentralDisparosPage() {
             <Bot size={20} className="text-primary" /> Disparos
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
+            {lab ? LAB_CENTRAL.cabecalho : (<>
             Configure aqui as mensagens automáticas. Ligar/desligar geral e métricas detalhadas
             ficam no painel Operacional.
+            </>)}
           </p>
+          {!lab && (
           <button
             type="button"
             onClick={fixPhones}
@@ -659,6 +675,7 @@ export default function CentralDisparosPage() {
             {fixingPhones ? <Loader2 size={12} className="animate-spin" /> : <Wrench size={12} />}
             Corrigir telefones e unificar contatos duplicados
           </button>
+          )}
         </div>
         <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5 whitespace-nowrap">
           {ativos} de {configuraveis.length} ativos
@@ -671,11 +688,11 @@ export default function CentralDisparosPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          {SETORES.map((setor) => {
+          {setores.map((setor) => {
             // Categorias deste setor que têm ao menos 1 disparo no catálogo.
-            const cats = CATEGORIAS
+            const cats = categorias
               .filter((c) => CATEGORIA_SETOR[c.id] === setor.id)
-              .filter((c) => DISPAROS.some((d) => d.categoria === c.id));
+              .filter((c) => catalogo.some((d) => d.categoria === c.id));
             if (cats.length === 0) return null;
             const SetorIcon = SETOR_ICON[setor.id];
             // Setor com 1 categoria só (Comercial/Financeiro) não repete o subtítulo.
@@ -717,7 +734,7 @@ export default function CentralDisparosPage() {
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-500" title="Reconecte em Configurações › WhatsApp — enquanto isso os disparos saem pelo chip principal">● desconectado</span>
                         );
                         if (st === null && chips && setor.id !== 'clinica' && setor.id !== 'equipe') return (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground" title="Sem chip próprio desta função — os disparos saem pelo chip principal (Clínica)">sem chip próprio</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground" title={lab ? LAB_CENTRAL.semChipProprio : 'Sem chip próprio desta função — os disparos saem pelo chip principal (Clínica)'}>sem chip próprio</span>
                         );
                         return null; // unknown/sem dado: não afirma nada
                       })()}
@@ -725,7 +742,7 @@ export default function CentralDisparosPage() {
                     <p className="text-[11px] text-muted-foreground mt-0.5">{setor.nota}</p>
                   </div>
                   {/* Campanha manual: o ADM monta um envio avulso (público + texto + fotos/áudio) por este chip. */}
-                  {isAdmin && setor.id !== 'equipe' && (
+                  {!lab && isAdmin && setor.id !== 'equipe' && (
                     <Link
                       href={`/atendimento/settings/disparos/campanhas?setor=${setor.id.toUpperCase()}`}
                       className="ml-auto shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border bg-card hover:bg-accent transition-colors"
@@ -737,7 +754,7 @@ export default function CentralDisparosPage() {
                 </div>
 
                 {cats.map((cat) => {
-                  const itens = DISPAROS.filter((d) => d.categoria === cat.id);
+                  const itens = catalogo.filter((d) => d.categoria === cat.id);
                   const CatIcon = CAT_ICON[cat.id];
                   return (
               <section key={cat.id}>
@@ -785,6 +802,7 @@ export default function CentralDisparosPage() {
                                 Em breve
                               </span>
                             )}
+                            {lab && travadoNoLaboratorio(d) && <SeloDaReguaDoLaboratorio />}
                             {semEfeito(d) && (
                               <span
                                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-600 dark:text-slate-300"
@@ -833,9 +851,9 @@ export default function CentralDisparosPage() {
                             type="button"
                             role="switch"
                             aria-checked={on}
-                            disabled={savingThis || !isAdmin}
+                            disabled={savingThis || !isAdmin || (lab && travadoNoLaboratorio(d) && !on)}
                             onClick={(e) => { e.stopPropagation(); toggle(d, !on); }}
-                            title={!isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
+                            title={lab && travadoNoLaboratorio(d) && !on ? LAB_CENTRAL.reguaTitulo : !isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
                             className={`relative w-9 h-5 rounded-full shrink-0 transition-colors focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-muted'} ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                           >
                             <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white border border-border transition-transform ${on ? 'translate-x-4' : ''}`} />

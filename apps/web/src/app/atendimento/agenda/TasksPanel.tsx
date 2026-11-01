@@ -13,6 +13,9 @@ import { showError, showSuccess, showInfo } from '@/lib/toast';
 import { TaskDrawer } from './TaskDrawer';
 import { KanbanBoard } from './KanbanBoard';
 import { useRole } from '@/lib/useRole';
+// F7 do laboratório — a sugestão de próxima ação por IA não existe no laboratório.
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,7 @@ function formatDue(due: string | null) {
 export function TasksPanel() {
   const { socket } = useSocket();
   const { role, isAdmin, isAdvogado } = useRole();
+  const lab = isLab(useBusinessType());
   const canViewAll = isAdmin || isAdvogado;
 
   // ── Dados
@@ -426,7 +430,9 @@ export function TasksPanel() {
         </div>
       )}
 
-      {/* ── Sprint 4: Painel NBA (Next-Best-Action por IA) ── */}
+      {/* ── Sprint 4: Painel NBA (Next-Best-Action por IA) ──
+          F7 — some no laboratório (sem IA; POST /tasks/next-action continua negado lá). */}
+      {!lab && (
       <div className="shrink-0 px-6 py-3 border-b border-border bg-gradient-to-r from-primary/5 to-transparent">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -473,6 +479,7 @@ export function TasksPanel() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Formulário nova tarefa ── */}
       {showNew && (

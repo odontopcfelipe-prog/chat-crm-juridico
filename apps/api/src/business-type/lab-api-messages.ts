@@ -86,6 +86,9 @@ export const LAB_API_MESSAGES = Object.freeze({
   trabalhoCanceladoNaoConclui: 'Trabalho cancelado — o serviço não pode ser concluído.',
   parcelasJaEmitidas:
     'Este trabalho já tem parcelas emitidas. Recarregue a página. Se precisar reemitir, cancele as cobranças ativas primeiro.',
+
+  tipoInvalidoDto: 'Tipo de agendamento inválido. Use Coleta, Prova, Entrega, Tarefa, Outro ou Bloqueio.',
+  testeSemChip: 'Nenhum WhatsApp conectado neste laboratório. Conecte o WhatsApp primeiro.',
 } satisfies Record<keyof typeof MENSAGENS_API_CLINICA, string>);
 
 export const LAB_API_MOLDES = Object.freeze({
@@ -98,4 +101,7 @@ export const LAB_API_MOLDES = Object.freeze({
   pontoForaDaArea: 'Você está a {1} do laboratório (área de {2} m). O ponto só pode ser registrado no local.',
   limiteDoPlano: 'Limite do plano {1} atingido pra clientes ({2}/{3}). Atualize o plano pra continuar.',
   procedimentoIdNaoEncontrado: 'Serviço {1} não encontrado',
+  devedorNaAgenda: 'Cliente com {1} boleto(s) em atraso ({2}). Regularize no Financeiro ou peça a um administrador para liberar.',
+  edicaoSoStatus: 'Sem permissão para alterar: {1}. O protético pode mudar apenas o status do próprio evento.',
+  testeNaoEnviou: 'Não enviou: {1}. Verifique se o WhatsApp do laboratório está conectado.',
 } satisfies Record<keyof typeof MOLDES_API_CLINICA, string>);

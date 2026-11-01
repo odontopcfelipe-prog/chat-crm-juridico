@@ -5,8 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * F3 do laboratório — todo dia (07:15, Maceió, antes da vigia das 07:30) confere
- * em cada conta de laboratório as chaves desligadas (IA, lembretes, régua...) e
- * grava SÓ a que faltar. Chave que a conta já tem fica como está. Rodar duas
+ * em cada conta de laboratório as chaves e os textos do laboratório (agenda de
+ * coleta, prova e entrega ligada; IA, régua e o resto desligados) e os e-mails de
+ * agenda, e grava SÓ o que faltar. O que a conta já tem fica como está. Rodar duas
  * vezes (ou em duas réplicas) não muda nada.
  *
  * Sem laboratório: uma leitura e mais nada. PADROES_LABORATORIO_OFF=1 desliga.
@@ -37,14 +38,18 @@ export class PadroesLaboratorioService {
     for (const lab of labs) {
       try {
         const r = await ensureLabDefaults(this.prisma, lab.tenant_id);
-        const n = r.daConta + r.globais;
+        const n = r.daConta + r.globais + r.emails;
         gravadas += n;
-        if (n) this.logger.log(`[LAB-PADROES] ${lab.tenant_id}: ${r.daConta} da conta + ${r.globais} globais da conta gravadas`);
+        if (n) {
+          this.logger.log(
+            `[LAB-PADROES] ${lab.tenant_id}: ${r.daConta} da conta + ${r.globais} globais da conta + ${r.emails} e-mail(s) de agenda gravados`,
+          );
+        }
       } catch (e: any) {
         this.logger.warn(`[LAB-PADROES] ${lab.tenant_id}: falhou — ${e?.message}`);
       }
     }
-    this.logger.log(`[LAB-PADROES] ${labs.length} laboratório(s), ${gravadas} chave(s) que faltavam gravadas`);
+    this.logger.log(`[LAB-PADROES] ${labs.length} laboratório(s), ${gravadas} chave(s) e e-mail(s) que faltavam gravados`);
     return { laboratorios: labs.length, gravadas };
   }
 }

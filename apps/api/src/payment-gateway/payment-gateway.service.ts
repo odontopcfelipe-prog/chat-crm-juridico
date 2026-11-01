@@ -1865,18 +1865,15 @@ export class PaymentGatewayService {
     // ADIADO no fechamento (o paciente ainda não tinha pago). Dispara agora que caiu.
     // Só evento RECENTE (reentrega em massa não deve avisar venda velha). ModuleRef
     // pelo mesmo motivo do down-payment (evita ciclo PaymentGateway↔Commercial).
+    // F7 — vale também para o laboratório: o texto dele é escolhido no sendVendaFeita.
     if ((mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') && eventIsRecent) {
-      if (lab) {
-        this.logger.log(`[LAB-GATE] venda-feita — cobrança ${charge.id} é de laboratório: aviso interno de venda não sai`);
-      } else {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const qmod = require('../commercial/quotes.service');
-          const quotes = this.moduleRef.get(qmod.QuotesService, { strict: false });
-          if (quotes?.notifyVendaFeitaOnPaid) await quotes.notifyVendaFeitaOnPaid(charge.id);
-        } catch (e: any) {
-          this.logger.warn(`[WEBHOOK] Falha ao disparar "venda realizada" adiada p/ charge ${charge.id}: ${e.message}`);
-        }
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const qmod = require('../commercial/quotes.service');
+        const quotes = this.moduleRef.get(qmod.QuotesService, { strict: false });
+        if (quotes?.notifyVendaFeitaOnPaid) await quotes.notifyVendaFeitaOnPaid(charge.id);
+      } catch (e: any) {
+        this.logger.warn(`[WEBHOOK] Falha ao disparar "venda realizada" adiada p/ charge ${charge.id}: ${e.message}`);
       }
     }
 

@@ -5,6 +5,9 @@
  * do topo.
  * F6 — também o item do menu e os atalhos do painel de orçamentos (Orçamentos de
  * trabalho e Propostas).
+ * F7 — também os atalhos da Agenda e da Central de Disparos no Início, o quadro das
+ * próximas visitas, a busca da agenda no topo, o subtítulo da Agenda no Ctrl+K e o
+ * botão da ficha que marca a coleta.
  *
  * Só texto. A clínica não usa nada daqui: quem usa escolhe pelo tipo de negócio
  * da sessão (`lab ? LAB_X.y : 'texto de hoje da clínica'`). Este arquivo só tem
@@ -42,6 +45,8 @@ export const LAB_BALOES = Object.freeze({
   equipe: Object.freeze({ label: 'Equipe', desc: 'Cadastro da equipe e dos protéticos.' }),
   orcamentos: Object.freeze({ label: 'Orçamentos de trabalho', desc: 'Monte, envie e acompanhe os orçamentos.' }),
   propostas: Object.freeze({ label: 'Propostas', desc: 'Orçamentos enviados aguardando o cliente.' }),
+  agenda: Object.freeze({ label: 'Agenda', desc: 'Coletas, provas e entregas nos consultórios.' }),
+  avisos: Object.freeze({ label: 'Central de Disparos', desc: 'Avisos automáticos para os clientes e a equipe.' }),
 });
 
 /** Nomes do menu: item da lista na barra lateral, nome do grupo dela e aba do celular. */
@@ -58,4 +63,30 @@ export const LAB_LOCALIZAR: Readonly<Record<'patient' | 'financial' | 'agenda' |
   financial: 'Localizar no financeiro',
   agenda: 'Localizar na agenda',
   contact: 'Localizar contato',
+});
+
+/** Quadro do Início com as próximas visitas da agenda (7 dias). */
+export const LAB_PROXIMAS = Object.freeze({
+  titulo: 'Próximas coletas, provas e entregas',
+  vazio: 'Nada marcado para os próximos 7 dias.',
+  abrir: 'Abrir a agenda',
+  semCliente: 'Sem cliente',
+});
+
+/** Busca do topo na agenda (mesmo formato do CONFIG do ContextualSearchModal). */
+export const LAB_BUSCA_AGENDA = Object.freeze({
+  title: 'Localizar na agenda',
+  placeholder: 'Buscar por cliente ou evento…',
+  hint: 'Digite o nome do cliente ou do evento',
+});
+
+/** Subtítulo de um atalho do Ctrl+K pelo id do item (o que não está aqui fica igual). */
+export const LAB_ATALHOS_SUBLABEL: Readonly<Partial<Record<string, string>>> = Object.freeze({
+  'nav-agenda': 'Coletas, provas e entregas',
+});
+
+/** Botão da ficha do cliente que abre a agenda com uma coleta nova. */
+export const LAB_FICHA_AGENDA = Object.freeze({
+  agendarColeta: 'Agendar coleta',
+  dica: 'Marcar uma coleta para este cliente na agenda',
 });

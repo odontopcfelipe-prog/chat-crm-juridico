@@ -93,7 +93,11 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
   it('no laboratório, as telas de clínica ficam fechadas até para o admin', () => {
     const admin = temDoSetor('admin');
     for (const tela of [
-      '/atendimento/agenda',
+      '/atendimento/minha-agenda',
+      '/atendimento/settings/disparos/campanhas',
+      '/atendimento/settings/emails-automaticos',
+      '/atendimento/settings/appointment-markers',
+      '/atendimento/settings/office',
       '/atendimento/crm',
       '/atendimento/settings/ai',
       '/atendimento/settings/specialties',
@@ -142,6 +146,11 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/orcamentos?status=SENT',
       '/atendimento/settings/quote-templates',
       // [/F6a]
+      // [F7a]
+      '/atendimento/agenda',
+      '/atendimento/agenda?tab=tasks',
+      '/atendimento/settings/disparos',
+      // [/F7a]
     ]) {
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(true);
     }
@@ -222,6 +231,25 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
     }
   });
   // [/F6a]
+
+  // [F7a]
+  it('no laboratório, a agenda e a Central abrem para cada setor igual à clínica; a Campanha manual fica fechada', () => {
+    for (const setor of ['admin', 'recepcao', 'crc', 'financeiro', 'dentista', 'acd_asb']) {
+      const has = temDoSetor(setor);
+      for (const tela of ['/atendimento/agenda', '/atendimento/agenda?tab=tasks', '/atendimento/settings/disparos']) {
+        expect([setor, tela, canAccessRouteBt(tela, has, BT_LABORATORIO)]).toEqual([setor, tela, canAccessRoute(tela, has)]);
+      }
+      // Campanha manual: fechada no laboratório até para quem a abre na clínica.
+      expect(canAccessRouteBt('/atendimento/settings/disparos/campanhas', has, BT_LABORATORIO)).toBe(false);
+    }
+    // O Protético (setor dentista) e a Expedição veem a agenda (view_agenda).
+    expect(canAccessRouteBt('/atendimento/agenda', temDoSetor('dentista'), BT_LABORATORIO)).toBe(true);
+    expect(canAccessRouteBt('/atendimento/agenda', temDoSetor('acd_asb'), BT_LABORATORIO)).toBe(true);
+    // A Central é tela de configuração: só o admin.
+    expect(canAccessRouteBt('/atendimento/settings/disparos', temDoSetor('admin'), BT_LABORATORIO)).toBe(true);
+    expect(canAccessRouteBt('/atendimento/settings/disparos', temDoSetor('recepcao'), BT_LABORATORIO)).toBe(false);
+  });
+  // [/F7a]
 
   it('no laboratório, a lista não abre o que a permissão do setor fecha', () => {
     // O dentista (Protético) não tem view_chat: o inbox continua fechado para ele.

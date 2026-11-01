@@ -88,7 +88,8 @@ export type LabRouteEntry = string | Readonly<{ path: string; exact: true }>;
  * Rotas que um usuário de LABORATÓRIO pode acessar. Negação por padrão: tela
  * fora desta lista fica fechada no laboratório, e cada tela entra aqui só
  * quando estiver pronta para ele. '/atendimento' e '/atendimento/settings' são
- * EXATAS: como prefixo, abririam todas as telas de baixo delas.
+ * EXATAS: como prefixo, abririam todas as telas de baixo delas. A Central de
+ * Disparos também é exata: a Campanha manual, embaixo dela, continua fechada.
  * A clínica não passa por esta lista (ver canAccessRouteBt).
  * (O nome não começa com LAB_ de propósito: LAB_* é reservado a TEXTO de lab.)
  */
@@ -129,6 +130,10 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   '/atendimento/orcamentos',
   '/atendimento/settings/quote-templates',
   // [/F6a]
+  // [F7a] agenda de coleta, prova e entrega e Central de Disparos do laboratório
+  '/atendimento/agenda',
+  Object.freeze({ path: '/atendimento/settings/disparos', exact: true as const }),
+  // [/F7a]
 ]);
 
 /** Caminho sem query/# e sem barra final ('/' continua '/'). */

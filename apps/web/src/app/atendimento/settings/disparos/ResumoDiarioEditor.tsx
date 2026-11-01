@@ -9,8 +9,13 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { Phones55ListInput } from './Phones55ListInput';
 import { splitStoredPhones, joinPhones55 } from './phone55';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_RESUMO_DIARIO_EDITOR } from './lab-disparos-textos';
 
 export function ResumoDiarioEditor() {
+  // Laboratório: textos com cliente, orçamentos aprovados e o chip de Atendimento.
+  const lab = isLab(useBusinessType());
   // Vários números (cada campo: só DDD + número; o 55 é prefixo fixo).
   const [locais, setLocais] = useState<string[]>(['']);
   const [time, setTime] = useState('00:00');
@@ -61,10 +66,12 @@ export function ResumoDiarioEditor() {
           <BarChart3 size={18} className="text-emerald-500" /> Resumo diário do dia
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
+          {lab ? LAB_RESUMO_DIARIO_EDITOR.descricao : (<>
           Todo dia, no horário abaixo, um resumo do último dia FECHADO é enviado ao número configurado (pelo chip do
           Financeiro, com fallback pra Clínica): <b>entradas</b> (quem pagou e a forma), <b>saídas</b> (descrição),{' '}
           <b>saldo</b> e — <b>com o nome de cada pessoa</b> — <b>vendas em boleto</b>, <b>boletos compensados</b>,{' '}
           <b>boletos em atraso</b> (com os dias de atraso) e <b>negociações fechadas</b>. Ligue o disparo no botão do card pra começar.
+          </>)}
         </p>
       </div>
 
@@ -72,7 +79,7 @@ export function ResumoDiarioEditor() {
         <div>
           <label className="text-sm font-medium text-foreground">Números que recebem o resumo</label>
           <Phones55ListInput locais={locais} onChange={setLocais} />
-          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Pode cadastrar <b>vários</b> (o resumo vai pra todos). Quem é da equipe também pode receber marcando em <b>Equipe → editar → Disparos que recebe</b>.</p>
+          <p className="text-[11px] text-muted-foreground mt-1">{lab ? LAB_RESUMO_DIARIO_EDITOR.numeros : <>O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Pode cadastrar <b>vários</b> (o resumo vai pra todos). Quem é da equipe também pode receber marcando em <b>Equipe → editar → Disparos que recebe</b>.</>}</p>
         </div>
 
         <div>

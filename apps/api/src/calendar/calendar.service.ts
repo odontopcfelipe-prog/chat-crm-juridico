@@ -21,10 +21,29 @@ import {
   excludeLabWhere,
   podeLerGlobal,
   DEFAULT_RECALL_TEMPLATE,
+  // F7 do laboratório — coleta, prova e entrega: regras puras e textos do laboratório.
+  tipoSoDoLaboratorio,
+  lembreteDoLaboratorio,
+  rotuloTipoDoLaboratorio,
+  primeiroNomeSemTitulo,
+  TIPOS_AVISO_LAB,
+  REMINDER_CONFIG_PADRAO_DO_LABORATORIO,
+  DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO,
+  BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO,
+  LAB_AGENDA_TEXTOS,
+  LAB_TESTE_DA_CENTRAL,
+  TESTES_DO_LABORATORIO,
+  padraoFinDoLaboratorio,
+  type ReminderConfig,
 } from '@crm/shared';
 // F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
 import { negarLaboratorio } from '../common/lab-gate.util';
 import { tipoDeAgendaDoLaboratorio } from '../business-type/agenda-do-laboratorio';
+// F7 do laboratório — recusa da Central, aviso de agenda e texto sem palavra de clínica
+// (funções puras, sem DI: nada novo no construtor).
+import { recusarNoLaboratorio } from '../business-type/pedido-de-laboratorio';
+import { avisarAgendaDoLaboratorio, type DepsAvisoDoLaboratorio } from './aviso-agenda-laboratorio';
+import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -446,7 +465,14 @@ export class CalendarService {
     override_overdue_reason?: string;
     actor_roles?: string[]; // papéis do usuário (injetado pelo controller, não do DTO)
   }) {
-    if (!EVENT_TYPES.includes(data.type as any)) {
+    // F7 — coleta, prova e entrega (tipos só do laboratório) passam aqui; a conta
+    // decide logo abaixo.
+    if (!EVENT_TYPES.includes(data.type as any) && !tipoSoDoLaboratorio(data.type)) {
+      throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
+    }
+    // F7 — coleta, prova ou entrega fora do laboratório: o mesmo 400 de tipo inválido.
+    // Tipo de clínica nem entra aqui (nenhuma leitura nova).
+    if (tipoSoDoLaboratorio(data.type) && !(await this.eventoDeLaboratorio(data.tenant_id, data.lead_id, data.patient_id))) {
       throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
     }
     // F2 parte 4 [LAB-GATE] — a agenda do laboratório não tem consulta/procedimento/
@@ -455,6 +481,10 @@ export class CalendarService {
     if (!tipoDeAgendaDoLaboratorio(data.type) && (await this.eventoDeLaboratorio(data.tenant_id, data.lead_id, data.patient_id))) {
       this.logger.log(`[LAB-GATE] agenda-tipo — evento ${data.type} recusado no laboratório`);
       throw negarLaboratorio(`Evento do tipo ${data.type}`);
+    }
+    // F7 — coleta, prova e entrega são no consultório do cliente: sem cliente, recusa.
+    if (tipoSoDoLaboratorio(data.type) && !data.lead_id && !data.patient_id) {
+      throw new BadRequestException(LAB_AGENDA_TEXTOS.clienteObrigatorio);
     }
 
     // Dentista responsavel OBRIGATORIO em eventos clinicos (Fase 23).
@@ -545,8 +575,16 @@ export class CalendarService {
     // agendada". O evento nasce igual; o lembrete PUSH da equipe fica. Clínica: só a
     // leitura cacheada — os lembretes e o create são os mesmos.
     const eventoDeLab = await this.eventoDeLaboratorio(data.tenant_id, resolvedLeadId, resolvedPatientId);
-    const lembretes = eventoDeLab ? data.reminders?.filter(lembreteDaEquipe('PUSH')) : data.reminders;
-    if (eventoDeLab) {
+    // F7 — coleta, prova e entrega na conta do laboratório: ficam também os lembretes de
+    // 48 h e 24 h pelo WhatsApp (texto do laboratório); 1 h, 15 min e e-mail não.
+    const contaLab = !!data.tenant_id && eventoDeLab;
+    const visitaDoLab = contaLab && tipoSoDoLaboratorio(data.type);
+    const lembretes = eventoDeLab
+      ? data.reminders?.filter(visitaDoLab ? lembreteDoLaboratorio('PUSH') : lembreteDaEquipe('PUSH'))
+      : data.reminders;
+    if (visitaDoLab) {
+      this.logger.log(`[LAB-AGENDA] lembretes — ${(data.reminders?.length ?? 0) - (lembretes?.length ?? 0)} lembrete(s) fora de 48 h e 24 h não criado(s)`);
+    } else if (eventoDeLab) {
       this.logger.log(`[LAB-GATE] lembretes-agenda — evento de laboratório: ${(data.reminders?.length ?? 0) - (lembretes?.length ?? 0)} lembrete(s) ao contato não criado(s), sem aviso de agendamento`);
     }
 
@@ -690,6 +728,16 @@ export class CalendarService {
           }
         }
       }
+    } else if (data.tenant_id && visitaDoLab) {
+      // F7 — coleta, prova ou entrega marcada: aviso ao cliente com o texto do
+      // laboratório (WhatsApp e e-mail; o liga/desliga da Central é lido lá dentro).
+      void avisarAgendaDoLaboratorio(this.depsDoAviso(), {
+        event,
+        patientId: resolvedPatientId,
+        leadId: resolvedLeadId,
+        tenantId: data.tenant_id,
+        kind: 'created',
+      });
     }
 
     // Enqueue WhatsApp + Email reminders (bounded — não trava o create se o Redis pendurar)
@@ -773,6 +821,23 @@ export class CalendarService {
       patientId ? this.prisma.patient.findUnique({ where: { id: patientId }, select: { tenant_id: true } }) : null,
     ]);
     return algumLab(labs, [lead?.tenant_id, paciente?.tenant_id]);
+  }
+
+  /**
+   * F7 — o que o aviso de agenda do laboratório usa (aviso-agenda-laboratorio.ts,
+   * função pura): chip de Atendimento da conta (nunca o Financeiro), o texto da
+   * remarcação do laboratório e o histórico de disparos.
+   */
+  private depsDoAviso(): DepsAvisoDoLaboratorio {
+    return {
+      prisma: this.prisma,
+      whatsapp: this.whatsapp,
+      emailAutomation: this.emailAutomation,
+      logger: this.logger,
+      resolverChip: (t) => this.resolveTenantWhatsappInstance(t, 'CLINICA'),
+      textoDaRemarcacao: async (t) => (await this.getAppointmentRescheduledConfig(t, true)).template,
+      registrar: (p) => this.logDispatch(p),
+    };
   }
 
   private async enqueueReminders(eventId: string, startAt: Date, reminders: { id: string; minutes_before: number; channel: string }[]) {
@@ -871,7 +936,8 @@ export class CalendarService {
     // Fase 0 — quem mexe (rota PATCH): trava pós-validação e rastro da troca de status.
     actor?: { userId?: string | null; roles?: string[]; tenantId?: string | null; via?: string },
   ) {
-    if (data.type && !EVENT_TYPES.includes(data.type as any)) {
+    // F7 — coleta, prova e entrega passam aqui; a conta decide depois de ler o evento.
+    if (data.type && !EVENT_TYPES.includes(data.type as any) && !tipoSoDoLaboratorio(data.type)) {
       throw new BadRequestException(`Tipo invalido: ${data.type}`);
     }
     if (data.status && !EVENT_STATUSES.includes(data.status as any)) {
@@ -901,10 +967,26 @@ export class CalendarService {
         validated_at: true, validated_by_user_id: true, // pra checar lock pos-validacao
       },
     });
+    // F7 — trocar para coleta, prova ou entrega fora do laboratório: o mesmo 400 de tipo
+    // inválido. Tipo de clínica nem entra aqui (nenhuma leitura nova).
+    if (data.type && tipoSoDoLaboratorio(data.type) && !(await this.eventoDeLaboratorio(before?.tenant_id, before?.lead_id, null))) {
+      throw new BadRequestException(`Tipo invalido: ${data.type}`);
+    }
     // F2 parte 4 [LAB-GATE] — no laboratório, trocar para tipo de clínica é recusado.
     if (data.type && !tipoDeAgendaDoLaboratorio(data.type) && (await this.eventoDeLaboratorio(before?.tenant_id, before?.lead_id, null))) {
       this.logger.log(`[LAB-GATE] agenda-tipo — troca para ${data.type} recusada no laboratório`);
       throw negarLaboratorio(`Evento do tipo ${data.type}`);
+    }
+    // F7 — coleta, prova e entrega continuam com cliente: o Salvar não pode tirá-lo.
+    // Só evento do laboratório chega aqui (a clínica não tem esses tipos).
+    if (tipoSoDoLaboratorio(data.type ?? before?.type)) {
+      const contatoFinal = data.lead_id !== undefined ? data.lead_id : before?.lead_id;
+      let pacienteFinal = data.patient_id;
+      if (pacienteFinal === undefined && !contatoFinal) {
+        const atual = await this.prisma.calendarEvent.findUnique({ where: { id }, select: { patient_id: true } });
+        pacienteFinal = atual?.patient_id ?? null;
+      }
+      if (!contatoFinal && !pacienteFinal) throw new BadRequestException(LAB_AGENDA_TEXTOS.clienteObrigatorio);
     }
 
     // Bloqueia troca de dentista APOS validacao clinica (Fase 23).
@@ -1022,6 +1104,9 @@ export class CalendarService {
     // re-enfileirado e não sai o aviso "consulta remarcada". Clínica: só a leitura
     // cacheada; o resto do update é o mesmo.
     const eventoDeLab = await this.eventoDeLaboratorio(before?.tenant_id, event.lead_id, event.patient_id);
+    // F7 — coleta, prova e entrega na conta do laboratório: os lembretes de 48 h e 24 h
+    // pelo WhatsApp ficam e são re-enfileirados, e a remarcação avisa o cliente.
+    const visitaDoLab = !!before?.tenant_id && eventoDeLab && tipoSoDoLaboratorio(finalType);
 
     // v20: trata reminders separadamente — se frontend enviou novo array,
     // substitui completamente (deleteMany + createMany). Mantem comportamento
@@ -1032,7 +1117,9 @@ export class CalendarService {
       await this.boundedQueueOp(this.cancelReminderJobs(event.id), 'cancelReminderJobs(update)');
       // Substitui no banco
       await this.prisma.eventReminder.deleteMany({ where: { event_id: event.id } });
-      const novosLembretes = eventoDeLab ? incomingReminders.filter(lembreteDaEquipe('WHATSAPP')) : incomingReminders;
+      const novosLembretes = eventoDeLab
+        ? incomingReminders.filter(visitaDoLab ? lembreteDoLaboratorio('WHATSAPP') : lembreteDaEquipe('WHATSAPP'))
+        : incomingReminders;
       if (novosLembretes.length > 0) {
         // Onda 18.x — DEDUP por (minutes_before, channel) — ver create(). Evita 2
         // EventReminder identicos (lembrete duplicado no mesmo minuto).
@@ -1054,7 +1141,7 @@ export class CalendarService {
 
     // Se start_at mudou OU reminders foram alterados, re-enfileirar
     const shouldReEnqueue = (data.start_at || incomingReminders !== undefined) && finalReminders?.length;
-    if (shouldReEnqueue && eventoDeLab) {
+    if (shouldReEnqueue && eventoDeLab && !visitaDoLab) {
       this.logger.log(`[LAB-GATE] lembretes-agenda — evento ${event.id} é de laboratório: lembretes não re-enfileirados`);
     } else if (shouldReEnqueue) {
       // bounded — se o Redis pendurar, o save não fica preso (lembrete vira best-effort)
@@ -1100,6 +1187,16 @@ export class CalendarService {
     if (this.isClinicalEvent(finalType ?? '') && dateChanged && before?.tenant_id && !eventoDeLab) {
       void this.sendAppointmentEventWhatsapp(event, event.patient_id, event.lead_id, before.tenant_id, 'rescheduled');
       void this.sendAppointmentEventEmail(event, event.patient_id, event.lead_id, before.tenant_id, 'agendamento_remarcado');
+    } else if (visitaDoLab && dateChanged && before?.tenant_id) {
+      // F7 — coleta, prova ou entrega remarcada: aviso ao cliente com o texto do
+      // laboratório (o liga/desliga do reagendamento é lido lá dentro).
+      void avisarAgendaDoLaboratorio(this.depsDoAviso(), {
+        event,
+        patientId: event.patient_id,
+        leadId: event.lead_id,
+        tenantId: before.tenant_id,
+        kind: 'rescheduled',
+      });
     }
 
     // Compareceu (status editado pelo modal do evento) → vira paciente (regra da clínica).
@@ -2057,7 +2154,11 @@ export class CalendarService {
   // Sem tenant_id: chave global REMINDER_CONFIG (fallback).
   // Defaults vem de packages/shared (DEFAULT_REMINDER_CONFIG) se nao customizado.
 
-  async getReminderConfig(tenant_id?: string) {
+  async getReminderConfig(tenant_id?: string, lab = false) {
+    // F7 — conta de laboratório: o padrão é o dele (48 h e 24 h pelo WhatsApp, texto do
+    // laboratório), nunca o da clínica; antecedência fora de 48 h e 24 h não vale e
+    // texto vazio volta para o do laboratório.
+    if (lab) return this.lembretesDoLaboratorio(tenant_id);
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { DEFAULT_REMINDER_CONFIG } = await import('@crm/shared');
     const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
@@ -2083,9 +2184,37 @@ export class CalendarService {
     }
   }
 
+  /** F7 — lembretes da conta de laboratório (o getReminderConfig com lab=true). */
+  private async lembretesDoLaboratorio(tenant_id?: string): Promise<ReminderConfig> {
+    const padrao = REMINDER_CONFIG_PADRAO_DO_LABORATORIO;
+    const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return padrao;
+      const parsed = JSON.parse(setting.value);
+      const antecedencias: any[] = Array.isArray(parsed.default_antecedencias)
+        ? parsed.default_antecedencias
+        : padrao.default_antecedencias;
+      // Mesma regra do envio (lembrete-agenda-laboratorio.ts): texto vazio ou com palavra de
+      // clínica vale o padrão — o editor e o Testar mostram o que sai de verdade.
+      const salvos = Object.entries(parsed.templates || {}).filter(
+        ([, v]) => typeof v === 'string' && v.trim() !== '' && !temVocabularioDeClinica(semVariaveis(v)),
+      );
+      return {
+        enabled: parsed.enabled !== false,
+        default_antecedencias: antecedencias.filter(lembreteDoLaboratorio('WHATSAPP')),
+        templates: { ...padrao.templates, ...(Object.fromEntries(salvos) as Partial<ReminderConfig['templates']>) },
+      };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando o padrão do laboratório: ${(e as any)?.message}`);
+      return padrao;
+    }
+  }
+
   async setReminderConfig(
     tenant_id: string | undefined,
     config: { enabled?: boolean; default_antecedencias?: any[]; templates?: any },
+    lab = false,
   ) {
     const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
     // Valida shape minimo
@@ -2120,12 +2249,31 @@ export class CalendarService {
         }
       }
     }
+    // F7 — conta de laboratório: lembrete ao cliente só de 48 h e 24 h pelo WhatsApp
+    // (o PUSH da equipe fica); e-mail, 1 h e 15 min são recusados. O texto de 48 h
+    // segue as mesmas regras dos outros textos.
+    if (lab) {
+      if (config.default_antecedencias?.some((a) => !lembreteDoLaboratorio('WHATSAPP')(a))) {
+        throw recusarNoLaboratorio('antecedencia');
+      }
+      const t = config.templates || {};
+      if (String(t.consulta_1h ?? '').trim() || String(t.consulta_15min ?? '').trim()) {
+        throw recusarNoLaboratorio('antecedencia');
+      }
+      const k = 'consulta_confirmacao';
+      if (t[k] !== undefined && typeof t[k] !== 'string') {
+        throw new BadRequestException(`template ${k} deve ser string`);
+      }
+      if (t[k] && t[k].length > 1500) {
+        throw new BadRequestException(`template ${k} ultrapassa 1500 caracteres`);
+      }
+    }
     // Onda 17.49 — preserva SO o `enabled` (o modal de antecedencias nunca o
     // envia, entao salvar templates/antecedencias nao pode apagar o liga/desliga).
     // default_antecedencias/templates AUSENTES continuam significando "resetar pros
     // defaults" — e o que o botao "Restaurar padroes" faz; por isso NAO ha fallback
     // pro atual aqui (so pro enabled).
-    const current = await this.getReminderConfig(tenant_id);
+    const current = await this.getReminderConfig(tenant_id, lab);
     const value = JSON.stringify({
       enabled: config.enabled !== undefined ? config.enabled : current.enabled,
       default_antecedencias: config.default_antecedencias,
@@ -2137,32 +2285,38 @@ export class CalendarService {
       update: { value },
     });
     this.logger.log(`[REMINDER_CONFIG] salvo pra ${key}`);
-    return this.getReminderConfig(tenant_id);
+    return this.getReminderConfig(tenant_id, lab);
   }
 
   // ─── Resumo Diario pra Dentistas (Onda 5e v30, Fase 25) ──────────────
   // Disparo unico no inicio do dia com lista dos atendimentos do dentista.
   // Diferente dos reminders por evento — sao consolidados num so disparo.
 
-  async getDentistDailySummaryConfig(tenant_id?: string) {
+  async getDentistDailySummaryConfig(tenant_id?: string, lab = false) {
+    // F7 — conta de laboratório: o padrão é o resumo de coleta, prova e entrega
+    // (desligado), e texto vazio volta para o do laboratório.
+    const padrao = lab ? DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO : DEFAULT_DENTIST_DAILY_SUMMARY;
     // O resumo é POR CLÍNICA: sem conta, o padrão (a chave global sem conta é legado
     // e não vale para ninguém).
-    if (!tenant_id) return DEFAULT_DENTIST_DAILY_SUMMARY;
+    if (!tenant_id) return padrao;
     const key = `DENTIST_DAILY_SUMMARY_${tenant_id}`;
     try {
       const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
-      if (!setting?.value) return DEFAULT_DENTIST_DAILY_SUMMARY;
+      if (!setting?.value) return padrao;
       const parsed = JSON.parse(setting.value);
-      return { ...DEFAULT_DENTIST_DAILY_SUMMARY, ...parsed };
+      const salvo = { ...padrao, ...parsed };
+      if (lab && !String(salvo.template ?? '').trim()) salvo.template = padrao.template;
+      return salvo;
     } catch (e) {
       this.logger.warn(`Falha ao parsear ${key}, usando defaults: ${(e as any)?.message}`);
-      return DEFAULT_DENTIST_DAILY_SUMMARY;
+      return padrao;
     }
   }
 
   async setDentistDailySummaryConfig(
     tenant_id: string | undefined,
     config: { enabled?: boolean; send_at?: string; channel?: string; template?: string },
+    lab = false,
   ) {
     if (!tenant_id) {
       throw new BadRequestException('tenant_id ausente — o resumo do dentista é por clínica');
@@ -2182,7 +2336,7 @@ export class CalendarService {
       }
     }
     const key = `DENTIST_DAILY_SUMMARY_${tenant_id}`;
-    const current = await this.getDentistDailySummaryConfig(tenant_id);
+    const current = await this.getDentistDailySummaryConfig(tenant_id, lab);
     const merged = { ...current, ...config };
     await this.prisma.globalSetting.upsert({
       where: { key },
@@ -2190,7 +2344,8 @@ export class CalendarService {
       update: { value: JSON.stringify(merged) },
     });
     this.logger.log(`[DENTIST_DAILY_SUMMARY] salvo pra ${key}`);
-    return merged;
+    // F7 — laboratório: devolve como a Central lê (texto vazio volta para o do laboratório).
+    return lab ? this.getDentistDailySummaryConfig(tenant_id, true) : merged;
   }
 
   /** Onda 17.56 — instância Evolution REAL do tenant: prefere a de uma conversa
@@ -2288,9 +2443,11 @@ export class CalendarService {
   // O liga/desliga vive em APPOINTMENT_CONFIRMATION_ENABLED_<tenant> (painel
   // Operacional). Aqui guardamos só o TEXTO, em
   // APPOINTMENT_CONFIRMATION_TEMPLATE_<tenant>. O worker scheduler aplica.
-  async getAppointmentConfirmationConfig(tenant_id?: string) {
-    const DEFAULT =
-      'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
+  async getAppointmentConfirmationConfig(tenant_id?: string, lab = false) {
+    // F7 — conta de laboratório: o padrão é a confirmação da coleta, prova ou entrega.
+    const DEFAULT = lab
+      ? LAB_AGENDA_TEXTOS.confirmacao24h
+      : 'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
     const key = tenant_id ? `APPOINTMENT_CONFIRMATION_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_TEMPLATE';
     try {
       const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
@@ -2307,6 +2464,7 @@ export class CalendarService {
   async setAppointmentConfirmationConfig(
     tenant_id: string | undefined,
     config: { template?: string },
+    lab = false,
   ) {
     if (config.template !== undefined) {
       if (typeof config.template !== 'string') {
@@ -2324,7 +2482,7 @@ export class CalendarService {
       update: { value },
     });
     this.logger.log(`[APPOINTMENT_CONFIRMATION_TEMPLATE] salvo pra ${key}`);
-    return this.getAppointmentConfirmationConfig(tenant_id);
+    return this.getAppointmentConfirmationConfig(tenant_id, lab);
   }
 
   // ─── Confirmação de ORTODONTIA (Onda 18.x) — por ORDEM DE CHEGADA ─────
@@ -2427,21 +2585,23 @@ export class CalendarService {
   readonly DEFAULT_RESCHEDULED_TEMPLATE =
     'Olá {nome}! 😊\n\nSua consulta foi *remarcada* para *{data}* às *{hora}* com {dentista}.\n{local_line}\nQualquer dúvida, é só chamar por aqui!';
 
-  async getAppointmentRescheduledConfig(tenant_id?: string) {
+  async getAppointmentRescheduledConfig(tenant_id?: string, lab = false) {
+    // F7 — conta de laboratório: o padrão é o aviso de remarcação do laboratório.
+    const padrao = lab ? LAB_AGENDA_TEXTOS.remarcacao : this.DEFAULT_RESCHEDULED_TEMPLATE;
     const key = tenant_id ? `APPOINTMENT_RESCHEDULED_TEMPLATE_${tenant_id}` : 'APPOINTMENT_RESCHEDULED_TEMPLATE';
     try {
       const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
-      if (!setting?.value) return { template: this.DEFAULT_RESCHEDULED_TEMPLATE };
+      if (!setting?.value) return { template: padrao };
       const parsed = JSON.parse(setting.value);
-      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : this.DEFAULT_RESCHEDULED_TEMPLATE;
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : padrao;
       return { template: tpl };
     } catch (e) {
       this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
-      return { template: this.DEFAULT_RESCHEDULED_TEMPLATE };
+      return { template: padrao };
     }
   }
 
-  async setAppointmentRescheduledConfig(tenant_id: string | undefined, config: { template?: string }) {
+  async setAppointmentRescheduledConfig(tenant_id: string | undefined, config: { template?: string }, lab = false) {
     if (config.template !== undefined) {
       if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
       if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
@@ -2450,7 +2610,7 @@ export class CalendarService {
     const value = JSON.stringify({ template: config.template ?? '' });
     await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     this.logger.log(`[APPOINTMENT_RESCHEDULED_TEMPLATE] salvo pra ${key}`);
-    return this.getAppointmentRescheduledConfig(tenant_id);
+    return this.getAppointmentRescheduledConfig(tenant_id, lab);
   }
 
   // ─── Agenda do COMERCIAL — textos editáveis (6 disparos, 1 endpoint) ──────
@@ -2512,7 +2672,10 @@ export class CalendarService {
     return tpl;
   }
 
-  async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string, text?: string) {
+  async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string, text?: string, lab = false) {
+    // F7 — conta de laboratório: só o teste dos avisos que existem nele, antes de
+    // escolher o chip.
+    if (lab && !TESTES_DO_LABORATORIO.has(disparo)) throw recusarNoLaboratorio('teste');
     let num = (phone || '').replace(/\D/g, '');
     if (num.length < 10) {
       throw new BadRequestException('Telefone inválido — use DDD + número (ex.: 82999998888)');
@@ -2550,7 +2713,8 @@ export class CalendarService {
 
     // Onda 17.59 — dentista REAL do tenant logado (1º DENTIST, ou ADMIN com
     // especialidade). Antes era fixo "Dra. Suellen" — parecia de OUTRO tenant.
-    const dentistRow = tenant_id
+    // F7 — no laboratório o teste usa o cliente de exemplo (não lê a equipe).
+    const dentistRow = tenant_id && !lab
       ? await this.prisma.user.findFirst({
           where: {
             tenant_id,
@@ -2596,10 +2760,24 @@ export class CalendarService {
         procedimento: RETORNO_FAMILIA_TEXTO[parseRetornoDisparoId(disparo).familia],
       });
     }
+    // F7 — conta de laboratório: cliente (dentista), tipo, endereço do consultório e
+    // itens de exemplo do laboratório; {clinica} é o nome do laboratório.
+    if (lab) {
+      Object.assign(V, {
+        nome: LAB_TESTE_DA_CENTRAL.nome,
+        nome_completo: LAB_TESTE_DA_CENTRAL.nomeCompleto,
+        dentista: LAB_TESTE_DA_CENTRAL.nomeCompleto,
+        dentista_completo: LAB_TESTE_DA_CENTRAL.nomeCompleto,
+        tipo: LAB_TESTE_DA_CENTRAL.tipo,
+        local: LAB_TESTE_DA_CENTRAL.local,
+        clinica: (tenantRow as any)?.name || LAB_TESTE_DA_CENTRAL.laboratorio,
+        itens: LAB_TESTE_DA_CENTRAL.itens,
+      });
+    }
     const apply = (t: string) =>
       (t || '')
         .replace(/\{local_line\}/g, V.local ? `📍 ${V.local}\n` : '')
-        .replace(/\{agenda\}/g, '- 14:00  Felipe (teste) (Avaliacao)')
+        .replace(/\{agenda\}/g, lab ? LAB_TESTE_DA_CENTRAL.agenda : '- 14:00  Felipe (teste) (Avaliacao)')
         .replace(/\{(\w+)\}/g, (_m, k) => V[k] ?? '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
@@ -2624,7 +2802,7 @@ export class CalendarService {
       msg = apply(isCobranca ? simulaBoleto(text) : text);
     } else switch (disparo) {
       case 'confirmacao':
-        msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
+        msg = apply((await this.getAppointmentConfirmationConfig(tenant_id, lab)).template);
         break;
       case 'confirmacao_orto':
         msg = apply((await this.getAppointmentConfirmationOrtoConfig(tenant_id)).template);
@@ -2636,32 +2814,32 @@ export class CalendarService {
         msg = apply((await this.getAppointmentOrtoReminderConfig(tenant_id)).template);
         break;
       case 'reagendamento':
-        msg = apply((await this.getAppointmentRescheduledConfig(tenant_id)).template);
+        msg = apply((await this.getAppointmentRescheduledConfig(tenant_id, lab)).template);
         break;
       case 'lembrete_1dia':
-        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_24h);
+        msg = apply((await this.getReminderConfig(tenant_id, lab)).templates.consulta_24h);
         break;
       case 'lembrete_1h':
-        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_1h);
+        msg = apply((await this.getReminderConfig(tenant_id, lab)).templates.consulta_1h);
         break;
       case 'lembrete_15min':
-        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_15min);
+        msg = apply((await this.getReminderConfig(tenant_id, lab)).templates.consulta_15min);
         break;
       case 'confirmacao_48h':
-        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_confirmacao);
+        msg = apply((await this.getReminderConfig(tenant_id, lab)).templates.consulta_confirmacao);
         break;
       case 'aniversario':
       case 'aniversario_classica':
-        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).template);
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id, lab)).template);
         break;
       case 'aniversario_desejo':
-        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).message2_template || '');
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id, lab)).message2_template || '');
         break;
       case 'aniversario_presente':
-        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).message3_template || '');
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id, lab)).message3_template || '');
         break;
       case 'resumo_dentista':
-        msg = apply((await this.getDentistDailySummaryConfig(tenant_id)).template);
+        msg = apply((await this.getDentistDailySummaryConfig(tenant_id, lab)).template);
         break;
       case 'nps':
         msg = `Oi Felipe! Como foi sua consulta hoje com ${dentistName}? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)`;
@@ -2696,7 +2874,8 @@ export class CalendarService {
         // Onda 18.17 — cobrança: sem texto da tela, testa o default do estágio.
         // Estágio de boleto → simula o boleto (PDF anexo + código, sem link).
         if (isFinTemplateId(disparo)) {
-          const tpl = defaultFinTemplate(disparo);
+          // F7 — laboratório: o padrão do laboratório (orçamento aprovado e pagamento).
+          const tpl = (lab && padraoFinDoLaboratorio(disparo)) || defaultFinTemplate(disparo);
           msg = apply(isCobranca ? simulaBoleto(tpl) : tpl);
           break;
         }
@@ -2721,7 +2900,8 @@ export class CalendarService {
       }
       this.logger.log(`[DISPARO_TESTE] ${disparo} enviado pra ${num} via ${instanceName}`);
       // O teste manda também os anexos do card (o que o paciente vai receber de verdade).
-      const anexos = tenant_id && isDisparoComAnexo(disparo)
+      // F7 — laboratório: sem anexos (os cards dele não têm).
+      const anexos = tenant_id && !lab && isDisparoComAnexo(disparo)
         ? await enviarAnexosDoDisparo(this.prisma, this.whatsapp, { tenantId: tenant_id, disparoId: disparo, phone: num, instance: instanceName })
         : { enviados: 0, falhas: [] as string[] };
       return { sent: true, to: num, message: msg, anexos };
@@ -2749,9 +2929,20 @@ export class CalendarService {
     dayStart: Date,
     dayEnd: Date,
     tenantId: string,
+    lab = false,
   ): Promise<string | null> {
     const events = await this.prisma.calendarEvent.findMany({
-      where: {
+      where: lab
+        ? {
+            // F7 — laboratório: só a agenda da conta (sem o legado sem conta) e só
+            // coleta, prova e entrega de quem é o responsável no evento.
+            assigned_user_id: user.id,
+            tenant_id: tenantId,
+            start_at: { gte: dayStart, lt: dayEnd },
+            status: { in: ['AGENDADO', 'CONFIRMADO'] },
+            type: { in: [...TIPOS_AVISO_LAB] },
+          }
+        : {
         assigned_user_id: user.id,
         // Só a agenda DESTA clínica (e o legado sem conta, como sempre): um evento de
         // outra conta marcado no nome deste dentista não entra no resumo dele.
@@ -2782,8 +2973,8 @@ export class CalendarService {
       const d = new Date(e.start_at);
       const hh = String(d.getUTCHours()).padStart(2, '0');
       const mm = String(d.getUTCMinutes()).padStart(2, '0');
-      const who = e.patient?.name || e.lead?.name || 'Paciente';
-      const tipo = TYPE_LABEL[e.type] || e.type;
+      const who = e.patient?.name || e.lead?.name || (lab ? LAB_AGENDA_TEXTOS.cliente : 'Paciente');
+      const tipo = lab ? rotuloTipoDoLaboratorio(e.type) : TYPE_LABEL[e.type] || e.type;
       return `- ${hh}:${mm}  ${who} (${tipo})`;
     });
 
@@ -2791,7 +2982,7 @@ export class CalendarService {
     const dataStr = dayStart.toLocaleDateString('pt-BR', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: '2-digit' });
 
     let msg = template;
-    msg = msg.replace(/\{nome\}/g, user.name || 'Doutor(a)');
+    msg = msg.replace(/\{nome\}/g, user.name || (lab ? LAB_AGENDA_TEXTOS.protetico : 'Doutor(a)'));
     msg = msg.replace(/\{data\}/g, dataStr);
     msg = msg.replace(/\{qtd\}/g, String(events.length));
     msg = msg.replace(/\{agenda\}/g, agendaLines.join('\n'));
@@ -2809,14 +3000,13 @@ export class CalendarService {
     if (!tenant_id) {
       throw new BadRequestException('tenant_id ausente — o resumo do dentista é por clínica');
     }
-    // F2 [LAB-GATE] — resumo de atendimentos de clínica: conta de laboratório não
-    // recebe (cron e "Enviar agora"). Clínica: só a leitura da lista de laboratórios.
+    // F7 — conta de laboratório: o resumo é o de coleta, prova e entrega, para quem é o
+    // responsável no evento (qualquer papel da equipe), com o texto do laboratório. O
+    // "Enviar agora" segue negado no laboratório; quem chama é o cron. Clínica: só a
+    // leitura da lista de laboratórios.
     const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (labs.has(tenant_id)) {
-      this.logger.log(`[LAB-GATE] resumo-dentista — conta ${tenant_id} é laboratório: não envia`);
-      return { total: 0, results: [] };
-    }
-    const config = await this.getDentistDailySummaryConfig(tenant_id);
+    const lab = labs.has(tenant_id);
+    const config = await this.getDentistDailySummaryConfig(tenant_id, lab);
 
     // Janela do DIA DE MACEIÓ no formato naive-UTC da agenda (start_at = hora local
     // gravada como UTC). Antes usava a data UTC: de 21h em diante (já é amanhã em UTC)
@@ -2830,7 +3020,10 @@ export class CalendarService {
     // L1976): DENTIST OU ADMIN com especialidade. Antes era só DENTIST → ortodontista
     // ADMIN (ex.: Dra. Suellen) não recebia o resumo da PRÓPRIA agenda do dia.
     const dentists = await this.prisma.user.findMany({
-      where: {
+      // F7 — laboratório: toda a equipe da conta (só recebe quem tem visita no dia).
+      where: lab
+        ? { tenant_id }
+        : {
         // Sempre a conta (WhatsApp e PUSH): nunca dentista de outra clínica.
         tenant_id,
         OR: [
@@ -2853,7 +3046,7 @@ export class CalendarService {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'desligado no cadastro da equipe' });
         continue;
       }
-      const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd, tenant_id);
+      const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd, tenant_id, lab);
       if (!msg) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem atendimentos hoje' });
         continue;
@@ -2878,7 +3071,7 @@ export class CalendarService {
       // WHATSAPP
       if (!u.phone) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem telefone cadastrado' });
-        void this.logDispatch({ tenantId: tenant_id, type: 'resumo_dentista', recipientName: u.name, status: 'FAILED', error: 'Dentista sem telefone cadastrado', refUserId: u.id });
+        void this.logDispatch({ tenantId: tenant_id, type: 'resumo_dentista', recipientName: u.name, status: 'FAILED', error: lab ? LAB_AGENDA_TEXTOS.equipeSemTelefone : 'Dentista sem telefone cadastrado', refUserId: u.id });
         continue;
       }
       const phone = u.phone.replace(/\D/g, '');
@@ -2902,7 +3095,10 @@ export class CalendarService {
   // Robô diário: manda WhatsApp de "feliz aniversário" pros aniversariantes
   // ATIVOS de hoje. Opt-in (default off). Espelha o resumo do dentista.
 
-  async getBirthdayGreetingConfig(tenant_id?: string) {
+  async getBirthdayGreetingConfig(tenant_id?: string, lab = false) {
+    // F7 — conta de laboratório: o padrão é o dele e só a mensagem clássica liga (a 2
+    // e a 3 ficam sempre desligadas).
+    if (lab) return this.aniversarioDoLaboratorio(tenant_id);
     const { DEFAULT_BIRTHDAY_GREETING } = await import('@crm/shared');
     const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
     try {
@@ -2915,6 +3111,25 @@ export class CalendarService {
     }
   }
 
+  /** F7 — aniversário da conta de laboratório (o getBirthdayGreetingConfig com lab=true). */
+  private async aniversarioDoLaboratorio(tenant_id?: string) {
+    const padrao = BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO;
+    const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return padrao;
+      const cfg = { ...padrao, ...JSON.parse(setting.value), message2_enabled: false, message3_enabled: false };
+      // Mesma regra do envio: texto vazio ou com palavra de clínica vale o padrão.
+      if (typeof cfg.template !== 'string' || !cfg.template.trim() || temVocabularioDeClinica(semVariaveis(cfg.template))) {
+        cfg.template = padrao.template;
+      }
+      return cfg;
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando o padrão do laboratório: ${(e as any)?.message}`);
+      return padrao;
+    }
+  }
+
   async setBirthdayGreetingConfig(
     tenant_id: string | undefined,
     config: {
@@ -2922,6 +3137,7 @@ export class CalendarService {
       message2_enabled?: boolean; message2_send_at?: string; message2_template?: string; message2_last_run_date?: string;
       message3_enabled?: boolean; message3_send_at?: string; message3_template?: string; message3_last_run_date?: string;
     },
+    lab = false,
   ) {
     for (const [field, val] of [['send_at', config.send_at], ['message2_send_at', config.message2_send_at], ['message3_send_at', config.message3_send_at]] as const) {
       if (val !== undefined && !/^\d{2}:\d{2}$/.test(val)) {
@@ -2934,8 +3150,19 @@ export class CalendarService {
         if (val.length > 2000) throw new BadRequestException(`${field} ultrapassa 2000 caracteres`);
       }
     }
+    // F7 — conta de laboratório: só a mensagem clássica (a 2 e a 3 são de clínica). Sem
+    // isto, o merge abaixo gravaria os textos da clínica na chave do laboratório.
+    if (
+      lab &&
+      (config.message2_enabled === true ||
+        config.message3_enabled === true ||
+        String(config.message2_template ?? '').trim() !== '' ||
+        String(config.message3_template ?? '').trim() !== '')
+    ) {
+      throw recusarNoLaboratorio('aniversario');
+    }
     const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
-    const current = await this.getBirthdayGreetingConfig(tenant_id);
+    const current = await this.getBirthdayGreetingConfig(tenant_id, lab);
     const merged = { ...current, ...config };
     await this.prisma.globalSetting.upsert({
       where: { key },
@@ -3130,12 +3357,21 @@ export class CalendarService {
    * Manda o parabéns pra todos os aniversariantes de hoje do tenant.
    * Usado pelo cron diário e pelo "Enviar agora" manual.
    */
-  async sendBirthdayGreetingsNow(tenant_id: string, which: 1 | 2 | 3 = 1) {
-    const config = await this.getBirthdayGreetingConfig(tenant_id);
+  async sendBirthdayGreetingsNow(tenant_id: string, which: 1 | 2 | 3 = 1, lab = false) {
+    // F7 — conta de laboratório: só a mensagem clássica, com o texto do laboratório.
+    if (lab && which !== 1) {
+      this.logger.log(`[LAB-AGENDA] aniversario — conta ${tenant_id} é laboratório: só a mensagem clássica`);
+      return { total: 0, results: [] };
+    }
+    const config = await this.getBirthdayGreetingConfig(tenant_id, lab);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenant_id }, select: { name: true } });
-    const clinica = tenant?.name || 'nossa clínica';
+    const clinica = tenant?.name || (lab ? LAB_AGENDA_TEXTOS.laboratorioSemNome : 'nossa clínica');
     // Onda 17.61 — qual mensagem disparar (1 = clássica, 2 = o desejo, 3 = o presente).
-    const template = (which === 3 ? config.message3_template : which === 2 ? config.message2_template : config.template) || config.template;
+    let template = (which === 3 ? config.message3_template : which === 2 ? config.message2_template : config.template) || config.template;
+    // F7 — laboratório: texto vazio ou com palavra de clínica cai no texto do laboratório.
+    if (lab && (!String(template ?? '').trim() || temVocabularioDeClinica(semVariaveis(template)))) {
+      template = BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO.template;
+    }
 
     const patients = await this.birthdayPatientsToday(tenant_id);
     // Chip CLINICA do tenant (paciente-facing). Sem resolver, o sendText caía no instance
@@ -3147,10 +3383,13 @@ export class CalendarService {
     for (const p of patients) {
       if (!p.phone) {
         results.push({ patient_id: p.id, name: p.name, sent: false, reason: 'sem telefone' });
-        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, status: 'FAILED', error: 'Paciente sem telefone cadastrado', refPatientId: p.id });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, status: 'FAILED', error: lab ? LAB_AGENDA_TEXTOS.semTelefone : 'Paciente sem telefone cadastrado', refPatientId: p.id });
         continue;
       }
-      const firstName = (p.name || '').split(' ')[0] || p.name;
+      // F7 — laboratório: o primeiro nome do cliente sem Dr./Dra.
+      const firstName = lab
+        ? primeiroNomeSemTitulo(p.name) || LAB_AGENDA_TEXTOS.nomePadrao
+        : (p.name || '').split(' ')[0] || p.name;
       const msg = template
         .replace(/\{nome\}/g, firstName)
         .replace(/\{clinica\}/g, clinica)
@@ -3177,7 +3416,8 @@ export class CalendarService {
         results.push({ patient_id: p.id, name: p.name, sent: true });
         void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'SENT', refPatientId: p.id });
         // Anexos do card desta mensagem (clássica/desejo/presente), depois do texto.
-        if (instance) {
+        // F7 — laboratório: sem anexos.
+        if (instance && !lab) {
           await enviarAnexosDoDisparo(this.prisma, this.whatsapp, {
             tenantId: tenant_id,
             disparoId: which === 3 ? 'aniversario_presente' : which === 2 ? 'aniversario_desejo' : 'aniversario_classica',

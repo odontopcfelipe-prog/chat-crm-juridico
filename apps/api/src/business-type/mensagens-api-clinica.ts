@@ -11,9 +11,12 @@
  * MOLDES: texto com trecho variável, marcado com {1}, {2}... Também só troca quando
  * a mensagem inteira bate com o molde; cada trecho variável passa pelo mapa exato.
  *
- * Ficam de fora de propósito: valores de enum (COMERCIAL/CLINICA/FINANCEIRO), as
+ * Ficam de fora de propósito: valores de enum (COMERCIAL/CLINICA/FINANCEIRO) e as
  * mensagens que só saem de rota negada ao laboratório (IA, ortodontia, contrato,
- * TCLE, promover/rebaixar contato) e as da agenda (calendar.*, fase da agenda).
+ * TCLE, promover/rebaixar contato). Da agenda (F7) entram só as que a agenda e a
+ * Central do laboratório alcançam; a recusa de tipo de clínica ("Evento do tipo X:
+ * função de clínica...") fica de fora, porque a tela do laboratório não oferece esses
+ * tipos.
  *
  * O spec __guards__/lab-vocab.spec.ts confere que cada texto daqui ainda existe igual
  * em apps/api/src: se alguém mudar a frase no serviço, ele avisa para atualizar aqui.
@@ -153,6 +156,13 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
   // quotes.service.ts (applyFinancing com parcelas já emitidas)
   parcelasJaEmitidas:
     'Este plano já tem parcelas emitidas. Recarregue a página. Se precisar reemitir, cancele as cobranças ativas primeiro.',
+
+  // ─── F7: agenda e Central de Disparos ─────────────────────────────────────────
+  // calendar/dto/calendar.dto.ts (MSG_TIPO_DTO; vem num array, da validação do corpo)
+  tipoInvalidoDto:
+    'type must be one of the following values: CONSULTA, PROCEDIMENTO, RETORNO, ORTODONTIA, BLOQUEIO, TAREFA, OUTRO, AUDIENCIA, PERICIA, PRAZO',
+  // calendar.service.ts (Testar da Central sem chip conectado)
+  testeSemChip: 'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
 });
 
 export const MOLDES_API_CLINICA = Object.freeze({
@@ -173,4 +183,10 @@ export const MOLDES_API_CLINICA = Object.freeze({
   limiteDoPlano: 'Limite do plano {1} atingido pra pacientes ({2}/{3}). Atualize o plano pra continuar.',
   // quotes.service.ts (item com procedure_id que não existe)
   procedimentoIdNaoEncontrado: 'Procedimento {1} nao encontrado',
+  // calendar.service.ts (agendar quem tem boleto em atraso, com o bloqueio ligado; o code e o overdue ficam)
+  devedorNaAgenda: 'Paciente com {1} boleto(s) em atraso ({2}). Regularize no Financeiro ou peça a um administrador para liberar.',
+  // calendar.controller.ts (o setor dentista edita só o status do próprio evento)
+  edicaoSoStatus: 'Sem permissao para alterar: {1}. Dentista pode mudar apenas o status do proprio evento.',
+  // calendar.service.ts (Testar da Central: o envio falhou)
+  testeNaoEnviou: 'Não enviou: {1}. Verifique se o WhatsApp da clínica está conectado.',
 });

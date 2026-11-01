@@ -22,6 +22,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, X, User, ChevronDown, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+// F7 do laboratório — no laboratório o seletor fala em cliente e contato.
+import { isLab } from '@crm/shared';
+import { useBusinessType, btAgora } from '@/lib/useBusinessType';
+import { LAB_AGENDA_CONTATO } from './lab-agenda-textos';
 
 interface PatientOption {
   id: string;
@@ -63,6 +67,7 @@ interface Props {
 }
 
 export default function ContactPicker({ value, onChange, patients: patientsProp, leads: leadsProp }: Props) {
+  const lab = isLab(useBusinessType());
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [patients, setPatients] = useState<PatientOption[]>(patientsProp || []);
@@ -86,17 +91,18 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     if (patients.length > 0 && leads.length > 0) return;
     setLoading(true);
     setLoadError(null);
+    const labAgora = isLab(btAgora());
     Promise.all([
       // Sem filtro status — pega todos pacientes ATIVOS do tenant
       api.get('/patients?limit=500').catch((e) => {
         // eslint-disable-next-line no-console
         console.error('[ContactPicker] Falha ao carregar pacientes:', e?.response?.status, e?.response?.data);
-        return { __error: e?.response?.data?.message || e?.message || 'erro ao carregar pacientes', data: { data: [] } } as any;
+        return { __error: e?.response?.data?.message || e?.message || (labAgora ? LAB_AGENDA_CONTATO.erroClientes : 'erro ao carregar pacientes'), data: { data: [] } } as any;
       }),
       api.get('/leads?limit=500').catch((e) => {
         // eslint-disable-next-line no-console
         console.error('[ContactPicker] Falha ao carregar leads:', e?.response?.status, e?.response?.data);
-        return { __error: e?.response?.data?.message || e?.message || 'erro ao carregar leads', data: [] } as any;
+        return { __error: e?.response?.data?.message || e?.message || (labAgora ? LAB_AGENDA_CONTATO.erroContatos : 'erro ao carregar leads'), data: [] } as any;
       }),
     ])
       .then(([pRes, lRes]) => {
@@ -286,16 +292,16 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
       const p = patients.find((x) => x.id === value.patient_id);
       if (p) return { kind: 'patient' as const, name: p.name || 'Sem nome', phone: p.phone };
       // v32: fallback enquanto fetch individual nao chegou
-      return { kind: 'patient' as const, name: 'Carregando paciente...', phone: null };
+      return { kind: 'patient' as const, name: lab ? LAB_AGENDA_CONTATO.carregandoCliente : 'Carregando paciente...', phone: null };
     }
     if (value.lead_id) {
       const l = leads.find((x) => x.id === value.lead_id);
       if (l) return { kind: 'lead' as const, name: l.name || 'Sem nome', phone: l.phone };
       // Fallback: pode ser um lead que ainda não carregamos (modal sendo editado)
-      return { kind: 'lead' as const, name: 'Carregando lead...', phone: null };
+      return { kind: 'lead' as const, name: lab ? LAB_AGENDA_CONTATO.carregandoContato : 'Carregando lead...', phone: null };
     }
     return null;
-  }, [value, patients, leads]);
+  }, [value, patients, leads, lab]);
 
   // Unifica patients + leads em uma lista filtrada pela busca
   const options = useMemo<ContactOption[]>(() => {
@@ -388,7 +394,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
                 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
                 : 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
             }`}>
-              {currentLabel.kind === 'patient' ? 'Paciente' : 'Lead'}
+              {currentLabel.kind === 'patient' ? (lab ? LAB_AGENDA_CONTATO.seloCliente : 'Paciente') : (lab ? LAB_AGENDA_CONTATO.seloContato : 'Lead')}
             </span>
             <span className="truncate">{currentLabel.name}</span>
             {currentLabel.phone && (
@@ -396,7 +402,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
             )}
           </div>
         ) : (
-          <span className="text-muted-foreground">Nenhum — clique pra buscar paciente ou lead</span>
+          <span className="text-muted-foreground">{lab ? LAB_AGENDA_CONTATO.nenhum : 'Nenhum — clique pra buscar paciente ou lead'}</span>
         )}
         <div className="flex items-center gap-1 shrink-0">
           {currentLabel && (
@@ -428,7 +434,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nome, telefone ou CPF..."
+                placeholder={lab ? LAB_AGENDA_CONTATO.buscar : 'Buscar por nome, telefone ou CPF...'}
                 className="w-full pl-7 pr-2 py-1.5 rounded bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
@@ -443,15 +449,15 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
           <div className="overflow-y-auto" style={{ maxHeight: pos.listMaxHeight }}>
             {loading ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
-                <Loader2 size={14} className="inline animate-spin mr-1" /> Carregando pacientes e leads...
+                <Loader2 size={14} className="inline animate-spin mr-1" />{lab ? ` ${LAB_AGENDA_CONTATO.carregando}` : ' Carregando pacientes e leads...'}
               </div>
             ) : options.length === 0 ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
                 {search.trim()
-                  ? `Nenhum paciente ou lead corresponde a "${search}".`
+                  ? (lab ? LAB_AGENDA_CONTATO.semResultado(search) : `Nenhum paciente ou lead corresponde a "${search}".`)
                   : (loadError
                     ? 'Não foi possível carregar a lista (veja erro acima).'
-                    : `Nenhum contato disponível. ${patients.length === 0 && leads.length === 0 ? 'Cadastre pacientes em Pacientes → Novo paciente.' : ''}`)
+                    : `Nenhum contato disponível. ${patients.length === 0 && leads.length === 0 ? (lab ? LAB_AGENDA_CONTATO.cadastre : 'Cadastre pacientes em Pacientes → Novo paciente.') : ''}`)
                 }
               </div>
             ) : (
@@ -477,12 +483,12 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
                             ? 'bg-emerald-500/10 text-emerald-600'
                             : 'bg-blue-500/10 text-blue-600'
                         }`}>
-                          {opt.kind === 'patient' ? 'Paciente' : 'Lead'}
+                          {opt.kind === 'patient' ? (lab ? LAB_AGENDA_CONTATO.seloCliente : 'Paciente') : (lab ? LAB_AGENDA_CONTATO.seloContato : 'Lead')}
                         </span>
                       </div>
                       {(opt.phone || opt.cpf) && (
                         <div className="text-xs text-muted-foreground truncate">
-                          {opt.phone}{opt.phone && opt.cpf ? ' · ' : ''}{opt.cpf ? `CPF ${opt.cpf}` : ''}
+                          {opt.phone}{opt.phone && opt.cpf ? ' · ' : ''}{opt.cpf ? (lab ? LAB_AGENDA_CONTATO.documento(opt.cpf) : `CPF ${opt.cpf}`) : ''}
                         </div>
                       )}
                     </div>

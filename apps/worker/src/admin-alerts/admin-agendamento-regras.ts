@@ -83,7 +83,7 @@ export function rotuloQuandoAgendamento(startNaive: Date, allDay = false): strin
   return allDay ? `${dia} (dia inteiro)` : `${dia} às ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
-const RECORRENCIA_LABEL: Record<string, string> = {
+export const RECORRENCIA_LABEL: Record<string, string> = {
   DAILY: 'diária',
   WEEKLY: 'semanal',
   BIWEEKLY: 'quinzenal',

@@ -4,8 +4,13 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
-import { lembreteClinicoIdFor, algumLab, getLabTenantIds } from '@crm/shared';
+import { lembreteClinicoIdFor, algumLab, getLabTenantIds, LAB_AGENDA_TEXTOS } from '@crm/shared';
 import { SettingsService } from '../settings/settings.service';
+import {
+  enviarLembreteDoLaboratorio,
+  lembreteDoLaboratorioSai,
+  type DepsDoLembreteDoLaboratorio,
+} from './lembrete-agenda-laboratorio';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createSmtpTransport } from '../common/utils/smtp.util';
@@ -328,7 +333,12 @@ export class CalendarReminderWorker extends WorkerHost {
     // Sai sem reivindicar e sem last_error: nem "Lembrete falhou", nem engana o
     // agendador de confirmação do worker. Cobre todos os produtores e os jobs já na
     // fila. Clínica: sem laboratório não olha os ids; nenhuma consulta muda.
-    if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [event.tenant_id, event.lead?.tenant_id, event.patient?.tenant_id])) {
+    // F7 — exceção: coleta, prova e entrega da conta de laboratório, pelo WhatsApp, 48 h
+    // e 24 h (lembreteDoLaboratorioSai). Esses seguem o fluxo abaixo (toggle, lista da
+    // Central, status, claim atômico, FAILED) com o envio do laboratório.
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    const doLab = algumLab(labs, [event.tenant_id, event.lead?.tenant_id, event.patient?.tenant_id]);
+    if (doLab && !lembreteDoLaboratorioSai(event, channel, reminder.minutes_before, labs)) {
       this.logger.log(`[LAB-GATE] calendar-reminder — evento ${eventId} é de laboratório: lembrete ${reminderId} não sai`);
       return;
     }
@@ -354,7 +364,8 @@ export class CalendarReminderWorker extends WorkerHost {
         // confirmação) tem interação com o scheduler de confirmação — não é
         // filtrada aqui pra não abrir buraco de confirmação. Só aplica quando a
         // lista está EXPLÍCITA (default_antecedencias salvo); sem config, envia.
-        if (reminder.minutes_before < 2880 && Array.isArray(cfg?.default_antecedencias)) {
+        // F7 — no laboratório a de 48 h é só lembrete: a lista vale também para ela.
+        if ((doLab || reminder.minutes_before < 2880) && Array.isArray(cfg?.default_antecedencias)) {
           const ativo = cfg.default_antecedencias.some(
             (a: any) => Number(a?.minutes_before) === reminder.minutes_before,
           );
@@ -403,12 +414,15 @@ export class CalendarReminderWorker extends WorkerHost {
     let capturedExternalMsgId: string | null = null;
     if (channel === 'WHATSAPP') {
       // Validacao previa: paciente precisa ter telefone
-      if (!event.lead?.phone) {
+      // (F7: o envio do laboratório confere o telefone do cliente e lança o motivo dele)
+      if (!doLab && !event.lead?.phone) {
         lastErrorMsg = 'Paciente sem telefone cadastrado';
         sent = false;
       } else {
         try {
-          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before);
+          const result = doLab
+            ? await enviarLembreteDoLaboratorio(this.depsDoLembrete(), event, reminder.minutes_before)
+            : await this.sendWhatsAppReminders(event, reminder.minutes_before);
           capturedExternalMsgId = result.externalMsgId;
           sent = true;
         } catch (e: any) {
@@ -453,7 +467,7 @@ export class CalendarReminderWorker extends WorkerHost {
 
       // v25 (#13): cria Notification pra admin/dentista quando reminder falha
       try {
-        await this.notifyReminderFailure(event, reminder.minutes_before, lastErrorMsg);
+        await this.notifyReminderFailure(event, reminder.minutes_before, lastErrorMsg, doLab);
       } catch (e: any) {
         this.logger.warn(`[REMINDER] Falha ao notificar admin sobre erro: ${e.message}`);
       }
@@ -463,7 +477,7 @@ export class CalendarReminderWorker extends WorkerHost {
   // ─── v25 (#13): Notifica equipe quando reminder falha ───────────────────────
   // Cria Notification pro dentista responsavel + admin do tenant. NotificationCenter
   // do app (sininho) mostra automaticamente.
-  private async notifyReminderFailure(event: any, minutesBefore: number, errorMsg: string | null) {
+  private async notifyReminderFailure(event: any, minutesBefore: number, errorMsg: string | null, lab = false) {
     const userIds = new Set<string>();
     if (event.assigned_user_id) userIds.add(event.assigned_user_id);
     // Pega admins do mesmo tenant
@@ -480,7 +494,7 @@ export class CalendarReminderWorker extends WorkerHost {
     }
     const labelMin = minutesBefore < 60 ? `${minutesBefore}min` : minutesBefore === 60 ? '1h' : minutesBefore === 1440 ? '1d' : `${Math.round(minutesBefore / 60)}h`;
     const title = `Lembrete falhou (${labelMin} antes)`;
-    const body = `${event.lead?.name || 'Paciente'} — ${event.title}. Motivo: ${errorMsg || 'erro desconhecido'}`;
+    const body = `${event.lead?.name || (lab ? LAB_AGENDA_TEXTOS.cliente : 'Paciente')} — ${event.title}. Motivo: ${errorMsg || 'erro desconhecido'}`;
     for (const uid of userIds) {
       try {
         await this.prisma.notification.create({
@@ -1203,6 +1217,16 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       });
       return (completion.choices[0]?.message?.content || '').trim();
     }
+  }
+
+  /** F7 — dependências do envio do laboratório (chip de Atendimento da própria conta). */
+  private depsDoLembrete(): DepsDoLembreteDoLaboratorio {
+    return {
+      prisma: this.prisma,
+      whatsapp: this.whatsapp,
+      resolverChip: (tenantId: string) => this.resolveTenantInstance(tenantId, 'CLINICA'),
+      logger: this.logger,
+    };
   }
 
   // ─── Chip do envio: FUNÇÃO dentro do TENANT (Onda 17.59/17.64 → out/2026) ────

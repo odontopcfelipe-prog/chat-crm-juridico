@@ -38,6 +38,12 @@ import { ScheduleBlockModal } from './ScheduleBlockModal';
 import {
   AGENDA_PATIENT_TYPES, AgendaFlagChips, agendaFlagsHtml, isAiBookedEvent, isNewPatientEvent,
 } from './agenda-flags';
+// F7 do laboratório — agenda de coleta, prova e entrega (só no laboratório; a clínica não muda).
+import {
+  isLab, tipoSoDoLaboratorio, lembreteDoLaboratorio, LAB_AGENDA_TEXTOS, REMINDER_CONFIG_PADRAO_DO_LABORATORIO,
+} from '@crm/shared';
+import { useBusinessType, btAgora } from '@/lib/useBusinessType';
+import { LAB_AGENDA_UI, LAB_AGENDA_STATUS } from './lab-agenda-textos';
 
 // ─── Tipos ────────────────────────────────────────────
 
@@ -149,11 +155,12 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
 // ficou vermelho". O tipo continua indicado pelo marcador (quadradinho rosa).
 // Fonte única em agenda-flags.tsx (os selos IA/Novo usam a mesma lista).
 const PATIENT_APPT_TYPES = AGENDA_PATIENT_TYPES;
-function eventAccentColor(ev: { type: string; status: string }): string {
-  if (PATIENT_APPT_TYPES.includes(ev.type)) {
+// F7 — no laboratório, Coleta/Prova/Entrega também ganham a cor pelo STATUS.
+function eventAccentColor(ev: { type: string; status: string }, lab = false): string {
+  if (PATIENT_APPT_TYPES.includes(ev.type) || (lab && tipoSoDoLaboratorio(ev.type))) {
     return EVENT_STATUSES.find(s => s.id === ev.status)?.color || '#E91E63';
   }
-  return getEventColor(ev.type);
+  return getEventColor(ev.type, lab);
 }
 
 // Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Chegou → Em
@@ -167,6 +174,15 @@ const EVENT_STATUSES = [
   { id: 'CANCELADO', label: 'Desmarcou', color: '#eab308' }, // amarelo
   { id: 'NO_SHOW', label: 'Faltou', color: '#991b1b' }, // vermelho escuro
 ];
+
+// F7 — status do seletor no laboratório: Agendado, Confirmado, Feito, Desmarcado e Não
+// realizado (com o rótulo do laboratório). O status atual do evento fica na lista mesmo
+// quando é outro, para o seletor mostrar o valor gravado. Cores = as da clínica.
+function statusDoLaboratorio(atual: string): typeof EVENT_STATUSES {
+  return EVENT_STATUSES
+    .filter(s => s.id in LAB_AGENDA_STATUS || s.id === atual)
+    .map(s => ({ ...s, label: LAB_AGENDA_STATUS[s.id] ?? s.label }));
+}
 
 // Fase 0 — espelho do agenda-status-guard da API (gate de UI; o backend é quem barra de fato).
 const STATUS_CRIAR_SO_ADMIN = ['CONCLUIDO', 'NO_SHOW', 'CANCELADO'];
@@ -210,8 +226,15 @@ const KANBAN_COLUMNS = [
   { id: 'CONCLUIDO', label: 'Atendido',    emoji: '✅', color: '#22c55e' },
 ];
 
-function getEventColor(type: string) {
-  return EVENT_TYPES.find(t => t.id === type)?.color || '#6b7280';
+// F7 — tipos da tela: os da clínica (EVENT_TYPES) ou os do laboratório (Coleta, Prova,
+// Entrega, Bloqueio, Tarefa e Outro).
+type TipoDaTela = { readonly id: string; readonly label: string; readonly emoji: string; readonly color: string };
+function tiposDaTela(lab: boolean): readonly TipoDaTela[] {
+  return lab ? LAB_AGENDA_UI.tipos : EVENT_TYPES;
+}
+
+function getEventColor(type: string, lab = false) {
+  return tiposDaTela(lab).find(t => t.id === type)?.color || '#6b7280';
 }
 
 /**
@@ -571,8 +594,11 @@ export default function AgendaPage() {
       const patientPhone = params.get('phone') || '';
       // ?type= (ex.: "Agendar" da Ortodontia manda ORTODONTIA). Antes era ignorado e o
       // evento saía como CONSULTA "Avaliação" — o quadro de ortô não o reconhecia.
-      const presetType = EVENT_TYPES.find((t) => t.id === params.get('type'));
-      const titleBase = presetType && presetType.id !== 'CONSULTA' ? presetType.label : 'Avaliação';
+      // F7 — no laboratório o ?type= é COLETA/PROVA/ENTREGA ("Agendar coleta" da ficha do
+      // cliente); sem ?type= válido fica o tipo padrão do laboratório (Coleta).
+      const labAgora = isLab(btAgora());
+      const presetType = tiposDaTela(labAgora).find((t) => t.id === params.get('type'));
+      const titleBase = presetType && presetType.id !== 'CONSULTA' ? presetType.label : (labAgora ? LAB_AGENDA_UI.tituloPadrao : 'Avaliação');
       // Espera o formData inicializar antes de abrir o modal (mount completo)
       setTimeout(() => {
         openCreateModal();
@@ -642,7 +668,7 @@ export default function AgendaPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [formData, setFormData] = useState({
-    type: 'CONSULTA',
+    type: isLab(btAgora()) ? LAB_AGENDA_UI.tipoPadrao : 'CONSULTA',
     title: '',
     description: '',
     date: '',
@@ -669,6 +695,14 @@ export default function AgendaPage() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const role = useRole();
+  // F7 — conta de laboratório (agenda de coleta, prova e entrega). Na clínica é sempre false.
+  const lab = isLab(useBusinessType());
+  const tiposDaAgenda = tiposDaTela(lab);
+  // O filtro nasce com os tipos da clínica (1º quadro); no laboratório passa a ser a lista
+  // dele, senão as coletas, provas e entregas ficariam escondidas.
+  useEffect(() => {
+    if (lab) setFilterTypes(LAB_AGENDA_UI.tipos.map(t => t.id));
+  }, [lab]);
   // Fase 0 — ADMIN das travas de status da agenda (mesmo critério do backend: ADMIN ou SUPER_ADMIN).
   const agendaIsAdmin = role.isAdmin || role.isSuperAdmin;
   const [showAllUsers, setShowAllUsers] = useState(false);
@@ -801,7 +835,7 @@ export default function AgendaPage() {
     // (ex: evento daqui a 30min nao recebe lembrete de "1d antes")
     const startIsoForReminders = `${date}T${time}:00`;
     setFormData({
-      type: 'CONSULTA',
+      type: isLab(btAgora()) ? LAB_AGENDA_UI.tipoPadrao : 'CONSULTA',
       title: '',
       description: '',
       date,
@@ -945,7 +979,10 @@ export default function AgendaPage() {
   // Usada em getDefaultReminders pra preencher modal de evento. Se admin
   // mudar antecedencia padrao via UI, novos eventos pegam automaticamente
   // (proximo mount carrega valor atualizado).
-  const reminderAntecedenciasRef = useRef<{ minutes_before: number; channel: string }[]>(FALLBACK_DEFAULT_ANTECEDENCIAS);
+  // F7 — no laboratório o padrão é só 48 h e 24 h pelo WhatsApp.
+  const reminderAntecedenciasRef = useRef<{ minutes_before: number; channel: string }[]>(
+    isLab(btAgora()) ? REMINDER_CONFIG_PADRAO_DO_LABORATORIO.default_antecedencias : FALLBACK_DEFAULT_ANTECEDENCIAS,
+  );
 
   // ─── Data Fetching ──────────────────────────────────
 
@@ -1229,6 +1266,9 @@ export default function AgendaPage() {
         lightColors: { main: '#6b7280', container: '#f3f4f6', onContainer: '#1f2937' },
         darkColors:  { main: '#6b7280', container: '#1f2937', onContainer: '#f3f4f6' },
       },
+      // F7 — Coleta, Prova e Entrega do laboratório. O schedule-x lê esta config UMA vez
+      // (na criação, 1º quadro), por isso btAgora() e não o hook.
+      ...(isLab(btAgora()) ? LAB_AGENDA_UI.calendarios : {}),
     },
   });
 
@@ -1295,7 +1335,10 @@ export default function AgendaPage() {
     // VAZIA pra quem não é admin). /users/lawyers é acessível a qualquer logado,
     // é tenant-scoped e já filtra: DENTIST ou (ADMIN com especialidade) — então
     // admin-puro (ex.: "Ana Alinne") não entra. Mesma lista pra todos da tenant.
-    api.get('/users/lawyers').then(r => {
+    // F7 — no laboratório o responsável da coleta/prova/entrega pode ser qualquer pessoa
+    // da equipe (protético, expedição, admin): /users/agents, também liberado a todos.
+    const labNoMount = isLab(btAgora());
+    api.get(labNoMount ? '/users/agents' : '/users/lawyers').then(r => {
       const data: any[] = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.users || []);
       setUsers(data.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(swallow('lazy load filtro de dentistas (nao essencial pra renderizar agenda)'));
@@ -1347,7 +1390,8 @@ export default function AgendaPage() {
       // "desliguei tudo" virar "não anexa nada".
       const ant = Array.isArray(r.data?.default_antecedencias) ? r.data.default_antecedencias : null;
       if (ant) {
-        reminderAntecedenciasRef.current = ant;
+        // F7 — no laboratório só 48 h e 24 h pelo WhatsApp (1 h, 15 min e e-mail ficam fora).
+        reminderAntecedenciasRef.current = labNoMount ? ant.filter(lembreteDoLaboratorio('WHATSAPP')) : ant;
       }
     }).catch(swallow('lazy load reminder config — usa fallback hardcoded'));
 
@@ -1359,8 +1403,12 @@ export default function AgendaPage() {
         .then(res => {
           if (res.data) {
             const ev = res.data;
-            setEditingEvent(ev);
-            setShowModal(true);
+            // Laboratório: abre preenchido (o quadro do Início leva direto ao evento).
+            if (isLab(btAgora())) openEditModal(ev);
+            else {
+              setEditingEvent(ev);
+              setShowModal(true);
+            }
           }
         })
         .catch(swallow('deep link de evento — pode ja ter sido deletado'));
@@ -1406,7 +1454,10 @@ export default function AgendaPage() {
           const clientName = e.patient?.name || e.lead?.name || '';
           const headline = clientName ? `${clientName} — ${e.title}` : e.title;
           const dentistTail = e.assigned_user ? `\n${e.assigned_user.name}` : '';
-          const typeEmoji = EVENT_TYPES.find(t => t.id === e.type)?.emoji || '';
+          const typeEmoji = tiposDaTela(lab).find(t => t.id === e.type)?.emoji || '';
+          // F7 — Coleta/Prova/Entrega do laboratório: card do cliente com a cor pelo STATUS
+          // e o marcador do tipo, como o atendimento da clínica.
+          const visita = lab && tipoSoDoLaboratorio(e.type);
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
           if (e.end_at && !isNaN(new Date(e.end_at).getTime())) {
@@ -1458,7 +1509,7 @@ export default function AgendaPage() {
           // dentista; só muda ao trocar o status. É mais confiável que as cores do
           // `calendars` do schedule-x — que só são lidas na CRIAÇÃO do calendário
           // (HMR não recolore).
-          const statusClass = PATIENT_APPT_TYPES.includes(e.type)
+          const statusClass = PATIENT_APPT_TYPES.includes(e.type) || visita
             ? `ag-status-${(e.status || 'AGENDADO').toLowerCase()}`
             : '';
 
@@ -1466,10 +1517,10 @@ export default function AgendaPage() {
           // horário + nome em destaque + procedimento + dentista). HTML escapado,
           // injetado via _customContent.timeGrid; o clique/arrastar seguem sendo do
           // schedule-x. Demais tipos (Bloqueio/Tarefa/Outro) mantêm o render padrão.
-          const isCardType = AGENDA_CARD_TYPES.includes(e.type);
+          const isCardType = AGENDA_CARD_TYPES.includes(e.type) || visita;
           let cardHtml = '';
           if (isCardType) {
-            const stColor = eventAccentColor(e);
+            const stColor = eventAccentColor(e, lab);
             const dtColor = agendaDentistColor(e.assigned_user?.id);
             const nm = clientName || e.title;
             // v2 (robustez com dado real): procedimento com ≤2 chars ("r","f") é lixo
@@ -1477,7 +1528,7 @@ export default function AgendaPage() {
             // que não são CONSULTA (o status já identifica a consulta).
             const showProc = !!clientName && !!e.title && e.title.trim().length > 2;
             const showType = e.type !== 'CONSULTA';
-            const tpColor = getEventColor(e.type);
+            const tpColor = getEventColor(e.type, lab);
             // Avatar do paciente no card: foto SALVA (blob pré-carregado) → foto do
             // WhatsApp (URL direta, só evento de lead) → iniciais com a cor do dentista.
             const _pid = e.patient?.id;
@@ -1581,7 +1632,7 @@ export default function AgendaPage() {
     } catch (err) {
       console.error('[Agenda] Error syncing events to calendar:', err);
     }
-  }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled, avatarBlobs]);
+  }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled, avatarBlobs, lab]);
 
   // Onda 18.x — DESTAQUE da COLUNA de HOJE (estilo Dental Office, que pinta o dia).
   // O schedule-x só marca o HEADER do dia (`sx__week-grid__date--is-today`), não a
@@ -1750,6 +1801,11 @@ export default function AgendaPage() {
       showError('Informe a data do evento');
       return;
     }
+    // F7 — no laboratório Coleta, Prova e Entrega exigem o cliente (o servidor também recusa).
+    if (lab && tipoSoDoLaboratorio(formData.type) && !formData.patient_id && !formData.lead_id) {
+      showError(LAB_AGENDA_TEXTOS.clienteObrigatorio);
+      return;
+    }
 
     setSavingEvent(true);
     const startIso = toISOFromLocal(`${formData.date} ${formData.startTime}`);
@@ -1802,7 +1858,8 @@ export default function AgendaPage() {
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
       patient_id: formData.patient_id || null,
-      reminders: remindersPayload,
+      // F7 — no laboratório só Coleta/Prova/Entrega levam lembrete ao cliente (48 h e 24 h).
+      reminders: lab && !tipoSoDoLaboratorio(formData.type) ? [] : remindersPayload,
     };
 
     console.log('[handleSave] enviando payload pro backend', {
@@ -2204,7 +2261,7 @@ export default function AgendaPage() {
         {role.canViewAllAgenda && (
           <div className="px-2 py-1">
             <div className="flex items-center justify-between mb-1">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{lab ? LAB_AGENDA_UI.rotulos.responsavel : 'Dentista'}</p>
               <button
                 onClick={() => setShowAllUsers(v => !v)}
                 className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border transition-colors ${
@@ -2259,8 +2316,8 @@ export default function AgendaPage() {
             <div className="space-y-1.5">
               {upcomingEvents.map(ev => {
                 const d = new Date(ev.start_at);
-                const typeColor = getEventColor(ev.type);
-                const borderColor = eventAccentColor(ev); // borda pelo STATUS (Dental Office)
+                const typeColor = getEventColor(ev.type, lab);
+                const borderColor = eventAccentColor(ev, lab); // borda pelo STATUS (Dental Office)
                 const isOverdue = new Date(ev.start_at) < new Date() && ev.status === 'AGENDADO';
                 return (
                   <button
@@ -2287,7 +2344,7 @@ export default function AgendaPage() {
                       {ev.patient && (
                         <PatientAvatar
                           patientId={ev.patient.id}
-                          patientName={ev.patient.name || 'Paciente'}
+                          patientName={ev.patient.name || (lab ? LAB_AGENDA_UI.rotulos.cliente : 'Paciente')}
                           avatarUrl={ev.patient.avatar_url}
                           size={24}
                           shape="circle"
@@ -2394,9 +2451,9 @@ export default function AgendaPage() {
               value={filterUserId}
               onChange={e => setFilterUserId(e.target.value)}
               className="pointer-events-auto inline-flex items-center px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-foreground shadow-sm outline-none focus:ring-2 focus:ring-primary/30 hover:bg-accent transition-colors max-w-[180px]"
-              title="Filtrar agenda por dentista"
+              title={lab ? LAB_AGENDA_UI.rotulos.filtroTitulo : 'Filtrar agenda por dentista'}
             >
-              <option value="">Todos os dentistas</option>
+              <option value="">{lab ? LAB_AGENDA_UI.rotulos.filtroTodos : 'Todos os dentistas'}</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           )}
@@ -2424,8 +2481,9 @@ export default function AgendaPage() {
           </button>
 
           {/* Bloquear agenda — apenas pra quem pode gerenciar (ADMIN/OPERADOR/ASSISTANT).
-              DENTIST nao tem permissao de criar/bloquear na agenda. */}
-          {role.canCreateAgendaEvent && (
+              DENTIST nao tem permissao de criar/bloquear na agenda.
+              F7 — escondido no laboratório: lá o bloqueio é o tipo Bloqueio do próprio evento. */}
+          {!lab && role.canCreateAgendaEvent && (
             // Redesign — Bloquear: destrutivo SUAVE (vermelho translúcido), não sólido.
             <button
               onClick={() => setShowBlockModal(true)}
@@ -2458,7 +2516,7 @@ export default function AgendaPage() {
         {/* Filtros mobile (expansível) */}
         {showFilters && (
           <div className="px-3 py-2 flex flex-wrap gap-1.5 border-b border-border bg-card/30 md:hidden">
-            {EVENT_TYPES.map(t => (
+            {tiposDaAgenda.map(t => (
               <button
                 key={t.id}
                 onClick={() => toggleFilterType(t.id)}
@@ -2487,7 +2545,7 @@ export default function AgendaPage() {
         {kanbanView ? (
           <div className="flex-1 overflow-auto p-4">
             <div className="flex gap-3 h-full" style={{ minWidth: 600 }}>
-              {KANBAN_COLUMNS.map(col => {
+              {(lab ? LAB_AGENDA_UI.kanban : KANBAN_COLUMNS).map(col => {
                 const colEvents = events.filter(e =>
                   e.type === 'TAREFA' && e.status === col.id
                 );
@@ -2508,7 +2566,7 @@ export default function AgendaPage() {
                     {/* Cards */}
                     <div className="flex flex-col gap-2 flex-1 overflow-y-auto custom-scrollbar pb-4">
                       {colEvents.map(ev => {
-                        const borderColor = eventAccentColor(ev); // borda pelo STATUS (Dental Office)
+                        const borderColor = eventAccentColor(ev, lab); // borda pelo STATUS (Dental Office)
                         const isOverdue = new Date(ev.start_at) < new Date() && col.id !== 'CONCLUIDO';
                         const daysOverdue = isOverdue
                           ? Math.max(0, Math.floor((Date.now() - new Date(ev.start_at).getTime()) / 86400000))
@@ -2540,7 +2598,7 @@ export default function AgendaPage() {
 
                             {/* Mover para outra coluna */}
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-wrap">
-                              {KANBAN_COLUMNS.filter(c => c.id !== col.id).map(target => (
+                              {(lab ? LAB_AGENDA_UI.kanban : KANBAN_COLUMNS).filter(c => c.id !== col.id).map(target => (
                                 <button
                                   key={target.id}
                                   onClick={(e) => {
@@ -2651,8 +2709,8 @@ export default function AgendaPage() {
           // agrupados por Consulta (status) e Tipos, + a dica da barra de dentista.
           <div className="shrink-0 border-t border-border bg-card/40 px-3 py-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[10px] leading-none overflow-x-auto">
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="font-extrabold uppercase tracking-[0.14em] text-[9px] text-muted-foreground/70">Consulta</span>
-              {LEGEND_STATUS.map((s) => (
+              <span className="font-extrabold uppercase tracking-[0.14em] text-[9px] text-muted-foreground/70">{lab ? LAB_AGENDA_UI.legenda.grupoStatus : 'Consulta'}</span>
+              {(lab ? LAB_AGENDA_UI.legenda.status : LEGEND_STATUS).map((s) => (
                 <span key={s.label} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 font-semibold text-muted-foreground whitespace-nowrap">
                   <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: s.color }} />
                   {s.label}
@@ -2662,7 +2720,7 @@ export default function AgendaPage() {
             <span className="w-px h-4 bg-border shrink-0 hidden sm:block" />
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="font-extrabold uppercase tracking-[0.14em] text-[9px] text-muted-foreground/70">Tipos</span>
-              {LEGEND_TYPE.map((s) => (
+              {(lab ? LAB_AGENDA_UI.legenda.tipos : LEGEND_TYPE).map((s) => (
                 <span key={s.label} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 font-semibold text-muted-foreground whitespace-nowrap">
                   <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: s.color }} />
                   {s.label}
@@ -2672,7 +2730,7 @@ export default function AgendaPage() {
             <span className="w-px h-4 bg-border shrink-0 hidden md:block" />
             <span className="inline-flex items-center gap-1.5 text-muted-foreground/70 italic shrink-0">
               <span className="w-1 h-3.5 rounded-full shrink-0 bg-gradient-to-b from-fuchsia-500 to-cyan-500" />
-              barra à esquerda = dentista
+              {lab ? LAB_AGENDA_UI.legenda.barra : 'barra à esquerda = dentista'}
             </span>
           </div>
         )}
@@ -2689,13 +2747,13 @@ export default function AgendaPage() {
             {hoverTooltip.event.patient ? (
               <PatientAvatar
                 patientId={hoverTooltip.event.patient.id}
-                patientName={hoverTooltip.event.patient.name || 'Paciente'}
+                patientName={hoverTooltip.event.patient.name || (lab ? LAB_AGENDA_UI.rotulos.cliente : 'Paciente')}
                 avatarUrl={hoverTooltip.event.patient.avatar_url}
                 size={22}
                 shape="circle"
               />
             ) : (
-              <span className="text-base">{EVENT_TYPES.find(t => t.id === hoverTooltip.event.type)?.emoji}</span>
+              <span className="text-base">{tiposDaAgenda.find(t => t.id === hoverTooltip.event.type)?.emoji}</span>
             )}
             <span className="text-xs font-bold text-foreground truncate">{hoverTooltip.event.title}</span>
           </div>
@@ -2717,7 +2775,7 @@ export default function AgendaPage() {
               <p className="truncate">👤 {hoverTooltip.event.legal_case.lead.name}</p>
             )}
             <p style={{ color: EVENT_STATUSES.find(s => s.id === hoverTooltip.event.status)?.color }}>
-              ● {EVENT_STATUSES.find(s => s.id === hoverTooltip.event.status)?.label ?? hoverTooltip.event.status}
+              ● {(lab && LAB_AGENDA_STATUS[hoverTooltip.event.status]) || (EVENT_STATUSES.find(s => s.id === hoverTooltip.event.status)?.label ?? hoverTooltip.event.status)}
             </p>
           </div>
         </div>,
@@ -2736,7 +2794,7 @@ export default function AgendaPage() {
                 Lembrete em {reminderToast.minutesBefore} min
               </p>
               <p className="text-sm font-semibold text-foreground truncate">
-                {EVENT_TYPES.find(t => t.id === reminderToast.type)?.emoji} {reminderToast.title}
+                {tiposDaAgenda.find(t => t.id === reminderToast.type)?.emoji} {reminderToast.title}
               </p>
               <p className="text-[11px] text-muted-foreground">
                 {new Date(reminderToast.start_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
@@ -2775,7 +2833,7 @@ export default function AgendaPage() {
                   <button
                     type="button"
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient!.id}`); }}
-                    title="Abrir ficha do paciente"
+                    title={lab ? LAB_AGENDA_UI.rotulos.abrirFicha : 'Abrir ficha do paciente'}
                     className="inline-flex items-center gap-2 text-lg font-bold text-emerald-600 hover:text-emerald-700 hover:underline group min-w-0 max-w-full"
                   >
                     <PatientAvatar
@@ -2784,7 +2842,7 @@ export default function AgendaPage() {
                       avatarUrl={(editingEvent.patient as any).avatar_url ?? null}
                       size={28}
                     />
-                    <span className="truncate">{editingEvent.patient.name || 'Paciente sem nome'}</span>
+                    <span className="truncate">{editingEvent.patient.name || (lab ? LAB_AGENDA_UI.rotulos.clienteSemNome : 'Paciente sem nome')}</span>
                     <ExternalLink size={14} className="shrink-0 opacity-60 group-hover:opacity-100" />
                   </button>
                 ) : (
@@ -2816,7 +2874,7 @@ export default function AgendaPage() {
 
             {/* Dentista — primeiro campo, vem antes das pills de status conforme layout simplificado */}
             <fieldset disabled={!canEdit} className="px-5 pt-4">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Dentista / Responsavel</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">{lab ? LAB_AGENDA_UI.rotulos.responsavel : 'Dentista / Responsavel'}</label>
               <select
                 value={formData.assigned_user_id}
                 onChange={e => setFormData(f => ({ ...f, assigned_user_id: e.target.value }))}
@@ -2829,8 +2887,8 @@ export default function AgendaPage() {
 
             {/* (Status agora fica no slot que era da Prioridade, mais abaixo — Onda 17.61.) */}
 
-            {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
-            {editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
+            {/* Validacao clinica (Fase 23) — so pra eventos clinicos (nunca no laboratório) */}
+            {!lab && editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
               <div className="px-5 pt-3">
                 {editingEvent.validated_at ? (
                   // Atendimento ja validado — mostra badge e (se admin) botao reverter
@@ -2893,7 +2951,7 @@ export default function AgendaPage() {
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Tipo</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {EVENT_TYPES.map(t => (
+                  {tiposDaAgenda.map(t => (
                     <button
                       key={t.id}
                       // Fase 0 — consulta validada não muda de tipo fora do ADMIN (o backend dá 403).
@@ -2919,7 +2977,7 @@ export default function AgendaPage() {
                   type="text"
                   value={formData.title}
                   onChange={e => setFormData(f => ({ ...f, title: e.target.value }))}
-                  placeholder={formData.type === 'CONSULTA' ? 'Avaliação / consulta com...' : formData.type === 'PROCEDIMENTO' ? 'Procedimento — ex: Instalação de implante' : formData.type === 'RETORNO' ? 'Retorno pós-tratamento' : formData.type === 'BLOQUEIO' ? 'Bloqueio — ex: Folga / Congresso' : 'Titulo do evento'}
+                  placeholder={lab ? (LAB_AGENDA_UI.placeholders[formData.type] ?? LAB_AGENDA_UI.placeholderPadrao) : formData.type === 'CONSULTA' ? 'Avaliação / consulta com...' : formData.type === 'PROCEDIMENTO' ? 'Procedimento — ex: Instalação de implante' : formData.type === 'RETORNO' ? 'Retorno pós-tratamento' : formData.type === 'BLOQUEIO' ? 'Bloqueio — ex: Folga / Congresso' : 'Titulo do evento'}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-2 focus:ring-primary/30 focus:border-primary/50 outline-none"
                 />
               </div>
@@ -2956,10 +3014,12 @@ export default function AgendaPage() {
               </div>
 
               {/* Paciente / Lead — so visivel quando criando evento (na edicao
-                  o paciente ja aparece em destaque no header do modal). */}
-              {!editingEvent && (
+                  o paciente ja aparece em destaque no header do modal).
+                  F7 — no laboratório aparece também ao editar um evento ainda sem cliente
+                  (Coleta, Prova e Entrega exigem o cliente). */}
+              {(!editingEvent || (lab && !editingEvent.patient_id && !editingEvent.lead_id)) && (
                 <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Paciente / Lead</label>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">{lab ? LAB_AGENDA_UI.rotulos.contato : 'Paciente / Lead'}</label>
                   <ContactPicker
                     value={{ patient_id: formData.patient_id || null, lead_id: formData.lead_id || null }}
                     onChange={(s) => setFormData((f) => ({ ...f, patient_id: s.patient_id || '', lead_id: s.lead_id || '' }))}
@@ -2992,10 +3052,11 @@ export default function AgendaPage() {
                   borderColor: (EVENT_STATUSES.find(s => s.id === (editingEvent ? editingEvent.status : formData.status))?.color || '#cbd5e1') + '60',
                 }}
               >
-                {EVENT_STATUSES
+                {(lab ? statusDoLaboratorio(editingEvent ? editingEvent.status : formData.status) : EVENT_STATUSES)
                   // Fase 0 — na criação de consulta, Atendido/Faltou/Desmarcou é só do ADMIN
                   // (o backend barra com 403): cria como Agendado/Chegou e o dentista valida.
-                  .filter(s => editingEvent || agendaIsAdmin || !PATIENT_APPT_TYPES.includes(formData.type)
+                  // F7 — no laboratório a mesma regra vale para Coleta, Prova e Entrega.
+                  .filter(s => editingEvent || agendaIsAdmin || !(PATIENT_APPT_TYPES.includes(formData.type) || (lab && tipoSoDoLaboratorio(formData.type)))
                     || !STATUS_CRIAR_SO_ADMIN.includes(s.id))
                   .map(s => (
                     <option
@@ -3054,7 +3115,7 @@ export default function AgendaPage() {
                     <Download size={12} /> <span className="hidden md:inline">.ics</span>
                   </button>
                 )}
-                {editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
+                {!lab && editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
                   <button
                     onClick={handleNotify}
                     disabled={sendingNotify}
@@ -3066,7 +3127,7 @@ export default function AgendaPage() {
                 )}
                 {/* Avaliação — abre a ficha do paciente na aba Odontograma (atalho clínico).
                     O status agora é controlado pelo dropdown de Status (Onda 17.61). */}
-                {editingEvent && editingEvent.patient_id
+                {!lab && editingEvent && editingEvent.patient_id
                   && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
                   <button
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
@@ -3110,7 +3171,9 @@ export default function AgendaPage() {
 
       {/* Onda 5e v9 (Fase 25) — Modal de bloqueio de agenda. Renderizado fora
           do flex-1 pra ficar acima de tudo (z-100). Refetch dos eventos ao
-          fechar pra agenda refletir mudancas (eventos cancelados em bloqueios). */}
+          fechar pra agenda refletir mudancas (eventos cancelados em bloqueios).
+          F7 — não monta no laboratório (o Bloquear fica escondido lá). */}
+      {!lab && (
       <ScheduleBlockModal
         open={showBlockModal}
         onClose={() => {
@@ -3122,6 +3185,7 @@ export default function AgendaPage() {
         currentUserId={currentUserId}
         isAdmin={role.isAdmin}
       />
+      )}
     </div>
   );
 }

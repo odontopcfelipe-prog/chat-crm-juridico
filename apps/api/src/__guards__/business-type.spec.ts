@@ -4,9 +4,9 @@
  * Só o valor EXATO 'LABORATORIO' liga o caminho do laboratório. Qualquer outra
  * coisa — ausente, vazio, minúsculo, com espaço, objeto, número — é CLÍNICA, e a
  * clínica continua vendo o 1º argumento de pickBt. A lista de rotas do lab é
- * negação por padrão: só as telas da F4 e da F5 abrem, e '/atendimento',
- * '/atendimento/settings' e '/atendimento/financeiro' são exatas (como prefixo
- * abririam tudo embaixo).
+ * negação por padrão: só as telas das fases já entregues abrem (F4 a F7), e
+ * '/atendimento', '/atendimento/settings', '/atendimento/financeiro' e a Central de
+ * Disparos são exatas (como prefixo abririam tudo embaixo).
  */
 import {
   ALLOWED_LAB_ROUTES,
@@ -54,8 +54,8 @@ describe('business-type — na dúvida, clínica', () => {
 });
 
 /**
- * A lista exata, na mesma ordem de ALLOWED_LAB_ROUTES. Os blocos F5a, F5b, F5c e F6a são os
- * mesmos de business-type.ts: cada deploy tira (ou põe) o bloco inteiro nos quatro
+ * A lista exata, na mesma ordem de ALLOWED_LAB_ROUTES. Os blocos F5a, F5b, F5c, F6a e F7a são
+ * os mesmos de business-type.ts: cada deploy tira (ou põe) o bloco inteiro nos quatro
  * arquivos de rota, sem mexer no resto.
  */
 const ROTAS_ESPERADAS: unknown[] = [
@@ -95,6 +95,10 @@ const ROTAS_ESPERADAS: unknown[] = [
   '/atendimento/orcamentos',
   '/atendimento/settings/quote-templates',
   // [/F6a]
+  // [F7a]
+  '/atendimento/agenda',
+  { path: '/atendimento/settings/disparos', exact: true },
+  // [/F7a]
 ];
 
 describe('labAllowsRoute — negação por padrão', () => {
@@ -109,11 +113,18 @@ describe('labAllowsRoute — negação por padrão', () => {
 
   it.each([
     '/',
-    '/atendimento/agenda',
+    '/atendimento/agenda-antiga',
+    '/atendimento/minha-agenda',
     '/atendimento/crm',
     '/atendimento/tasks',
     '/atendimento/billing',
-    '/atendimento/settings/disparos',
+    '/atendimento/waitlist',
+    '/atendimento/return-alerts',
+    '/atendimento/settings/disparos/campanhas',
+    '/atendimento/settings/disparos-antigos',
+    '/atendimento/settings/emails-automaticos',
+    '/atendimento/settings/office',
+    '/atendimento/settings/appointment-markers',
     '/atendimento/settings/ai',
     '/atendimento/settings/specialties',
     '/atendimento/settings/quotes-trash',
@@ -166,6 +177,14 @@ describe('labAllowsRoute — negação por padrão', () => {
     '/atendimento/orcamentos?status=SENT',
     '/atendimento/settings/quote-templates',
     // [/F6a]
+    // [F7a]
+    '/atendimento/agenda',
+    '/atendimento/agenda?tab=tasks',
+    '/atendimento/agenda?new=1&patient_id=1&type=COLETA',
+    '/atendimento/settings/disparos',
+    '/atendimento/settings/disparos/',
+    '/atendimento/settings/disparos?x=1',
+    // [/F7a]
     '/atendimento/chat',
   ])('na lista, %p abre', (rota) => {
     expect(labAllowsRoute(rota)).toBe(true);
@@ -176,7 +195,7 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute('/atendimento/')).toBe(true);
     expect(labAllowsRoute('/atendimento?x=1')).toBe(true);
     expect(labAllowsRoute('/atendimento#topo')).toBe(true);
-    expect(labAllowsRoute('/atendimento/agenda')).toBe(false);
+    expect(labAllowsRoute('/atendimento/minha-agenda')).toBe(false);
     expect(labAllowsRoute('/atendimento/tasks')).toBe(false);
     expect(labAllowsRoute('/atendimento/crm')).toBe(false);
   });
@@ -186,7 +205,7 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute('/atendimento/settings/')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings?aba=1')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/ai')).toBe(false);
-    expect(labAllowsRoute('/atendimento/settings/disparos')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/emails-automaticos')).toBe(false);
     // As subtelas liberadas entram pela própria entrada, não pelo índice.
     expect(labAllowsRoute('/atendimento/settings/whatsapp')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/ponto')).toBe(true);
@@ -198,6 +217,17 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute('/atendimento/financeiro-antigo')).toBe(false);
     expect(ALLOWED_LAB_ROUTES).not.toContain('/atendimento/financeiro');
   });
+
+  // [F7a]
+  it("a Central de Disparos fica EXATA: abre a Central e a Campanha manual embaixo dela não", () => {
+    expect(labAllowsRoute('/atendimento/settings/disparos')).toBe(true);
+    expect(labAllowsRoute('/atendimento/settings/disparos/campanhas')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/disparos/campanhas?id=1')).toBe(false);
+    expect(ALLOWED_LAB_ROUTES).not.toContain('/atendimento/settings/disparos');
+    // A agenda entra como prefixo (a aba de tarefas e o deep-link abrem por ela).
+    expect(labAllowsRoute('/atendimento/agenda/x')).toBe(true);
+  });
+  // [/F7a]
 
   it('as entradas de prefixo abrem a tela e as filhas, por segmento', () => {
     expect(labAllowsRoute('/atendimento/dashboard')).toBe(true);

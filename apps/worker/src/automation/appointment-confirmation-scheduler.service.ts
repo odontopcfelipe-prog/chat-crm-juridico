@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatTenantAddress, DEFAULT_CONFIRMACAO_ORTO, excludeLabWhere, getLabTenantIds } from '@crm/shared';
+import { agendarConfirmacoesDoLaboratorio } from './confirmacao-do-laboratorio';
 
 /**
  * Cron horario que cria AppointmentConfirmation pendente para
@@ -72,7 +73,8 @@ export class AppointmentConfirmationSchedulerService {
         },
       });
 
-      if (eligible.length === 0) return;
+      // F7 — sem evento da clínica, ainda passa pela busca do laboratório (se houver).
+      if (eligible.length === 0) return await this.confirmacoesDoLaboratorio(labs, in24h, in25h, now);
 
       let created = 0;
       let skipped = 0;
@@ -284,8 +286,20 @@ export class AppointmentConfirmationSchedulerService {
           `[ConfirmationScheduler] ${created} criada(s), ${skipped} pulada(s) (sem telefone ou ja existente)`,
         );
       }
+
+      // F7 — coleta, prova e entrega do laboratório: busca separada, DEPOIS da clínica.
+      await this.confirmacoesDoLaboratorio(labs, in24h, in25h, now);
     } catch (e: any) {
       this.logger.error(`[ConfirmationScheduler] Erro: ${e.message}`);
     }
+  }
+
+  /**
+   * F7 — confirmação 24 h do laboratório (confirmacao-do-laboratorio.ts). Sem
+   * laboratório cadastrado não faz nenhuma consulta: a clínica segue com uma só.
+   */
+  private async confirmacoesDoLaboratorio(labs: ReadonlySet<string>, in24h: Date, in25h: Date, now: Date): Promise<void> {
+    if (!labs.size) return;
+    await agendarConfirmacoesDoLaboratorio(this.prisma, labs, { in24h, in25h, now }, this.logger);
   }
 }

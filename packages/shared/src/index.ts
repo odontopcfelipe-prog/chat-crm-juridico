@@ -60,3 +60,7 @@ export * from './conta-legada';
 export * from './post-care-config';
 // F2 parte 3a: chaves da GlobalSetting que valem para toda conta (o laboratório só lê estas)
 export * from './globais-plataforma';
+export * from './agenda-laboratorio';
+export * from './lab-agenda-textos';
+export * from './lab-disparos';
+export * from './lab-disparos-textos';

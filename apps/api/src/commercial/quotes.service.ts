@@ -34,6 +34,11 @@ import type { VendaBalcaoDto } from './dto/commercial.dto';
 // da recusa do elemento fora da numeração FDI.
 import { enviarOrcamentoDoLaboratorio } from './orcamento-whatsapp-laboratorio';
 import { LAB_ORCAMENTO_ITENS } from './lab-orcamento-textos';
+// F7 — avisos de venda do laboratório (orçamento aprovado, boleto da entrada, venda feita
+// e resumo do dia): textos do laboratório e o primeiro nome sem título. Só o ramo do
+// laboratório usa; funções puras (sem DI).
+import { LAB_NEGOCIACAO, LAB_ENTRADA, LAB_VENDA_FEITA, LAB_RESUMO_DIA, LAB_AGENDA_TEXTOS, primeiroNomeSemTitulo } from '@crm/shared';
+import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
 
 type ItemInput = {
   procedure_id: string;
@@ -1682,13 +1687,9 @@ export class QuotesService {
         );
         return;
       }
-      // F2 [LAB-GATE] — "Seu tratamento foi aprovado" + PDF dos procedimentos é texto de
-      // clínica: conta de laboratório não recebe, por nenhum caminho (aprovar-e-cobrar,
-      // fila do fechamento, entrada paga pelo webhook/reconcile). Clínica: só a leitura.
-      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-        this.logger.log(`[LAB-GATE] negociacao-aprovada — conta ${tenantId} é laboratório: não envia (plano ${planId})`);
-        return;
-      }
+      // F7 — conta de laboratório recebe o orçamento aprovado com o texto e o PDF do
+      // laboratório (mesmo toggle, mesma dedup, mesmo chip). Clínica: só a leitura.
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
 
       // Onda 18.x — CARDS SEPARADOS: a venda À VISTA (PIX/cartão, sem parcelas) tem
       // toggle próprio ("Negociação aprovada · à vista"); sem valor salvo, HERDA o do
@@ -1728,10 +1729,16 @@ export class QuotesService {
       // à vista usa o próprio (negociacao_aprovada_avista), editável na Central.
       const aVista = isAVista; // mesma régua do gate acima (uma fonte só)
       const tplId = aVista ? 'negociacao_aprovada_avista' : 'negociacao_aprovada';
-      let template = aVista ? DEFAULT_NEGOCIACAO_APROVADA_AVISTA : DEFAULT_NEGOCIACAO_APROVADA;
+      let template = lab
+        ? (aVista ? LAB_NEGOCIACAO.avista : LAB_NEGOCIACAO.parcelado)
+        : (aVista ? DEFAULT_NEGOCIACAO_APROVADA_AVISTA : DEFAULT_NEGOCIACAO_APROVADA);
       const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey(tplId, tenantId) } });
       if (tplRow?.value) {
         try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* usa default */ }
+      }
+      // F7 — laboratório: texto salvo com palavra de clínica não vai ao cliente (usa o padrão).
+      if (lab && temVocabularioDeClinica(semVariaveis(template))) {
+        template = aVista ? LAB_NEGOCIACAO.avista : LAB_NEGOCIACAO.parcelado;
       }
       // {instrucao} — o que vem A SEGUIR, pela forma real (só na venda à vista).
       const instrucao = !aVista ? ''
@@ -1739,9 +1746,11 @@ export class QuotesService {
         : terms.forma === 'CREDIT_CARD' ? 'Já te envio o link pra pagamento no cartão aqui mesmo. 😊'
         : '';
 
-      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || (lab ? LAB_VENDA_FEITA.laboratorioSemNome : 'a clínica');
       const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const firstName = (patient?.name || 'paciente').split(' ')[0];
+      const firstName = lab
+        ? (primeiroNomeSemTitulo(patient?.name) || LAB_AGENDA_TEXTOS.nomePadrao)
+        : (patient?.name || 'paciente').split(' ')[0];
       const formaLabel = (f?: string) => (f === 'BOLETO' ? 'boleto' : f === 'PIX' ? 'PIX' : f === 'CREDIT_CARD' ? 'cartão' : (f || ''));
 
       // Bloco de condições (fonte única com a entrega dos boletos — buildCondicoesBlock).
@@ -1763,7 +1772,7 @@ export class QuotesService {
           select: { quantity: true, procedure: { select: { name: true } } },
         });
         itensStr = items
-          .map((i) => `• ${i.procedure?.name || 'Procedimento'}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`)
+          .map((i) => `• ${i.procedure?.name || (lab ? LAB_NEGOCIACAO.servicoSemNome : 'Procedimento')}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`)
           .join('\n');
       } catch (e: any) {
         this.logger.warn(`[NEGOCIACAO_APROVADA] falha ao listar itens do plano ${planId}: ${e?.message}`);
@@ -1836,13 +1845,14 @@ export class QuotesService {
           });
           if (plan?.quote_id) {
             const pdf = await this.pdfService.generatePdf(plan.quote_id, tenantId, false); // false = sem valores
+            // No laboratório o PDF já sai como orçamento de trabalho (QuotePdfService, F6).
             const pdfRes = await ws.sendMedia(
               phone,
               'document',
               pdf.toString('base64'),
-              `Aqui estão os procedimentos do seu tratamento, ${firstName}. 😊`,
+              lab ? LAB_NEGOCIACAO.legendaDoPdf(firstName) : `Aqui estão os procedimentos do seu tratamento, ${firstName}. 😊`,
               instance,
-              `procedimentos-${firstName}.pdf`,
+              lab ? LAB_NEGOCIACAO.arquivoDoPdf(firstName) : `procedimentos-${firstName}.pdf`,
               'application/pdf',
             );
             if (this.wasSent(pdfRes)) {
@@ -1961,12 +1971,9 @@ export class QuotesService {
       const ws = this.whatsapp;
       const phone = patient?.phone?.trim();
       if (!ws || !phone || !tenantId) return;
-      // F2 [LAB-GATE] — boleto da entrada com texto fixo de clínica ("pra garantir seu
-      // tratamento"): conta de laboratório não recebe. Clínica: só a leitura.
-      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-        this.logger.log(`[LAB-GATE] entrada-cobranca — conta ${tenantId} é laboratório: não envia (plano ${planId})`);
-        return;
-      }
+      // F7 — conta de laboratório recebe o boleto da entrada com o texto do laboratório
+      // (mesmo link, mesmo PIX, mesma marca da peça). Clínica: só a leitura.
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
 
       const charges = await this.prisma.paymentGatewayCharge.findMany({
         where: {
@@ -2035,8 +2042,10 @@ export class QuotesService {
           }
         }
 
-        let m1 = `${firstName}, pra garantir seu tratamento, segue o *boleto ${artigo}* de *${brl(c.amount)}*`
-          + (due ? ` (vence em *${due}*)` : '') + '.';
+        let m1 = lab
+          ? LAB_ENTRADA.mensagem(primeiroNomeSemTitulo(patient?.name) || LAB_AGENDA_TEXTOS.nomePadrao, artigo, brl(c.amount), due)
+          : `${firstName}, pra garantir seu tratamento, segue o *boleto ${artigo}* de *${brl(c.amount)}*`
+            + (due ? ` (vence em *${due}*)` : '') + '.';
         if (boletoUrl) m1 += `\n\n🔗 Boleto:\n${boletoUrl}`;
         if (pix) m1 += `\n\nSe preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇`;
 
@@ -2071,13 +2080,8 @@ export class QuotesService {
     terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string };
   }): Promise<void> {
     const { tenantId, planId, terms } = payload;
-    // F2 [LAB-GATE] — negociação aprovada ("seu tratamento") e o boleto da entrada com
-    // texto fixo de clínica: conta de laboratório não recebe. Aqui (e não no processor)
-    // cobre a fila e o fallback síncrono. Clínica: só a leitura da lista.
-    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] fechamento — conta ${tenantId} é laboratório: sem negociação nem entrada (plano ${planId})`);
-      return;
-    }
+    // F7 — o laboratório também recebe a negociação e a entrada: cada envio escolhe o
+    // texto do laboratório (sendNegociacaoAprovada e sendEntradaCobranca).
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
       select: { patient: { select: { name: true, phone: true } } },
@@ -2332,6 +2336,8 @@ export class QuotesService {
 
       const on = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } });
       if (on?.value !== 'true') return;
+      // F7 — laboratório: o mesmo aviso, com os nomes padrão do laboratório.
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
       // Quem recebe: os números da Central (VENDA_FEITA_PHONE; se vazio, HERDA o do
       // Resumo Diário) + os ADMs com "Venda feita" marcado no cadastro da equipe,
       // menos quem desligou (regra única do @crm/shared).
@@ -2348,12 +2354,12 @@ export class QuotesService {
         : (info.forma === 'CREDIT_CARD' || info.forma === 'CARTAO') ? 'Cartão'
         : (info.forma === 'CASH' || info.forma === 'DINHEIRO') ? 'Espécie'
         : info.forma === 'PIX_MAQUININHA' ? 'PIX (maquineta)' : (info.forma || '—');
-      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || (lab ? LAB_VENDA_FEITA.laboratorioSemNome : 'a clínica');
 
       let itensStr = '';
       try {
         const items = await this.prisma.treatmentPlanItem.findMany({ where: { treatment_plan_id: planId }, select: { quantity: true, procedure: { select: { name: true } } } });
-        itensStr = items.map((i) => `${i.procedure?.name || 'Procedimento'}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`).join(', ');
+        itensStr = items.map((i) => `${i.procedure?.name || (lab ? LAB_VENDA_FEITA.servicoSemNome : 'Procedimento')}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`).join(', ');
       } catch { /* best-effort */ }
 
       let vendedor = '';
@@ -2364,7 +2370,7 @@ export class QuotesService {
 
       const msg =
         `🎉 *Venda realizada!*\n_${clinica}_\n\n` +
-        `👤 ${patient?.name || 'Paciente'}\n` +
+        `👤 ${patient?.name || (lab ? LAB_VENDA_FEITA.clienteSemNome : 'Paciente')}\n` +
         `💰 R$ ${brl(info.valor)} · ${formaLabel}\n` +
         (itensStr ? `🦷 ${itensStr}\n` : '') +
         (vendedor ? `🧑‍⚕️ Vendedor(a): ${vendedor}\n` : '');
@@ -5264,7 +5270,9 @@ export class QuotesService {
         });
         if (already) continue;
 
-        const msg = await this.buildDailySummary(tid, startUTC, endUTC, dataLabel);
+        // F7 — laboratório: o mesmo resumo, com os nomes padrão do laboratório.
+        const lab = await isLabTenant(this.prisma, tid, (m) => this.logger.warn(m));
+        const msg = await this.buildDailySummary(tid, startUTC, endUTC, dataLabel, lab);
         // Mesmo helper resiliente do venda_feita: tenta os chips e só marca SENT
         // se algum REALMENTE entregou (antes marcava SENT mesmo com o chip caído,
         // porque a Evolution não lança — devolve erro).
@@ -5289,12 +5297,15 @@ export class QuotesService {
   /** Monta o texto do resumo do dia: entradas e saídas DISCRIMINADAS por forma,
    *  saldo, vendas de boleto (com valores), boletos compensados e em atraso, e
    *  negociações fechadas. Janela em UTC (dia Maceió). */
-  private async buildDailySummary(tenantId: string, startUTC: Date, endUTC: Date, dataLabel: string): Promise<string> {
+  private async buildDailySummary(tenantId: string, startUTC: Date, endUTC: Date, dataLabel: string, lab = false): Promise<string> {
     const brl = (v: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const win = { gte: startUTC, lt: endUTC };
     const METODO: Record<string, string> = { PIX: 'PIX', DINHEIRO: 'Dinheiro', CARTAO: 'Cartão', BOLETO: 'Boleto', TRANSFERENCIA: 'Transferência' };
 
-    const firstName = (n?: string | null) => (n || 'Paciente').split(' ')[0];
+    // F7 — laboratório: o cliente é dentista ("Dr. Fulano" vira "Fulano").
+    const firstName = (n?: string | null) => lab
+      ? (primeiroNomeSemTitulo(n) || LAB_RESUMO_DIA.clienteSemNome)
+      : (n || 'Paciente').split(' ')[0];
     const metodoLabel = (m?: string | null) => (m ? METODO[m] || m : '');
     const boletoSel = { amount: true, customer_external_id: true, treatment_plan: { select: { patient: { select: { name: true } } } } } as const;
 
@@ -5353,7 +5364,7 @@ export class QuotesService {
       for (const c of custs) if (c.lead?.name) custMap.set(c.external_id, c.lead.name);
     }
     const boletoNome = (b: { customer_external_id?: string | null; treatment_plan?: { patient?: { name?: string | null } | null } | null }) =>
-      firstName(b.treatment_plan?.patient?.name || (b.customer_external_id ? custMap.get(b.customer_external_id) : null) || 'Paciente');
+      firstName(b.treatment_plan?.patient?.name || (b.customer_external_id ? custMap.get(b.customer_external_id) : null) || (lab ? LAB_RESUMO_DIA.clienteSemNome : 'Paciente'));
 
     const somaAmount = (rows: { amount: unknown }[]) => rows.reduce((s, r) => s + Number(r.amount || 0), 0);
     // Lista genérica de boletos "• Nome: R$ x" com corte em 15.
@@ -5394,7 +5405,7 @@ export class QuotesService {
     const listaNegoc = negoc.slice(0, 15).map((q) => `  • ${firstName(q.patient?.name)}: R$ ${brl(Number(q.total_value))}`).join('\n')
       + (negoc.length > 15 ? `\n  …e mais ${negoc.length - 15}` : '');
 
-    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || (lab ? LAB_RESUMO_DIA.laboratorioSemNome : 'a clínica');
 
     return (
       `📊 *Resumo do dia — ${dataLabel}*\n_${clinica}_\n\n` +
@@ -5405,7 +5416,7 @@ export class QuotesService {
       `📄 *Vendas em boleto:* ${boletos.length} — R$ ${brl(totalBoletos)}` + (boletos.length ? `\n${listaBoleto(boletos)}` : '') + `\n\n` +
       `✅ *Boletos compensados:* ${compensados.length} — R$ ${brl(compTotal)}` + (compensados.length ? `\n${listaBoleto(compensados)}` : '') + `\n\n` +
       `⚠️ *Boletos em atraso:* ${atrasoCount} — R$ ${brl(atrasoTotal)}` + (atrasoRows.length ? `\n${listaAtraso}` : '') + `\n\n` +
-      `🤝 *Negociações fechadas:* ${negoc.length} — R$ ${brl(negocTotal)}` + (negoc.length ? `\n${listaNegoc}` : '') + `\n\n` +
+      `${lab ? LAB_RESUMO_DIA.orcamentosAprovados : '🤝 *Negociações fechadas:*'} ${negoc.length} — R$ ${brl(negocTotal)}` + (negoc.length ? `\n${listaNegoc}` : '') + `\n\n` +
       `_Resumo automático do fechamento do dia._`
     );
   }

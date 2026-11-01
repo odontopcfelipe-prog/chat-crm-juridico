@@ -124,10 +124,9 @@ export class CalendarCronService {
       const settings = await this.prisma.globalSetting.findMany({
         where: { key: { startsWith: 'DENTIST_DAILY_SUMMARY' } },
       });
-      // F2 [LAB-GATE] — o resumo é a agenda de atendimentos de clínica (Doutor(a),
-      // Avaliação, Paciente): conta de laboratório não recebe, mesmo ligada. O
-      // sendDentistDailySummaryNow tem o mesmo freio (cobre o "Enviar agora" e a chave
-      // global). Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
+      // F7 — conta de laboratório recebe o resumo de coleta, prova e entrega (opt-in: o
+      // padrão gravado nasce desligado); o sendDentistDailySummaryNow escolhe o resumo
+      // pela conta. Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
       const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const s of settings) {
@@ -152,8 +151,7 @@ export class CalendarCronService {
           continue;
         }
         if (labs.has(tenantId)) {
-          this.logger.log(`[LAB-GATE] resumo-dentista — conta ${tenantId} é laboratório: não envia`);
-          continue;
+          this.logger.log(`[LAB-AGENDA] resumo do dia — conta ${tenantId} é laboratório: coleta, prova e entrega`);
         }
 
         try {
@@ -185,9 +183,9 @@ export class CalendarCronService {
       const settings = await this.prisma.globalSetting.findMany({
         where: { key: { startsWith: 'BIRTHDAY_GREETING' } },
       });
-      // F2 [LAB-GATE] — os textos-padrão do aniversário são de clínica (sorriso,
-      // clareamento): conta de laboratório não manda, nem marca last_run_date na config.
-      // Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
+      // F7 — conta de laboratório: só a mensagem clássica, com a config e o texto do
+      // laboratório (a 2 e a 3 nem marcam last_run_date). Clínica: sem laboratório o
+      // conjunto é vazio e o laço é o mesmo.
       const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const s of settings) {
@@ -198,10 +196,7 @@ export class CalendarCronService {
           ? undefined
           : s.key.replace(/^BIRTHDAY_GREETING_/, '');
         if (!tenantId) continue; // aniversario e sempre por-tenant
-        if (labs.has(tenantId)) {
-          this.logger.log(`[LAB-GATE] aniversario — conta ${tenantId} é laboratório: não envia`);
-          continue;
-        }
+        const lab = labs.has(tenantId);
 
         // Onda 17.61 — TRÊS mensagens separadas no dia (clássica, o desejo, o
         // presente), cada uma no seu horario e com dedup proprio.
@@ -211,11 +206,17 @@ export class CalendarCronService {
           { which: 3, label: 'presente', on: !!cfg.message3_enabled, hh: String(cfg.message3_send_at || '12:00').split(':')[0].padStart(2, '0'), ran: cfg.message3_last_run_date, runField: 'message3_last_run_date' },
         ];
         for (const m of msgs) {
+          if (lab && m.which !== 1) continue; // F7 — laboratório: a 2 e a 3 nem marcam a data
           if (!m.on || m.hh !== maceioHH || m.ran === todayMaceio) continue;
           try {
             // Marca a data ANTES de enviar — idempotencia diaria (sem disparo duplo).
-            await this.calendarService.setBirthdayGreetingConfig(tenantId, { [m.runField]: todayMaceio } as any);
-            await this.calendarService.sendBirthdayGreetingsNow(tenantId, m.which);
+            if (lab) {
+              await this.calendarService.setBirthdayGreetingConfig(tenantId, { [m.runField]: todayMaceio } as any, true);
+              await this.calendarService.sendBirthdayGreetingsNow(tenantId, m.which, true);
+            } else {
+              await this.calendarService.setBirthdayGreetingConfig(tenantId, { [m.runField]: todayMaceio } as any);
+              await this.calendarService.sendBirthdayGreetingsNow(tenantId, m.which);
+            }
             this.logger.log(`[CRON] Aniversario msg${m.which} (${m.label}) disparada pra tenant ${tenantId} (${maceioHH}:00 Maceio)`);
           } catch (e: any) {
             this.logger.error(`[CRON] Erro no disparo msg${m.which} (${m.label}) aniversario tenant ${tenantId}: ${e.message}`);

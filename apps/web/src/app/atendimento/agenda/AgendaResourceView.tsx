@@ -29,6 +29,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { DayPilotCalendar, DayPilot } from '@daypilot/daypilot-lite-react';
 import { isAiBookedEvent, isNewPatientEvent } from './agenda-flags';
+// F7 do laboratório — legenda com os status do laboratório (Feito, Desmarcado, Não realizado).
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AGENDA_STATUS } from './lab-agenda-textos';
 
 export interface ResourceUser {
   id: string;
@@ -104,6 +108,7 @@ export function AgendaResourceView({
   endHour = 21,
 }: Props) {
   const calendarRef = useRef<DayPilotCalendar>(null);
+  const lab = isLab(useBusinessType());
 
   // Filtra eventos do dia ativo + apenas com assigned_user_id de um profissional listado
   const dayEvents = useMemo(() => {
@@ -174,7 +179,7 @@ export function AgendaResourceView({
       />
       <div className="px-3 py-1.5 border-t border-border flex items-center gap-3 text-[10px] text-muted-foreground">
         <span>Legenda:</span>
-        {Object.entries({
+        {Object.entries(lab ? LAB_AGENDA_STATUS : {
           AGENDADO: 'Agendado',
           CONFIRMADO: 'Confirmado',
           EM_ATENDIMENTO: 'Em atendimento',

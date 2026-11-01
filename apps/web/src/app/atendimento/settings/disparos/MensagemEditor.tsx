@@ -36,6 +36,9 @@ export interface MensagemEditorProps {
    *  A régua de reativação usa outro: lá o texto é MODELO e a IA reescreve pra cada
    *  contato — dizer "como vai receber" seria mentira. */
   previewLabel?: string;
+  /** Endereço de exemplo do preview no lugar do endereço da conta (no laboratório o
+   *  {local} é o consultório do cliente). Com ele, o GET /tenants/me não roda. */
+  enderecoExemplo?: string;
 }
 
 function applyPreview(t: string, vars: Record<string, string>, local: string): string {
@@ -55,11 +58,11 @@ function simulaBoletoTpl(t: string): string {
   return r;
 }
 
-export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText, simulateBoleto, previewLabel }: MensagemEditorProps) {
+export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText, simulateBoleto, previewLabel, enderecoExemplo }: MensagemEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
-  const [clinicAddress, setClinicAddress] = useState(usaLocal ? 'Rua das Acácias, 123 — Sala 4 (exemplo)' : '');
+  const [clinicAddress, setClinicAddress] = useState(usaLocal ? (enderecoExemplo ?? 'Rua das Acácias, 123 — Sala 4 (exemplo)') : '');
 
   // Onda 17.59 — reporta o texto atual pro "Enviar teste" testar o que está na tela.
   useEffect(() => { onCurrentTextChange?.(template); }, [template, onCurrentTextChange]);
@@ -86,7 +89,7 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
         else showError(e?.response?.data?.message || 'Falha ao carregar a mensagem');
       })
       .finally(() => setLoading(false));
-    if (usaLocal) {
+    if (usaLocal && enderecoExemplo === undefined) {
       api.get('/tenants/me')
         .then((r) => { const a = formatClinicAddress(r.data); if (a) setClinicAddress(a); })
         .catch(() => {});

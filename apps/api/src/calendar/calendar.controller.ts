@@ -20,6 +20,9 @@ import {
   CreateScheduleBlockDto,
   UpdateScheduleBlockDto,
 } from './dto/calendar.dto';
+// F7 do laboratório — conta do pedido e tipo da agenda por conta (funções puras, sem DI).
+import { pedidoDeLaboratorio } from '../business-type/pedido-de-laboratorio';
+import { exigirTipoDaConta } from '../business-type/agenda-do-laboratorio';
 
 @UseGuards(JwtAuthGuard)
 @Controller('calendar')
@@ -102,6 +105,8 @@ export class CalendarController {
   @RequiresPermission('manage_agenda')
   @Post('events')
   async create(@Body() data: CreateEventDto, @Request() req: any) {
+    // F7 — coleta, prova e entrega só na conta de laboratório (clínica: o mesmo 400 da validação).
+    exigirTipoDaConta(pedidoDeLaboratorio(req.user), data.type);
     // Contato, paciente, conversa, profissional e tipo só da própria conta (404 antes de gravar).
     await this.calendarService.exigirIdsDaConta(req.user?.tenant_id, data);
     return this.calendarService.create({
@@ -141,6 +146,8 @@ export class CalendarController {
     @Query('updateScope') updateScope: string | undefined,
     @Request() req: any,
   ) {
+    // F7 — trocar para coleta, prova ou entrega só na conta de laboratório.
+    if (data?.type !== undefined) exigirTipoDaConta(pedidoDeLaboratorio(req.user), data.type);
     const canEdit = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
     if (!canEdit) throw new ForbiddenException('Sem permissao para editar este evento');
 
@@ -439,13 +446,13 @@ export class CalendarController {
 
   @Get('reminders/config')
   getReminderConfig(@Request() req: any) {
-    return this.calendarService.getReminderConfig(req.user?.tenant_id);
+    return this.calendarService.getReminderConfig(req.user?.tenant_id, pedidoDeLaboratorio(req.user));
   }
 
   @Put('reminders/config')
   @Roles('ADMIN')
   setReminderConfig(@Body() body: any, @Request() req: any) {
-    return this.calendarService.setReminderConfig(req.user?.tenant_id, body);
+    return this.calendarService.setReminderConfig(req.user?.tenant_id, body, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Resumo Diario pra Dentistas (Onda 5e v30, Fase 25) ──────────────
@@ -454,25 +461,25 @@ export class CalendarController {
 
   @Get('dentist-daily-summary/config')
   getDentistDailySummaryConfig(@Request() req: any) {
-    return this.calendarService.getDentistDailySummaryConfig(req.user?.tenant_id);
+    return this.calendarService.getDentistDailySummaryConfig(req.user?.tenant_id, pedidoDeLaboratorio(req.user));
   }
 
   @Put('dentist-daily-summary/config')
   @Roles('ADMIN')
   setDentistDailySummaryConfig(@Body() body: any, @Request() req: any) {
-    return this.calendarService.setDentistDailySummaryConfig(req.user?.tenant_id, body);
+    return this.calendarService.setDentistDailySummaryConfig(req.user?.tenant_id, body, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Confirmação de agendamento (Onda 17.56) — mensagem editável ──────
   @Get('appointment-confirmation/config')
   getAppointmentConfirmationConfig(@Request() req: any) {
-    return this.calendarService.getAppointmentConfirmationConfig(req.user?.tenant_id);
+    return this.calendarService.getAppointmentConfirmationConfig(req.user?.tenant_id, pedidoDeLaboratorio(req.user));
   }
 
   @Put('appointment-confirmation/config')
   @Roles('ADMIN')
   setAppointmentConfirmationConfig(@Body() body: any, @Request() req: any) {
-    return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
+    return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Agenda do COMERCIAL — texto editável dos 6 disparos (1 rota) ─────
@@ -526,25 +533,25 @@ export class CalendarController {
   // ─── Re-agendamento (Onda 17.59) — mensagem editável ──────────────────
   @Get('appointment-rescheduled/config')
   getAppointmentRescheduledConfig(@Request() req: any) {
-    return this.calendarService.getAppointmentRescheduledConfig(req.user?.tenant_id);
+    return this.calendarService.getAppointmentRescheduledConfig(req.user?.tenant_id, pedidoDeLaboratorio(req.user));
   }
 
   @Put('appointment-rescheduled/config')
   @Roles('ADMIN')
   setAppointmentRescheduledConfig(@Body() body: any, @Request() req: any) {
-    return this.calendarService.setAppointmentRescheduledConfig(req.user?.tenant_id, body);
+    return this.calendarService.setAppointmentRescheduledConfig(req.user?.tenant_id, body, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Aniversário (Onda 17.59) — expõe o get/set pra editar a mensagem na Central ──
   @Get('birthday-greeting/config')
   getBirthdayGreetingConfig(@Request() req: any) {
-    return this.calendarService.getBirthdayGreetingConfig(req.user?.tenant_id);
+    return this.calendarService.getBirthdayGreetingConfig(req.user?.tenant_id, pedidoDeLaboratorio(req.user));
   }
 
   @Put('birthday-greeting/config')
   @Roles('ADMIN')
   setBirthdayGreetingConfig(@Body() body: any, @Request() req: any) {
-    return this.calendarService.setBirthdayGreetingConfig(req.user?.tenant_id, body);
+    return this.calendarService.setBirthdayGreetingConfig(req.user?.tenant_id, body, pedidoDeLaboratorio(req.user));
   }
 
   // Onda 17.60 — aniversariantes de hoje + próximos N dias (pra tela do disparo).
@@ -571,7 +578,7 @@ export class CalendarController {
   @Post('disparo/send-test')
   @Roles('ADMIN')
   sendTestDisparo(@Body() body: { disparo: string; phone: string; text?: string }, @Request() req: any) {
-    return this.calendarService.sendTestDisparo(req.user?.tenant_id, body?.disparo, body?.phone, body?.text);
+    return this.calendarService.sendTestDisparo(req.user?.tenant_id, body?.disparo, body?.phone, body?.text, pedidoDeLaboratorio(req.user));
   }
 
   // Trigger manual — admin clica "Enviar agora" pra teste ou disparo

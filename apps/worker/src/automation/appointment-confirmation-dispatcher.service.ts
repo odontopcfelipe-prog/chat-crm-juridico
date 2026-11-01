@@ -10,6 +10,8 @@ import {
   chipPacienteOuLegado,
   soTemChipFinanceiro,
   getLabTenantIds,
+  tipoSoDoLaboratorio,
+  LAB_AGENDA_TEXTOS,
 } from '@crm/shared';
 
 /**
@@ -95,11 +97,23 @@ export class AppointmentConfirmationDispatcherService {
       // F2 [LAB-GATE] — único ponto de envio da confirmação: a de laboratório não sai
       // (o scheduler já não cria; isto cobre a criada antes de a conta virar
       // laboratório). Marca como falha para não ocupar a fila. Clínica: nenhum id casa.
+      // F7 — exceção: a confirmação da coleta, da prova e da entrega do laboratório sai
+      // pelo mesmo caminho (toggle, chip de Atendimento, claim e horário comercial), sem
+      // as chaves de ortodontia e sem anexos.
       const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
 
       for (const c of pending) {
         const tenantId = c.appointment?.tenant_id;
-        const phone = c.appointment?.patient?.phone;
+        let phone = c.appointment?.patient?.phone;
+        // F7 — coleta, prova ou entrega do laboratório marcada com um contato que ainda
+        // não tem ficha: o telefone vem do contato do evento (da mesma conta).
+        if (!phone && tenantId && labs.has(tenantId) && tipoSoDoLaboratorio(c.appointment?.type)) {
+          const ev = await this.prisma.calendarEvent.findUnique({
+            where: { id: c.appointment_id },
+            select: { lead: { select: { phone: true, tenant_id: true } } },
+          });
+          if (ev?.lead?.tenant_id === tenantId) phone = ev.lead.phone || undefined;
+        }
 
         if (!tenantId || !phone) {
           await this.markFailed(c.id, 'Sem tenant ou telefone');
@@ -107,7 +121,8 @@ export class AppointmentConfirmationDispatcherService {
           continue;
         }
 
-        if (labs.has(tenantId)) {
+        const lab = labs.has(tenantId);
+        if (lab && !tipoSoDoLaboratorio(c.appointment?.type)) {
           this.logger.log(`[LAB-GATE] confirmacao-24h — confirmação ${c.id} é de laboratório: não sai`);
           await this.markFailed(c.id, 'Laboratório: sem confirmação automática');
           skipped++;
@@ -131,7 +146,7 @@ export class AppointmentConfirmationDispatcherService {
         // e a confirmação normal continua honrando só o toggle principal.
         // Espelha o scheduler: ortô só é "especial" com a regra da clínica "ortodontia
         // por ordem de chegada" ligada; por hora marcada vale só o toggle principal.
-        let ortoFluxo = ortoFluxoByTenant.get(tenantId);
+        let ortoFluxo = lab ? false : ortoFluxoByTenant.get(tenantId); // laboratório não lê as chaves de ortodontia
         if (ortoFluxo === undefined) {
           const s = await this.prisma.globalSetting.findUnique({ where: { key: `ORTO_ORDEM_CHEGADA_${tenantId}` } });
           ortoFluxo = s?.value === 'true';
@@ -186,7 +201,7 @@ export class AppointmentConfirmationDispatcherService {
         }
 
         if (!instance) {
-          await this.markFailed(c.id, 'Sem chip Clínica/Comercial do WhatsApp conectado nesta clínica');
+          await this.markFailed(c.id, lab ? LAB_AGENDA_TEXTOS.semChipConfirmacao : 'Sem chip Clínica/Comercial do WhatsApp conectado nesta clínica');
           skipped++;
           continue;
         }
@@ -207,7 +222,7 @@ export class AppointmentConfirmationDispatcherService {
             `${apiUrl}/message/sendText/${instance}`,
             {
               number: toBrazilWhatsappNumber(phone),
-              text: c.message_text || 'Oi, tudo bem? 😊 Aqui é pra confirmar seu atendimento amanhã. Posso confirmar sua presença? Qualquer imprevisto, me avisa que a gente ajeita um novo horário. 🙂',
+              text: c.message_text || (lab ? LAB_AGENDA_TEXTOS.confirmacaoReserva : 'Oi, tudo bem? 😊 Aqui é pra confirmar seu atendimento amanhã. Posso confirmar sua presença? Qualquer imprevisto, me avisa que a gente ajeita um novo horário. 🙂'),
             },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },
           );
@@ -222,7 +237,8 @@ export class AppointmentConfirmationDispatcherService {
           });
           sent++;
           // Anexos do card depois do texto que saiu (nunca lança — não cai no markFailed).
-          await enviarAnexosDoDisparoWorker(this.prisma, { apiUrl, apiKey }, {
+          // F7 — o laboratório não tem anexos nos disparos.
+          if (!lab) await enviarAnexosDoDisparoWorker(this.prisma, { apiUrl, apiKey }, {
             tenantId,
             disparoId: isOrtho && orthoEnabled ? 'confirmacao_orto' : 'confirmacao',
             phone,

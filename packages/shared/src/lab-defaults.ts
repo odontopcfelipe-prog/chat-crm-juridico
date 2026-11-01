@@ -10,18 +10,30 @@
  *    na venda rápida e sem comissão — o laboratório põe o preço dele antes de vender;
  *  - categorias financeiras de laboratório (impedem o seed lazy da clínica);
  *  - funil 'Captação de dentistas' (slugs sem 'agend', 'marcad' e 'avalia');
- *  - chaves desligadas da conta: IA, fora do expediente, recall, alertas de tarefa,
- *    lembretes, confirmação/remarcação, confirmação de pagamento, aniversário,
- *    régua de cobrança e missões. TenantSetting com tenant_id da conta; GlobalSetting
- *    SEMPRE com o sufixo _<tenantId> (nada global).
+ *  - chaves e textos do laboratório na conta: a agenda de coleta, prova e entrega
+ *    nasce LIGADA (aviso na hora, remarcação, confirmação da véspera e lembretes de
+ *    48 h e 24 h, com os textos do laboratório); o resumo do protético, o aniversário
+ *    e o orçamento aprovado ganham texto de laboratório e nascem desligados; IA, fora
+ *    do expediente, recall, alertas de tarefa, confirmação de pagamento, régua de
+ *    cobrança e missões nascem desligados. TenantSetting com tenant_id da conta;
+ *    GlobalSetting SEMPRE com o sufixo _<tenantId> (nada global);
+ *  - e-mails de agenda do laboratório (TenantEmailTemplate da conta).
  *
  * seedLabTenantDefaults roda dentro da transação da criação; ensureLabDefaults só
- * grava a chave que falta (nunca sobrescreve o que a conta mudou) e também roda
- * num cron diário. tenant-defaults.ts (a clínica) fica intacto.
+ * grava o que falta (nunca sobrescreve o que a conta mudou) e também roda num cron
+ * diário. tenant-defaults.ts (a clínica) fica intacto.
  */
 import type { PrismaClient } from '@prisma/client';
 import { AI_CHIP_PURPOSES, aiEnabledKey, aiProfileKey } from './ai-profile';
+import {
+  BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO,
+  DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO,
+  REMINDER_CONFIG_PADRAO_DO_LABORATORIO,
+} from './agenda-laboratorio';
+import { cobrancaTemplateKey } from './cobranca';
 import { chaveConfigDaConta } from './conta-legada';
+import { LAB_AGENDA_EMAIL, LAB_AGENDA_TEXTOS } from './lab-agenda-textos';
+import { LAB_NEGOCIACAO } from './lab-disparos-textos';
 
 // ─── Catálogo de prótese ─────────────────────────────────────────
 export const GRUPOS_DE_PROTESE = [
@@ -98,7 +110,7 @@ export const FUNIL_CAPTACAO_DE_DENTISTAS = {
   ],
 } as const;
 
-// ─── Chaves desligadas ───────────────────────────────────────────
+// ─── Chaves da conta ─────────────────────────────────────────────
 export interface ChaveDaConta {
   key: string;
   value: string;
@@ -112,16 +124,31 @@ export interface ChavesDesligadasDoLaboratorio {
 }
 
 const DESLIGADO = 'false';
+const LIGADO = 'true';
+/** Texto editável guardado como JSON {template} (o mesmo formato que a Central grava). */
+const comTexto = (template: string) => JSON.stringify({ template });
 
-/** Configurações por conta guardadas na GlobalSetting como `<CHAVE>_<tenantId>`. */
-const GLOBAIS_DESLIGADAS: ReadonlyArray<readonly [string, string]> = [
+/**
+ * Configurações por conta guardadas na GlobalSetting como `<CHAVE>_<tenantId>`.
+ * O valor é o mesmo que os leitores da clínica entendem; só o texto é do laboratório.
+ */
+const GLOBAIS_DO_LABORATORIO: ReadonlyArray<readonly [string, string]> = [
   ['RECALL_PREVENTIVO_ENABLED', DESLIGADO],
   ['TASK_ALERTS_ENABLED', DESLIGADO],
-  ['REMINDER_CONFIG', JSON.stringify({ enabled: false })],
-  ['APPOINTMENT_CONFIRMATION_ENABLED', DESLIGADO],
-  ['APPOINTMENT_RESCHEDULED_ENABLED', DESLIGADO],
+  // Agenda de coleta, prova e entrega: lembretes de 48 h e 24 h, aviso na hora,
+  // confirmação da véspera e remarcação ligados, com os textos do laboratório.
+  ['REMINDER_CONFIG', JSON.stringify(REMINDER_CONFIG_PADRAO_DO_LABORATORIO)],
+  ['APPOINTMENT_CONFIRMATION_ENABLED', LIGADO],
+  ['APPOINTMENT_CONFIRMATION_TEMPLATE', comTexto(LAB_AGENDA_TEXTOS.confirmacao24h)],
+  ['APPOINTMENT_RESCHEDULED_ENABLED', LIGADO],
+  ['APPOINTMENT_RESCHEDULED_TEMPLATE', comTexto(LAB_AGENDA_TEXTOS.remarcacao)],
   ['PAYMENT_CONFIRMATION_ENABLED', DESLIGADO],
-  ['BIRTHDAY_GREETING', JSON.stringify({ enabled: false, message2_enabled: false, message3_enabled: false })],
+  // Resumo do protético e aniversário (só a mensagem clássica): texto do laboratório, desligados.
+  ['DENTIST_DAILY_SUMMARY', JSON.stringify(DENTIST_DAILY_SUMMARY_PADRAO_DO_LABORATORIO)],
+  ['BIRTHDAY_GREETING', JSON.stringify(BIRTHDAY_GREETING_PADRAO_DO_LABORATORIO)],
+  // Orçamento aprovado (parcelado e à vista): texto do laboratório; o liga/desliga é da Central.
+  [cobrancaTemplateKey('negociacao_aprovada'), comTexto(LAB_NEGOCIACAO.parcelado)],
+  [cobrancaTemplateKey('negociacao_aprovada_avista'), comTexto(LAB_NEGOCIACAO.avista)],
   // Régua de cobrança (7 marcos), cobrar atrasados, apresentação do Financeiro e carnê
   ['BOLETO_1D_ANTES', DESLIGADO],
   ['BOLETO_NO_DIA', DESLIGADO],
@@ -147,7 +174,10 @@ function exigirConta(tenantId: unknown): string {
   return tenantId;
 }
 
-/** As chaves desligadas desta conta de laboratório (só dados; não grava nada). */
+/**
+ * As chaves desta conta de laboratório (só dados; não grava nada): as desligadas e
+ * as da agenda e dos textos do laboratório. O nome ficou da F3.
+ */
 export function chavesDesligadasDoLaboratorio(tenantId: string): ChavesDesligadasDoLaboratorio {
   const conta = exigirConta(tenantId);
   const daConta: ChaveDaConta[] = [
@@ -156,8 +186,42 @@ export function chavesDesligadasDoLaboratorio(tenantId: string): ChavesDesligada
     // Perfil da IA: sem 2ª tentativa de agendamento (o resto fica no padrão do código).
     ...AI_CHIP_PURPOSES.map((p) => ({ key: aiProfileKey(p), value: JSON.stringify({ schedulingRetryMin: 0 }) })),
   ];
-  const globaisDaConta = GLOBAIS_DESLIGADAS.map(([chave, value]) => ({ key: chaveConfigDaConta(chave, conta), value }));
+  const globaisDaConta = GLOBAIS_DO_LABORATORIO.map(([chave, value]) => ({ key: chaveConfigDaConta(chave, conta), value }));
   return { daConta, globaisDaConta };
+}
+
+/** Linha de TenantEmailTemplate (e-mail automático com o texto da conta). */
+export interface EmailDaConta {
+  tenant_id: string;
+  event_key: string;
+  enabled: boolean;
+  subject: string;
+  body: string;
+}
+
+/**
+ * E-mails de agenda do laboratório (aviso de agendamento e de remarcação), com o
+ * texto do laboratório. Os mesmos eventos da clínica: o e-mail automático usa o
+ * texto da conta no lugar do padrão.
+ */
+export function emailsDaAgendaDoLaboratorio(tenantId: string): EmailDaConta[] {
+  const conta = exigirConta(tenantId);
+  return [
+    {
+      tenant_id: conta,
+      event_key: 'agendamento_criado',
+      enabled: true,
+      subject: LAB_AGENDA_EMAIL.agendado.assunto,
+      body: LAB_AGENDA_EMAIL.agendado.corpo,
+    },
+    {
+      tenant_id: conta,
+      event_key: 'agendamento_remarcado',
+      enabled: true,
+      subject: LAB_AGENDA_EMAIL.remarcado.assunto,
+      body: LAB_AGENDA_EMAIL.remarcado.corpo,
+    },
+  ];
 }
 
 export interface ResultadoEnsureLab {
@@ -165,12 +229,14 @@ export interface ResultadoEnsureLab {
   daConta: number;
   /** GlobalSetting gravadas agora (as que faltavam). */
   globais: number;
+  /** TenantEmailTemplate gravados agora (os que faltavam). */
+  emails: number;
 }
 
 /**
- * Grava SÓ as chaves desligadas que faltam (createMany + skipDuplicates): chave
- * que a conta já tem, com qualquer valor, fica como está. Aceita o `tx` da
- * transação ou o PrismaClient.
+ * Grava SÓ o que falta (createMany + skipDuplicates): chave ou e-mail que a conta
+ * já tem, com qualquer valor, fica como está. Aceita o `tx` da transação ou o
+ * PrismaClient.
  */
 export async function ensureLabDefaults(prisma: PrismaClient | any, tenantId: string): Promise<ResultadoEnsureLab> {
   const conta = exigirConta(tenantId);
@@ -183,7 +249,11 @@ export async function ensureLabDefaults(prisma: PrismaClient | any, tenantId: st
     data: globaisDaConta.map((c) => ({ key: c.key, value: c.value })),
     skipDuplicates: true,
   });
-  return { daConta: t?.count ?? 0, globais: g?.count ?? 0 };
+  const e = await prisma.tenantEmailTemplate.createMany({
+    data: emailsDaAgendaDoLaboratorio(conta),
+    skipDuplicates: true,
+  });
+  return { daConta: t?.count ?? 0, globais: g?.count ?? 0, emails: e?.count ?? 0 };
 }
 
 export interface SeedDoLaboratorio {
@@ -196,7 +266,7 @@ export interface SeedDoLaboratorio {
 
 /**
  * Popula a conta de laboratório: grupos, serviços, categorias financeiras, funil
- * e chaves desligadas. Idempotente: só cria o que falta, nunca atualiza nem apaga
+ * e as chaves e e-mails da conta. Idempotente: só cria o que falta, nunca atualiza nem apaga
  * (preço e nome que o laboratório mudou ficam). Sem anamnese.
  *
  * Usa createMany para caber no tempo da transação da criação.
@@ -273,7 +343,7 @@ export async function seedLabTenantDefaults(prisma: PrismaClient | any, tenantId
     });
   }
 
-  // 5) Chaves desligadas
+  // 5) Chaves e e-mails da conta
   const chaves = await ensureLabDefaults(prisma, conta);
 
   return {

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSocketEvent } from '@/lib/SocketProvider';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import { AlertTriangle, Clock, X } from 'lucide-react';
-import { isLab } from '@crm/shared';
+import { isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 
 interface TaskAlert {
@@ -33,13 +33,13 @@ export function TaskAlertPopup() {
   const [alerts, setAlerts] = useState<TaskAlert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  // F4 do laboratório — a agenda ainda não faz parte do laboratório: lá o clique
-  // no alerta não abre nada.
+  // F4 do laboratório — o clique no alerta só abre a agenda quando ela está na lista
+  // de rotas do laboratório (F7); sem ela, não abre nada.
   const lab = isLab(useBusinessType());
 
   // Ao clicar no card do alerta, abre na agenda com o evento selecionado
   const openTask = useCallback((taskId: string) => {
-    if (lab) return;
+    if (lab && !labAllowsRoute('/atendimento/agenda')) return;
     sessionStorage.setItem('open_event_id', taskId);
     router.push('/atendimento/agenda');
   }, [router, lab]);

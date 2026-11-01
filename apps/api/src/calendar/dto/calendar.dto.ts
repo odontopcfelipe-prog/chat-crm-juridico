@@ -9,14 +9,19 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TODOS_OS_TIPOS_DE_AGENDA } from '@crm/shared';
 
-// Tipos de evento da clinica odontologica.
-// AUDIENCIA/PERICIA/PRAZO sao mantidos por compat com dados antigos do
-// CRM juridico — sao validos no DTO mas nao aparecem no front novo.
-const EVENT_TYPES = [
-  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA', 'BLOQUEIO', 'TAREFA', 'OUTRO',
-  'AUDIENCIA', 'PERICIA', 'PRAZO',
-] as const;
+// Tipos de evento: os da clinica odontologica (TIPOS_DE_AGENDA_DA_CLINICA, @crm/shared)
+// e os so do laboratorio (coleta, prova e entrega). AUDIENCIA/PERICIA/PRAZO sao
+// mantidos por compat com dados antigos do CRM juridico — sao validos no DTO mas nao
+// aparecem no front novo. A conta decide depois: tipo do laboratorio numa conta de
+// clinica recebe este mesmo 400 no controller (exigirTipoDaConta).
+//
+// Mensagem do 400 de tipo invalido: a MESMA que a validacao dava quando a lista era
+// so a da clinica (o corpo da resposta da clinica nao muda). Literal de proposito.
+export const MSG_TIPO_DTO =
+  'type must be one of the following values: CONSULTA, PROCEDIMENTO, RETORNO, ORTODONTIA, BLOQUEIO, TAREFA, OUTRO, AUDIENCIA, PERICIA, PRAZO';
+
 // Onda 17.61 — mantém em sincronia com calendar.service.ts (fluxo de recepção):
 // + COMPARECEU (paciente chegou), EM_ATENDIMENTO, NO_SHOW (faltou). DESMARCOU usa CANCELADO.
 const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO', 'CANCELADO', 'NO_SHOW', 'ADIADO'] as const;
@@ -35,7 +40,7 @@ class ReminderDto {
 // ─── Events ───────────────────────────────────────────
 
 export class CreateEventDto {
-  @IsIn(EVENT_TYPES as unknown as string[])
+  @IsIn([...TODOS_OS_TIPOS_DE_AGENDA], { message: MSG_TIPO_DTO })
   type: string;
 
   @IsString()
@@ -134,7 +139,7 @@ export class UpdateEventDto {
   @IsOptional() @IsString()
   location?: string;
 
-  @IsOptional() @IsIn(EVENT_TYPES as unknown as string[])
+  @IsOptional() @IsIn([...TODOS_OS_TIPOS_DE_AGENDA], { message: MSG_TIPO_DTO })
   type?: string;
 
   @IsOptional() @IsString()

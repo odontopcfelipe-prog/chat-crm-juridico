@@ -3,6 +3,8 @@ import { FollowupService, type EscopoFollowup } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { negarPermissao } from '../auth/require-any-permission';
+// F7 — o pedido veio de conta de laboratório? (puro: claim do token ou a lista em cache)
+import { pedidoDeLaboratorio } from '../business-type/pedido-de-laboratorio';
 
 /** 403 de quem cria sequência sem estar ligado a uma clínica (a global é do SUPER_ADMIN). */
 const SEQUENCIA_SEM_CONTA_MSG =
@@ -105,13 +107,13 @@ export class FollowupController {
     if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
       throw new ForbiddenException('Apenas ADMIN pode ligar/desligar as automações');
     }
-    return this.svc.setOperacionalToggle(req.user?.tenant_id, body?.which, !!body?.enabled);
+    return this.svc.setOperacionalToggle(req.user?.tenant_id, body?.which, !!body?.enabled, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Templates de cobrança (Onda 18.17) — ver/editar o texto de cada estágio ─
   @Get('cobranca-template/:stage')
   getCobrancaTemplate(@Param('stage') stage: string, @Query('tipo') tipo: string | undefined, @Request() req: any) {
-    return this.svc.getCobrancaTemplate(req.user?.tenant_id, stage, tipo);
+    return this.svc.getCobrancaTemplate(req.user?.tenant_id, stage, tipo, pedidoDeLaboratorio(req.user));
   }
 
   @Put('cobranca-template/:stage')
@@ -126,7 +128,7 @@ export class FollowupController {
     if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
       throw new ForbiddenException('Apenas ADMIN pode editar as mensagens de cobrança');
     }
-    return this.svc.setCobrancaTemplate(req.user?.tenant_id, stage, body?.template ?? '', tipo);
+    return this.svc.setCobrancaTemplate(req.user?.tenant_id, stage, body?.template ?? '', tipo, pedidoDeLaboratorio(req.user));
   }
 
   // ─── Sequências ──────────────────────────────────────────────────────────

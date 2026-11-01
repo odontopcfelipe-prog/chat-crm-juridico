@@ -10,9 +10,11 @@ import {
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { canAccessRouteBt } from '@crm/shared';
+import { canAccessRouteBt, isLab } from '@crm/shared';
 // F4 do laboratório — no laboratório só os atalhos das telas da lista de rotas dele.
 import { useBusinessType } from '@/lib/useBusinessType';
+// F7 — subtítulo de laboratório nos atalhos que têm um (NAV_ITEMS fica igual).
+import { LAB_ATALHOS_SUBLABEL } from '@/lib/lab-casca-textos';
 
 interface LeadResult {
   id: string;
@@ -141,7 +143,11 @@ export function GlobalCommandPalette({ open, onClose }: GlobalCommandPaletteProp
   const items: PaletteItem[] = [];
 
   // Navegação — filtrada por query ou lista completa
-  const allowedNav = NAV_ITEMS.filter(n => canAccessRouteBt(n.href, hasPermission, bt));
+  const lab = isLab(bt);
+  const allowedNav = NAV_ITEMS.filter(n => canAccessRouteBt(n.href, hasPermission, bt)).map((n) => {
+    const sublabelDoLab = lab ? LAB_ATALHOS_SUBLABEL[n.id] : undefined;
+    return sublabelDoLab ? { ...n, sublabel: sublabelDoLab } : n;
+  });
   const filteredNav = q
     ? allowedNav.filter(n =>
         n.label.toLowerCase().includes(q) ||

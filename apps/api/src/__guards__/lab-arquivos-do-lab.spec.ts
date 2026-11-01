@@ -27,6 +27,10 @@ const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/pacientes/lab-propostas-textos.ts',
   'apps/web/src/app/atendimento/pacientes/lab-trabalhos-textos.ts',
   'apps/web/src/app/atendimento/orcamentos/lab-orcamentos-textos.ts',
+  // F7 — textos novos da agenda e da Central de Disparos do laboratório
+  'apps/web/src/app/atendimento/agenda/lab-agenda-textos.ts',
+  'apps/web/src/app/atendimento/settings/disparos/lab-disparos-textos.ts',
+  'apps/web/src/app/atendimento/settings/disparos/catalogo-laboratorio.ts',
 ];
 
 /** Trechos de rota que são só de clínica (negados ao laboratório na API). */

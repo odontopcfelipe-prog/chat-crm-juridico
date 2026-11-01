@@ -6,6 +6,11 @@ import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAg
 import OpenAI from 'openai';
 import { gravarPostCareConfigDaConta, lerPostCareConfigBruta } from '../post-care/post-care-config';
 import { negarLaboratorio } from '../common/lab-gate.util';
+// F7 — Central de Disparos do laboratório: o que ele liga e edita, a recusa (403) e o
+// texto padrão de cobrança do laboratório. Funções puras (sem DI).
+import { recusaDoToggleNoLaboratorio, TEMPLATES_FIN_DO_LABORATORIO, padraoFinDoLaboratorio } from '@crm/shared';
+import { recusarNoLaboratorio } from '../business-type/pedido-de-laboratorio';
+import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -830,9 +835,15 @@ export class FollowupService {
     return this.getRecallTemplate(tenantId);
   }
 
-  /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le). */
-  async setOperacionalToggle(tenantId: string, which: string, enabled: boolean) {
+  /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le).
+   *  `lab` = pedido de conta de laboratório (controller): aviso que não existe nele e
+   *  a régua de cobrança sendo ligada são recusados antes de gravar qualquer coisa. */
+  async setOperacionalToggle(tenantId: string, which: string, enabled: boolean, lab = false) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (lab) {
+      const recusa = recusaDoToggleNoLaboratorio(which, !!enabled);
+      if (recusa) throw recusarNoLaboratorio(recusa);
+    }
     const mergeJson = async (key: string, patch: Record<string, any>) => {
       const cur = await this.prisma.globalSetting.findUnique({ where: { key } });
       const value = JSON.stringify({ ...(this.parseJson(cur?.value) || {}), ...patch });
@@ -1087,12 +1098,14 @@ export class FollowupService {
    *   1. variante do tipo editada → 2. texto ÚNICO legado (pré-split) editado →
    *   3. default type-aware.
    */
-  async getCobrancaTemplate(tenantId: string, stage: string, tipo?: string) {
+  async getCobrancaTemplate(tenantId: string, stage: string, tipo?: string, lab = false) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // F7 — no laboratório só os textos da lista são editáveis (o resto é recusado).
+    if (lab && !TEMPLATES_FIN_DO_LABORATORIO.has(stage)) throw recusarNoLaboratorio('template');
     if (!isFinTemplateId(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
     const t: CobrancaTipo | undefined =
       tipo && isCobrancaStage(stage) && isCobrancaTipo(tipo) ? tipo : undefined;
-    let template: string = defaultFinTemplate(stage, t);
+    let template: string = (lab && padraoFinDoLaboratorio(stage)) || defaultFinTemplate(stage, t);
     if (t) {
       const specific = await this.readTemplateKey(cobrancaTemplateKey(stage, tenantId, t));
       const legacy = specific ? null : await this.readTemplateKey(cobrancaTemplateKey(stage, tenantId));
@@ -1100,14 +1113,19 @@ export class FollowupService {
     } else {
       template = (await this.readTemplateKey(cobrancaTemplateKey(stage, tenantId))) ?? template;
     }
+    // F7 — laboratório: texto salvo com palavra de clínica não sai (quem envia usa o
+    // padrão do laboratório); o editor mostra o que sai de verdade.
+    if (lab && temVocabularioDeClinica(semVariaveis(template))) template = padraoFinDoLaboratorio(stage) || template;
     return { template };
   }
 
   /** Salva o texto do estágio (o cron passa a usar). `tipo` grava a variante do
    *  tipo; sem tipo grava o texto único (estágios sem tipo, ex.: negociação).
    *  Vazio = volta pro default. */
-  async setCobrancaTemplate(tenantId: string, stage: string, template: string, tipo?: string) {
+  async setCobrancaTemplate(tenantId: string, stage: string, template: string, tipo?: string, lab = false) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // F7 — no laboratório só os textos da lista são editáveis (o resto é recusado).
+    if (lab && !TEMPLATES_FIN_DO_LABORATORIO.has(stage)) throw recusarNoLaboratorio('template');
     if (!isFinTemplateId(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
     if (typeof template !== 'string') throw new BadRequestException('template deve ser string');
     if (template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
@@ -1117,7 +1135,7 @@ export class FollowupService {
     const value = JSON.stringify({ template });
     await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     this.logger.log(`[COBRANCA_TEMPLATE] ${stage}${t ? `/${t}` : ''} salvo (tenant ${tenantId})`);
-    return this.getCobrancaTemplate(tenantId, stage, tipo);
+    return this.getCobrancaTemplate(tenantId, stage, tipo, lab);
   }
 
   // ─── Resumo diário: config do número que recebe + horário ─────────────────

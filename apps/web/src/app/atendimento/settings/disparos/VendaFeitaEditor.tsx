@@ -9,8 +9,13 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { Phones55ListInput } from './Phones55ListInput';
 import { splitStoredPhones, joinPhones55, hasAnyLocalNumber } from './phone55';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_VENDA_FEITA_EDITOR } from './lab-disparos-textos';
 
 export function VendaFeitaEditor() {
+  // Laboratório: textos com cliente, serviços e o chip de Atendimento.
+  const lab = isLab(useBusinessType());
   // Vários números (cada campo: só DDD + número; o 55 é prefixo fixo).
   const [locais, setLocais] = useState<string[]>(['']);
   const [inheritedPhone, setInheritedPhone] = useState('');
@@ -63,9 +68,11 @@ export function VendaFeitaEditor() {
           <PartyPopper size={18} className="text-emerald-500" /> Venda feita
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
+          {lab ? LAB_VENDA_FEITA_EDITOR.descricao : (<>
           A cada venda fechada — na <b>venda rápida</b> ou no <b>aprovar-e-cobrar</b> — um aviso é enviado ao número
           configurado (pelo chip do Financeiro, com fallback pra Clínica): <b>paciente</b>, <b>valor</b>, <b>forma de
           pagamento</b>, <b>itens</b> e <b>quem vendeu</b>. Ligue o disparo no botão do card pra começar.
+          </>)}
         </p>
       </div>
 
@@ -73,9 +80,11 @@ export function VendaFeitaEditor() {
         <div>
           <label className="text-sm font-medium text-foreground">Números que recebem o aviso</label>
           <p className="text-[11px] text-muted-foreground mb-1">
+            {lab ? LAB_VENDA_FEITA_EDITOR.numeros : (<>
             É o <b>número de aviso dos ADMs</b>: também recebe os avisos de <b>novo agendamento</b> e da{' '}
             <b>triagem não-paciente</b>. Pode cadastrar <b>vários</b> — o aviso vai pra todos. Quem é da equipe também pode receber
             marcando em <b>Equipe → editar → Disparos que recebe</b> (lá dá pra tirar alguém, mesmo com o número aqui).
+            </>)}
           </p>
           <Phones55ListInput locais={locais} onChange={setLocais} />
           {inherited ? (

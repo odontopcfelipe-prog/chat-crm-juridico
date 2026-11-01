@@ -14,6 +14,9 @@ import { useRouter } from 'next/navigation';
 import { X, Search, Loader2, CalendarClock, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_BUSCA_AGENDA } from '@/lib/lab-casca-textos';
 
 export type SearchKind = 'agenda' | 'contact';
 
@@ -54,13 +57,15 @@ function fmtPhone(raw?: string | null): string {
 
 export function ContextualSearchModal({ open, onClose, kind }: { open: boolean; onClose: () => void; kind: SearchKind }) {
   const router = useRouter();
+  // F7 do laboratório — a busca da agenda fala em cliente (o CONFIG da clínica fica igual).
+  const lab = isLab(useBusinessType());
   const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cfg = CONFIG[kind];
+  const cfg = kind === 'agenda' && lab ? LAB_BUSCA_AGENDA : CONFIG[kind];
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {

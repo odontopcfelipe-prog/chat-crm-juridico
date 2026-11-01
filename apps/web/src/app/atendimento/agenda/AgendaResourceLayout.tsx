@@ -19,6 +19,9 @@ import { Bell, Phone, ChevronRight, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { AgendaResourceView, type ResourceUser, type ResourceEvent } from './AgendaResourceView';
+// F7 do laboratório — sem a lista de Retornos (tela e rota só da clínica).
+import { isLab } from '@crm/shared';
+import { useBusinessType, btAgora } from '@/lib/useBusinessType';
 
 interface PendingReturnAlert {
   id: string;
@@ -49,6 +52,7 @@ export function AgendaResourceLayout({
   onMove,
 }: Props) {
   const router = useRouter();
+  const lab = isLab(useBusinessType());
   const [selectedIds, setSelectedIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') return professionals.map((p) => p.id);
     try {
@@ -76,8 +80,9 @@ export function AgendaResourceLayout({
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedIds)); } catch { /* ignore */ }
   }, [selectedIds]);
 
-  // Carrega retornos pendentes
+  // Carrega retornos pendentes (F7: nunca no laboratório)
   useEffect(() => {
+    if (isLab(btAgora())) return;
     let active = true;
     setLoadingAlerts(true);
     api.get<PendingReturnAlert[]>('/return-alerts/pending-now')
@@ -156,7 +161,8 @@ export function AgendaResourceLayout({
           </ul>
         </div>
 
-        {/* Retornos pendentes */}
+        {/* Retornos pendentes (F7: some no laboratório) */}
+        {!lab && (
         <div className="bg-card border border-border rounded-xl p-3 flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
@@ -223,6 +229,7 @@ export function AgendaResourceLayout({
             </ul>
           )}
         </div>
+        )}
       </aside>
 
       {/* Main area: navegacao + AgendaResourceView */}

@@ -175,13 +175,15 @@ describe('contarForaDoLugar — cada contagem olha só a conta do laboratório',
     }
   });
 
-  it('agenda: conta todo tipo fora de TAREFA / OUTRO / BLOQUEIO', async () => {
+  it('agenda: conta todo tipo fora de TAREFA / OUTRO / BLOQUEIO / COLETA / PROVA / ENTREGA', async () => {
     const prisma = prismaFalso();
     await contarForaDoLugar(prisma, LAB);
     expect(prisma.calendarEvent.count).toHaveBeenCalledWith({
-      where: { tenant_id: LAB, type: { notIn: ['TAREFA', 'OUTRO', 'BLOQUEIO'] } },
+      where: { tenant_id: LAB, type: { notIn: ['TAREFA', 'OUTRO', 'BLOQUEIO', 'COLETA', 'PROVA', 'ENTREGA'] } },
     });
-    expect(TIPOS_DE_AGENDA_DO_LABORATORIO).not.toContain('CONSULTA');
+    for (const daClinica of ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA', 'AUDIENCIA', 'PERICIA', 'PRAZO']) {
+      expect(TIPOS_DE_AGENDA_DO_LABORATORIO).not.toContain(daClinica);
+    }
   });
 
   it('chip de outra conta: só nome que EXISTE em outra conta (chip apagado pelo próprio lab não conta)', async () => {

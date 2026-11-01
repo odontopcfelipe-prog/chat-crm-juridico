@@ -125,7 +125,7 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'MessagesController.sendFile',
   ],
   // Início do laboratório (LabInicio)
-  '/atendimento/dashboard': [...CASCA, 'UsersController.getMe', 'TenantsMeController.getMyTenant', 'PontoController.status'],
+  '/atendimento/dashboard': [...CASCA, 'UsersController.getMe', 'TenantsMeController.getMyTenant', 'PontoController.status', 'CalendarController.findAll'],
   '/atendimento/caixa': [...CASCA, ...doController('CaixaController')],
   // ponto e ponto/equipe
   '/atendimento/ponto': [
@@ -413,12 +413,75 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'ProceduresController.findAll',
   ],
   // [/F6a]
+  // [F7a]
+  // agenda de coleta, prova e entrega (agenda/page.tsx, ContactPicker, busca da agenda e a aba de
+  // tarefas por ?tab=tasks), sem Bloquear, Notificar, Validar e a sugestão da IA nas tarefas
+  '/atendimento/agenda': [
+    ...CASCA,
+    'CalendarController.findAll',
+    'CalendarController.findOne',
+    'CalendarController.create',
+    'CalendarController.update',
+    'CalendarController.updateStatus',
+    'CalendarController.remove',
+    'CalendarController.checkConflicts',
+    'CalendarController.getReminderConfig',
+    'CalendarController.findScheduleBlocks',
+    'CalendarController.search',
+    'CalendarController.exportRangeIcs',
+    'CalendarController.exportEventIcs',
+    'CalendarController.pendingValidation',
+    'CalendarController.patientBlockStatus',
+    'UsersController.findLawyers',
+    'UsersController.findAgents',
+    'UsersController.findAll',
+    'LeadsController.findAll',
+    'LeadsController.findOne',
+    'PatientsController.getAvatar',
+    'TasksController.findAll',
+    'TasksController.getWorkload',
+    'TasksController.create',
+    'TasksController.updateStatus',
+    'TasksController.update',
+    'TasksController.findOne',
+    'TasksController.addComment',
+    'TasksController.findComments',
+    'TasksController.addChecklistItem',
+    'TasksController.toggleChecklistItem',
+    'TasksController.deleteChecklistItem',
+  ],
+  // Central de Disparos do laboratório (só a lista permitida de avisos, sem Campanha manual,
+  // anexos, áudio e o botão de corrigir telefones)
+  '/atendimento/settings/disparos': [
+    ...CASCA,
+    'FollowupController.getOperacional',
+    'FollowupController.setOperacionalToggle',
+    'FollowupController.getCobrancaTemplate',
+    'FollowupController.setCobrancaTemplate',
+    'FollowupController.getDailySummaryConfig',
+    'FollowupController.setDailySummaryConfig',
+    'FollowupController.getVendaFeitaConfig',
+    'FollowupController.setVendaFeitaConfig',
+    'FollowupController.getDisparoDetail',
+    'CalendarController.getReminderConfig',
+    'CalendarController.setReminderConfig',
+    'CalendarController.getAppointmentConfirmationConfig',
+    'CalendarController.setAppointmentConfirmationConfig',
+    'CalendarController.getAppointmentRescheduledConfig',
+    'CalendarController.setAppointmentRescheduledConfig',
+    'CalendarController.getDentistDailySummaryConfig',
+    'CalendarController.setDentistDailySummaryConfig',
+    'CalendarController.getBirthdayGreetingConfig',
+    'CalendarController.setBirthdayGreetingConfig',
+    'CalendarController.sendTestDisparo',
+  ],
+  // [/F7a]
 };
 
 /** Componente que aparece em toda tela (balão da conversa da equipe). */
 const EQUIPE_CHAT = ['TeamChatController.overview', 'TeamChatController.messages', 'TeamChatController.send', 'TeamChatController.read'];
 
-/** O que o front ESCONDE no laboratório (F4 e F5) — continua negado na API. */
+/** O que o front ESCONDE no laboratório (F4 a F7) — continua negado na API. */
 const ESCONDIDOS_NO_LAB = [
   'ConversationsController.setSpecialty',
   'ConversationsController.assignLawyer',
@@ -467,7 +530,34 @@ const ESCONDIDOS_NO_LAB = [
   'CalendarController.setSchedule',
   ...doController('GameScoringController'),
   ...doController('DentistLinksController'),
-  ...doController('FollowupController'),
+  // F5 e F7 — follow-up: o que não é da Central de Disparos do laboratório
+  'FollowupController.getStats',
+  'FollowupController.getDisparoHistory',
+  'FollowupController.getRecallTemplate',
+  'FollowupController.setRecallTemplate',
+  'FollowupController.listSequences',
+  'FollowupController.createSequence',
+  'FollowupController.updateSequence',
+  'FollowupController.deleteSequence',
+  'FollowupController.addStep',
+  'FollowupController.updateStep',
+  'FollowupController.deleteStep',
+  'FollowupController.listEnrollments',
+  'FollowupController.enrollLead',
+  'FollowupController.pauseEnrollment',
+  'FollowupController.resumeEnrollment',
+  'FollowupController.cancelEnrollment',
+  'FollowupController.markConverted',
+  'FollowupController.listPendingApprovals',
+  'FollowupController.approveMessage',
+  'FollowupController.rejectMessage',
+  'FollowupController.regenerateMessage',
+  'FollowupController.previewBroadcast',
+  'FollowupController.listBroadcasts',
+  'FollowupController.getBroadcast',
+  'FollowupController.createBroadcast',
+  'FollowupController.cancelBroadcast',
+  'FollowupController.seedDefaultSequences',
   // F5 — estoque: baixa de insumo por procedimento
   'InventoryController.linkConsumable',
   'InventoryController.listConsumables',
@@ -491,6 +581,55 @@ const ESCONDIDOS_NO_LAB = [
   'CommercialController.sendContractViaClickSign',
   'CommercialController.signContractClinic',
   'CommercialController.cancelContract',
+  // F7 — agenda: Notificar, Bloquear, disponibilidade, métricas, lembretes avulsos, comentários,
+  // tipos de atendimento, aniversariantes, abrir conversa, migrar tarefas e a sugestão da IA
+  'CalendarController.notifyEvent',
+  'CalendarController.createScheduleBlock',
+  'CalendarController.findComments',
+  'CalendarController.addComment',
+  'CalendarController.getAvailability',
+  'CalendarController.findAppointmentTypes',
+  'CalendarController.createAppointmentType',
+  'CalendarController.updateAppointmentType',
+  'CalendarController.deleteAppointmentType',
+  'CalendarController.getAgendaMetrics',
+  'CalendarController.backfillReminders',
+  'CalendarController.listReminders',
+  'CalendarController.getRemindersSummary',
+  'CalendarController.resendReminder',
+  'CalendarController.cancelReminder',
+  'CalendarController.getReminderPreview',
+  'CalendarController.getRemindersHealth',
+  'CalendarController.exportRemindersCSV',
+  'CalendarController.getUpcomingBirthdays',
+  'CalendarController.openConversation',
+  'CalendarController.migrateTasks',
+  'TasksController.suggestNextAction',
+  ...doController('AgendaExtendedController'),
+  // F7 — Central: Enviar agora do resumo, teste da confirmação, agenda do lead, ortodontia,
+  // corrigir telefones, pacientes sem agendamento, anexos, campanha, áudio, pesquisa,
+  // reativação e e-mails automáticos
+  'CalendarController.sendDentistDailySummaryNow',
+  'CalendarController.sendTestConfirmation',
+  'CalendarController.getComercialAgendaTemplate',
+  'CalendarController.setComercialAgendaTemplate',
+  'CalendarController.getAppointmentConfirmationOrtoConfig',
+  'CalendarController.setAppointmentConfirmationOrtoConfig',
+  'CalendarController.getAppointmentOrtoReminderConfig',
+  'CalendarController.setAppointmentOrtoReminderConfig',
+  'CalendarController.getAppointmentOrtoImmediateConfig',
+  'CalendarController.setAppointmentOrtoImmediateConfig',
+  'LeadsController.deduplicatePhones',
+  'CommercialController.semAgendamentoPreview',
+  'CommercialController.semAgendamentoTest',
+  'CommercialController.semAgendamentoAdmins',
+  'CommercialController.semAgendamentoSend',
+  ...doController('DisparoAnexosController'),
+  ...doController('CampanhasController'),
+  ...doController('AudioDisparoController'),
+  ...doController('PostCareController'),
+  ...doController('ReactivationController'),
+  ...doController('EmailAutomationController'),
 ];
 
 /** Controllers expandidos com doController acima: cada um tem de existir e ter handlers. */
@@ -505,11 +644,17 @@ const CONTROLLERS_EXPANDIDOS = [
   'ContractsController',
   'GameScoringController',
   'DentistLinksController',
-  'FollowupController',
+  'AgendaExtendedController',
+  'DisparoAnexosController',
+  'CampanhasController',
+  'AudioDisparoController',
+  'PostCareController',
+  'ReactivationController',
+  'EmailAutomationController',
 ];
 
 /**
- * Os quatro arquivos de rota com os blocos de cada fase (F5a, F5b, F5c, F6a...; cada deploy
+ * Os quatro arquivos de rota com os blocos de cada fase (F5a, F5b, F5c, F6a, F7a...; cada deploy
  * tira ou põe blocos inteiros). Fora das linhas de abrir e fechar, nenhum texto destes arquivos cita o
  * marcador entre colchetes: assim um corte por linha (sed de faixa) não pega linha errada.
  */
@@ -608,7 +753,10 @@ describe('Telas do laboratório × política de rotas da API', () => {
     for (const arq of arquivos) {
       const p = path.join(RAIZ, arq);
       expect(fs.existsSync(p) ? arq : `${arq} não existe`).toBe(arq);
-      const src = fs.readFileSync(p, 'utf8');
+      // F7: o Início do laboratório lê só a listagem de eventos (quadro das próximas
+      // coletas, provas e entregas); qualquer outra rota de agenda continua fora.
+      const lido = fs.readFileSync(p, 'utf8');
+      const src = arq.endsWith('LabInicio.tsx') ? lido.split('/calendar/events').join('') : lido;
       for (const proibido of ['/home/', '/my-procedures', '/calendar/']) {
         expect(src.includes(proibido) ? `${arq} chama ${proibido}` : 'ok').toBe('ok');
       }

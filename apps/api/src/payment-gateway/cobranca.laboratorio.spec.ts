@@ -6,7 +6,7 @@
  * a parcela vira PAGA, o fluxo da entrada (sinal) continua e a confirmação de pagamento
  * sai pelo chip Financeiro com texto neutro. O que NÃO roda no laboratório (log
  * `[LAB-GATE] ...`): pagou → paciente (IA pós-venda, setor Clínica), liberação de
- * comissão, aviso interno de venda feita, cancelou tudo → volta a lead, regravar o
+ * comissão, cancelou tudo → volta a lead, regravar o
  * telefone do cliente, importar clientes do Asaas como clientes prontos e e-mail com
  * texto de clínica. A descrição da cobrança que volta ao cliente sai sem palavra de
  * clínica ("Plano de tratamento odontológico" vira "Trabalho de prótese"), e a que vai
@@ -258,7 +258,7 @@ function webhook(labs: string[], charge: any) {
 }
 
 describe('webhook do Asaas (e reconcile) — cobrança de laboratório', () => {
-  it('parcela paga: baixa, receita no caixa, parcela PAGA e confirmação saem; promoção, comissão e aviso de venda não', async () => {
+  it('parcela paga: baixa, receita no caixa, parcela PAGA, confirmação e o aviso de venda adiado (F7) saem; comissão não', async () => {
     const c = cobranca(LAB, { installment_id: 'parc-1' });
     const m = webhook([LAB], c);
     await m.svc.handleWebhook(evento(c, 'RECEIVED'));
@@ -272,12 +272,13 @@ describe('webhook do Asaas (e reconcile) — cobrança de laboratório', () => {
     expect(m.emailPago).toHaveBeenCalledTimes(1);
     // O 1º pagamento promove o contato (caminho sem efeito de clínica no laboratório).
     expect(m.promove.mock.calls).toEqual([[c.id, LAB, 'parcela paga (Asaas)']]);
+    // F7: o aviso de venda adiado vale também para o laboratório (o texto sai do envio).
+    expect(m.vendas.notifyVendaFeitaOnPaid.mock.calls).toEqual([[c.id]]);
     // Ganchos de clínica: não rodam.
-    expect(m.vendas.notifyVendaFeitaOnPaid).not.toHaveBeenCalled();
     expect(m.nomes()).not.toContain('commission.findMany');
     expect(m.nomes()).not.toContain('commission.updateMany');
     expect(m.nomes()).not.toContain('treatmentPlan.findUnique');
-    expect(registrou('venda-feita')).toBe(true);
+    expect(registrou('venda-feita')).toBe(false);
     expect(registrou('comissao')).toBe(true);
   });
 

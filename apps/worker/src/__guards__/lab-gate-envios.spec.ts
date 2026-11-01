@@ -12,6 +12,11 @@
  *    âncora que libera o carnê automático D+2;
  *  - pesquisa pós-atendimento (varredura e envio).
  *
+ * Na F7, a coleta, a prova e a entrega do laboratório passam a ter o aviso aos ADMs
+ * (só o que a equipe marcou) e a confirmação 24 h (agendador e envio), com os textos
+ * do laboratório; consulta e os outros tipos de clínica continuam de fora, e os
+ * casos da clínica são os mesmos de antes.
+ *
  * Cada freio tem três casos: (a) sem laboratório cadastrado (o caso de produção
  * hoje) = mesmas chamadas de antes; (b) clínica com OUTRA conta laboratório = igual
  * ao (a); (c) laboratório = nada sai, nada é criado.
@@ -22,7 +27,7 @@
  */
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
-import { __limparCacheLabTenants } from '@crm/shared';
+import { __limparCacheLabTenants, LAB_AGENDA_TEXTOS } from '@crm/shared';
 import { AdminAgendamentoAlertService } from '../admin-alerts/admin-agendamento-alert.service';
 import { ADMIN_AGENDAMENTO_KEY_PREFIX } from '../admin-alerts/admin-agendamento-regras';
 import { adminAlertRecipients, sendAdminAlert } from '../admin-alerts/admin-alert';
@@ -34,6 +39,7 @@ import { FollowupProcessor } from '../followup/followup.processor';
 import { MaintenanceRecallCronService } from '../maintenance/maintenance-recall-cron.service';
 import { PaymentAlertsCronService } from '../payment/payment-alerts-cron.service';
 import { PostCareCronService } from '../post-care/post-care-cron.service';
+import { enviarAnexosDoDisparoWorker } from '../automation/disparo-anexos';
 
 jest.mock('axios', () => {
   const m: any = { post: jest.fn(), get: jest.fn() };
@@ -132,24 +138,30 @@ const postsDe = () => (axios.post as jest.Mock).mock.calls.map((c) => [c[0], c[1
 
 // ─── aviso de novo agendamento aos ADMs ─────────────────────────────────────
 
-describe('Aviso de agendamento aos ADMs — laboratório fica de fora', () => {
-  function montar(labs: string[]) {
+describe('Aviso de agendamento aos ADMs — laboratório: só coleta, prova e entrega da equipe', () => {
+  /**
+   * `tipoDoLab` é o tipo do evento da conta de laboratório (as clínicas têm CONSULTA);
+   * `iaDoLab` liga também o aviso da IA no laboratório. A busca simulada respeita o
+   * filtro de tipo e de origem do where, como o banco.
+   */
+  function montar(labs: string[], tipoDoLab = 'CONSULTA', iaDoLab = false) {
     __limparCacheLabTenants();
     jest.clearAllMocks();
     const desde = new Date(AGORA.getTime() - 30 * 60_000);
+    const linhas = [CLINICA, LAB, OUTRA_CLINICA].map((t) => ({ key: `${ADMIN_AGENDAMENTO_KEY_PREFIX.EQUIPE}${t}`, value: 'true', updated_at: desde }));
+    if (iaDoLab) linhas.push({ key: `${ADMIN_AGENDAMENTO_KEY_PREFIX.IA}${LAB}`, value: 'true', updated_at: desde });
     const prisma: any = {
       tenantBusinessProfile: perfis(labs),
       globalSetting: {
-        findMany: jest.fn(async () =>
-          [CLINICA, LAB, OUTRA_CLINICA].map((t) => ({ key: `${ADMIN_AGENDAMENTO_KEY_PREFIX.EQUIPE}${t}`, value: 'true', updated_at: desde })),
-        ),
+        findMany: jest.fn(async () => linhas),
       },
       calendarEvent: {
-        findMany: jest.fn(async ({ where }: any) => [
-          {
+        findMany: jest.fn(async ({ where }: any) => {
+          const tipo = where.tenant_id === LAB ? tipoDoLab : 'CONSULTA';
+          const ev = {
             id: `ev-${where.tenant_id}`,
-            type: 'CONSULTA',
-            title: 'Consulta',
+            type: tipo,
+            title: tipo === 'CONSULTA' ? 'Consulta' : 'Coleta',
             start_at: new Date('2026-10-22T14:30:00.000Z'),
             all_day: false,
             created_by_ai: false,
@@ -161,8 +173,12 @@ describe('Aviso de agendamento aos ADMs — laboratório fica de fora', () => {
             assigned_user: { name: 'Dra. Ana Exemplo' },
             created_by: { name: 'Recepção Exemplo' },
             appointment_type: null,
-          },
-        ]),
+          };
+          const tipos: string[] = where.type?.in ?? [];
+          const origens: any[] = where.AND?.[1]?.OR ?? [];
+          const casaOrigem = origens.some((o) => o.created_by_ai === ev.created_by_ai);
+          return tipos.includes(ev.type) && casaOrigem ? [ev] : [];
+        }),
         updateMany: jest.fn(async () => ({ count: 1 })),
       },
       instance: { findFirst: jest.fn(async () => null) },
@@ -201,17 +217,51 @@ describe('Aviso de agendamento aos ADMs — laboratório fica de fora', () => {
     const esperado = semLab(efeitos(antes.prisma));
     const depois = montar([LAB]);
     expect(await depois.svc.processar(AGORA)).toBe(2);
-    expect(efeitos(depois.prisma)).toEqual(esperado);
+    expect(semLab(efeitos(depois.prisma))).toEqual(esperado);
   });
 
-  it('laboratório: nem busca, nem reivindica, nem avisa', async () => {
+  it('laboratório, CONSULTA: busca só coleta, prova e entrega; nada reivindicado nem avisado', async () => {
     const { svc, prisma } = montar([LAB]);
     await svc.processar(AGORA);
     const e = efeitos(prisma);
-    expect(e.destinatarios.some((c) => c[0] === LAB)).toBe(false);
-    expect(e.busca.some((w: any) => w.where.tenant_id === LAB)).toBe(false);
+    const buscaDoLab = e.busca.filter((w: any) => w.where.tenant_id === LAB);
+    expect(buscaDoLab.map((w: any) => w.where.type)).toEqual([{ in: ['COLETA', 'PROVA', 'ENTREGA'] }]);
     expect(e.claim.some((w: any) => w.tenant_id === LAB)).toBe(false);
     expect(e.envio.some((c) => c[0] === LAB)).toBe(false);
+  });
+
+  it('laboratório, COLETA marcada pela equipe: reivindica e avisa com o texto do laboratório', async () => {
+    const { svc, prisma } = montar([LAB], 'COLETA');
+    expect(await svc.processar(AGORA)).toBe(3);
+    const e = efeitos(prisma);
+    expect(e.claim.filter((w: any) => w.tenant_id === LAB)).toEqual([
+      { id: `ev-${LAB}`, tenant_id: LAB, admin_notified_at: null, status: { in: ['AGENDADO', 'CONFIRMADO'] } },
+    ]);
+    const doLab = e.envio.filter((c) => c[0] === LAB);
+    expect(doLab).toHaveLength(1);
+    expect(doLab[0][1].text).toBe(
+      [
+        '📅 *Novo agendamento*',
+        `Cliente: Maria Exemplo (${TEL[LAB]})`,
+        'Quando: quinta-feira 22/10 às 14:30',
+        'Tipo: Coleta',
+        'Com: Dra. Ana Exemplo',
+        'Marcado por: Recepção Exemplo',
+      ].join('\n'),
+    );
+    expect(doLab[0][1].type).toBe('admin_agendamento');
+    // As clínicas seguem com o texto delas.
+    expect(e.envio.find((c) => c[0] === CLINICA)?.[1].text).toContain('Paciente: Maria Exemplo');
+  });
+
+  it('laboratório: o aviso da IA não entra (só a origem equipe)', async () => {
+    const { svc, prisma } = montar([LAB], 'COLETA', true);
+    await svc.processar(AGORA);
+    const e = efeitos(prisma);
+    expect(e.destinatarios.filter((c) => c[0] === LAB).map((c) => c[1])).toEqual(['admin_agendamento_equipe']);
+    const buscaDoLab = e.busca.filter((w: any) => w.where.tenant_id === LAB);
+    expect(buscaDoLab).toHaveLength(1);
+    expect(buscaDoLab[0].where.AND[1].OR.map((o: any) => o.created_by_ai)).toEqual([false]);
   });
 });
 
@@ -281,18 +331,115 @@ describe('Confirmação 24 h (agendador) — evento de laboratório fica fora da
     expect(depois.criadas).toHaveLength(3);
   });
 
-  it('laboratório: nenhuma confirmação criada', async () => {
+  it('laboratório, CONSULTA: nenhuma confirmação criada', async () => {
     const { svc, criadas, prisma } = montar([LAB], [consulta(LAB), consulta(CLINICA)]);
     await svc.scheduleConfirmations();
     expect(criadas.map((c) => c.appointment_id)).toEqual([`ev-${CLINICA}`]);
     const chaves = prisma.globalSetting.findUnique.mock.calls.map((c: any[]) => c[0].where.key);
     expect(chaves.some((k: string) => k.endsWith(LAB))).toBe(false);
   });
+
+  // F7 — coleta, prova e entrega do laboratório: busca separada, depois da clínica.
+  const visita = (tipo: string, id = `ev-${tipo}`, paciente: Record<string, any> = {}) => ({
+    id,
+    tenant_id: LAB,
+    type: tipo,
+    title: tipo,
+    start_at: new Date('2026-10-22T12:30:00.000Z'),
+    location: null,
+    assigned_user: { name: 'Expedição Exemplo' },
+    patient: {
+      id: 'pac-lab',
+      name: 'Dra. Ana Souza',
+      phone: TEL[LAB],
+      tenant_id: LAB,
+      address: 'Rua Exemplo',
+      address_number: '100',
+      address_complement: null,
+      neighborhood: 'Centro',
+      city: 'Maceió',
+      state: 'AL',
+      lead: { is_client: false },
+      ...paciente,
+    },
+  });
+  const TEXTO_CONFIRMACAO_COLETA =
+    'Oi Ana, tudo bem? Aqui é do laboratório. Passando pra confirmar a coleta do seu trabalho amanhã, *22/10* às *12:30*.\n' +
+    '📍 Rua Exemplo, 100, Centro, Maceió/AL\n\n' +
+    'Vai ter alguém no consultório pra receber? Se precisar mudar, é só responder aqui.';
+
+  it('sem laboratório cadastrado: uma consulta só (nenhuma 2ª busca)', async () => {
+    const { svc, prisma } = montar([], [consulta(CLINICA), visita('COLETA')]);
+    await svc.scheduleConfirmations();
+    expect(prisma.calendarEvent.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.calendarEvent.findMany.mock.calls[0][0].where).toEqual(WHERE_DE_ANTES);
+  });
+
+  it('laboratório, COLETA: 1 confirmação com o texto do laboratório e sem a conferência da 48 h; a da clínica igual', async () => {
+    const eventos = [consulta(CLINICA), visita('COLETA'), consulta(OUTRA_CLINICA)];
+    const antes = montar([], [consulta(CLINICA), consulta(OUTRA_CLINICA)]);
+    await antes.svc.scheduleConfirmations();
+    const { svc, prisma, criadas } = montar([LAB], eventos);
+    await svc.scheduleConfirmations();
+    const chamadas = prisma.calendarEvent.findMany.mock.calls.map((c: any[]) => c[0].where);
+    expect(chamadas[0]).toEqual({ AND: [WHERE_DE_ANTES, OR_SEM_LAB] });
+    expect(chamadas[1]).toEqual({
+      tenant_id: { in: [LAB] },
+      type: { in: ['COLETA', 'PROVA', 'ENTREGA'] },
+      status: 'AGENDADO',
+      OR: [{ patient_id: { not: null } }, { lead_id: { not: null } }],
+      start_at: WHERE_DE_ANTES.start_at,
+    });
+    expect(criadas.filter((c) => c.appointment_id !== 'ev-COLETA')).toEqual(antes.criadas);
+    const doLab = criadas.filter((c) => c.appointment_id === 'ev-COLETA');
+    expect(doLab).toEqual([
+      { appointment_id: 'ev-COLETA', channel: 'WHATSAPP', scheduled_for: AGORA, message_text: TEXTO_CONFIRMACAO_COLETA, response_status: 'PENDENTE' },
+    ]);
+    // Sem a conferência da 48 h no laboratório.
+    const conferidos = prisma.eventReminder.findFirst.mock.calls.map((c: any[]) => c[0].where.event_id);
+    expect(conferidos).not.toContain('ev-COLETA');
+    // Chaves lidas do laboratório: só o liga/desliga e o texto (nada de ortodontia).
+    const chavesDoLab = prisma.globalSetting.findUnique.mock.calls.map((c: any[]) => c[0].where.key).filter((k: string) => k.endsWith(LAB));
+    expect(chavesDoLab).toEqual([`APPOINTMENT_CONFIRMATION_ENABLED_${LAB}`, `APPOINTMENT_CONFIRMATION_TEMPLATE_${LAB}`]);
+  });
+
+  it('laboratório sem evento da clínica na janela: a prova ainda é confirmada', async () => {
+    const { svc, criadas } = montar([LAB], [visita('PROVA')]);
+    await svc.scheduleConfirmations();
+    expect(criadas.map((c) => c.appointment_id)).toEqual(['ev-PROVA']);
+    expect(criadas[0].message_text).toContain('confirmar a prova do seu trabalho amanhã');
+  });
+
+  it('laboratório: o texto salvo na conta vale; liga/desliga da conta respeitado', async () => {
+    const a = montar([LAB], [visita('ENTREGA')]);
+    a.prisma.globalSetting.findUnique.mockImplementation(async ({ where }: any) =>
+      where.key === `APPOINTMENT_CONFIRMATION_TEMPLATE_${LAB}` ? { value: JSON.stringify({ template: 'Oi {nome}, a {tipo} é amanhã às {hora}.' }) } : null,
+    );
+    await a.svc.scheduleConfirmations();
+    expect(a.criadas.map((c) => c.message_text)).toEqual(['Oi Ana, a entrega é amanhã às 12:30.']);
+
+    const b = montar([LAB], [visita('ENTREGA')]);
+    b.prisma.globalSetting.findUnique.mockImplementation(async ({ where }: any) =>
+      where.key === `APPOINTMENT_CONFIRMATION_ENABLED_${LAB}` ? { value: 'false' } : null,
+    );
+    await b.svc.scheduleConfirmations();
+    expect(b.criadas).toEqual([]);
+  });
+
+  it('laboratório: cadastro de outra conta ou sem telefone fica de fora, sem ler chave', async () => {
+    const { svc, prisma, criadas } = montar([LAB], [
+      visita('COLETA', 'ev-outra-conta', { tenant_id: CLINICA }),
+      visita('COLETA', 'ev-sem-telefone', { phone: null }),
+    ]);
+    await svc.scheduleConfirmations();
+    expect(criadas).toEqual([]);
+    expect(prisma.globalSetting.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 // ─── confirmação 24 h: envio ────────────────────────────────────────────────
 
-describe('Confirmação 24 h (envio) — a de laboratório não sai', () => {
+describe('Confirmação 24 h (envio) — a de laboratório só sai em coleta, prova e entrega', () => {
   const pendente = (t: string) => ({
     id: `conf-${t}`,
     message_text: `Oi Maria, confirma amanhã? (${t})`,
@@ -336,7 +483,7 @@ describe('Confirmação 24 h (envio) — a de laboratório não sai', () => {
     expect(esperado.posts).toHaveLength(2);
   });
 
-  it('laboratório: não envia, não reivindica e sai da fila como falha', async () => {
+  it('laboratório, CONSULTA: não envia, não reivindica e sai da fila como falha', async () => {
     const { svc, prisma } = montar([LAB], [pendente(LAB), pendente(CLINICA)]);
     await svc.dispatchPending();
     expect(postsPara(TEL[LAB])).toHaveLength(0);
@@ -345,6 +492,53 @@ describe('Confirmação 24 h (envio) — a de laboratório não sai', () => {
     const doLab = prisma.appointmentConfirmation.update.mock.calls.filter((c: any[]) => c[0].where.id === `conf-${LAB}`);
     expect(doLab).toHaveLength(1);
     expect(doLab[0][0].data.delivery_status).toBe('FAILED');
+  });
+
+  // F7 — coleta, prova e entrega do laboratório saem pelo mesmo caminho.
+  const pendenteDoLab = (tipo: string, texto: string | null) => ({
+    id: `conf-${tipo}`,
+    message_text: texto,
+    appointment: { id: `ev-${tipo}`, tenant_id: LAB, type: tipo, start_at: new Date(), patient: { id: 'pac-lab', name: 'Dra. Ana Souza', phone: TEL[LAB] } },
+  });
+
+  it.each(['COLETA', 'PROVA', 'ENTREGA'])('laboratório, %s: reivindica e sai pelo chip de Atendimento, sem anexos', async (tipo) => {
+    const { svc, prisma } = montar([LAB], [pendenteDoLab(tipo, `Confirma a ${tipo}?`), pendente(CLINICA)]);
+    await svc.dispatchPending();
+    expect(postsPara(TEL[LAB]).map((c) => [c[0], c[1].text])).toEqual([[`${EVO}/message/sendText/chip-clinica`, `Confirma a ${tipo}?`]]);
+    expect(prisma.appointmentConfirmation.updateMany.mock.calls.map((c: any[]) => c[0].where.id)).toEqual([`conf-${tipo}`, `conf-${CLINICA}`]);
+    const doLab = prisma.appointmentConfirmation.update.mock.calls.filter((c: any[]) => c[0].where.id === `conf-${tipo}`);
+    expect(doLab.map((c: any[]) => c[0].data.delivery_status)).toEqual(['SENT']);
+    const anexos = (enviarAnexosDoDisparoWorker as jest.Mock).mock.calls.map((c) => c[2].tenantId);
+    expect(anexos).toEqual([CLINICA]);
+    const chavesDoLab = prisma.globalSetting.findUnique.mock.calls.map((c: any[]) => c[0].where.key).filter((k: string) => k.endsWith(LAB));
+    expect(chavesDoLab).toEqual([`APPOINTMENT_CONFIRMATION_ENABLED_${LAB}`]);
+  });
+
+  it('laboratório sem texto na linha: sai a reserva do laboratório', async () => {
+    const { svc } = montar([LAB], [pendenteDoLab('COLETA', null)]);
+    await svc.dispatchPending();
+    expect(postsPara(TEL[LAB]).map((c) => c[1].text)).toEqual([LAB_AGENDA_TEXTOS.confirmacaoReserva]);
+  });
+
+  it('laboratório com o liga/desliga da confirmação desligado: fica pendente, sem claim', async () => {
+    const { svc, prisma } = montar([LAB], [pendenteDoLab('COLETA', 'Confirma?')]);
+    prisma.globalSetting.findUnique.mockImplementation(async ({ where }: any) =>
+      where.key === `APPOINTMENT_CONFIRMATION_ENABLED_${LAB}` ? { value: 'false' } : null,
+    );
+    await svc.dispatchPending();
+    expect(postsPara(TEL[LAB])).toHaveLength(0);
+    expect(prisma.appointmentConfirmation.updateMany).not.toHaveBeenCalled();
+    expect(prisma.appointmentConfirmation.update).not.toHaveBeenCalled();
+  });
+
+  it('laboratório só com chip Financeiro: falha com o motivo do laboratório, nada sai', async () => {
+    const { svc, prisma } = montar([LAB], [pendenteDoLab('ENTREGA', 'Confirma?')]);
+    prisma.instance.findMany.mockImplementation(async () => [{ name: 'chip-financeiro', purpose: 'FINANCEIRO' }]);
+    await svc.dispatchPending();
+    expect(postsDe()).toEqual([]);
+    expect(prisma.appointmentConfirmation.update.mock.calls.map((c: any[]) => c[0].data.message_text)).toEqual([
+      `[ERRO: ${LAB_AGENDA_TEXTOS.semChipConfirmacao}]`,
+    ]);
   });
 });
 
