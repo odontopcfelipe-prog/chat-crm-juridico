@@ -34,6 +34,9 @@ RUN cd packages/shared && npm run build
 # Faz o build do frontend Next.js indicando Next.js cache mode
 WORKDIR /app/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
+# Mesmo limite de memória do next build do CI (ci.yml): o padrão do Node no runner
+# fica perto do tamanho do build e a imagem do web falhava às vezes.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_GTM_ID
