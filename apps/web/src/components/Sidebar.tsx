@@ -28,6 +28,8 @@ import { useVisualMode } from '@/components/VisualModeProvider';
 // lista de rotas dele e o cargo com o nome do laboratório. Na clínica nada muda.
 import { isLab, labAllowsRoute, LAB_ROLE_LABELS } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
+// F5 — nome da lista e do grupo dela no laboratório (na clínica, o texto de hoje).
+import { LAB_MENU } from '@/lib/lab-casca-textos';
 
 // ─── Tooltip Styles (shared) ──────────────────────────────────────
 const TOOLTIP_CLS =
@@ -584,7 +586,7 @@ export function Sidebar() {
     pacientes: {
       // Onda 5c (Fase 25) — renomeado pra "Lista de pacientes" (mais claro)
       // e sub-items removidos (cada um virou item separado no grupo PACIENTES)
-      label: 'Lista de pacientes',
+      label: lab ? LAB_MENU.listaDentistas : 'Lista de pacientes',
       href: '/atendimento/pacientes',
       icon: <HeartPulse size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/pacientes') && !p.includes('?new'),
@@ -886,7 +888,7 @@ export function Sidebar() {
     },
     {
       id: 'jornada',
-      label: 'Jornada do paciente',
+      label: lab ? LAB_MENU.grupoClientes : 'Jornada do paciente',
       fixed: true,
       icon: <Users size={14} strokeWidth={2.5} />,
       items: [

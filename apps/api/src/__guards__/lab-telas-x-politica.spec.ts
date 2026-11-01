@@ -37,6 +37,8 @@ const CASCA = [
   'WhatsappController.myNumbers', // aviso de chip desconectado
   'NotificationSettingsController.get', // sino de notificações do cabeçalho
   'NotificationSettingsController.update',
+  'PatientsController.findAll', // "Localizar" do cabeçalho (busca de cliente)
+  'PatientsController.findOne',
 ];
 
 /** Rota do front (ALLOWED_LAB_ROUTES) → handlers que a tela chama no laboratório. */
@@ -84,6 +86,15 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'TasksController.complete',
     'TasksController.postpone',
     'MediaController.retryMediaDownload',
+    // F5: painel do contato do laboratório (LabClientPanel) — "Tornar cliente", histórico e notas
+    'LeadsController.ensurePatient',
+    'LeadsController.promoteToClient',
+    'LeadsController.getTimeline',
+    'LeadsController.deleteContact',
+    'PatientsController.findByLead',
+    'LeadNotesController.findAll',
+    'LeadNotesController.create',
+    'LeadNotesController.delete',
   ],
   // chat/[id] (ChatClient.tsx)
   '/atendimento/chat': [
@@ -168,12 +179,188 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'PontoController.saveSchedule',
     'PontoController.deleteSchedule',
   ],
+  // [F5a]
+  // lista (pacientes/page.tsx), Novo cliente e Editar, ficha (pacientes/[id]: Visão geral,
+  // Histórico e a conversa do ChatPane) e a aba Financeiro (FinanceiroTab, que aparece
+  // quando as rotas do financeiro, bloco F5b, estiverem na lista)
+  '/atendimento/pacientes': [
+    ...CASCA,
+    'PatientsController.getStats',
+    'PatientsController.create',
+    'PatientsController.update',
+    'PatientsController.archive',
+    'PatientsController.uploadAvatar',
+    'PatientsController.getAvatar',
+    'PatientsController.getTimeline',
+    'PatientTagsController.list',
+    'PatientTagsController.create',
+    'PatientTagsController.getForPatient',
+    'PatientTagsController.setForPatient',
+    'UsersController.findLawyers',
+    'UsersController.findAgents',
+    'CalendarController.patientBlockStatus',
+    'PaymentGatewayController.getFinanceiroConversation',
+    'ConversationsController.findOrCreatePatient',
+    'ConversationsController.markAsRead',
+    'ConversationsController.close',
+    'ConversationsController.setAiMode',
+    'MessagesController.getMessages',
+    'MessagesController.syncHistory',
+    'MessagesController.sendMessage',
+    'MessagesController.sendFile',
+    'InstallmentsController.findAll',
+    'InstallmentsController.pay',
+    'PaymentGatewayController.getPatientCharges',
+    'PaymentGatewayController.deleteAsaasCharge',
+    'PaymentGatewayController.receiveInCash',
+    'PaymentGatewayController.sendCurrentBoleto',
+    'PaymentGatewayController.getChargeSubInstallments',
+    'PaymentGatewayController.resendChargeWhatsapp',
+    'CommercialController.listQuotes',
+    'CommercialController.findQuote',
+    'CommercialController.validatePlan',
+    'CommercialController.applyFinancing',
+  ],
+  // contatos (contacts/page.tsx, Novo contato e o painel do contato do laboratório)
+  '/atendimento/contacts': [
+    ...CASCA,
+    'LeadsController.findAll',
+    'LeadsController.updateStage',
+    'LeadsController.checkPhone',
+    'LeadsController.create',
+    'LeadsController.findOne',
+    'LeadsController.update',
+    'LeadsController.getTimeline',
+    'LeadsController.deleteContact',
+    'LeadsController.ensurePatient',
+    'LeadsController.promoteToClient',
+    'LeadNotesController.findAll',
+    'LeadNotesController.create',
+    'LeadNotesController.delete',
+    'ConversationsController.findAllByLead',
+    'ConversationsController.create',
+    'ConversationsController.assign',
+    'ConversationsController.findAll',
+    'PatientsController.findByLead',
+  ],
+  // [/F5a]
+  // [F5b]
+  // financeiro/page.tsx só redireciona para a aba certa
+  '/atendimento/financeiro': [...CASCA],
+  '/atendimento/financeiro/contas-a-pagar': [
+    ...CASCA,
+    'PayablesController.list',
+    'PayablesController.gastos',
+    'PayablesController.categories',
+    'PayablesController.accounts',
+    'PayablesController.companies',
+    'PayablesController.createCompany',
+    'PayablesController.updateCompany',
+    'PayablesController.create',
+    'PayablesController.installmentPlan',
+    'PayablesController.pay',
+    'PayablesController.update',
+    'PayablesController.remove',
+    'FinanceiroController.findAllTransactions',
+    'FinanceiroController.getAuditLog',
+    'FinanceiroController.findAllCategories',
+    'FinanceiroController.getDashboard',
+    'FinanceiroController.createTransaction',
+    'FinanceiroController.getPatientsSummary',
+    'PaymentGatewayController.getBalance',
+  ],
+  // boletos/page.tsx (BoletosTab, BoletosKpis, BoletosMesResumo)
+  '/atendimento/financeiro/boletos': [
+    ...CASCA,
+    'FinanceiroController.chargesKpis',
+    'FinanceiroController.monthCharges',
+    'FinanceiroController.findCharges',
+    'CommercialController.markCashReceived',
+    'PaymentGatewayController.receiveInCash',
+    'PaymentGatewayController.deleteAsaasCharge',
+  ],
+  // validar/page.tsx (ValidarTab)
+  '/atendimento/financeiro/validar': [...CASCA, 'CommercialController.pendingValidation', 'CommercialController.validatePlan'],
+  '/atendimento/financeiro/parcelas': [
+    ...CASCA,
+    'InstallmentsController.findAll',
+    'InstallmentsController.overdueSummary',
+    'InstallmentsController.pay',
+    'PaymentGatewayController.getOdontoInstallmentCharge',
+    'PaymentGatewayController.createOdontoInstallmentCharge',
+  ],
+  // conta Asaas da própria conta (o PUT /settings da tela é só do dono da plataforma)
+  '/atendimento/settings/payment-gateway': [...CASCA, 'PaymentGatewayController.getSettings', 'PaymentGatewayController.setup'],
+  // [/F5b]
+  // [F5c]
+  // venda-rapida/page.tsx (sem o PIX online) e o Novo cliente que ela abre
+  '/atendimento/venda-rapida': [
+    ...CASCA,
+    'ProceduresController.findAll',
+    'InventoryController.previewConsumption',
+    'InventoryController.commitConsumption',
+    'PaymentGatewayController.getSettings',
+    'UsersController.findLawyers',
+    'CommercialController.vendaBalcao',
+    'PatientsController.create',
+    'PatientsController.uploadAvatar',
+    'PatientTagsController.list',
+    'PatientTagsController.create',
+  ],
+  '/atendimento/settings/procedures': [
+    ...CASCA,
+    'ProceduresController.findAll',
+    'ProceduresController.create',
+    'ProceduresController.update',
+    'ProceduresController.remove',
+    'SpecialtiesController.findAll',
+  ],
+  '/atendimento/settings/patient-tags': [
+    ...CASCA,
+    'PatientTagsController.list',
+    'PatientTagsController.create',
+    'PatientTagsController.update',
+    'PatientTagsController.remove',
+  ],
+  // equipe (sem horários de agenda, jogo, avisos de disparo e vínculo de dentista)
+  '/atendimento/settings/users': [
+    ...CASCA,
+    'UsersController.findAll',
+    'UsersController.findLawyers',
+    'UsersController.create',
+    'UsersController.update',
+    'UsersController.remove',
+    'UsersController.linkSupervisors',
+    'UsersController.resendVerification',
+    'UsersController.transferSummary',
+    'InboxesController.findAll',
+  ],
+  // estoque (produtos, movimentações e fornecedores; sem a aba de rastreio)
+  '/atendimento/estoque': [
+    ...CASCA,
+    'InventoryController.getPolicy',
+    'InventoryController.setPolicy',
+    'InventoryController.listProducts',
+    'InventoryController.createProduct',
+    'InventoryController.updateProduct',
+    'InventoryController.archiveProduct',
+    'InventoryController.uploadProductPhoto',
+    'InventoryController.getProductPhoto',
+    'InventoryController.removeProductPhoto',
+    'InventoryController.listMovements',
+    'InventoryController.createMovement',
+    'InventoryController.listSuppliers',
+    'InventoryController.createSupplier',
+    'InventoryController.updateSupplier',
+    'InventoryController.archiveSupplier',
+  ],
+  // [/F5c]
 };
 
 /** Componente que aparece em toda tela (balão da conversa da equipe). */
 const EQUIPE_CHAT = ['TeamChatController.overview', 'TeamChatController.messages', 'TeamChatController.send', 'TeamChatController.read'];
 
-/** O que o front ESCONDE no laboratório na F4 — continua negado na API. */
+/** O que o front ESCONDE no laboratório (F4 e F5) — continua negado na API. */
 const ESCONDIDOS_NO_LAB = [
   'ConversationsController.setSpecialty',
   'ConversationsController.assignLawyer',
@@ -182,15 +369,117 @@ const ESCONDIDOS_NO_LAB = [
   'MessagesController.correctText',
   ...doController('TransferAudioController'),
   'LeadsController.summarize',
-  'LeadsController.promoteToClient',
   'LeadsController.demoteToLead',
-  // "Tornar cliente": a ficha do cliente do laboratório chega numa fase própria.
-  'LeadsController.ensurePatient',
+  'LeadsController.resetMemory',
   ...doController('GoogleDriveController'),
   ...doController('LeadHonorariosController'),
   'HomeHighlightsController.moduleBadges',
   'MyGameController.myProcedures',
+  // F5 — lista e ficha do cliente: primeiras consultas, aniversários, atender, alergias e
+  // medicamentos, conversão pela rota da clínica, boas-vindas, afiliados e crédito
+  'PatientsController.firstVisits',
+  'PatientsController.getBirthdays',
+  'PatientsController.startAttending',
+  'PatientsController.addAllergy',
+  'PatientsController.removeAllergy',
+  'PatientsController.addMedication',
+  'PatientsController.removeMedication',
+  'PatientsController.convertFromLead',
+  'PatientsController.getWelcome',
+  'PatientsController.listAffiliateOptions',
+  'PatientsController.getAffiliateDashboard',
+  'PatientsController.updateCreditCheckData',
+  'CalendarController.validate',
+  'CalendarController.unvalidate',
+  ...doController('OdontogramController'),
+  ...doController('MemoriesController'),
+  ...doController('PortalController'),
+  // F5 — aba Financeiro da ficha: contrato do orçamento e envio de teste do boleto
+  'CommercialController.getQuoteContract',
+  'PaymentGatewayController.testBoletoDelivery',
+  // F5 — venda e propostas: aceite sem cobrança, consulta de crédito, contrato e modelos
+  'CommercialController.acceptQuoteNoCharge',
+  'CommercialController.simulateCreditCheck',
+  'CommercialController.getContractCompleteness',
+  'CommercialController.createQuoteContract',
+  'CommercialController.previewQuoteContractPdf',
+  'CommercialController.listTemplates',
+  ...doController('ContractsController'),
+  // F5 — equipe: horários da agenda, jogo, avisos de disparo e vínculo de dentista
+  'CalendarController.getSchedule',
+  'CalendarController.setSchedule',
+  ...doController('GameScoringController'),
+  ...doController('DentistLinksController'),
+  ...doController('FollowupController'),
+  // F5 — estoque: baixa de insumo por procedimento
+  'InventoryController.linkConsumable',
+  'InventoryController.listConsumables',
+  'InventoryController.unlinkConsumable',
+  // F5 — grupos de serviço: o laboratório usa os grupos da semente; a tela de grupos fica para depois
+  'SpecialtiesController.create',
+  'SpecialtiesController.update',
+  'SpecialtiesController.remove',
+  'SpecialtiesController.addDentist',
+  'SpecialtiesController.removeDentist',
 ];
+
+/** Controllers expandidos com doController acima: cada um tem de existir e ter handlers. */
+const CONTROLLERS_EXPANDIDOS = [
+  'CaixaController',
+  'TransferAudioController',
+  'GoogleDriveController',
+  'LeadHonorariosController',
+  'OdontogramController',
+  'MemoriesController',
+  'PortalController',
+  'ContractsController',
+  'GameScoringController',
+  'DentistLinksController',
+  'FollowupController',
+];
+
+/**
+ * Os quatro arquivos de rota com os blocos F5a, F5b e F5c (cada deploy tira ou põe blocos
+ * inteiros). Fora das linhas de abrir e fechar, nenhum texto destes arquivos cita o
+ * marcador entre colchetes: assim um corte por linha (sed de faixa) não pega linha errada.
+ */
+const ARQUIVOS_COM_BLOCOS = [
+  'packages/shared/src/business-type.ts',
+  'apps/api/src/__guards__/lab-telas-x-politica.spec.ts',
+  'apps/api/src/__guards__/business-type.spec.ts',
+  'apps/api/src/__guards__/business-route.spec.ts',
+];
+
+/**
+ * Linhas de cada bloco (o comentário que abre e o que fecha levam o nome F5a, F5b...);
+ * vários blocos com o mesmo nome se somam. Sem aninhar. O nome entre colchetes só pode
+ * aparecer nas linhas de abrir e fechar.
+ */
+function linhasDosBlocos(arq: string): Map<string, string[]> {
+  const src = fs.readFileSync(path.join(RAIZ, arq), 'utf8');
+  const blocos = new Map<string, string[]>();
+  let aberto: string | null = null;
+  const MARCA_SOLTA = new RegExp('\\[\\/?F5[a-z]\\]');
+  src.split(/\r?\n/).forEach((linha, i) => {
+    const abre = /^\s*\/\/\s*\[(F5[a-z])\]/.exec(linha);
+    const fecha = /^\s*\/\/\s*\[\/(F5[a-z])\]/.exec(linha);
+    if (!abre && !fecha && MARCA_SOLTA.test(linha)) {
+      throw new Error(`${arq}:${i + 1} cita o marcador fora da linha de abrir/fechar (o corte por linha pegaria esta linha)`);
+    }
+    if (abre) {
+      if (aberto) throw new Error(`${arq}:${i + 1} abre [${abre[1]}] dentro de [${aberto}]`);
+      aberto = abre[1];
+      if (!blocos.has(aberto)) blocos.set(aberto, []);
+    } else if (fecha) {
+      if (aberto !== fecha[1]) throw new Error(`${arq}:${i + 1} fecha [/${fecha[1]}] com [${aberto ?? 'nada'}] aberto`);
+      aberto = null;
+    } else if (aberto) {
+      blocos.get(aberto)!.push(linha);
+    }
+  });
+  if (aberto) throw new Error(`${arq}: [${aberto}] aberto até o fim do arquivo`);
+  return blocos;
+}
 
 const caminho = (e: unknown): string => (typeof e === 'string' ? e : (e as { path: string }).path);
 
@@ -205,8 +494,30 @@ describe('Telas do laboratório × política de rotas da API', () => {
     const todos = [...new Set([...Object.values(TELAS).flat(), ...EQUIPE_CHAT, ...ESCONDIDOS_NO_LAB])];
     expect(todos.filter((h) => !HANDLERS.has(h))).toEqual([]);
     // Os controllers expandidos com doController existem e têm handlers.
-    for (const c of ['CaixaController', 'TransferAudioController', 'GoogleDriveController', 'LeadHonorariosController']) {
+    for (const c of CONTROLLERS_EXPANDIDOS) {
       expect(doController(c).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('os blocos F5a/F5b/F5c fecham nos 4 arquivos de rota e listam as mesmas telas aqui e em business-type.ts', () => {
+    const porArquivo = new Map(ARQUIVOS_COM_BLOCOS.map((arq) => [arq, linhasDosBlocos(arq)]));
+    const daLista = porArquivo.get('packages/shared/src/business-type.ts')!;
+    const daTabela = porArquivo.get('apps/api/src/__guards__/lab-telas-x-politica.spec.ts')!;
+    // Mesmos marcadores nos quatro arquivos (um deploy tira o bloco de todos de uma vez).
+    const marcadores = [...daLista.keys()].sort();
+    for (const [arq, blocos] of porArquivo) expect([arq, [...blocos.keys()].sort()]).toEqual([arq, marcadores]);
+    for (const m of marcadores) {
+      // Rotas do bloco na lista do shared (string de prefixo ou path da entrada exata).
+      const rotas = daLista
+        .get(m)!
+        .flatMap((l) => [...l.matchAll(/(?:^\s*|path:\s*)'(\/atendimento[^']*)'/g)].map((x) => x[1]))
+        .sort();
+      // Linhas da tabela TELAS dentro do mesmo bloco deste spec.
+      const telas = daTabela
+        .get(m)!
+        .flatMap((l) => [.../^\s*'(\/atendimento[^']*)':\s*\[/.exec(l) ?? []].slice(1))
+        .sort();
+      expect([m, telas]).toEqual([m, rotas]);
     }
   });
 

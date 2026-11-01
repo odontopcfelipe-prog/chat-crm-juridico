@@ -8,6 +8,9 @@
 //   - GET /patients?search=            (busca textual)
 //   - GET /patients/:id                (ficha p/ o card da direita)
 // Fotos servidas pelo <PatientAvatar> (blob autenticado + fallback WhatsApp).
+// Laboratório (F5): "Localizar dentista" só pela busca — a agenda do dia chega na
+// F7 (não chama /calendar/events) — e o card sem nascimento, RG, emergência,
+// próxima consulta e teleconsulta; o documento aparece como CPF/CNPJ.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -16,8 +19,11 @@ import {
   X, Search, ChevronDown, Loader2, CalendarClock,
   ArrowUpRight, MessageCircle, MessageSquare, Video,
 } from 'lucide-react';
+import { formatCpfCnpj, isLab } from '@crm/shared';
 import api from '@/lib/api';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { LAB_LOCALIZADOR } from './lab-contato-textos';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────
 interface ApptEvent {
@@ -120,6 +126,7 @@ function waLink(raw?: string | null): string | null {
 // ─── Componente ─────────────────────────────────────────────────────────────
 export function PatientLocatorModal({ open, onClose, financialMode = false }: { open: boolean; onClose: () => void; financialMode?: boolean }) {
   const router = useRouter();
+  const lab = isLab(useBusinessType());
   const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState('');
   const [appts, setAppts] = useState<ApptEvent[]>([]);
@@ -144,6 +151,12 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
     setDetail(null);
     setShowAppts(true);
     setTimeout(() => inputRef.current?.focus(), 60);
+
+    // Laboratório (F5): sem agenda até a F7 — não busca os atendimentos do dia.
+    if (isLab(btAgora())) {
+      setShowAppts(false);
+      return;
+    }
 
     setLoadingAppts(true);
     const today = maceioTodayStr();
@@ -273,7 +286,7 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
         {/* ── ESQUERDA: título + busca + lista ── */}
         <div className={`flex flex-col ${selectedId ? 'w-[440px] border-r border-border' : 'w-full'} shrink-0`}>
           <div className="flex items-center justify-between px-5 pt-4 pb-2">
-            <h2 className="text-lg font-semibold text-muted-foreground">Localizar um paciente</h2>
+            <h2 className="text-lg font-semibold text-muted-foreground">{lab ? LAB_LOCALIZADOR.titulo : 'Localizar um paciente'}</h2>
             <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent transition-colors">
               <X size={18} />
             </button>
@@ -287,14 +300,15 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                 ref={inputRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Localizar paciente (nome, telefone, CPF)"
+                placeholder={lab ? LAB_LOCALIZADOR.placeholder : 'Localizar paciente (nome, telefone, CPF)'}
                 className="w-full pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
               {searching && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />}
             </div>
           </div>
 
-          {/* Cabeçalho de seção */}
+          {/* Cabeçalho de seção (laboratório: só com busca — não há atendimentos do dia) */}
+          {(!lab || showingSearch) && (
           <button
             onClick={() => !showingSearch && setShowAppts((v) => !v)}
             className="flex items-center gap-1.5 px-5 pb-1.5 text-left"
@@ -306,6 +320,7 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
               <ChevronDown size={13} className={`text-muted-foreground transition-transform ${showAppts ? '' : '-rotate-90'}`} />
             )}
           </button>
+          )}
 
           {/* Lista */}
           <div className="flex-1 overflow-y-auto px-3 pb-4 min-h-[240px] max-h-[62vh]">
@@ -313,10 +328,12 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
               searching && results.length === 0 ? (
                 <EmptyHint icon={<Loader2 size={22} className="animate-spin" />} text="Buscando…" />
               ) : results.length === 0 ? (
-                <EmptyHint icon={<Search size={22} />} text={`Nenhum paciente para "${q}"`} />
+                <EmptyHint icon={<Search size={22} />} text={lab ? LAB_LOCALIZADOR.vazio(q) : `Nenhum paciente para "${q}"`} />
               ) : (
                 results.map((h) => <HitRow key={h.id} h={h} />)
               )
+            ) : lab ? (
+              <EmptyHint icon={<Search size={22} />} text={LAB_LOCALIZADOR.dica} />
             ) : !showAppts ? null : loadingAppts ? (
               <EmptyHint icon={<Loader2 size={22} className="animate-spin" />} text="Carregando o dia…" />
             ) : appts.length === 0 ? (
@@ -349,11 +366,11 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                   <div className="min-w-0 flex-1 pt-1">
                     <p className="text-sm font-bold text-foreground uppercase leading-tight">{detail.name}</p>
                     <dl className="mt-2 space-y-1 text-xs">
-                      {ageFrom(detail.birth_date) != null && (
+                      {!lab && ageFrom(detail.birth_date) != null && (
                         <Field label="Nascimento" value={`${fmtBirth(detail.birth_date)} (${ageFrom(detail.birth_date)} anos)`} />
                       )}
-                      {detail.cpf && <Field label="CPF" value={detail.cpf} />}
-                      {detail.rg && <Field label="RG" value={detail.rg} />}
+                      {detail.cpf && <Field label={lab ? LAB_LOCALIZADOR.documento : 'CPF'} value={lab ? formatCpfCnpj(detail.cpf) : detail.cpf} />}
+                      {!lab && detail.rg && <Field label="RG" value={detail.rg} />}
                     </dl>
                   </div>
                 </div>
@@ -363,7 +380,9 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Contatos</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                     <Field label="Celular" value={detail.phone ? fmtPhone(detail.phone) : 'não informado'} />
-                    <Field label="Emergência" value={detail.emergency_contact_phone ? fmtPhone(detail.emergency_contact_phone) : 'não informado'} />
+                    {!lab && (
+                      <Field label="Emergência" value={detail.emergency_contact_phone ? fmtPhone(detail.emergency_contact_phone) : 'não informado'} />
+                    )}
                     <div className="col-span-2">
                       <Field label="E-mail" value={detail.email || 'não informado'} />
                     </div>
@@ -371,7 +390,7 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                 </div>
 
                 {/* Próxima consulta (do agendamento de hoje, se houver) */}
-                {selAppt && (
+                {!lab && selAppt && (
                   <div className="mt-5">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Próxima consulta</p>
                     <div className="rounded-lg border-l-4 pl-3 py-2 pr-2 bg-card border border-border" style={{ borderLeftColor: statusColor(selAppt.status) }}>
@@ -412,6 +431,7 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                   >
                     <MessageSquare size={16} />
                   </button>
+                  {!lab && (
                   <button
                     disabled
                     title="Teleconsulta (em breve)"
@@ -419,6 +439,7 @@ export function PatientLocatorModal({ open, onClose, financialMode = false }: { 
                   >
                     <Video size={16} />
                   </button>
+                  )}
                 </div>
               </div>
             )}

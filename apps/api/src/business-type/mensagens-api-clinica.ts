@@ -76,6 +76,8 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
   responsavelInvalido: 'Dentista inválido',
   // procedures.service.ts, procedure-consumables.service.ts
   procedimentoNaoEncontrado: 'Procedimento nao encontrado',
+  // specialties.service.ts (grupo do catálogo)
+  especialidadeNaoEncontrada: 'Especialidade nao encontrada',
   // commercial.controller.ts
   orcamentoForaDaCarteira: 'Orçamento de paciente fora da sua carteira',
   // quotes.service.ts
@@ -88,6 +90,11 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
   precoMudou: 'O preço de algum procedimento mudou — atualize a página e confira o total.',
   // quotes.service.ts
   semCpfNaVenda: 'Paciente sem CPF cadastrado. Edite o paciente e adicione o CPF antes de gerar cobranca.',
+  // quotes.service.ts (venda/cobrança sem telefone)
+  semTelefoneNaVenda: 'Paciente sem telefone. Edite o paciente e adicione o telefone antes de gerar cobranca.',
+  // quotes.service.ts (telefone de outro cadastro na cobrança)
+  telefoneDeOutroCliente:
+    'Este telefone já pertence a outro contato/paciente. Dois pacientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste paciente antes de gerar a cobrança.',
   // quotes.service.ts
   semTelefoneOrcamento: 'Paciente sem telefone cadastrado — adicione antes de enviar via WhatsApp.',
   // quotes.service.ts
@@ -104,6 +111,8 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
   trabalhoNaoEncontrado: 'Plano de tratamento nao encontrado',
   // treatment-plans.service.ts
   nenhumTrabalho: 'Nenhum plano de tratamento informado',
+  // treatment-plans.service.ts (Validar do Financeiro)
+  planoCanceladoNaoValida: 'Plano cancelado — não pode ser validado',
   // treatment-plans.service.ts
   responsavelForaDaConta: 'Responsável inválido — tem que ser um dentista desta clínica.',
   // treatment-plans.service.ts
@@ -147,4 +156,8 @@ export const MOLDES_API_CLINICA = Object.freeze({
     'O telefone do cadastro (final {1}) é diferente do contato do WhatsApp (final {2}) — corrija o cadastro do paciente antes de enviar.',
   // ponto.service.ts (batida fora da área)
   pontoForaDaArea: 'Você está a {1} da clínica (área de {2} m). O ponto só pode ser registrado no local.',
+  // patients.service.ts (limite de cadastros do plano da conta)
+  limiteDoPlano: 'Limite do plano {1} atingido pra pacientes ({2}/{3}). Atualize o plano pra continuar.',
+  // quotes.service.ts (item com procedure_id que não existe)
+  procedimentoIdNaoEncontrado: 'Procedimento {1} nao encontrado',
 });

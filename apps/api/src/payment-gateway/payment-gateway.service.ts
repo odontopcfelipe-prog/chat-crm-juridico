@@ -33,7 +33,10 @@ import { erroSomaFormas, isCartaoMaquineta, motivoBloqueioBaixa, MSG_CARTAO_VALI
 import { setTenantSetting } from '../tenants/tenant-settings.helper';
 // Laboratório de prótese — texto de cobrança sem vocabulário de clínica (funções puras).
 import {
+  NOME_PADRAO_DO_CLIENTE,
   NOME_PADRAO_DO_LABORATORIO,
+  NOTAS_DA_RECEITA_DO_LABORATORIO,
+  descricaoDaReceitaDoLaboratorio,
   descricaoParaClienteDoLaboratorio,
   semVariaveis,
   temVocabularioDeClinica,
@@ -270,9 +273,12 @@ export class PaymentGatewayService {
     if (charge.transaction_id) return charge.transaction_id; // já lançado
     // Jurídico (LeadHonorarioPayment) tem caixa próprio — não duplica aqui.
     if (charge.lead_honorario_payment_id) return null;
+    // F5 — laboratório: a receita sai com o texto do laboratório. Lido FORA da
+    // transação (cache de 60 s), para não segurar a trava.
+    const lab = await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m));
 
     const now = new Date();
-    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || 'Paciente';
+    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || (lab ? NOME_PADRAO_DO_CLIENTE : 'Paciente');
     const method = opts?.paymentMethod || this.mapBillingToCaixaMethod(charge.billing_type);
     const inClinic = !!opts?.receivedInClinic;
     // Maquineta parcelada: só INFO (a adquirente faz o split; não gera cobrança).
@@ -302,7 +308,9 @@ export class PaymentGatewayService {
           tenant_id: charge.tenant_id,
           type: 'RECEITA',
           category: 'PROCEDIMENTO',
-          description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
+          description: lab
+            ? descricaoDaReceitaDoLaboratorio({ inClinic, nome: patientName, descricao: charge.description ?? '', parcelaSuffix })
+            : `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
           amount: charge.amount,
           // Onda 18.x — normalmente a receita é datada de HOJE (webhook ao vivo:
           // RECEIVED = compensação = hoje). No BACKFILL (dateFromCharge) datamos pelo
@@ -320,7 +328,7 @@ export class PaymentGatewayService {
           lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null,
           reference_id: charge.external_id,
           notes: inClinic
-            ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
+            ? (lab ? NOTAS_DA_RECEITA_DO_LABORATORIO.caixa : 'Venda/atendimento recebido na clínica (fechamento de caixa)')
             : 'Recebimento de cobrança (Asaas online)',
         },
       });
@@ -374,9 +382,11 @@ export class PaymentGatewayService {
     if (!charge) return null;
     if (charge.transaction_id) return charge.transaction_id; // idempotente — já lançado
     if (charge.lead_honorario_payment_id) return null; // jurídico tem caixa próprio
+    // F5 — laboratório: texto do laboratório nas receitas. Lido FORA da transação.
+    const lab = await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m));
 
     const now = new Date();
-    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || 'Paciente';
+    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || (lab ? NOME_PADRAO_DO_CLIENTE : 'Paciente');
     const dentistId = charge.treatment_plan?.quote?.created_by_user_id ?? null;
     const leadId = charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null; // p/ coluna Cliente em Entradas
 
@@ -445,7 +455,9 @@ export class PaymentGatewayService {
             tenant_id: charge.tenant_id,
             type: 'RECEITA',
             category: 'PROCEDIMENTO',
-            description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''} · ${formaLabel}${parcelaSuffix}`,
+            description: lab
+              ? descricaoDaReceitaDoLaboratorio({ inClinic: true, nome: patientName, descricao: charge.description ?? '', parcelaSuffix, forma: formaLabel })
+              : `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''} · ${formaLabel}${parcelaSuffix}`,
             amount: p.value,
             date: now,
             paid_at: charge.paid_at ?? now,
@@ -456,7 +468,9 @@ export class PaymentGatewayService {
             reference_id: charge.external_id,
             // Cada forma na SUA conta → entra no escopo do caixa (senão sumiria do fechamento).
             account_id: accountForMethod(p.method),
-            notes: 'Venda recebida na clínica — pagamento dividido em várias formas (fechamento de caixa)',
+            notes: lab
+              ? NOTAS_DA_RECEITA_DO_LABORATORIO.split
+              : 'Venda recebida na clínica — pagamento dividido em várias formas (fechamento de caixa)',
           },
         });
         createdIds.push(txRow.id);

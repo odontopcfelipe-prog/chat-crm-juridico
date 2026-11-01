@@ -12,6 +12,8 @@ import { useRouter } from 'next/navigation';
 import { Cake, Phone, Loader2, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { isLab } from '@crm/shared';
+import { btAgora } from '@/lib/useBusinessType';
 
 interface Birthday {
   id: string;
@@ -37,6 +39,10 @@ export default function BirthdaysCard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // F5 do laboratório — aniversários são só da clínica (a API nega ao laboratório). A
+    // lista esconde o card, mas a 1ª renderização da hidratação ainda vem como clínica:
+    // btAgora() lê o token na hora e evita a chamada.
+    if (isLab(btAgora())) return;
     let cancelled = false;
     setLoading(true);
     api.get<Birthday[]>(`/patients/birthdays?period=${period}`)

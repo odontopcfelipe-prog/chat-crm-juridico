@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, X, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, '');
@@ -20,6 +22,8 @@ export default function NewContactModal({ onClose, onCreated }: {
 }) {
   const router = useRouter();
   const { isAdmin, isFinanceiro, userId } = useRole();
+  // Laboratório (F5): sem área jurídica e sem advogado responsável (a API nega os dois).
+  const lab = isLab(useBusinessType());
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -33,10 +37,10 @@ export default function NewContactModal({ onClose, onCreated }: {
 
   // Carregar advogados (para admin/financeiro)
   useEffect(() => {
-    if (isAdmin || isFinanceiro) {
+    if (!lab && (isAdmin || isFinanceiro)) {
       api.get('/users/lawyers').then(r => setLawyers(r.data || [])).catch(() => {});
     }
-  }, [isAdmin, isFinanceiro]);
+  }, [isAdmin, isFinanceiro, lab]);
 
   const checkPhoneDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const checkPhone = useCallback((phoneVal: string) => {
@@ -171,6 +175,7 @@ export default function NewContactModal({ onClose, onCreated }: {
           </div>
 
           {/* Especialidade */}
+          {!lab && (
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Especialidade <span className="normal-case font-normal opacity-60">(opcional)</span></label>
             <select value={specialty} onChange={e => setSpecialty(e.target.value)}
@@ -179,9 +184,10 @@ export default function NewContactModal({ onClose, onCreated }: {
               {LEGAL_AREAS.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
+          )}
 
           {/* Advogado (admin/financeiro) */}
-          {(isAdmin || isFinanceiro) && lawyers.length > 0 && (
+          {!lab && (isAdmin || isFinanceiro) && lawyers.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Advogado Responsável <span className="normal-case font-normal opacity-60">(opcional)</span></label>
               <select value={selectedLawyerId} onChange={e => setSelectedLawyerId(e.target.value)}

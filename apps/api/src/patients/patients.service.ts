@@ -16,6 +16,7 @@ import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
 import { ownPatientsWhere } from '../auth/patient-scope.js';
 import { computeDentistLinks, originLabel } from './dentist-links.js';
 import { levarContatoParaTelefoneNovo, mesmoNumero, type ContatoWhatsapp } from './contato-telefone';
+import { LAB_CADASTRO_API } from '../business-type/lab-cadastro-textos';
 
 // ============================================================================
 // Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
@@ -918,6 +919,21 @@ export class PatientsService {
       where: { lead_id: leadId, tenant_id: tenantId },
       select: { id: true, name: true, status: true },
     });
+  }
+
+  /**
+   * F5 [LAB-GATE] — só para conta de laboratório (quem chama já conferiu): o cadastro
+   * do cliente nasce do contato com as mesmas regras do convertFromLead (403 de contato
+   * de outra conta, cadastro já existente, anti-duplicata por telefone, limite do
+   * plano) e o contato vira cliente com a semântica do cadastro manual (is_client +
+   * became_client_at). Contato sem nome: o cadastro nasce com o nome padrão do cliente.
+   */
+  async convertFromLeadDoLaboratorio(leadId: string, tenantId: string) {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { name: true } });
+    const nomeVazio = !(lead?.name || '').trim();
+    const patient = await this.convertFromLead(leadId, tenantId, nomeVazio ? { name: LAB_CADASTRO_API.clienteSemNome } : {});
+    await this.marcarContatoClienteDoLaboratorio(leadId, tenantId);
+    return patient;
   }
 
   /** Converte um Lead em Patient. Se o paciente ja existe (lead_id ja vinculado), retorna o existente. */

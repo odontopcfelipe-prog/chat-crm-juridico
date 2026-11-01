@@ -255,7 +255,7 @@ export function ChatHeader({
         <div
           className="min-w-0 flex-1 cursor-pointer active:opacity-70 transition-opacity"
           onClick={() => {
-            if (isMobile || lab) {
+            if (isMobile) {
               onShowDetails();
             } else {
               onSetClientPanelLeadId(selected.leadId);

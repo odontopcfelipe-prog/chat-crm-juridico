@@ -14,9 +14,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Search, ExternalLink, AlertTriangle, Users, ArrowUpDown } from 'lucide-react';
+import { pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface PatientRow {
   patient_id: string;
@@ -45,6 +47,7 @@ const ORDER_OPTIONS = [
 
 export default function PacientesSummaryTab({ dentistId }: Props) {
   const router = useRouter();
+  const bt = useBusinessType();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<PatientRow[]>([]);
   const [orderBy, setOrderBy] = useState<typeof ORDER_OPTIONS[number]['key']>('atrasado');
@@ -103,7 +106,7 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar paciente..."
+              placeholder={pickBt(bt, 'Buscar paciente...', 'Buscar dentista...')}
               className="flex-1 bg-transparent text-xs focus:outline-none"
             />
           </div>
@@ -137,7 +140,7 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
       ) : filtered.length === 0 ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <Users size={32} className="mx-auto text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground">Nenhum paciente com cobranças</p>
+          <p className="text-sm text-muted-foreground">{pickBt(bt, 'Nenhum paciente com cobranças', 'Nenhum cliente com cobranças')}</p>
         </div>
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -145,7 +148,7 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
-                  <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Paciente</th>
+                  <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{pickBt(bt, 'Paciente', 'Dentista')}</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Contratado</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Recebido</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Em aberto</th>
@@ -176,7 +179,7 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
                               {p.patient_name || 'Sem nome'}
                             </span>
                             <span className="text-[10px] text-muted-foreground">
-                              {p.plans_count} plano(s)
+                              {p.plans_count}{pickBt(bt, ' plano(s)', ' trabalho(s)')}
                               {p.patient_phone && ` · ${p.patient_phone}`}
                             </span>
                           </div>

@@ -15,9 +15,18 @@ export const ROTULO_FORMA: Record<string, string> = {
   CARTAO: 'Maquineta',
 };
 
+/**
+ * F5 — laboratório: o mesmo começo "Venda rapida" (marca de isVendaRapidaQuote, da
+ * cópia em patients/dentist-links.ts e da tela do Financeiro), recebido no laboratório.
+ */
+export const LAB_NOTAS_BALCAO = Object.freeze({ base: 'Venda rapida — recebido no laboratorio' });
+
+/** F5 — laboratório: rótulo da forma que muda (as outras ficam as de ROTULO_FORMA). */
+export const LAB_ROTULO_FORMA: Readonly<Record<string, string>> = Object.freeze({ PIX: 'PIX do laboratório' });
+
 export type FormaBalcao = { method: string; value: number; installments?: number; debit?: boolean };
 
-const rotulo = (m: string) => ROTULO_FORMA[m] ?? m;
+const rotulo = (m: string, lab = false) => (lab ? LAB_ROTULO_FORMA[m] : undefined) ?? ROTULO_FORMA[m] ?? m;
 
 /** Forma de MAIOR valor; empate fica com a que chegou primeiro. Lista vazia = ''. */
 export function formaDominante(ps: FormaBalcao[]): string {
@@ -31,14 +40,15 @@ export function formaDominante(ps: FormaBalcao[]): string {
 /**
  * Notas do orçamento. SEMPRE começam com "Venda rapida": é a marca de
  * isVendaRapidaQuote (quotes.service.ts e a cópia em patients/dentist-links.ts).
+ * lab=true (conta de laboratório): "recebido no laboratorio" e o rótulo do PIX do laboratório.
  */
-export function notasVendaBalcao(ps: FormaBalcao[]): string {
-  const base = 'Venda rapida — recebido na clinica';
+export function notasVendaBalcao(ps: FormaBalcao[], lab = false): string {
+  const base = lab ? LAB_NOTAS_BALCAO.base : 'Venda rapida — recebido na clinica';
   const lista = ps || [];
   if (lista.length === 0) return base;
-  if (lista.length === 1) return `${base}: ${rotulo(lista[0].method)}`;
+  if (lista.length === 1) return `${base}: ${rotulo(lista[0].method, lab)}`;
   if (lista.every((p) => p.method === 'CARTAO')) return `${base}: Maquineta (${lista.length} cartões)`;
-  return `${base} (varias formas): ${lista.map((p) => `${rotulo(p.method)} R$ ${(Number(p.value) || 0).toFixed(2)}`).join(' + ')}`;
+  return `${base} (varias formas): ${lista.map((p) => `${rotulo(p.method, lab)} R$ ${(Number(p.value) || 0).toFixed(2)}`).join(' + ')}`;
 }
 
 /**

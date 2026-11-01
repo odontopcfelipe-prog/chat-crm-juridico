@@ -8,7 +8,9 @@ import { useRole } from '@/lib/useRole';
 
 export default function PaymentGatewaySettingsPage() {
   const router = useRouter();
-  const { isSuperAdmin } = useRole();
+  // No laboratório até o dono da plataforma grava a conta Asaas PRÓPRIA da conta
+  // (POST /payment-gateway/setup): a chave global (PUT /settings) é negada ao laboratório.
+  const { isSuperAdmin, isLab: lab } = useRole();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -40,7 +42,7 @@ export default function PaymentGatewaySettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (isSuperAdmin) {
+      if (isSuperAdmin && !lab) {
         // SUPER_ADMIN (matriz) configura a conta Asaas GLOBAL da plataforma
         // (GlobalSetting compartilhada, fallback do isolamento por tenant).
         if (apiKey.trim()) await api.put('/settings', { key: 'asaas_api_key', value: apiKey.trim() });
@@ -146,8 +148,9 @@ export default function PaymentGatewaySettingsPage() {
         {/* Token do webhook é infra GLOBAL da plataforma (validado antes de
             resolver o tenant). Só o SUPER_ADMIN o define — pra não repetir o
             vazamento cross-tenant da chave (uma clínica sobrescrevia o token
-            que valida os webhooks das outras). */}
-        {isSuperAdmin && (
+            que valida os webhooks das outras). No laboratório o salvar não grava o
+            token (vai pelo setup da conta), então o campo não aparece. */}
+        {isSuperAdmin && !lab && (
         <div>
           <label className="text-sm font-medium text-foreground block mb-1.5">Token do Webhook (Asaas)</label>
           <input

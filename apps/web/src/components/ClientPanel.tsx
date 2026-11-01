@@ -4,10 +4,13 @@ import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { Search, User, Phone, Loader2, X, MessageSquare, Calendar, Brain, ChevronDown, ChevronUp, Mail, Pencil, Check, UserCheck, FolderOpen, FileText, Image as ImageIcon, Mic, Video, Download, Trash2, RotateCcw, AlertCircle, ClipboardList, StickyNote, Plus, Send, Scale, CheckSquare, ExternalLink, Clock, ArrowRight, DollarSign, Handshake, CreditCard } from 'lucide-react';
 import FichaTrabalhista from '@/components/FichaTrabalhista';
 import { LeadMemoryPanel } from '@/components/LeadMemoryPanel';
+import { LabClientPanel } from '@/components/LabClientPanel';
 import { useRouter } from 'next/navigation';
+import { isLab, labAllowsRoute } from '@crm/shared';
 import api, { getMediaUrl } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { formatPhone } from '@/lib/utils';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface LeadDetail {
   id: string;
@@ -160,7 +163,27 @@ function InlineInput({ value, onSave, onCancel, placeholder }: { value: string; 
   );
 }
 
-export function ClientPanel({
+type ClientPanelProps = Parameters<typeof ClientPanelClinica>[0];
+
+/** Ficha do cliente: a mesma tela de cadastro, que no laboratório se chama Dentistas. */
+const fichaDoCliente = (clienteId: string) => `/atendimento/pacientes/${clienteId}`;
+
+/**
+ * Painel do contato (nome do contato no chat e em Contatos). A clínica segue com o
+ * painel de sempre (ClientPanelClinica, intocado); a conta de laboratório (F5) abre o
+ * LabClientPanel com as mesmas props, mais o endereço da ficha quando a tela de
+ * cadastro está liberada para o laboratório.
+ */
+export function ClientPanel(props: ClientPanelProps) {
+  const lab = isLab(useBusinessType());
+  return lab ? (
+    <LabClientPanel {...props} fichaDoCliente={labAllowsRoute('/atendimento/pacientes') ? fichaDoCliente : undefined} />
+  ) : (
+    <ClientPanelClinica {...props} />
+  );
+}
+
+function ClientPanelClinica({
   leadId,
   onClose,
   onLightbox,

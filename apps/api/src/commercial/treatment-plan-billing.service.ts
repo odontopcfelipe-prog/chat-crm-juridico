@@ -7,7 +7,7 @@ import { erroSomaFormas } from '../payment-gateway/baixa-regras';
 import type { FormaBalcao } from './venda-balcao.util';
 // Laboratório de prótese — descrição da cobrança no Asaas sem vocabulário de clínica.
 import { isLabTenant } from '@crm/shared';
-import { DESCRICAO_DE_EMISSAO_DO_LABORATORIO } from '../payment-gateway/cobranca-laboratorio';
+import { DESCRICAO_DE_EMISSAO_DO_LABORATORIO, rotuloDoBalcaoDoLaboratorio } from '../payment-gateway/cobranca-laboratorio';
 
 @Injectable()
 export class TreatmentPlanBillingService {
@@ -599,6 +599,9 @@ export class TreatmentPlanBillingService {
     });
     if (!plan) throw new NotFoundException('Plano nao encontrado');
     if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    // F5 — conta de laboratório? (lista em cache) Lido aqui, antes da checagem de cobrança
+    // ativa, para não pôr espera entre essa checagem e a criação da cobrança.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     if (plan.status !== 'ACTIVE') {
       throw new BadRequestException(`Plano deve estar ACTIVE (atual: ${plan.status})`);
     }
@@ -651,7 +654,10 @@ export class TreatmentPlanBillingService {
         : formas.length > 1
           ? `recebido na clínica · ${formas.length} formas`
           : 'recebido na clínica';
-    const description = `Plano de tratamento — ${plan.patient.name} (${descLabel}) [plan:${planId}]`;
+    // F5 — laboratório: "Trabalho de prótese" e "recebido no laboratório" no lugar do texto
+    // da clínica. O descLabel, o external_id (-CARTAO-/-AVISTA-), a idempotency_key e a
+    // tag [plan:<id>] ficam iguais.
+    const description = `${lab ? DESCRICAO_DE_EMISSAO_DO_LABORATORIO.trabalho : 'Plano de tratamento'} — ${plan.patient.name} (${lab ? rotuloDoBalcaoDoLaboratorio({ receiveNow, soCartao, nx, formas: formas.length }) : descLabel}) [plan:${planId}]`;
     const charge = await this.prisma.paymentGatewayCharge
       .create({
         data: {

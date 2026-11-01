@@ -22,9 +22,11 @@ import {
   DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search, Zap,
   ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
 } from 'lucide-react';
+import { isLab, pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface Procedure {
   id: string;
@@ -58,6 +60,11 @@ const formatBRL = (v: number | string) =>
 // agora usada tambem no OrcamentoTab (visual consistente entre telas).
 
 export default function ProceduresSettingsPage() {
+  // Laboratório: "serviço" e "grupo de serviço" no lugar de procedimento e
+  // especialidade, e sem os campos clínicos (TUSS, duração, raio-X, anestesia,
+  // comissão e retorno). Na clínica, nada muda.
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   const [list, setList] = useState<Procedure[]>([]);
   const [specialties, setSpecialties] = useState<Specialty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,14 +104,22 @@ export default function ProceduresSettingsPage() {
 
   const handleDelete = async (p: Procedure) => {
     const action = p.active ? 'arquivar' : 'restaurar';
-    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} o procedimento "${p.name}"?`)) return;
+    if (!confirm(pickBt(
+      bt,
+      `${action.charAt(0).toUpperCase() + action.slice(1)} o procedimento "${p.name}"?`,
+      `${action.charAt(0).toUpperCase() + action.slice(1)} o serviço "${p.name}"?`,
+    ))) return;
     try {
       if (p.active) {
         await api.delete(`/procedures/${p.id}`);
       } else {
         await api.patch(`/procedures/${p.id}`, { active: true });
       }
-      showSuccess(`Procedimento ${p.active ? 'arquivado' : 'restaurado'}`);
+      showSuccess(pickBt(
+        bt,
+        `Procedimento ${p.active ? 'arquivado' : 'restaurado'}`,
+        `Serviço ${p.active ? 'arquivado' : 'restaurado'}`,
+      ));
       load();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao remover');
@@ -116,14 +131,14 @@ export default function ProceduresSettingsPage() {
     const groups: Record<string, { name: string; items: Procedure[] }> = {};
     for (const p of list) {
       const key = p.specialty?.id || '__none__';
-      const name = p.specialty?.name || 'Sem especialidade';
+      const name = p.specialty?.name || pickBt(bt, 'Sem especialidade', 'Sem grupo');
       if (!groups[key]) groups[key] = { name, items: [] };
       groups[key].items.push(p);
     }
     return Object.entries(groups)
       .map(([key, value]) => ({ key, ...value }))
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-  }, [list]);
+  }, [list, bt]);
 
   const toggleGroup = (key: string) => {
     setCollapsedGroups((prev) => {
@@ -145,19 +160,21 @@ export default function ProceduresSettingsPage() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <DollarSign size={24} className="text-primary" /> Tabela de Preços
+            <DollarSign size={24} className="text-primary" />{pickBt(bt, ' Tabela de Preços', ' Tabela de serviços')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Procedimentos e preços base usados pra montar orçamentos. Cada vez
-            que operador adiciona um procedimento ao orçamento, o valor base aqui
-            é puxado automaticamente.
+            {pickBt(
+              bt,
+              'Procedimentos e preços base usados pra montar orçamentos. Cada vez que operador adiciona um procedimento ao orçamento, o valor base aqui é puxado automaticamente.',
+              'Serviços e preços de tabela do laboratório. Marque ⚡ para o serviço aparecer na Venda Rápida, já com o preço daqui.',
+            )}
           </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setBulkAdjustOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-accent text-sm"
-            title="Aplicar reajuste percentual em vários procedimentos"
+            title={pickBt(bt, 'Aplicar reajuste percentual em vários procedimentos', 'Aplicar reajuste percentual em vários serviços')}
           >
             <TrendingUp size={14} /> Reajuste em massa
           </button>
@@ -165,7 +182,7 @@ export default function ProceduresSettingsPage() {
             onClick={() => setCreating(true)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
           >
-            <Plus size={16} /> Novo procedimento
+            <Plus size={16} />{pickBt(bt, ' Novo procedimento', ' Novo serviço')}
           </button>
         </div>
       </div>
@@ -173,15 +190,15 @@ export default function ProceduresSettingsPage() {
       {/* Stats compactos */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-card border border-border rounded-xl p-3">
-          <p className="text-xs text-muted-foreground">Procedimentos ativos</p>
+          <p className="text-xs text-muted-foreground">{pickBt(bt, 'Procedimentos ativos', 'Serviços ativos')}</p>
           <p className="text-xl font-bold text-foreground">{activeCount}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-3">
-          <p className="text-xs text-muted-foreground">Especialidades</p>
+          <p className="text-xs text-muted-foreground">{pickBt(bt, 'Especialidades', 'Grupos de serviço')}</p>
           <p className="text-xl font-bold text-foreground">{grouped.length}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-3">
-          <p className="text-xs text-muted-foreground">Soma dos preços base</p>
+          <p className="text-xs text-muted-foreground">{pickBt(bt, 'Soma dos preços base', 'Soma dos preços de tabela')}</p>
           <p className="text-xl font-bold text-primary">{formatBRL(totalValue)}</p>
         </div>
       </div>
@@ -193,7 +210,7 @@ export default function ProceduresSettingsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome ou código TUSS..."
+            placeholder={pickBt(bt, 'Buscar por nome ou código TUSS...', 'Buscar por nome...')}
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
@@ -202,7 +219,7 @@ export default function ProceduresSettingsPage() {
           onChange={(e) => setSpecialtyFilter(e.target.value)}
           className="px-3 py-2 rounded-lg bg-card border border-border text-sm"
         >
-          <option value="">Todas as especialidades</option>
+          <option value="">{pickBt(bt, 'Todas as especialidades', 'Todos os grupos')}</option>
           {specialties.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -228,15 +245,15 @@ export default function ProceduresSettingsPage() {
           <DollarSign size={28} className="mx-auto mb-2 text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground mb-3">
             {search || specialtyFilter
-              ? 'Nenhum procedimento corresponde aos filtros.'
-              : 'Nenhum procedimento cadastrado ainda.'}
+              ? pickBt(bt, 'Nenhum procedimento corresponde aos filtros.', 'Nenhum serviço corresponde aos filtros.')
+              : pickBt(bt, 'Nenhum procedimento cadastrado ainda.', 'Nenhum serviço cadastrado ainda.')}
           </p>
           {!search && !specialtyFilter && (
             <button
               onClick={() => setCreating(true)}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
             >
-              <Plus size={14} /> Cadastrar primeiro procedimento
+              <Plus size={14} />{pickBt(bt, ' Cadastrar primeiro procedimento', ' Cadastrar primeiro serviço')}
             </button>
           )}
         </div>
@@ -270,7 +287,7 @@ export default function ProceduresSettingsPage() {
                         className="text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider"
                         style={{ background: color.bar + '20', color: color.bar }}
                       >
-                        {group.items.length} {group.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                        {group.items.length} {group.items.length === 1 ? pickBt(bt, 'procedimento', 'serviço') : pickBt(bt, 'procedimentos', 'serviços')}
                       </span>
                     </div>
                   </div>
@@ -286,9 +303,9 @@ export default function ProceduresSettingsPage() {
                     <thead className="text-muted-foreground text-xs uppercase border-b border-border">
                       <tr>
                         <th className="text-left px-4 py-2 font-medium">Nome</th>
-                        <th className="text-left px-4 py-2 font-medium">TUSS</th>
-                        <th className="text-right px-4 py-2 font-medium">Duração</th>
-                        <th className="text-right px-4 py-2 font-medium">Preço base</th>
+                        {!lab && <th className="text-left px-4 py-2 font-medium">TUSS</th>}
+                        {!lab && <th className="text-right px-4 py-2 font-medium">Duração</th>}
+                        <th className="text-right px-4 py-2 font-medium">{pickBt(bt, 'Preço base', 'Preço de tabela')}</th>
                         <th className="text-right px-4 py-2 font-medium">Ações</th>
                       </tr>
                     </thead>
@@ -297,6 +314,7 @@ export default function ProceduresSettingsPage() {
                         <ProcedureRow
                           key={p.id}
                           procedure={p}
+                          lab={lab}
                           onPriceUpdate={load}
                           onEdit={() => setEditing(p)}
                           onDelete={() => handleDelete(p)}
@@ -333,9 +351,11 @@ export default function ProceduresSettingsPage() {
 // ─── Linha individual com edição inline de preço ───────────
 
 function ProcedureRow({
-  procedure: p, onPriceUpdate, onEdit, onDelete,
+  procedure: p, lab, onPriceUpdate, onEdit, onDelete,
 }: {
   procedure: Procedure;
+  /** Conta de laboratório: sem as colunas TUSS e duração. */
+  lab: boolean;
   onPriceUpdate: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -394,12 +414,16 @@ function ProcedureRow({
           </span>
         )}
       </td>
-      <td className="px-4 py-2 text-xs text-muted-foreground font-mono">
-        {p.code_tuss || '—'}
-      </td>
-      <td className="px-4 py-2 text-right text-xs text-muted-foreground">
-        {p.duration_minutes} min
-      </td>
+      {!lab && (
+        <td className="px-4 py-2 text-xs text-muted-foreground font-mono">
+          {p.code_tuss || '—'}
+        </td>
+      )}
+      {!lab && (
+        <td className="px-4 py-2 text-right text-xs text-muted-foreground">
+          {p.duration_minutes} min
+        </td>
+      )}
       <td className="px-4 py-2 text-right">
         {editingPrice ? (
           <div className="flex items-center justify-end gap-1">
@@ -485,6 +509,10 @@ function ProcedureModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // Laboratório: os campos escondidos seguem no payload com o valor de sempre
+  // (o do serviço, ou o padrão no cadastro novo).
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   const isEdit = !!procedure;
   const [name, setName] = useState(procedure?.name || '');
   const [codeTuss, setCodeTuss] = useState(procedure?.code_tuss || '');
@@ -522,10 +550,10 @@ function ProcedureModal({
       };
       if (isEdit) {
         await api.patch(`/procedures/${procedure!.id}`, payload);
-        showSuccess('Procedimento atualizado');
+        showSuccess(pickBt(bt, 'Procedimento atualizado', 'Serviço atualizado'));
       } else {
         await api.post('/procedures', payload);
-        showSuccess('Procedimento criado');
+        showSuccess(pickBt(bt, 'Procedimento criado', 'Serviço criado'));
       }
       onSaved();
     } catch (err: any) {
@@ -548,7 +576,7 @@ function ProcedureModal({
           <div className="flex items-center gap-2">
             <DollarSign size={18} className="text-primary" />
             <h2 className="text-base font-semibold">
-              {isEdit ? 'Editar procedimento' : 'Novo procedimento'}
+              {isEdit ? pickBt(bt, 'Editar procedimento', 'Editar serviço') : pickBt(bt, 'Novo procedimento', 'Novo serviço')}
             </h2>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-accent rounded">
@@ -564,27 +592,27 @@ function ProcedureModal({
               onChange={(e) => setName(e.target.value)}
               required
               autoFocus
-              placeholder="Ex: Restauração de resina simples"
+              placeholder={pickBt(bt, 'Ex: Restauração de resina simples', 'Ex: Coroa de zircônia')}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Especialidade</label>
+              <label className="block text-xs font-medium mb-1">{pickBt(bt, 'Especialidade', 'Grupo de serviço')}</label>
               <select
                 value={specialtyId}
                 onChange={(e) => setSpecialtyId(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
               >
-                <option value="">— Sem especialidade —</option>
+                <option value="">{pickBt(bt, '— Sem especialidade —', '— Sem grupo —')}</option>
                 {specialties.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Preço base (R$) *</label>
+              <label className="block text-xs font-medium mb-1">{pickBt(bt, 'Preço base (R$) *', 'Preço de tabela (R$) *')}</label>
               <input
                 type="number"
                 step="0.01"
@@ -598,16 +626,18 @@ function ProcedureModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1">Código TUSS</label>
-              <input
-                value={codeTuss}
-                onChange={(e) => setCodeTuss(e.target.value)}
-                placeholder="00000000"
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm font-mono"
-              />
-            </div>
+          <div className={pickBt(bt, 'grid grid-cols-3 gap-3', 'grid grid-cols-1 gap-3')}>
+            {!lab && (
+              <div>
+                <label className="block text-xs font-medium mb-1">Código TUSS</label>
+                <input
+                  value={codeTuss}
+                  onChange={(e) => setCodeTuss(e.target.value)}
+                  placeholder="00000000"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm font-mono"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium mb-1">Código interno</label>
               <input
@@ -617,16 +647,18 @@ function ProcedureModal({
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">Duração (min)</label>
-              <input
-                type="number"
-                min={5}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
-              />
-            </div>
+            {!lab && (
+              <div>
+                <label className="block text-xs font-medium mb-1">Duração (min)</label>
+                <input
+                  type="number"
+                  min={5}
+                  value={durationMinutes}
+                  onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+                />
+              </div>
+            )}
           </div>
 
           <div>
@@ -635,60 +667,66 @@ function ProcedureModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              placeholder="Detalhes do procedimento, materiais, técnicas..."
+              placeholder={pickBt(bt, 'Detalhes do procedimento, materiais, técnicas...', 'Detalhes do serviço, materiais, técnicas...')}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {!lab && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requiresXRay}
+                  onChange={(e) => setRequiresXRay(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                Requer raio-X
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requiresAnesthesia}
+                  onChange={(e) => setRequiresAnesthesia(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                Requer anestesia
+              </label>
+            </div>
+          )}
+
+          {!lab && (
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
-                checked={requiresXRay}
-                onChange={(e) => setRequiresXRay(e.target.checked)}
+                checked={commissionable}
+                onChange={(e) => setCommissionable(e.target.checked)}
                 className="w-4 h-4 rounded border-border"
               />
-              Requer raio-X
+              Comissiona este procedimento
             </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+          )}
+
+          {!lab && (
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                Recall automático — revisita (meses)
+              </label>
+              <p className="text-[11px] text-muted-foreground mb-1 leading-snug">
+                Ao executar este procedimento, o sistema agenda sozinho um <b>lembrete de retorno</b>
+                nesse prazo (aparece nos Retornos pendentes + WhatsApp).
+                Ex: <b>6</b> = limpeza volta em 6 meses · <b>12</b> = botox · vazio = sem recall.
+              </p>
               <input
-                type="checkbox"
-                checked={requiresAnesthesia}
-                onChange={(e) => setRequiresAnesthesia(e.target.checked)}
-                className="w-4 h-4 rounded border-border"
+                type="number"
+                min={1}
+                value={defaultRevisitMonths}
+                onChange={(e) => setDefaultRevisitMonths(e.target.value)}
+                placeholder="Ex: 6 (limpeza), 12 (botox), 24 (sculptra)"
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
               />
-              Requer anestesia
-            </label>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={commissionable}
-              onChange={(e) => setCommissionable(e.target.checked)}
-              className="w-4 h-4 rounded border-border"
-            />
-            Comissiona este procedimento
-          </label>
-
-          <div>
-            <label className="block text-xs font-medium mb-1">
-              Recall automático — revisita (meses)
-            </label>
-            <p className="text-[11px] text-muted-foreground mb-1 leading-snug">
-              Ao executar este procedimento, o sistema agenda sozinho um <b>lembrete de retorno</b>
-              nesse prazo (aparece nos Retornos pendentes + WhatsApp).
-              Ex: <b>6</b> = limpeza volta em 6 meses · <b>12</b> = botox · vazio = sem recall.
-            </p>
-            <input
-              type="number"
-              min={1}
-              value={defaultRevisitMonths}
-              onChange={(e) => setDefaultRevisitMonths(e.target.value)}
-              placeholder="Ex: 6 (limpeza), 12 (botox), 24 (sculptra)"
-              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
-            />
-          </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <button
@@ -722,6 +760,7 @@ function BulkAdjustModal({
   onClose: () => void;
   onApplied: () => void;
 }) {
+  const bt = useBusinessType();
   const [scope, setScope] = useState<'all' | 'specialty'>('all');
   const [specialtyId, setSpecialtyId] = useState('');
   const [percent, setPercent] = useState('5');
@@ -731,10 +770,12 @@ function BulkAdjustModal({
   const apply = async () => {
     const pct = Number(percent);
     if (isNaN(pct) || pct <= 0) return showError('Percentual inválido');
-    if (scope === 'specialty' && !specialtyId) return showError('Escolha uma especialidade');
+    if (scope === 'specialty' && !specialtyId) return showError(pickBt(bt, 'Escolha uma especialidade', 'Escolha um grupo'));
     const factor = direction === 'up' ? 1 + pct / 100 : 1 - pct / 100;
     const verb = direction === 'up' ? 'aumentar' : 'reduzir';
-    const target = scope === 'all' ? 'TODOS os procedimentos ativos' : `procedimentos da especialidade selecionada`;
+    const target = scope === 'all'
+      ? pickBt(bt, 'TODOS os procedimentos ativos', 'TODOS os serviços ativos')
+      : pickBt(bt, `procedimentos da especialidade selecionada`, `serviços do grupo selecionado`);
     if (!confirm(`Confirma ${verb} ${pct}% nos preços de ${target}?\n\nEssa ação não é reversível em massa.`)) return;
 
     setApplying(true);
@@ -752,7 +793,7 @@ function BulkAdjustModal({
         await api.patch(`/procedures/${p.id}`, { base_price: newPrice });
         updated++;
       }
-      showSuccess(`Reajuste aplicado em ${updated} procedimento(s)`);
+      showSuccess(pickBt(bt, `Reajuste aplicado em ${updated} procedimento(s)`, `Reajuste aplicado em ${updated} serviço(s)`));
       onApplied();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao aplicar reajuste');
@@ -784,8 +825,11 @@ function BulkAdjustModal({
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-700 flex items-start gap-2">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span>
-              <strong>Cuidado:</strong> aplica novo preço em vários procedimentos de uma só vez.
-              Útil pra reajuste anual, mas <strong>não é reversível</strong> em massa.
+              <strong>Cuidado:</strong>{pickBt(
+                bt,
+                ' aplica novo preço em vários procedimentos de uma só vez. Útil pra reajuste anual, mas ',
+                ' aplica novo preço em vários serviços de uma só vez. Útil pra reajuste anual, mas ',
+              )}<strong>não é reversível</strong> em massa.
             </span>
           </div>
 
@@ -796,14 +840,14 @@ function BulkAdjustModal({
               onChange={(e) => setScope(e.target.value as 'all' | 'specialty')}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
             >
-              <option value="all">Todos os procedimentos ativos</option>
-              <option value="specialty">Apenas uma especialidade</option>
+              <option value="all">{pickBt(bt, 'Todos os procedimentos ativos', 'Todos os serviços ativos')}</option>
+              <option value="specialty">{pickBt(bt, 'Apenas uma especialidade', 'Apenas um grupo')}</option>
             </select>
           </div>
 
           {scope === 'specialty' && (
             <div>
-              <label className="block text-xs font-medium mb-1">Especialidade</label>
+              <label className="block text-xs font-medium mb-1">{pickBt(bt, 'Especialidade', 'Grupo de serviço')}</label>
               <select
                 value={specialtyId}
                 onChange={(e) => setSpecialtyId(e.target.value)}

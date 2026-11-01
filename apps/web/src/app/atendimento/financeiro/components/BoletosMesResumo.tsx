@@ -15,6 +15,8 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import { pickBt } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 export type MesStatus = 'pago' | 'hoje' | 'aberto' | 'atrasado';
 
@@ -144,6 +146,7 @@ interface Props {
 export default function BoletosMesResumo({
   mes, hoje, charges, loading, pronto, recebidoOutrosMeses, guardaChuvas, diaSelecionado, statusSelecionado, onMes, onDia, onStatus,
 }: Props) {
+  const bt = useBusinessType();
   const { geral, totalMes, porDia } = useMemo(() => {
     const geral = somaVazia();
     const porDia = new Map<string, { soma: Soma; total: number; count: number }>();
@@ -279,8 +282,12 @@ export default function BoletosMesResumo({
             <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>
               {guardaChuvas.length === 1 ? 'Este parcelamento ficou gravado' : `Estes ${guardaChuvas.length} parcelamentos ficaram gravados`}{' '}
-              como uma cobrança só, com o valor total — por isso <strong>não entram</strong> no previsto nem no calendário.
-              Confira as parcelas na ficha do paciente:
+              como uma cobrança só, com o valor total — por isso <strong>não entram</strong>
+              {pickBt(
+                bt,
+                ' no previsto nem no calendário. Confira as parcelas na ficha do paciente:',
+                ' no previsto nem no calendário. Confira as parcelas na ficha do cliente:',
+              )}
             </span>
           </p>
           <ul className="mt-1.5 flex flex-wrap gap-1.5 pl-5">
@@ -298,7 +305,7 @@ export default function BoletosMesResumo({
                   </Link>
                 ) : (
                   <span className="inline-flex rounded-full bg-background border border-border px-2 py-0.5">
-                    Sem paciente · {fmtBRL(g.total)}
+                    {pickBt(bt, 'Sem paciente · ', 'Sem cliente · ')}{fmtBRL(g.total)}
                   </span>
                 )}
               </li>

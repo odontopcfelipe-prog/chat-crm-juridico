@@ -6,7 +6,9 @@
  *  - trocar de etapa não grava a memória da IA;
  *  - FINALIZADO não exige área de atendimento, não religa a IA (POS_VENDA) e não cria
  *    cadastro a partir do contato (o mesmo vale para as etapas que criariam);
- *  - "criar cadastro a partir do contato" (ensurePatient) é recusado (VERTICAL_DENIED);
+ *  - "Tornar cliente" (ensurePatient e "Promover a cliente") cria o cadastro e marca o
+ *    contato como cliente com a semântica do cadastro manual (is_client + became_client_at),
+ *    sem etapa, setor, IA nem mensagem;
  *  - o 1º pagamento promove o contato que ainda não é cliente (promoteToPatientIfEligible)
  *    pelo caminho do laboratório: vira cliente e FINALIZADO, sem os efeitos acima;
  *  - a promoção (promoteLeadCore) não troca a conversa de setor;
@@ -82,17 +84,36 @@ interface Cenario {
   especialidade: boolean;
   /** Cobrança paga (patientEvidence). */
   pagou: boolean;
+  /** Nome do contato. */
+  nome: string | null;
+  /** O contato já tem cadastro ligado (patient.lead_id). */
+  cadastro: boolean;
+  /** PatientsService REAL (com o mesmo banco gravador) no lugar do simulado. */
+  cadastroReal: boolean;
 }
 
 /** Banco gravador + LeadsService REAL com vizinhos falsos, num rastro só. */
 function montar(c: Partial<Cenario> = {}) {
-  const cen: Cenario = { conta: CLINICA, labs: [], is_client: false, stage: 'QUALIFICANDO', especialidade: false, pagou: false, ...c };
+  const cen: Cenario = {
+    conta: CLINICA,
+    labs: [],
+    is_client: false,
+    stage: 'QUALIFICANDO',
+    especialidade: false,
+    pagou: false,
+    nome: 'Contato Exemplo',
+    cadastro: true,
+    cadastroReal: false,
+    ...c,
+  };
   __limparCacheLabTenants();
   const efeitos: Efeito[] = [];
+  /** Cadastro criado pelo PatientsService real (cadastroReal). */
+  let criado: Record<string, any> | null = null;
   const lead: Record<string, any> = {
     id: LEAD,
     tenant_id: cen.conta,
-    name: 'Contato Exemplo',
+    name: cen.nome,
     is_client: cen.is_client,
     became_client_at: cen.is_client ? new Date('2026-01-10T12:00:00.000Z') : null,
     stage: cen.stage,
@@ -110,7 +131,12 @@ function montar(c: Partial<Cenario> = {}) {
       Object.assign(lead, a.data);
       return { count: 1 };
     },
-    'patient.findUnique': () => ({ id: PACIENTE, tenant_id: cen.conta, lead_id: LEAD }),
+    'patient.findUnique': (a) => {
+      // Cadastro ligado ao contato: o de sempre, ou só o que o PatientsService real criou.
+      if (a?.where?.lead_id !== undefined && !cen.cadastro) return criado;
+      if (criado && a?.where?.id === criado.id) return criado;
+      return { id: PACIENTE, tenant_id: cen.conta, lead_id: LEAD };
+    },
     'patient.findMany': () => [{ id: PACIENTE }],
     'calendarEvent.findFirst': () => null,
     'paymentGatewayCharge.findFirst': () => (cen.pagou ? { id: 'cobranca-1' } : null),
@@ -137,6 +163,9 @@ function montar(c: Partial<Cenario> = {}) {
     'conversation.update': (a) => ({ id: a.where.id, ...a.data }),
     'aiMemory.findUnique': () => null,
   };
+  if (cen.cadastroReal) {
+    respostas['patient.create'] = (a) => (criado = { id: 'cadastro-novo', ...a.data });
+  }
   const perfis = jest.fn(async () => cen.labs.map((tenant_id) => ({ tenant_id })));
   const modelos: Record<string, any> = {};
   const prisma: any = new Proxy(
@@ -181,7 +210,20 @@ function montar(c: Partial<Cenario> = {}) {
     isConfigured: fake('drive.isConfigured', async () => false),
     ensureLeadFolder: fake('drive.ensureLeadFolder', async () => null),
   };
-  const patients: any = { convertFromLead: fake('patients.convertFromLead', async () => ({ id: PACIENTE })) };
+  let patients: any = { convertFromLead: fake('patients.convertFromLead', async () => ({ id: PACIENTE })) };
+  if (cen.cadastroReal) {
+    // O cadastro de verdade, no mesmo banco gravador; as duas portas de entrada anotam a chamada.
+    const referrals: any = { createPending: fake('referrals.createPending', async () => undefined) };
+    const real: any = new PatientsService(prisma, {} as any, referrals, {} as any, {} as any, {} as any);
+    for (const metodo of ['convertFromLead', 'convertFromLeadDoLaboratorio']) {
+      const original = real[metodo].bind(real);
+      real[metodo] = (...a: any[]) => {
+        efeitos.push([`patients.${metodo}`, ...a]);
+        return original(...a);
+      };
+    }
+    patients = real;
+  }
   const followup: any = { autoEnrollByStage: fake('followup.autoEnrollByStage', async () => undefined) };
   const registro = new Map<any, any>([
     [PatientsService, patients],
@@ -329,25 +371,111 @@ describe('Etapa que criaria cadastro a partir do contato (avaliacao-aceita)', ()
   });
 });
 
-describe('ensurePatient — criar cadastro a partir do contato', () => {
-  it('laboratório: recusado (VERTICAL_DENIED), nada criado', async () => {
-    const m = montar({ conta: LAB, labs: [LAB] });
-    const e = await erro(m.leads.ensurePatient(LEAD, LAB));
-    expect(codigo(e)).toBe(CODIGO_VERTICAL_NEGADA);
-    expect(m.de('patients.convertFromLead')).toEqual([]);
-    expect(registrou('log', '[LAB-GATE] lead-paciente')).toBe(true);
+describe('ensurePatient — "Tornar cliente": cadastro a partir do contato', () => {
+  /** Só as gravações (o que não é leitura), na ordem. */
+  const gravacoes = (m: ReturnType<typeof montar>) => m.nomes().filter((n) => !/\.(findUnique|findFirst|findMany|count)$/.test(n));
+  const LAB_SEM_CADASTRO: Partial<Cenario> = { conta: LAB, labs: [LAB], cadastro: false, cadastroReal: true };
+
+  it('laboratório: cria o cadastro e o contato vira cliente (is_client + became_client_at) — sem etapa, setor, IA nem mensagem', async () => {
+    const m = montar(LAB_SEM_CADASTRO);
+    const r: any = await m.leads.ensurePatient(LEAD, LAB);
+    await drenar();
+
+    expect(r).toMatchObject({ id: 'cadastro-novo', tenant_id: LAB, lead_id: LEAD, name: 'Contato Exemplo' });
+    expect(m.de('patients.convertFromLeadDoLaboratorio')).toEqual([LEAD]);
+    expect(m.efeitos.filter((e) => e[0] === 'patients.convertFromLead')).toEqual([['patients.convertFromLead', LEAD, LAB, {}]]);
+    expect(m.de('prisma.lead.updateMany')).toEqual([
+      { where: { id: LEAD, tenant_id: LAB, is_client: false }, data: { is_client: true, became_client_at: AGORA } },
+    ]);
+    expect(m.lead).toMatchObject({ is_client: true, became_client_at: AGORA, stage: 'QUALIFICANDO', stage_id: 'etapa-qualificando' });
+    // Grava só o cadastro, o vínculo das consultas já marcadas e o contato como cliente.
+    expect(gravacoes(m)).toEqual([
+      'patients.convertFromLeadDoLaboratorio',
+      'patients.convertFromLead',
+      'prisma.patient.create',
+      'prisma.calendarEvent.updateMany',
+      'prisma.lead.updateMany',
+    ]);
+    // Nada de etapa, setor, IA, memória, follow-up, automação ou socket.
+    expect(m.nomes().filter((n) => /^(prisma\.(lead\.update(?!Many)|leadStageHistory|conversation|instance|aiMemory)|followup|automations|socket|drive)/.test(n))).toEqual([]);
+    expect(registrou('log', '[LAB-GATE] cliente-do-contato')).toBe(true);
+    expect(registrou('log', '[LAB-GATE] cliente-do-cadastro')).toBe(true);
+    expect(avisos()).toEqual([]);
   });
 
-  it('laboratório pela rota "Promover a cliente": a mesma recusa, nada gravado', async () => {
-    const m = montar({ conta: LAB, labs: [LAB] });
-    const e = await erro(m.ctl.promoteToClient(LEAD, { user: { id: 'u-1', tenant_id: LAB } }));
-    expect(codigo(e)).toBe(CODIGO_VERTICAL_NEGADA);
-    expect(m.nomes().filter((n) => !/\.(findUnique|findFirst|findMany)$/.test(n))).toEqual([]);
+  it('laboratório: idempotente — a 2ª vez devolve o mesmo cadastro e a data de entrada não muda', async () => {
+    const m = montar(LAB_SEM_CADASTRO);
+    const r1: any = await m.leads.ensurePatient(LEAD, LAB);
+    const r2: any = await m.leads.ensurePatient(LEAD, LAB);
+    await drenar();
+
+    expect(r2.id).toBe(r1.id);
+    expect(m.de('prisma.patient.create')).toHaveLength(1);
+    expect(m.lead.became_client_at).toEqual(AGORA);
+    // A 2ª marcação não acha contato a promover (is_client já é true).
+    expect(m.de('prisma.lead.updateMany')).toHaveLength(2);
+    expect(registrou('log', 'já era cliente')).toBe(true);
+  });
+
+  it('laboratório: contato que já é cliente e já tem cadastro — devolve o cadastro, nada muda', async () => {
+    const m = montar({ conta: LAB, labs: [LAB], is_client: true, cadastroReal: true });
+    const r: any = await m.leads.ensurePatient(LEAD, LAB);
+    await drenar();
+
+    expect(r).toEqual({ id: PACIENTE, tenant_id: LAB, lead_id: LEAD });
+    expect(m.de('prisma.patient.create')).toEqual([]);
+    expect(m.lead.became_client_at).toEqual(new Date('2026-01-10T12:00:00.000Z'));
+  });
+
+  it('laboratório: contato sem nome vira "Cliente sem nome"', async () => {
+    const m = montar({ ...LAB_SEM_CADASTRO, nome: '  ' });
+    const r: any = await m.leads.ensurePatient(LEAD, LAB);
+
+    expect(r.name).toBe('Cliente sem nome');
+    expect(m.de('prisma.patient.create')[0].data).toMatchObject({ tenant_id: LAB, lead_id: LEAD, name: 'Cliente sem nome' });
+    expect(m.efeitos.filter((e) => e[0] === 'patients.convertFromLead')).toEqual([
+      ['patients.convertFromLead', LEAD, LAB, { name: 'Cliente sem nome' }],
+    ]);
+  });
+
+  it('contato de OUTRA conta (laboratório ou clínica): 403 e nada gravado', async () => {
+    for (const conta of ['tenant-lab-outro', CLINICA]) {
+      const m = montar({ conta, labs: [LAB, 'tenant-lab-outro'], cadastro: false, cadastroReal: true });
+      const e = await erro(m.leads.ensurePatient(LEAD, LAB));
+      expect(e).toBeInstanceOf(ForbiddenException);
+      // É a trava de conta do cadastro, não a recusa de vertical.
+      expect(codigo(e)).not.toBe(CODIGO_VERTICAL_NEGADA);
+      expect(gravacoes(m).filter((n) => n.startsWith('prisma.'))).toEqual([]);
+      expect(m.lead.is_client).toBe(false);
+    }
+  });
+
+  it('laboratório pela rota "Promover a cliente": vira cliente pelo cadastro e devolve alreadyClient — sem FINALIZADO e sem troca de setor', async () => {
+    const m = montar(LAB_SEM_CADASTRO);
+    const r = await m.ctl.promoteToClient(LEAD, { user: { id: 'u-1', tenant_id: LAB } });
+    await drenar();
+
+    expect(r).toEqual({ ok: true, leadId: LEAD, alreadyClient: true });
+    expect(m.lead).toMatchObject({ is_client: true, became_client_at: AGORA, stage: 'QUALIFICANDO' });
+    expect(m.lead.cs_user_id).toBeUndefined();
+    expect(m.de('prisma.lead.update')).toEqual([]);
+    expect(m.de('prisma.instance.findFirst')).toEqual([]);
+    expect(m.de('prisma.conversation.update')).toEqual([]);
+    expect(m.de('prisma.conversation.updateMany')).toEqual([]);
+    expect(avisos()).toEqual([]);
   });
 
   it('clínica: cria o cadastro, igual com e sem laboratório', async () => {
     const { sem } = await clinicaIgual({}, (m) => m.leads.ensurePatient(LEAD, CLINICA));
     expect(sem.efeitos.filter((e) => e[0] === 'patients.convertFromLead')).toEqual([['patients.convertFromLead', LEAD, CLINICA]]);
+    expect(sem.efeitos.filter((e) => e[0] === 'patients.convertFromLeadDoLaboratorio')).toEqual([]);
+  });
+
+  it('clínica com o cadastro de verdade: as mesmas chamadas com e sem laboratório, sem marcar o contato como cliente', async () => {
+    const { sem } = await clinicaIgual({ cadastro: false, cadastroReal: true }, (m) => m.leads.ensurePatient(LEAD, CLINICA));
+    expect(sem.de('prisma.patient.create')).toHaveLength(1);
+    expect(sem.de('prisma.lead.updateMany')).toEqual([]);
+    expect(sem.lead.is_client).toBe(false);
   });
 });
 

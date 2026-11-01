@@ -24,6 +24,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Activity, Stethoscope } from 'lucide-react';
 import api from '@/lib/api';
 import { OdontogramaPrancha, LegendaMarcas, marcaDoEstadoClinico, MARCAS, type MarcaDente } from '@/components/odontograma/DenteReal';
+import { isLab } from '@crm/shared';
+import { btAgora } from '@/lib/useBusinessType';
 
 // ─── Dados ────────────────────────────────────────────────────
 
@@ -92,7 +94,12 @@ export default function OverviewClinicalSection({
     }
   }, [patientId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // F5 do laboratório — a ficha do laboratório não mostra esta seção (a API nega o
+    // odontograma a ele); na hidratação ela ainda pode montar como clínica uma vez.
+    if (isLab(btAgora())) return;
+    load();
+  }, [load]);
 
   // Out/2026 — estados anotados viram o desenho no dente (cárie, restauração,
   // implante, canal...) na mesma prancha da avaliação.

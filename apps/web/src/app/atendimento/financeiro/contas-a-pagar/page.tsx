@@ -14,9 +14,12 @@ import {
   CalendarClock, Repeat, Layers, AlertTriangle, ArrowLeft,
   Eye, EyeOff, Users, FileText, TrendingUp, DollarSign, ChevronDown, Info,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_FINANCEIRO } from '@/lib/lab-financeiro-textos';
 import PacientesSummaryTab from '../components/PacientesSummaryTab';
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -101,6 +104,7 @@ export default function ContasAPagarPage() {
   const canViewFinancial = hasPermission('view_financial');
   const canManageFinancial = hasPermission('manage_financial'); // criar/editar receita
   const allowed = canManagePayables || canViewFinancial;
+  const lab = isLab(useBusinessType());
 
   // Estado da tela persistido no refresh (aba/empresa/mês).
   type PanelTab = 'fixas' | 'dia' | 'entradas' | 'pacientes' | 'log';
@@ -349,7 +353,7 @@ export default function ContasAPagarPage() {
     fixas: { label: 'Contas a Pagar', icon: <Layers size={15} /> },
     dia: { label: 'Gastos do dia', icon: <CalendarClock size={15} /> },
     entradas: { label: 'Entradas', icon: <TrendingUp size={15} /> },
-    pacientes: { label: 'Pacientes', icon: <Users size={15} /> },
+    pacientes: { label: lab ? LAB_FINANCEIRO.abaClientes : 'Pacientes', icon: <Users size={15} /> },
     log: { label: 'Log', icon: <FileText size={15} /> },
   };
 
@@ -366,10 +370,10 @@ export default function ContasAPagarPage() {
             <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><DollarSign className="w-5 h-5 text-emerald-500" /> Financeiro</h1>
             <p className="text-[13px] text-muted-foreground">
               {!isClinic
-                ? 'Empresa separada — não entra no caixa/relatórios da clínica.'
+                ? (lab ? LAB_FINANCEIRO.subtituloEmpresaSeparada : 'Empresa separada — não entra no caixa/relatórios da clínica.')
                 : canManagePayables
-                  ? 'Contas, gastos, entradas e pacientes da clínica.'
-                  : 'Entradas, pacientes e log da clínica.'}
+                  ? (lab ? LAB_FINANCEIRO.subtituloGestor : 'Contas, gastos, entradas e pacientes da clínica.')
+                  : (lab ? LAB_FINANCEIRO.subtituloFinanceiro : 'Entradas, pacientes e log da clínica.')}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -382,7 +386,7 @@ export default function ContasAPagarPage() {
                   className="px-3 py-1.5 text-sm rounded-lg border border-border bg-background font-semibold"
                   title="Empresa"
                 >
-                  <option value="">🏥 Clínica</option>
+                  <option value="">{lab ? LAB_FINANCEIRO.empresaPrincipal : '🏥 Clínica'}</option>
                   {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   <option value="__new__">➕ Nova empresa…</option>
                 </select>
@@ -416,7 +420,7 @@ export default function ContasAPagarPage() {
                       <ReceberLines b={receber.mes} />
                     </div>
                   )}
-                  <div className="text-[10px] text-muted-foreground/70 pt-1.5 border-t border-border">Por paciente: sem nenhuma cobrança atrasada × com mais de 2 em aberto.</div>
+                  <div className="text-[10px] text-muted-foreground/70 pt-1.5 border-t border-border">{lab ? LAB_FINANCEIRO.porCliente : 'Por paciente: sem nenhuma cobrança atrasada × com mais de 2 em aberto.'}</div>
                 </div>
               ) : undefined}
             />}
@@ -696,6 +700,7 @@ function EditModal({ tx, cats, onClose, onSaved }: { tx: Tx; cats: Category[]; o
 }
 
 function ParceladaModal({ cats, companyId, onClose, onSaved }: { cats: Category[]; companyId: string; onClose: () => void; onSaved: () => void }) {
+  const lab = isLab(useBusinessType());
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [total, setTotal] = useState('');
@@ -725,7 +730,7 @@ function ParceladaModal({ cats, companyId, onClose, onSaved }: { cats: Category[
 
   return (
     <ModalShell title="Nova conta parcelada" onClose={onClose}>
-      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Ex: Compra de cadeira odontológica" /></Field>
+      <Field label="Descrição"><input value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder={lab ? LAB_FINANCEIRO.exemploParcelada : 'Ex: Compra de cadeira odontológica'} /></Field>
       <Field label="Categoria"><CategorySelect cats={cats} value={category} onChange={setCategory} /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Valor total (R$)"><MoneyInput value={total} onChange={setTotal} /></Field>
@@ -927,6 +932,7 @@ function GastoDoDiaModal({ cats, accounts, companyId, isClinic, onClose, onSaved
 }
 
 function PayModal({ tx, accounts, isClinic, onClose, onSaved, onQuickPay }: { tx: Tx; accounts: CashAccount[]; isClinic: boolean; onClose: () => void; onSaved: () => void; onQuickPay: () => Promise<void> }) {
+  const lab = isLab(useBusinessType());
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [method, setMethod] = useState(METHOD_BY_KIND[accounts[0]?.kind] || 'DINHEIRO');
   const [saving, setSaving] = useState(false);
@@ -976,7 +982,7 @@ function PayModal({ tx, accounts, isClinic, onClose, onSaved, onQuickPay }: { tx
         </>
       ) : (
         <>
-          <p className="text-[12px] text-muted-foreground">Empresa separada — o pagamento só é registrado (não entra no caixa da clínica).</p>
+          <p className="text-[12px] text-muted-foreground">{lab ? LAB_FINANCEIRO.pagamentoEmpresaSeparada : 'Empresa separada — o pagamento só é registrado (não entra no caixa da clínica).'}</p>
           <button disabled={saving} onClick={quick} className="w-full py-2.5 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-2">{saving && <Loader2 size={15} className="animate-spin" />} Marcar como pago</button>
         </>
       )}
@@ -1049,6 +1055,7 @@ function SangriaList({ items }: { items: Tx[] }) {
 // Espelho das entradas do Financeiro — o lançamento continua na tela de recepção;
 // aqui é a visão consolidada pro adm/gerente (mesma fonte, nada é duplicado).
 function EntradasTab({ items, totalInDb }: { items: Tx[]; totalInDb: number }) {
+  const lab = isLab(useBusinessType());
   if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Nenhuma entrada paga neste mês.</div>;
   const total = items.reduce((s, t) => s + Number(t.amount), 0);
   const sorted = [...items].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
@@ -1068,7 +1075,7 @@ function EntradasTab({ items, totalInDb }: { items: Tx[]; totalInDb: number }) {
         <div key={t.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-sm font-bold text-foreground truncate">{t.description}</div>
-            <div className="text-[12px] text-muted-foreground">{t.category}{t.lead?.name ? ` · ${t.lead.name}` : ''} · {brDate(t.date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
+            <div className="text-[12px] text-muted-foreground">{lab ? (LAB_FINANCEIRO.categoria[t.category] ?? t.category) : t.category}{t.lead?.name ? ` · ${t.lead.name}` : ''} · {brDate(t.date)}{t.payment_method ? ` · ${t.payment_method}` : ''}</div>
           </div>
           <div className="text-sm font-bold tabular-nums text-emerald-600">{fmt(Number(t.amount))}</div>
         </div>

@@ -30,6 +30,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 // Apagar boleto é ADMIN-only.
 import { useRole } from '@/lib/useRole';
+import { LAB_BOLETOS } from '@/lib/lab-financeiro-textos';
 import { toBrazilWhatsappNumber } from '@crm/shared';
 import BoletosKpis, { type ChargesKpis } from './BoletosKpis';
 import BoletosMesResumo, {
@@ -184,6 +185,7 @@ export default function BoletosTab({ dentistId }: Props) {
   const [markingCash, setMarkingCash] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const role = useRole(); // role.isAdmin gateia o botão de apagar boleto
+  const lab = role.isLab;
   // Onda 18.x — KPIs do dashboard (carteira inteira, por chip). Recarrega junto com a lista.
   const [kpis, setKpis] = useState<ChargesKpis | null>(null);
   const [kpisLoading, setKpisLoading] = useState(true);
@@ -343,12 +345,12 @@ export default function BoletosTab({ dentistId }: Props) {
   const handleMarkCash = async (c: Charge) => {
     const METHODS = [
       { key: 'DINHEIRO', label: 'Espécie (dinheiro)' },
-      { key: 'PIX', label: 'PIX da clínica' },
+      { key: 'PIX', label: lab ? LAB_BOLETOS.pixDoLaboratorio : 'PIX da clínica' },
       { key: 'PIX_MAQUININHA', label: 'PIX na maquineta' },
       { key: 'CARTAO', label: 'Cartão (maquineta)' },
     ];
     const escolha = prompt(
-      `Receber ${c.installment_label || 'cobrança'} de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)}).\n\n` +
+      `Receber ${c.installment_label || 'cobrança'} de ${c.patient?.name || (lab ? LAB_BOLETOS.clientePadrao : 'paciente')} (${fmtBRL(c.amount)}).\n\n` +
       `Como foi pago?\n${METHODS.map((m, i) => `${i + 1} - ${m.label}`).join('\n')}\n\n` +
       `Digite o número (1-${METHODS.length}) ou cancele.`,
       '1',
@@ -379,7 +381,7 @@ export default function BoletosTab({ dentistId }: Props) {
   // Onda 18.x — CSV da lista atual (respeita chip + filtros + busca). Separador ";"
   // e BOM: é o que o Excel em pt-BR abre com as colunas certas, sem importação.
   const exportarCsv = () => {
-    const cols = ['Paciente', 'Telefone', 'CPF', 'Tipo', 'Valor', 'Vencimento', 'Status', 'Dias em atraso', 'Pago em', 'Forma', 'Dentista', 'Proposta', 'ID Asaas'];
+    const cols = lab ? LAB_BOLETOS.colunasCsv : ['Paciente', 'Telefone', 'CPF', 'Tipo', 'Valor', 'Vencimento', 'Status', 'Dias em atraso', 'Pago em', 'Forma', 'Dentista', 'Proposta', 'ID Asaas'];
     const esc = (v: any) => {
       const s = v === null || v === undefined ? '' : String(v);
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -396,7 +398,7 @@ export default function BoletosTab({ dentistId }: Props) {
       STATUS_TXT[c.computed_status] || c.computed_status,
       c.computed_status === 'ATRASADO' ? c.days_overdue : '',
       c.paid_at ? fmtDate(c.paid_at) : '',
-      c.received_in_cash ? 'Recebido na clínica' : c.billing_type,
+      c.received_in_cash ? (lab ? LAB_BOLETOS.recebidoNoLaboratorio : 'Recebido na clínica') : c.billing_type,
       c.dentist?.name || '',
       c.quote_number ? `#${c.quote_number}` : '',
       c.external_id || '',
@@ -423,6 +425,7 @@ export default function BoletosTab({ dentistId }: Props) {
     // Antes o texto dizia "apaga, não dá pra desfazer" e o motivo NÃO era enviado —
     // o rastro nascia sem justificativa.
     const reason = window.prompt(
+      lab ? LAB_BOLETOS.promptCancelar(c.patient?.name || LAB_BOLETOS.clientePadrao, fmtBRL(c.amount)) :
       `CANCELAR a cobrança de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)})?\n\n` +
       `Apaga o boleto NO ASAAS (o link/QR para de funcionar) e tira da inadimplência,\n` +
       `MAS ela FICA REGISTRADA no cadastro como "Cancelado", com quem/quando/motivo —\n` +
@@ -608,7 +611,7 @@ export default function BoletosTab({ dentistId }: Props) {
               <button
                 key={g.key}
                 onClick={() => setStatusGroup(g.key)}
-                title={searching ? 'Filtro de status ignorado durante a busca por paciente' : undefined}
+                title={searching ? (lab ? LAB_BOLETOS.filtroIgnoradoNaBusca : 'Filtro de status ignorado durante a busca por paciente') : undefined}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
                   searching ? 'opacity-40' : ''
                 } ${
@@ -618,7 +621,7 @@ export default function BoletosTab({ dentistId }: Props) {
                 }`}
               >
                 <Icon size={13} />
-                {g.label}
+                {lab ? (LAB_BOLETOS.chip[g.key] ?? g.label) : g.label}
               </button>
             );
           })}
@@ -684,7 +687,9 @@ export default function BoletosTab({ dentistId }: Props) {
               <AlertTriangle size={11} />
               {isMes
                 ? `lista cortada no limite — o resumo do mês considera só ${charges.length} de ${total} cobranças; use o filtro de tipo`
-                : `lista cortada no limite — os totais por paciente consideram só ${charges.length} de ${total}; use a busca pra ver um paciente específico`}
+                : lab
+                  ? LAB_BOLETOS.listaCortada(charges.length, total)
+                  : `lista cortada no limite — os totais por paciente consideram só ${charges.length} de ${total}; use a busca pra ver um paciente específico`}
             </span>
           )}
           {!isMes && (
@@ -742,7 +747,7 @@ export default function BoletosTab({ dentistId }: Props) {
           <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground">
             {statusGroup === 'negativados' && !searching
-              ? 'Nenhum paciente negativado — carteira em dia 🎉'
+              ? (lab ? LAB_BOLETOS.semInadimplentes : 'Nenhum paciente negativado — carteira em dia 🎉')
               : isMes
                 ? filtered.length === 0
                   ? `Nenhuma cobrança vence em ${nomeDoMes(mes).toLowerCase()}.`
@@ -756,7 +761,7 @@ export default function BoletosTab({ dentistId }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
-                  <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Paciente</th>
+                  <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{lab ? LAB_BOLETOS.colunaCliente : 'Paciente'}</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Tipo</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide text-right">Valor</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Vencimento</th>
@@ -791,7 +796,7 @@ export default function BoletosTab({ dentistId }: Props) {
                               type="button"
                               onClick={(e) => { e.stopPropagation(); g.patient?.id && router.push(`/atendimento/pacientes/${g.patient.id}?tab=financial`); }}
                               className="text-sm font-bold text-foreground hover:text-primary text-left truncate"
-                              title="Abrir a ficha financeira do paciente"
+                              title={lab ? LAB_BOLETOS.abrirFicha : 'Abrir a ficha financeira do paciente'}
                             >
                               {g.label}
                             </button>
@@ -1028,7 +1033,7 @@ export default function BoletosTab({ dentistId }: Props) {
                               onClick={() => handleMarkCash(c)}
                               disabled={markingCash === c.id}
                               className="p-1.5 rounded-lg hover:bg-emerald-500/15 text-emerald-400 transition-colors disabled:opacity-50"
-                              title="Registrar recebimento na clínica (espécie, PIX ou cartão)"
+                              title={lab ? LAB_BOLETOS.registrarRecebimento : 'Registrar recebimento na clínica (espécie, PIX ou cartão)'}
                             >
                               {markingCash === c.id ? <Loader2 size={13} className="animate-spin" /> : <DollarSign size={13} />}
                             </button>

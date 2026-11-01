@@ -92,15 +92,104 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
 
   it('no laboratório, as telas de clínica ficam fechadas até para o admin', () => {
     const admin = temDoSetor('admin');
-    for (const tela of ['/atendimento/agenda', '/atendimento/pacientes', '/atendimento/crm', '/atendimento/contacts', '/atendimento/settings/users', '/atendimento/settings/ai', '/atendimento/billing']) {
+    for (const tela of [
+      '/atendimento/agenda',
+      '/atendimento/crm',
+      '/atendimento/settings/ai',
+      '/atendimento/settings/specialties',
+      '/atendimento/settings/quote-templates',
+      '/atendimento/billing',
+      '/atendimento/financeiro/dashboard',
+      '/atendimento/relatorios',
+      '/atendimento/dashboard-completo',
+    ]) {
       expect(canAccessRoute(tela, admin)).toBe(true); // na clínica o admin abre
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(false);
     }
-    // E as liberadas continuam abrindo para ele.
-    for (const tela of ['/atendimento', '/atendimento/chat/abc', '/atendimento/dashboard', '/atendimento/caixa', '/atendimento/settings', '/atendimento/settings/whatsapp']) {
+    // E as liberadas continuam abrindo para ele (os blocos F5a/F5b/F5c são os de business-type.ts).
+    for (const tela of [
+      '/atendimento',
+      '/atendimento/chat/abc',
+      '/atendimento/dashboard',
+      '/atendimento/caixa',
+      '/atendimento/settings',
+      '/atendimento/settings/whatsapp',
+      // [F5a]
+      '/atendimento/pacientes',
+      '/atendimento/pacientes/1',
+      '/atendimento/contacts',
+      // [/F5a]
+      // [F5b]
+      '/atendimento/financeiro',
+      '/atendimento/financeiro/contas-a-pagar',
+      '/atendimento/financeiro/boletos',
+      '/atendimento/financeiro/validar',
+      '/atendimento/financeiro/parcelas',
+      '/atendimento/settings/payment-gateway',
+      // [/F5b]
+      // [F5c]
+      '/atendimento/venda-rapida',
+      '/atendimento/settings/procedures',
+      '/atendimento/settings/patient-tags',
+      '/atendimento/settings/users',
+      '/atendimento/estoque',
+      // [/F5c]
+    ]) {
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(true);
     }
   });
+
+  // [F5a]
+  it('no laboratório, o Protético (setor dentista) abre os clientes e não abre os contatos', () => {
+    const dentista = temDoSetor('dentista');
+    expect(canAccessRouteBt('/atendimento/pacientes', dentista, BT_LABORATORIO)).toBe(true);
+    expect(canAccessRouteBt('/atendimento/pacientes/1', dentista, BT_LABORATORIO)).toBe(true);
+    // Contatos e chat exigem view_chat, que o setor dentista não tem.
+    expect(canAccessRouteBt('/atendimento/contacts', dentista, BT_LABORATORIO)).toBe(false);
+    for (const setor of ['recepcao', 'crc', 'admin']) {
+      expect(canAccessRouteBt('/atendimento/contacts', temDoSetor(setor), BT_LABORATORIO)).toBe(true);
+    }
+  });
+  // [/F5a]
+
+  // [F5b]
+  it('no laboratório, financeiro e admin abrem o financeiro; o Protético, a recepção e a expedição não', () => {
+    const telas = [
+      '/atendimento/financeiro',
+      '/atendimento/financeiro/contas-a-pagar',
+      '/atendimento/financeiro/boletos',
+      '/atendimento/financeiro/validar',
+      '/atendimento/financeiro/parcelas',
+    ];
+    for (const setor of ['financeiro', 'admin']) {
+      for (const tela of telas) expect(canAccessRouteBt(tela, temDoSetor(setor), BT_LABORATORIO)).toBe(true);
+      // O painel /financeiro/dashboard continua fechado (a entrada é exata).
+      expect(canAccessRouteBt('/atendimento/financeiro/dashboard', temDoSetor(setor), BT_LABORATORIO)).toBe(false);
+    }
+    for (const setor of ['dentista', 'recepcao', 'acd_asb']) {
+      for (const tela of telas) expect(canAccessRouteBt(tela, temDoSetor(setor), BT_LABORATORIO)).toBe(false);
+    }
+    // A configuração do gateway é só do admin.
+    expect(canAccessRouteBt('/atendimento/settings/payment-gateway', temDoSetor('admin'), BT_LABORATORIO)).toBe(true);
+    expect(canAccessRouteBt('/atendimento/settings/payment-gateway', temDoSetor('financeiro'), BT_LABORATORIO)).toBe(false);
+  });
+  // [/F5b]
+
+  // [F5c]
+  it('no laboratório, a venda rápida abre para admin, recepção e CRC e fica fechada para financeiro, expedição e Protético', () => {
+    for (const setor of ['admin', 'recepcao', 'crc']) {
+      expect(canAccessRouteBt('/atendimento/venda-rapida', temDoSetor(setor), BT_LABORATORIO)).toBe(true);
+    }
+    for (const setor of ['financeiro', 'acd_asb', 'dentista']) {
+      expect(canAccessRouteBt('/atendimento/venda-rapida', temDoSetor(setor), BT_LABORATORIO)).toBe(false);
+    }
+    // Serviços, etiquetas e equipe: só o admin.
+    for (const tela of ['/atendimento/settings/procedures', '/atendimento/settings/patient-tags', '/atendimento/settings/users']) {
+      expect(canAccessRouteBt(tela, temDoSetor('admin'), BT_LABORATORIO)).toBe(true);
+      expect(canAccessRouteBt(tela, temDoSetor('recepcao'), BT_LABORATORIO)).toBe(false);
+    }
+  });
+  // [/F5c]
 
   it('no laboratório, a lista não abre o que a permissão do setor fecha', () => {
     // O dentista (Protético) não tem view_chat: o inbox continua fechado para ele.

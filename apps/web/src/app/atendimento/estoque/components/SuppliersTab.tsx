@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, Search, Truck, X } from 'lucide-react';
+import { pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface Supplier {
   id: string;
@@ -119,6 +121,9 @@ export default function SuppliersTab() {
 }
 
 function NewSupplierModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  // Laboratório: a categoria de fornecedor "laboratório" não é oferecida no cadastro
+  // (o fornecedor que já tem essa categoria continua mostrando o que foi gravado).
+  const bt = useBusinessType();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [cnpj, setCnpj] = useState('');
@@ -201,7 +206,7 @@ function NewSupplierModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
                 <option value="">—</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {pickBt(bt, CATEGORIES, CATEGORIES.filter((c) => c !== 'LABORATORIO')).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>

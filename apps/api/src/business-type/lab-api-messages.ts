@@ -41,16 +41,20 @@ export const LAB_API_MESSAGES = Object.freeze({
   soAdminExclui: 'Apenas ADMIN pode excluir cliente permanentemente',
   soAdminTrocaFoto: 'Apenas ADMIN pode alterar a foto do cliente',
   soAdminRemoveFoto: 'Apenas ADMIN pode remover a foto do cliente',
-  cpfDuplicado: 'Já existe um cliente com este CPF neste laboratório',
-  cpfEmUso: 'Outro cliente já usa este CPF',
+  cpfDuplicado: 'Já existe um cliente com este CPF/CNPJ neste laboratório',
+  cpfEmUso: 'Outro cliente já usa este CPF/CNPJ',
   responsavelInvalido: 'Protético inválido',
   procedimentoNaoEncontrado: 'Serviço não encontrado',
+  especialidadeNaoEncontrada: 'Grupo de serviço não encontrado',
   orcamentoForaDaCarteira: 'Orçamento de cliente fora da sua carteira',
   trabalhoNaoCriado: 'Trabalho não foi criado — verifique se o orçamento tem itens',
   responsavelDaVendaInvalido: 'Protético responsável inválido para este laboratório.',
   vendaSemValor: 'Venda sem valor — confira os serviços.',
   precoMudou: 'O preço de algum serviço mudou — atualize a página e confira o total.',
-  semCpfNaVenda: 'Cliente sem CPF cadastrado. Edite o cliente e adicione o CPF antes de gerar a cobrança.',
+  semCpfNaVenda: 'Cliente sem CPF/CNPJ cadastrado. Edite o cliente e adicione o CPF ou o CNPJ antes de gerar a cobrança.',
+  semTelefoneNaVenda: 'Cliente sem telefone. Edite o cliente e adicione o telefone antes de gerar a cobrança.',
+  telefoneDeOutroCliente:
+    'Este telefone já pertence a outro contato/cliente. Dois clientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste cliente antes de gerar a cobrança.',
   semTelefoneOrcamento: 'Cliente sem telefone cadastrado — adicione antes de enviar via WhatsApp.',
   semChipOrcamento:
     'Nenhum WhatsApp Atendimento/Comercial cadastrado — o orçamento não sai pelo número do Financeiro. Configure em Configurações › WhatsApp.',
@@ -60,6 +64,7 @@ export const LAB_API_MESSAGES = Object.freeze({
     'Este laboratório não tem a conta Asaas cadastrada. Cadastre a chave de API do Asaas em Configurações → Gateway de pagamento para gerar PIX/boleto/cartão online, ou use uma forma de recebimento no laboratório.',
   trabalhoNaoEncontrado: 'Trabalho não encontrado',
   nenhumTrabalho: 'Nenhum trabalho informado',
+  planoCanceladoNaoValida: 'Trabalho cancelado — não pode ser validado',
   responsavelForaDaConta: 'Responsável inválido — tem que ser um protético deste laboratório.',
   concluirServico: 'Para concluir um serviço use "Confirmar/Validar" (registra quem fez).',
   agendamentoDeOutraConta: 'Agendamento informado não é deste laboratório.',
@@ -84,4 +89,6 @@ export const LAB_API_MOLDES = Object.freeze({
   telefoneDiferente:
     'O telefone do cadastro (final {1}) é diferente do contato do WhatsApp (final {2}) — corrija o cadastro do cliente antes de enviar.',
   pontoForaDaArea: 'Você está a {1} do laboratório (área de {2} m). O ponto só pode ser registrado no local.',
+  limiteDoPlano: 'Limite do plano {1} atingido pra clientes ({2}/{3}). Atualize o plano pra continuar.',
+  procedimentoIdNaoEncontrado: 'Serviço {1} não encontrado',
 } satisfies Record<keyof typeof MOLDES_API_CLINICA, string>);

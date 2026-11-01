@@ -52,8 +52,10 @@ export function CadastrarContatoModal({
   currentTags,
   currentPhone,
 }: Props) {
-  // Laboratório (F4): só o "Salvar" (dados do contato). Tornar paciente/cliente
-  // fica para a ficha do cliente (F5); o servidor também nega o ensure-patient.
+  // Laboratório (F5): "Salvar" (dados do contato) e "Tornar cliente" — o mesmo
+  // fluxo de rede da clínica; no laboratório o ensure-patient cadastra o cliente em
+  // Dentistas e o marca como cliente, sem etapa, setor, IA nem mensagem.
+  // "Tornar Paciente" continua escondido.
   const bt = useBusinessType();
   const lab = isLab(bt);
   // Detecta se o "name" atual eh so o telefone (lead nao nomeado).
@@ -108,7 +110,8 @@ export function CadastrarContatoModal({
           await api.post(`/leads/${leadId}/ensure-patient`);
         } catch (ensureErr: any) {
           const ensureMsg = ensureErr?.response?.data?.message;
-          showError(`Paciente nao foi criado: ${typeof ensureMsg === 'string' ? ensureMsg : 'dados insuficientes'}`);
+          const motivo = typeof ensureMsg === 'string' ? ensureMsg : 'dados insuficientes';
+          showError(pickBt(bt, `Paciente nao foi criado: ${motivo}`, `Não foi possível cadastrar o cliente: ${motivo}`));
           return; // nao prossegue pra Cliente se Patient falhou
         }
       }
@@ -118,7 +121,8 @@ export function CadastrarContatoModal({
           await api.post(`/leads/${leadId}/promote-to-client`);
         } catch (promoteErr: any) {
           const promoteMsg = promoteErr?.response?.data?.message;
-          showError(`Promocao a cliente falhou: ${typeof promoteMsg === 'string' ? promoteMsg : 'erro'}`);
+          const motivoPromocao = typeof promoteMsg === 'string' ? promoteMsg : 'erro';
+          showError(pickBt(bt, `Promocao a cliente falhou: ${motivoPromocao}`, `Não foi possível tornar cliente: ${motivoPromocao}`));
           return;
         }
       }
@@ -128,7 +132,7 @@ export function CadastrarContatoModal({
         'patient': 'Contato salvo e adicionado em Pacientes',
         'client': 'Contato promovido a Cliente',
       };
-      showSuccess(messages[mode]);
+      showSuccess(pickBt(bt, messages[mode], mode === 'client' ? 'Contato cadastrado em Dentistas e movido pra aba Clientes' : 'Contato salvo'));
       onSaved?.();
       onClose();
     } catch (err: any) {
@@ -258,7 +262,10 @@ export function CadastrarContatoModal({
                 <p><strong>Tornar Paciente</strong>: adiciona em <strong>/pacientes</strong> sem virar cliente.</p>
                 <p><strong>Tornar Cliente</strong>: cria paciente + move pra aba "Clientes" no WhatsApp.</p>
               </>,
-              <p><strong>Salvar</strong>: só atualiza os dados do contato (continua na aba &quot;Leads&quot;).</p>,
+              <>
+                <p><strong>Salvar</strong>: só atualiza os dados do contato (continua na aba &quot;Leads&quot;).</p>
+                <p><strong>Tornar cliente</strong>: cadastra em Dentistas e move pra aba &quot;Clientes&quot; do WhatsApp.</p>
+              </>,
             )}
           </div>
         </div>
@@ -304,23 +311,21 @@ export function CadastrarContatoModal({
             Tornar Paciente
           </button>
           )}
-          {/* Tornar Cliente — salva + cria Patient + promove */}
-          {!lab && (
+          {/* Tornar Cliente — salva + cria Patient + promove (no laboratório: cadastra em Dentistas) */}
           <button
             type="button"
             onClick={() => runSave('client')}
             disabled={saving || !name.trim()}
             className="text-sm font-bold px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 flex-1 min-w-[140px]"
-            title="Salva + cria Paciente + promove a Cliente (move pra aba Clientes do WhatsApp)"
+            title={pickBt(bt, 'Salva + cria Paciente + promove a Cliente (move pra aba Clientes do WhatsApp)', 'Cadastra em Dentistas e move pra aba Clientes do WhatsApp')}
           >
             {pendingMode === 'client' ? (
               <Loader2 size={14} className="animate-spin" />
             ) : (
               <UserPlus size={14} />
             )}
-            Tornar Cliente
+            {pickBt(bt, 'Tornar Cliente', 'Tornar cliente')}
           </button>
-          )}
         </div>
       </form>
     </div>

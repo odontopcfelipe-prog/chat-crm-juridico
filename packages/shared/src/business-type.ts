@@ -106,6 +106,25 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   '/atendimento/settings/notifications',
   '/atendimento/settings/identidade',
   '/atendimento/settings/ponto',
+  // [F5a] cadastro dos clientes (lista, ficha e ?new=1) e contatos
+  '/atendimento/pacientes',
+  '/atendimento/contacts',
+  // [/F5a]
+  // [F5b] financeiro: EXATA no /financeiro (como prefixo abriria o /financeiro/dashboard)
+  Object.freeze({ path: '/atendimento/financeiro', exact: true as const }),
+  '/atendimento/financeiro/contas-a-pagar',
+  '/atendimento/financeiro/boletos',
+  '/atendimento/financeiro/validar',
+  '/atendimento/financeiro/parcelas',
+  '/atendimento/settings/payment-gateway',
+  // [/F5b]
+  // [F5c] venda rápida e o que ela precisa (serviços, protéticos), etiquetas e estoque
+  '/atendimento/venda-rapida',
+  '/atendimento/settings/procedures',
+  '/atendimento/settings/patient-tags',
+  '/atendimento/settings/users',
+  '/atendimento/estoque',
+  // [/F5c]
 ]);
 
 /** Caminho sem query/# e sem barra final ('/' continua '/'). */

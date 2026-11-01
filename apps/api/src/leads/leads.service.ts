@@ -10,7 +10,6 @@ import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
 import { brazilPhoneMatchVariants, normalizeBrazilianPhone } from '../common/utils/phone';
 import { clinicTransferBlockReason, patientEvidence, workStageAfterDemotion } from './clinic-transfer-guard';
-import { negarLaboratorio } from '../common/lab-gate.util';
 import OpenAI from 'openai';
 
 /**
@@ -1105,18 +1104,17 @@ export class LeadsService {
     if (!lead) throw new NotFoundException('Lead não encontrado');
     const tid = tenantId ?? lead.tenant_id ?? undefined;
     if (!tid) throw new ForbiddenException('Tenant ausente — não é possível criar Patient');
-    // F5 [LAB-GATE] — no laboratório o cadastro do cliente é feito à mão (documento e
-    // tipo); não nasce do contato. Conta do lead (ou, sem conta, a de quem pediu).
-    if (await isLabTenant(this.prisma, lead.tenant_id ?? tid, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] lead-paciente — lead ${leadId} é de laboratório: cadastro só pela tela`);
-      throw negarLaboratorio('Criar cadastro a partir do contato');
-    }
 
     const patientsService = this.moduleRef.get(PatientsService, { strict: false });
     if (!patientsService) {
       throw new BadRequestException('PatientsService indisponível no contexto');
     }
-    return patientsService.convertFromLead(leadId, tid);
+    // F5 [LAB-GATE] — no laboratório o contato vira cliente com a semântica do cadastro
+    // manual (is_client + became_client_at): sem etapa, setor, IA nem mensagem. Conta do
+    // lead (ou, sem conta, a de quem pediu).
+    const lab = await isLabTenant(this.prisma, lead.tenant_id ?? tid, (m) => this.logger.warn(m));
+    if (lab) this.logger.log(`[LAB-GATE] cliente-do-contato — lead ${leadId} é de laboratório: cadastro do cliente a partir do contato`);
+    return lab ? patientsService.convertFromLeadDoLaboratorio(leadId, tid) : patientsService.convertFromLead(leadId, tid);
   }
 
   /**

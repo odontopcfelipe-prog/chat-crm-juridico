@@ -536,7 +536,7 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
     setBusy(true);
     try {
       await api.post(`/caixa/closings/${closing.id}/${kind}`, { validation_notes: notes.trim() || undefined });
-      showSuccess(kind === 'validate' ? 'Caixa validado.' : 'Devolvido pra recepção corrigir.');
+      showSuccess(kind === 'validate' ? 'Caixa validado.' : pickBt(role.businessType, 'Devolvido pra recepção corrigir.', 'Devolvido ao atendimento para corrigir.'));
       onChanged();
     } catch (e: any) { showError(e?.response?.data?.message || 'Não foi possível.'); }
     finally { setBusy(false); }
@@ -599,7 +599,7 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
         </div>
       </div>
 
-      {closing.closing_notes && <p className="text-sm text-slate-500"><b>Obs. da recepção:</b> {closing.closing_notes}</p>}
+      {closing.closing_notes && <p className="text-sm text-slate-500"><b>{pickBt(role.businessType, 'Obs. da recepção:', 'Obs. do atendimento:')}</b> {closing.closing_notes}</p>}
       {closing.validated_by && <p className="text-sm text-slate-500"><ShieldCheck className="w-4 h-4 inline text-sky-500" /> Validado por {closing.validated_by.name}{closing.validation_notes ? ` — ${closing.validation_notes}` : ''}</p>}
 
       {closing.transactions && closing.transactions.length > 0 && (

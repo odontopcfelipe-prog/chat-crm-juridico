@@ -22,6 +22,9 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_HISTORICO } from '../lab-dentistas-textos';
 
 interface TimelineItem {
   id: string;
@@ -124,6 +127,10 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   ASSINADA:           { label: 'Assinada',   cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
 };
 
+// F5 do laboratório — tipos de evento que o histórico do laboratório mostra. Retornos e
+// anamneses são só da clínica; validar e reverter atendimento também (a API nega).
+const TIPOS_NO_LAB: ReadonlyArray<TimelineItem['type']> = ['appointment', 'procedure', 'payment'];
+
 const MONTH_LABEL = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 function formatBRL(value: number) {
@@ -160,11 +167,14 @@ export default function TimelineTab({
    */
   initialActiveTypes?: Set<TimelineItem['type']>;
 }) {
+  const lab = isLab(useBusinessType());
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTypes, setActiveTypes] = useState<Set<TimelineItem['type']>>(
     initialActiveTypes ||
-      new Set(['appointment', 'procedure', 'payment', 'return', 'anamnesis'])
+      (lab
+        ? new Set(TIPOS_NO_LAB)
+        : new Set(['appointment', 'procedure', 'payment', 'return', 'anamnesis']))
   );
 
   // Validacao clinica (Fase 23) — modal + permissões
@@ -265,7 +275,7 @@ export default function TimelineTab({
       <div className="bg-card border border-border rounded-xl p-3 mb-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium text-muted-foreground">Mostrar:</span>
-          {(Object.keys(TYPE_CFG) as Array<TimelineItem['type']>).map((t) => {
+          {(lab ? TIPOS_NO_LAB : (Object.keys(TYPE_CFG) as Array<TimelineItem['type']>)).map((t) => {
             const cfg = TYPE_CFG[t];
             const Icon = cfg.icon;
             const active = activeTypes.has(t);
@@ -281,7 +291,7 @@ export default function TimelineTab({
                     : 'border-border text-muted-foreground hover:bg-accent'
                 } ${count === 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
               >
-                <Icon size={11} /> {cfg.label}
+                <Icon size={11} /> {lab ? LAB_HISTORICO.tipos[t as keyof typeof LAB_HISTORICO.tipos] : cfg.label}
                 <span className="ml-0.5 text-[10px] opacity-80">({count})</span>
               </button>
             );
@@ -299,7 +309,9 @@ export default function TimelineTab({
           <p className="text-sm text-muted-foreground">
             {data && data.total > 0
               ? 'Nenhum evento corresponde aos filtros selecionados.'
-              : 'Sem histórico registrado ainda. Quando esse paciente tiver consultas, procedimentos ou pagamentos, eles aparecerão aqui.'}
+              : lab
+                ? LAB_HISTORICO.vazio
+                : 'Sem histórico registrado ainda. Quando esse paciente tiver consultas, procedimentos ou pagamentos, eles aparecerão aqui.'}
           </p>
         </div>
       )}
@@ -352,7 +364,7 @@ export default function TimelineTab({
                               </span>
                             )}
                             {/* Badge de Validacao Clinica (Fase 23) */}
-                            {item.type === 'appointment' && item.validated_at && (
+                            {!lab && item.type === 'appointment' && item.validated_at && (
                               <span
                                 className="text-[10px] px-1.5 py-0.5 rounded border bg-emerald-500/10 text-emerald-600 border-emerald-500/20 inline-flex items-center gap-1"
                                 title={`Validado por Dr(a). ${item.validated_by_name || '—'} em ${new Date(item.validated_at).toLocaleString('pt-BR')}`}
@@ -363,9 +375,9 @@ export default function TimelineTab({
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
                             <span>{formatDateTime(item.date)}</span>
-                            {item.professional && <span>Dr(a). {item.professional}</span>}
+                            {item.professional && (lab ? <span>{item.professional}</span> : <span>Dr(a). {item.professional}</span>)}
                             {item.subtitle && <span className="italic truncate">{item.subtitle}</span>}
-                            {item.type === 'appointment' && item.validated_at && item.validated_by_name && (
+                            {!lab && item.type === 'appointment' && item.validated_at && item.validated_by_name && (
                               <span className="text-emerald-600">
                                 ✓ Validado por Dr(a). {item.validated_by_name} em {new Date(item.validated_at).toLocaleDateString('pt-BR')}
                               </span>
@@ -386,7 +398,7 @@ export default function TimelineTab({
                             </span>
                           )}
                           {/* Botao "Validar" — so se assigned_user OU admin, e nao validado ainda */}
-                          {canValidate(item) && !isCancelled && (
+                          {!lab && canValidate(item) && !isCancelled && (
                             <button
                               onClick={() => setValidateModal(item)}
                               className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
@@ -396,7 +408,7 @@ export default function TimelineTab({
                             </button>
                           )}
                           {/* Botao "Reverter validacao" — so admin, e somente se ja validado */}
-                          {item.type === 'appointment' && item.validated_at && role.isAdmin && (
+                          {!lab && item.type === 'appointment' && item.validated_at && role.isAdmin && (
                             <button
                               onClick={() => handleUnvalidate(item)}
                               className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"

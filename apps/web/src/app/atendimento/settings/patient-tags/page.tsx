@@ -9,9 +9,11 @@
  */
 import { useEffect, useState, FormEvent } from 'react';
 import { Tag, Loader2, Plus, Pencil, Trash2, X, Save } from 'lucide-react';
+import { pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface PatientTag {
   id: string;
@@ -42,6 +44,8 @@ export default function PatientTagsSettingsPage() {
   // ADMIN (Onda 17.34); esconde a lixeira pra quem nao pode em vez de
   // deixar clicar e tomar 403.
   const { isAdmin } = useRole();
+  // Laboratório: as etiquetas são dos clientes (na clínica, nada muda).
+  const bt = useBusinessType();
   const [tags, setTags] = useState<PatientTag[]>([]);
   const [loading, setLoading] = useState(true);
   const [openModal, setOpenModal] = useState(false);
@@ -62,7 +66,11 @@ export default function PatientTagsSettingsPage() {
   useEffect(() => { load(); }, []);
 
   const handleDelete = async (tag: PatientTag) => {
-    if (!confirm(`Remover a tag "${tag.name}"? Ela será desvinculada de todos os ${tag._count.patients} paciente(s) que a usam.`)) return;
+    if (!confirm(pickBt(
+      bt,
+      `Remover a tag "${tag.name}"? Ela será desvinculada de todos os ${tag._count.patients} paciente(s) que a usam.`,
+      `Remover a tag "${tag.name}"? Ela será desvinculada de todos os ${tag._count.patients} cliente(s) que a usam.`,
+    ))) return;
     try {
       await api.delete(`/patient-tags/${tag.id}`);
       showSuccess('Tag removida');
@@ -77,11 +85,14 @@ export default function PatientTagsSettingsPage() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Tag size={24} className="text-primary" /> Tags de Pacientes
+            <Tag size={24} className="text-primary" />{pickBt(bt, ' Tags de Pacientes', ' Etiquetas de clientes')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Crie etiquetas pra classificar pacientes (ex: VIP, Alergia crítica, Sem revisão 6m).
-            Tags ajudam a filtrar a lista e dar contexto rápido na ficha.
+            {pickBt(
+              bt,
+              'Crie etiquetas pra classificar pacientes (ex: VIP, Alergia crítica, Sem revisão 6m). Tags ajudam a filtrar a lista e dar contexto rápido na ficha.',
+              'Crie etiquetas pra classificar clientes (ex: VIP, Pagamento em dia, Prioridade). Tags ajudam a filtrar a lista e dar contexto rápido na ficha.',
+            )}
           </p>
         </div>
         <button
@@ -116,7 +127,7 @@ export default function PatientTagsSettingsPage() {
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Tag</th>
                 <th className="text-left px-4 py-2 font-medium">Descrição</th>
-                <th className="text-right px-4 py-2 font-medium">Pacientes</th>
+                <th className="text-right px-4 py-2 font-medium">{pickBt(bt, 'Pacientes', 'Clientes')}</th>
                 <th className="text-right px-4 py-2 font-medium">Ações</th>
               </tr>
             </thead>
@@ -181,6 +192,7 @@ export default function PatientTagsSettingsPage() {
 function TagModal({
   tag, onClose, onSaved,
 }: { tag: PatientTag | null; onClose: () => void; onSaved: () => void }) {
+  const bt = useBusinessType();
   const isEdit = !!tag;
   const [name, setName] = useState(tag?.name || '');
   const [color, setColor] = useState(tag?.color || COLOR_PRESETS[0]);
@@ -243,7 +255,7 @@ function TagModal({
               onChange={(e) => setName(e.target.value)}
               autoFocus
               required
-              placeholder="Ex: VIP, Alergia crítica, Inadimplente"
+              placeholder={pickBt(bt, 'Ex: VIP, Alergia crítica, Inadimplente', 'Ex: VIP, Prioridade, Inadimplente')}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>

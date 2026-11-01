@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { buildCondicoesBlock, getLabTenantIds } from '@crm/shared';
+import { buildCondicoesBlock, getLabTenantIds, isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import axios from 'axios';
 import { montarCarneLocal } from './carne-local';
+import { ENVIO_DE_BOLETO_DO_LABORATORIO } from './cobranca-laboratorio';
 
 /**
  * Parte 2 — ENVIO DOS BOLETOS no dia seguinte à apresentação (Central de Disparos).
@@ -130,6 +131,8 @@ export class BoletoDeliveryService {
    */
   async sendCurrentBoleto(planId: string, tenantId: string): Promise<{ ok: boolean; detail: string }> {
     await this.assertPlanoDaClinica(planId, tenantId);
+    // F5 — laboratório: nome padrão e respostas falam de "cliente" (o detail vai no corpo 200).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
         tenant_id: tenantId,
@@ -153,7 +156,7 @@ export class BoletoDeliveryService {
     const next = charges[0];
     // Telefone/nome: pelo treatment_plan.patient; fallback via customer Asaas → lead
     // (cobrança ligada só pela descrição, sem treatment_plan_id preenchido).
-    let name = next.treatment_plan?.patient?.name || 'Paciente';
+    let name = next.treatment_plan?.patient?.name || (lab ? ENVIO_DE_BOLETO_DO_LABORATORIO.nomePadrao : 'Paciente');
     let phone = (next.treatment_plan?.patient?.phone || '').trim();
     if (!phone && next.customer_external_id) {
       const cust = await this.prisma.paymentGatewayCustomer.findFirst({
@@ -165,7 +168,7 @@ export class BoletoDeliveryService {
         phone = (cust.lead.phone || '').trim();
       }
     }
-    if (!phone) return { ok: false, detail: 'Paciente sem telefone cadastrado.' };
+    if (!phone) return { ok: false, detail: lab ? ENVIO_DE_BOLETO_DO_LABORATORIO.semTelefone : 'Paciente sem telefone cadastrado.' };
 
     // boleto_url pode vir null (parcela recém-criada) → enriquece via Asaas.
     let url = next.boleto_url;
@@ -194,7 +197,12 @@ export class BoletoDeliveryService {
       return { ok: false, detail: 'Falha ao enviar o boleto.' };
     }
     const ok = this.wasSent(res);
-    return { ok, detail: ok ? `Boleto enviado ao paciente (${phone}).` : 'A Evolution recusou o envio (número/chip).' };
+    return {
+      ok,
+      detail: ok
+        ? (lab ? ENVIO_DE_BOLETO_DO_LABORATORIO.enviado(phone) : `Boleto enviado ao paciente (${phone}).`)
+        : 'A Evolution recusou o envio (número/chip).',
+    };
   }
 
   /**

@@ -5,8 +5,10 @@ import {
   Wallet, Loader2, Search, AlertTriangle, CheckCircle, Clock, X, DollarSign, Phone,
   CreditCard, QrCode, Copy, ExternalLink, Zap,
 } from 'lucide-react';
+import { pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
 import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface Installment {
@@ -73,6 +75,7 @@ const fmt = (v: number | string) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
 
 export default function ParcelasPage() {
+  const bt = useBusinessType();
   const [loading, setLoading] = useState(true);
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [summary, setSummary] = useState<OverdueSummary | null>(null);
@@ -121,7 +124,7 @@ export default function ParcelasPage() {
           <Wallet size={26} className="text-primary" /> Parcelas
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Gestao de parcelas com regua de cobranca automatica (D-3, D, D+1, D+7, D+15, D+30).
+          {pickBt(bt, 'Gestao de parcelas com regua de cobranca automatica (D-3, D, D+1, D+7, D+15, D+30).', 'Parcelas dos clientes, com baixa manual e cobrança pelo Asaas.')}
         </p>
       </div>
 
@@ -157,7 +160,7 @@ export default function ParcelasPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por paciente ou telefone..."
+            placeholder={pickBt(bt, 'Buscar por paciente ou telefone...', 'Buscar por cliente ou telefone...')}
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
@@ -196,7 +199,7 @@ export default function ParcelasPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-3 py-2">Paciente</th>
+                <th className="px-3 py-2">{pickBt(bt, 'Paciente', 'Dentista')}</th>
                 <th className="px-3 py-2">Parcela</th>
                 <th className="px-3 py-2">Vencimento</th>
                 <th className="px-3 py-2 text-right">Valor</th>
@@ -453,6 +456,7 @@ function PayModal({
 function ChargeModal({
   installment, onClose, onChanged,
 }: { installment: Installment; onClose: () => void; onChanged: () => void }) {
+  const bt = useBusinessType();
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [charge, setCharge] = useState<PaymentCharge | null>(null);
@@ -485,7 +489,7 @@ function ChargeModal({
 
   const handleCreate = async () => {
     if (!installment.patient.cpf) {
-      showError('Paciente sem CPF — cadastre antes de gerar cobranca');
+      showError(pickBt(bt, 'Paciente sem CPF — cadastre antes de gerar cobranca', 'Cliente sem CPF/CNPJ — cadastre o documento antes de gerar a cobrança'));
       return;
     }
     setCreating(true);
@@ -571,7 +575,7 @@ function ChargeModal({
               </div>
               {!installment.patient.cpf && (
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 text-xs text-amber-700">
-                  Paciente sem CPF — cadastre na ficha antes de gerar cobranca.
+                  {pickBt(bt, 'Paciente sem CPF — cadastre na ficha antes de gerar cobranca.', 'Cliente sem CPF/CNPJ — cadastre o documento na ficha antes de gerar a cobrança.')}
                 </div>
               )}
               <button

@@ -23,6 +23,9 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import LabClienteModal from './LabClienteModal';
 
 interface Props {
   onClose: () => void;
@@ -58,7 +61,14 @@ const EMPTY_FORM = {
 
 const AFFILIATE_COMMISSION_PCT = 3;
 
-export default function NewPatientModal({ onClose, onCreated }: Props) {
+// F5 do laboratório — mesmo modal, mesmas props: na conta de laboratório abre o cadastro
+// do cliente (LabClienteModal); na clínica, o cadastro de sempre (abaixo, sem mudança).
+export default function NewPatientModal(props: Props) {
+  const lab = isLab(useBusinessType());
+  return lab ? <LabClienteModal modo="novo" {...props} /> : <NewPatientModalClinica {...props} />;
+}
+
+function NewPatientModalClinica({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });

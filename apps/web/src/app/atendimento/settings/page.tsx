@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { pickBt } from '@crm/shared';
+import { labAllowsRoute, pickBt } from '@crm/shared';
 import { btAgora } from '@/lib/useBusinessType';
 
 export default function SettingsPage() {
@@ -10,8 +10,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     // btAgora (e não o hook): o efeito da hidratação roda com o tipo do servidor
-    // (clínica) e mandaria o laboratório para Usuários, que fica fechado para ele.
-    router.replace(pickBt(btAgora(), '/atendimento/settings/users', '/atendimento/settings/whatsapp'));
+    // (clínica). O laboratório vai para Usuários quando essa tela está liberada para ele.
+    router.replace(
+      pickBt(
+        btAgora(),
+        '/atendimento/settings/users',
+        labAllowsRoute('/atendimento/settings/users') ? '/atendimento/settings/users' : '/atendimento/settings/whatsapp',
+      ),
+    );
   }, [router]);
 
   return null;

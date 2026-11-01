@@ -97,3 +97,64 @@ export function descricaoParaClienteDoLaboratorio(descricao: string | null | und
     .trim();
   return temVocabularioDeClinica(d) ? '' : d;
 }
+
+// ─── F5: caixa, venda de balcão e envio do boleto do mês ─────────────────────
+// Os nomes não começam com LAB_ de propósito: este arquivo não é marcado pela trava
+// de textos (scripts/ci/check-pick-literals.mjs) e os textos são cobertos pelo spec
+// cobranca.laboratorio.spec.ts (temVocabularioDeClinica).
+
+/** Nome que entra quando o cadastro do cliente do laboratório não tem nome. */
+export const NOME_PADRAO_DO_CLIENTE = 'Cliente';
+
+/** Começo da receita no caixa quando o laboratório recebe na hora (balcão, maquineta, PIX). */
+export const RECEBIDO_NO_LABORATORIO = 'Recebido no laboratório';
+
+/**
+ * Detalhe entre parênteses da cobrança local do balcão no laboratório (o mesmo
+ * desenho do texto da clínica):
+ *   - cartão que o Financeiro confirma depois: "cartão 3x · a receber";
+ *   - só cartão, passado na hora: "cartão 3x na maquineta · recebido no laboratório";
+ *   - várias formas: "recebido no laboratório · 2 formas";
+ *   - o resto: "recebido no laboratório".
+ * `nx` chega pronto (" 3x" ou ""), igual ao da clínica.
+ */
+export function rotuloDoBalcaoDoLaboratorio(p: { receiveNow: boolean; soCartao: boolean; nx: string; formas: number }): string {
+  const recebido = RECEBIDO_NO_LABORATORIO.toLowerCase();
+  if (!p.receiveNow) return `cartão${p.nx} · a receber`;
+  if (p.soCartao) return `cartão${p.nx} na maquineta · ${recebido}`;
+  if (p.formas > 1) return `${recebido} · ${p.formas} formas`;
+  return recebido;
+}
+
+/**
+ * Descrição da RECEITA no caixa do laboratório (Caixa e Entradas):
+ * "Recebido no laboratório — <cliente> · <descrição da cobrança> · <forma><parcelas>".
+ * Recebimento online (webhook do Asaas) continua "Recebimento — …". A descrição da
+ * cobrança passa por descricaoParaClienteDoLaboratorio: "Plano de tratamento" vira
+ * "Trabalho de prótese" e, se sobrar palavra de clínica, ela sai da receita.
+ */
+export function descricaoDaReceitaDoLaboratorio(p: {
+  inClinic: boolean;
+  nome: string;
+  descricao: string;
+  parcelaSuffix: string;
+  forma?: string;
+}): string {
+  const descricao = descricaoParaClienteDoLaboratorio(p.descricao);
+  return `${p.inClinic ? RECEBIDO_NO_LABORATORIO : 'Recebimento'} — ${p.nome}${descricao ? ` · ${descricao}` : ''}${p.forma ? ` · ${p.forma}` : ''}${p.parcelaSuffix}`;
+}
+
+/** Observação da RECEITA no caixa do laboratório. */
+export const NOTAS_DA_RECEITA_DO_LABORATORIO = Object.freeze({
+  /** Recebido na hora (uma forma). */
+  caixa: 'Venda recebida no laboratório (fechamento de caixa)',
+  /** Recebido na hora em várias formas (uma receita por forma). */
+  split: 'Venda recebida no laboratório — pagamento dividido em várias formas (fechamento de caixa)',
+});
+
+/** Respostas e nome do "Enviar boleto do mês" no laboratório. */
+export const ENVIO_DE_BOLETO_DO_LABORATORIO = Object.freeze({
+  nomePadrao: NOME_PADRAO_DO_CLIENTE,
+  semTelefone: 'Cliente sem telefone cadastrado.',
+  enviado: (phone: string) => `Boleto enviado ao cliente (${phone}).`,
+});

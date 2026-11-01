@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (343). */
+/** Handlers que a conta de laboratório alcança (352). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // BillingController — plano da própria conta
   'BillingController.getMine',
@@ -214,6 +214,8 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'LeadsController.updateStage',
   'LeadsController.getTimeline',
   'LeadsController.deleteContact',
+  'LeadsController.ensurePatient',
+  'LeadsController.promoteToClient',
   // MediaController — mídia do chat
   'MediaController.retryMediaDownload',
   // MessagesController — mensagens
@@ -457,7 +459,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);
 
-/** Handlers negados dentro de controllers que o laboratório também usa (219). */
+/** Handlers negados dentro de controllers que o laboratório também usa (217). */
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
@@ -580,8 +582,6 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // LeadsController — contatos e funil
   'LeadsController.findPostAvaliacao',
   'LeadsController.summarize',
-  'LeadsController.ensurePatient',
-  'LeadsController.promoteToClient',
   'LeadsController.demoteToLead',
   'LeadsController.resetMemory',
   'LeadsController.deduplicatePhones',

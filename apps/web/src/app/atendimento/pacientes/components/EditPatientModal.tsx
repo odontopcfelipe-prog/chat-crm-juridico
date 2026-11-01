@@ -17,6 +17,9 @@ import { showError, showInfo, showSuccess } from '@/lib/toast';
 import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import LabClienteModal from './LabClienteModal';
 
 interface PatientFull {
   id: string;
@@ -74,7 +77,14 @@ const MARITAL_OPTIONS = [
 
 const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
-export default function EditPatientModal({ patient, onClose, onUpdated }: Props) {
+// F5 do laboratório — mesmo modal, mesmas props: na conta de laboratório abre a edição
+// do cliente (LabClienteModal); na clínica, a edição de sempre (abaixo, sem mudança).
+export default function EditPatientModal(props: Props) {
+  const lab = isLab(useBusinessType());
+  return lab ? <LabClienteModal modo="editar" {...props} /> : <EditPatientModalClinica {...props} />;
+}
+
+function EditPatientModalClinica({ patient, onClose, onUpdated }: Props) {
   const [saving, setSaving] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
 

@@ -4,8 +4,9 @@
  * Só o valor EXATO 'LABORATORIO' liga o caminho do laboratório. Qualquer outra
  * coisa — ausente, vazio, minúsculo, com espaço, objeto, número — é CLÍNICA, e a
  * clínica continua vendo o 1º argumento de pickBt. A lista de rotas do lab é
- * negação por padrão: só as telas da F4 abrem, e '/atendimento' e
- * '/atendimento/settings' são exatas (como prefixo abririam tudo embaixo).
+ * negação por padrão: só as telas da F4 e da F5 abrem, e '/atendimento',
+ * '/atendimento/settings' e '/atendimento/financeiro' são exatas (como prefixo
+ * abririam tudo embaixo).
  */
 import {
   ALLOWED_LAB_ROUTES,
@@ -52,42 +53,71 @@ describe('business-type — na dúvida, clínica', () => {
   });
 });
 
+/**
+ * A lista exata, na mesma ordem de ALLOWED_LAB_ROUTES. Os blocos F5a, F5b e F5c são os
+ * mesmos de business-type.ts: cada deploy da F5 tira (ou põe) o bloco inteiro nos quatro
+ * arquivos de rota, sem mexer no resto.
+ */
+const ROTAS_ESPERADAS: unknown[] = [
+  { path: '/atendimento', exact: true },
+  '/atendimento/chat',
+  '/atendimento/split',
+  '/atendimento/dashboard',
+  '/atendimento/caixa',
+  '/atendimento/ponto',
+  { path: '/atendimento/settings', exact: true },
+  '/atendimento/settings/whatsapp',
+  '/atendimento/settings/inboxes',
+  '/atendimento/settings/canned-responses',
+  '/atendimento/settings/notifications',
+  '/atendimento/settings/identidade',
+  '/atendimento/settings/ponto',
+  // [F5a]
+  '/atendimento/pacientes',
+  '/atendimento/contacts',
+  // [/F5a]
+  // [F5b]
+  { path: '/atendimento/financeiro', exact: true },
+  '/atendimento/financeiro/contas-a-pagar',
+  '/atendimento/financeiro/boletos',
+  '/atendimento/financeiro/validar',
+  '/atendimento/financeiro/parcelas',
+  '/atendimento/settings/payment-gateway',
+  // [/F5b]
+  // [F5c]
+  '/atendimento/venda-rapida',
+  '/atendimento/settings/procedures',
+  '/atendimento/settings/patient-tags',
+  '/atendimento/settings/users',
+  '/atendimento/estoque',
+  // [/F5c]
+];
+
 describe('labAllowsRoute — negação por padrão', () => {
   it('retrato exato das rotas do laboratório (lista e entradas congeladas)', () => {
-    expect(ALLOWED_LAB_ROUTES).toEqual([
-      { path: '/atendimento', exact: true },
-      '/atendimento/chat',
-      '/atendimento/split',
-      '/atendimento/dashboard',
-      '/atendimento/caixa',
-      '/atendimento/ponto',
-      { path: '/atendimento/settings', exact: true },
-      '/atendimento/settings/whatsapp',
-      '/atendimento/settings/inboxes',
-      '/atendimento/settings/canned-responses',
-      '/atendimento/settings/notifications',
-      '/atendimento/settings/identidade',
-      '/atendimento/settings/ponto',
-    ]);
+    expect(ALLOWED_LAB_ROUTES).toEqual(ROTAS_ESPERADAS);
     expect(Object.isFrozen(ALLOWED_LAB_ROUTES)).toBe(true);
     const objetos = ALLOWED_LAB_ROUTES.filter((e) => typeof e === 'object');
-    expect(objetos).toHaveLength(2);
+    expect(objetos).toHaveLength(ROTAS_ESPERADAS.filter((e) => typeof e === 'object').length);
     for (const entrada of objetos) expect(Object.isFrozen(entrada)).toBe(true);
     expect(() => (ALLOWED_LAB_ROUTES as unknown as string[]).push('/atendimento/agenda')).toThrow();
   });
 
   it.each([
     '/',
-    '/atendimento/pacientes',
-    '/atendimento/pacientes/1',
     '/atendimento/agenda',
     '/atendimento/crm',
-    '/atendimento/contacts',
     '/atendimento/tasks',
     '/atendimento/billing',
     '/atendimento/settings/disparos',
-    '/atendimento/settings/users',
     '/atendimento/settings/ai',
+    '/atendimento/settings/specialties',
+    '/atendimento/settings/quote-templates',
+    '/atendimento/settings/permissions',
+    '/atendimento/financeiro/dashboard',
+    '/atendimento/financeiro-antigo',
+    '/atendimento/pacientes-antigos',
+    '/atendimento/relatorios',
     '/atendimento/dashboard-completo',
     '/atendimento/chatbot',
     '/atendimento-antigo',
@@ -102,13 +132,42 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute(rota)).toBe(false);
   });
 
+  it.each([
+    // [F5a]
+    '/atendimento/pacientes',
+    '/atendimento/pacientes/1',
+    '/atendimento/pacientes?new=1',
+    '/atendimento/contacts',
+    // [/F5a]
+    // [F5b]
+    '/atendimento/financeiro',
+    '/atendimento/financeiro/',
+    '/atendimento/financeiro?aba=entradas',
+    '/atendimento/financeiro/contas-a-pagar',
+    '/atendimento/financeiro/boletos?x=1',
+    '/atendimento/financeiro/validar',
+    '/atendimento/financeiro/parcelas',
+    '/atendimento/settings/payment-gateway',
+    // [/F5b]
+    // [F5c]
+    '/atendimento/venda-rapida',
+    '/atendimento/settings/procedures',
+    '/atendimento/settings/patient-tags',
+    '/atendimento/settings/users',
+    '/atendimento/estoque',
+    // [/F5c]
+    '/atendimento/chat',
+  ])('na lista, %p abre', (rota) => {
+    expect(labAllowsRoute(rota)).toBe(true);
+  });
+
   it("'/atendimento' é exata: abre o inbox e nada embaixo dele", () => {
     expect(labAllowsRoute('/atendimento')).toBe(true);
     expect(labAllowsRoute('/atendimento/')).toBe(true);
     expect(labAllowsRoute('/atendimento?x=1')).toBe(true);
     expect(labAllowsRoute('/atendimento#topo')).toBe(true);
     expect(labAllowsRoute('/atendimento/agenda')).toBe(false);
-    expect(labAllowsRoute('/atendimento/pacientes/1')).toBe(false);
+    expect(labAllowsRoute('/atendimento/tasks')).toBe(false);
     expect(labAllowsRoute('/atendimento/crm')).toBe(false);
   });
 
@@ -117,10 +176,17 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute('/atendimento/settings/')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings?aba=1')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/ai')).toBe(false);
-    expect(labAllowsRoute('/atendimento/settings/users')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/disparos')).toBe(false);
     // As subtelas liberadas entram pela própria entrada, não pelo índice.
     expect(labAllowsRoute('/atendimento/settings/whatsapp')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/ponto')).toBe(true);
+  });
+
+  it("'/atendimento/financeiro' fica EXATA: o resumo abre e o painel /financeiro/dashboard não", () => {
+    expect(labAllowsRoute('/atendimento/financeiro/dashboard')).toBe(false);
+    expect(labAllowsRoute('/atendimento/financeiro/dashboard?x=1')).toBe(false);
+    expect(labAllowsRoute('/atendimento/financeiro-antigo')).toBe(false);
+    expect(ALLOWED_LAB_ROUTES).not.toContain('/atendimento/financeiro');
   });
 
   it('as entradas de prefixo abrem a tela e as filhas, por segmento', () => {

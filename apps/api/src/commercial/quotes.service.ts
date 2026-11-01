@@ -883,7 +883,10 @@ export class QuotesService {
       const quote = await this.findOne(quoteId, tenantId);
       this.logger.log(`[APPROVE-AND-BILL] [step:findOne] Quote ${quoteId} status=${quote.status}, items=${quote.items.length}`);
 
-      await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
+      // F5 — venda de balcão do laboratório: cobrança local, o CPF/CNPJ do cliente é opcional.
+      const documentoOpcional =
+        internal?.origem === 'venda-balcao' && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)));
+      await this.ensurePatientReadyForBilling(quote.patient_id, tenantId, documentoOpcional);
       this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
 
       // Fase 0 — MODO SOMBRA: valor abaixo do orçamento só vira registro na aba Log
@@ -1135,8 +1138,10 @@ export class QuotesService {
     }
 
     // 3. Paciente ANTES de gravar qualquer coisa (antes, faltar CPF deixava orçamento DRAFT órfão).
+    // F5 — no laboratório o balcão é cobrança local: o CPF/CNPJ do cliente é opcional.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     await this.assertPatientBelongsToTenant(d.patient_id, tenantId);
-    await this.ensurePatientReadyForBilling(d.patient_id, tenantId);
+    await this.ensurePatientReadyForBilling(d.patient_id, tenantId, lab);
 
     // 4. Total calculado NO SERVIDOR (preço de tabela ou o preço do item, com a trava de override no create).
     const items: ItemInput[] = d.items.map((i) => ({
@@ -1189,10 +1194,11 @@ export class QuotesService {
     // ── nada foi gravado até aqui ──
 
     // 6. Orçamento (o create() reaplica a trava de override_price).
+    // F5 — laboratório: notas "recebido no laboratorio" (o começo "Venda rapida" fica).
     const quote = await this.create(d.patient_id, tenantId, userId, {
       items,
       discount_percent: 0,
-      notes: notasVendaBalcao(d.payments),
+      notes: notasVendaBalcao(d.payments, lab),
     });
     if (round2(Number(quote.total_value)) !== total) {
       await this.remove(quote.id, tenantId, userId).catch(() => undefined);
@@ -1550,13 +1556,13 @@ export class QuotesService {
       .catch(() => { /* findUnique falhou — best effort, ignora */ });
   }
 
-  private async ensurePatientReadyForBilling(patientId: string, tenantId: string) {
+  private async ensurePatientReadyForBilling(patientId: string, tenantId: string, documentoOpcional = false) {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
       select: { id: true, name: true, phone: true, cpf: true, lead_id: true },
     });
     if (!patient) throw new BadRequestException('Paciente nao encontrado');
-    if (!patient.cpf) {
+    if (!patient.cpf && !documentoOpcional) {
       throw new BadRequestException(
         'Paciente sem CPF cadastrado. Edite o paciente e adicione o CPF antes de gerar cobranca.',
       );

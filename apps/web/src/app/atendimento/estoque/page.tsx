@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Package, ArrowDownUp, Truck, Search, ShieldAlert, Loader2,
 } from 'lucide-react';
+import { isLab, pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
 import ProductsTab from './components/ProductsTab';
 import MovementsTab from './components/MovementsTab';
 import SuppliersTab from './components/SuppliersTab';
@@ -27,6 +29,7 @@ type TabId = typeof TABS[number]['id'];
  * Quando a clinica arruma o estoque, liga e passa a ter saldo confiavel de verdade.
  */
 function PoliticaEstoque() {
+  const bt = useBusinessType();
   const [block, setBlock] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -46,7 +49,7 @@ function PoliticaEstoque() {
       setBlock(novo);
       showSuccess(
         novo
-          ? 'Saída sem saldo passa a ser BLOQUEADA nesta clínica'
+          ? pickBt(bt, 'Saída sem saldo passa a ser BLOQUEADA nesta clínica', 'Saída sem saldo passa a ser BLOQUEADA neste laboratório')
           : 'Saída sem saldo liberada — o saldo pode ficar negativo e fica marcado',
       );
     } catch (e: unknown) {
@@ -90,6 +93,10 @@ function PoliticaEstoque() {
 }
 
 export default function EstoquePage() {
+  // Laboratório: sem a aba de rastreabilidade (ela fala de aplicações e de quem as
+  // recebeu, que é coisa da clínica). Na clínica, as 4 abas de sempre.
+  const bt = useBusinessType();
+  const lab = isLab(bt);
   const [tab, setTab] = useState<TabId>('products');
 
   return (
@@ -99,14 +106,14 @@ export default function EstoquePage() {
           <Package size={26} className="text-primary" /> Estoque
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Gestao de insumos com rastreabilidade ANVISA por lote.
+          {pickBt(bt, 'Gestao de insumos com rastreabilidade ANVISA por lote.', 'Materiais do laboratório com controle de lote e validade.')}
         </p>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
         <div className="flex gap-1">
-          {TABS.map((t) => {
+          {pickBt<readonly (typeof TABS)[number][]>(bt, TABS, TABS.filter((t) => t.id !== 'tracking')).map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
@@ -131,7 +138,7 @@ export default function EstoquePage() {
       {tab === 'products' && <ProductsTab />}
       {tab === 'movements' && <MovementsTab />}
       {tab === 'suppliers' && <SuppliersTab />}
-      {tab === 'tracking' && <BatchTrackingTab />}
+      {!lab && tab === 'tracking' && <BatchTrackingTab />}
     </div>
   );
 }

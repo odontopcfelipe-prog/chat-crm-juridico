@@ -21,6 +21,9 @@ import {
   AlertTriangle, Users, TrendingUp, TrendingDown, Clock, Check, Wallet,
   PiggyBank, Target, ShieldAlert, ShieldCheck, CalendarDays, Layers,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_KPIS_BOLETOS } from '@/lib/lab-financeiro-textos';
 
 export type Klass = 'mais_de_2_abertos' | 'atrasa_paga' | 'nunca_atrasa' | 'outros';
 
@@ -147,6 +150,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
   // Onda 18.x — cada chip mostra SÓ a fileira de cartões grandes; o chip "Relatório"
   // reúne os detalhes de todos (perfis, idade do atraso, por dia, por forma, situação
   // dos pacientes), com título por seção.
+  const lab = isLab(useBusinessType());
   const sections = useMemo(() => {
     if (!kpis) return null;
     const { negativados: n, atrasados: a, upcoming: u, pagos: p, todos: t } = kpis;
@@ -160,10 +164,10 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Hero tone="red" icon={AlertTriangle} label="Total em atraso" value={fmtBRL(n.overdue_total)}
           sub={`${n.overdue_count} boleto(s) vencido(s) · ${fmtBRL(n.open_total_of_debtors)} em aberto (c/ a vencer) dos devedores`} />
-        <Hero tone="violet" icon={Users} label="Pacientes negativados" value={String(n.patients)}
-          sub={`${fmtPct(n.pct_of_patients)} dos ${kpis.base.patients_with_charges} pacientes com boleto`} extra={bar(n.pct_of_patients)} />
+        <Hero tone="violet" icon={Users} label={lab ? LAB_KPIS_BOLETOS.inadimplentes : 'Pacientes negativados'} value={String(n.patients)}
+          sub={lab ? LAB_KPIS_BOLETOS.subInadimplentes(fmtPct(n.pct_of_patients), kpis.base.patients_with_charges) : `${fmtPct(n.pct_of_patients)} dos ${kpis.base.patients_with_charges} pacientes com boleto`} extra={bar(n.pct_of_patients)} />
         <Hero tone="emerald" icon={Target} label="Expectativa de recebimento" value={fmtBRL(n.expected_recovery)}
-          sub={`${fmtPct(n.expected_recovery_pct)} do atraso · pelo histórico de cada paciente e idade da dívida`} extra={bar(n.expected_recovery_pct)} />
+          sub={lab ? LAB_KPIS_BOLETOS.subExpectativa(fmtPct(n.expected_recovery_pct)) : `${fmtPct(n.expected_recovery_pct)} do atraso · pelo histórico de cada paciente e idade da dívida`} extra={bar(n.expected_recovery_pct)} />
       </div>
     );
     const negativadosDetails = (
@@ -171,9 +175,9 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
         <Segments
           title="Perfil dos devedores — quem atrasa mas paga × quem não paga"
           items={[
-            { label: 'Atrasa, mas paga', value: n.profiles.paga_atrasado.total, count: n.profiles.paga_atrasado.patients, countLabel: 'pacientes', tone: 'emerald', hint: 'já pagou ≥60% do que venceu' },
-            { label: 'Em risco', value: n.profiles.risco.total, count: n.profiles.risco.patients, countLabel: 'pacientes', tone: 'amber', hint: 'histórico misto ou sem histórico' },
-            { label: 'Não paga', value: n.profiles.nao_paga.total, count: n.profiles.nao_paga.patients, countLabel: 'pacientes', tone: 'red', hint: 'quase nunca pagou / +90d sem pagar' },
+            { label: 'Atrasa, mas paga', value: n.profiles.paga_atrasado.total, count: n.profiles.paga_atrasado.patients, countLabel: lab ? LAB_KPIS_BOLETOS.clientes : 'pacientes', tone: 'emerald', hint: 'já pagou ≥60% do que venceu' },
+            { label: 'Em risco', value: n.profiles.risco.total, count: n.profiles.risco.patients, countLabel: lab ? LAB_KPIS_BOLETOS.clientes : 'pacientes', tone: 'amber', hint: 'histórico misto ou sem histórico' },
+            { label: 'Não paga', value: n.profiles.nao_paga.total, count: n.profiles.nao_paga.patients, countLabel: lab ? LAB_KPIS_BOLETOS.clientes : 'pacientes', tone: 'red', hint: 'quase nunca pagou / +90d sem pagar' },
           ]}
         />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -195,7 +199,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
     const days = Object.entries(u.by_day).sort(([x], [y]) => x.localeCompare(y));
     const upcomingCards = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Hero tone="amber" icon={CalendarDays} label="Vencem nos próximos 7 dias" value={fmtBRL(u.total)} sub={`${u.count} boleto(s) · ${u.patients} paciente(s)`} />
+        <Hero tone="amber" icon={CalendarDays} label="Vencem nos próximos 7 dias" value={fmtBRL(u.total)} sub={lab ? LAB_KPIS_BOLETOS.subVencem(u.count, u.patients) : `${u.count} boleto(s) · ${u.patients} paciente(s)`} />
         <Stat tone="emerald" icon={Target} label="Expectativa de recebimento" value={fmtBRL(u.expected)} sub={`${fmtPct(u.expected_pct)} do total`} progress={u.expected_pct} />
         <Stat tone="blue" icon={ShieldCheck} label="Pontualidade histórica" value={fmtPct(u.on_time_rate_pct)} sub="pagos no prazo, sobre todos os pagos" progress={u.on_time_rate_pct} />
         <Stat tone="slate" icon={Layers} label="Média por boleto" value={fmtBRL(u.count ? u.total / u.count : 0)} sub="ticket dos que vencem" />
@@ -224,7 +228,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
 
     const up = p.month_delta_pct >= 0;
     const methods = Object.entries(p.by_method_month).sort(([, x], [, y]) => y.total - x.total);
-    const methodLabel: Record<string, string> = { PIX: 'PIX', BOLETO: 'Boleto', CREDIT_CARD: 'Cartão', CLINICA: 'Na clínica', OUTRO: 'Outro' };
+    const methodLabel: Record<string, string> = { PIX: 'PIX', BOLETO: 'Boleto', CREDIT_CARD: 'Cartão', CLINICA: lab ? LAB_KPIS_BOLETOS.noLaboratorio : 'Na clínica', OUTRO: 'Outro' };
     const paidCards = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Hero tone="emerald" icon={Wallet} label="Recebido este mês" value={fmtBRL(p.month_total)} sub={`${p.month_count} pagamento(s)`}
@@ -248,7 +252,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
 
     const todosCards = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Hero tone="blue" icon={Layers} label="Carteira total" value={fmtBRL(t.carteira_total)} sub={`${kpis.base.charges} boletos · ${t.patients_with_charges} pacientes`} />
+        <Hero tone="blue" icon={Layers} label="Carteira total" value={fmtBRL(t.carteira_total)} sub={lab ? LAB_KPIS_BOLETOS.subCarteira(kpis.base.charges, t.patients_with_charges) : `${kpis.base.charges} boletos · ${t.patients_with_charges} pacientes`} />
         <Hero tone="emerald" icon={Wallet} label="Recebido" value={fmtBRL(t.received_total)} sub={`${fmtPct(t.received_pct)} da carteira`} extra={bar(t.received_pct)} />
         <Hero tone="amber" icon={Clock} label="A vencer" value={fmtBRL(t.open_total)} sub="em aberto, dentro do prazo" />
         <Hero tone="red" icon={AlertTriangle} label="Em atraso" value={fmtBRL(t.overdue_total)} sub={`${t.cancelled_count} cancelado(s) fora da conta`} />
@@ -256,12 +260,12 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
     );
     const todosDetails = (
       <Segments
-        title="Pacientes — situação da carteira"
-        fmt={(v) => `${v} paciente${v === 1 ? '' : 's'}`}
+        title={lab ? LAB_KPIS_BOLETOS.situacaoCarteira : 'Pacientes — situação da carteira'}
+        fmt={lab ? LAB_KPIS_BOLETOS.contaClientes : (v) => `${v} paciente${v === 1 ? '' : 's'}`}
         items={[
           { label: 'Quitados', value: t.patients_settled, tone: 'emerald', hint: 'nada em aberto' },
           { label: 'Em dia', value: t.patients_up_to_date, tone: 'blue', hint: 'só boletos a vencer' },
-          { label: 'Negativados', value: t.patients_debtors, tone: 'red', hint: `${fmtPct(t.pct_debtors)} dos pacientes` },
+          { label: lab ? LAB_KPIS_BOLETOS.inadimplentesCurto : 'Negativados', value: t.patients_debtors, tone: 'red', hint: lab ? LAB_KPIS_BOLETOS.dosClientes(fmtPct(t.pct_debtors)) : `${fmtPct(t.pct_debtors)} dos pacientes` },
         ]}
       />
     );
@@ -289,7 +293,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
           <Hero tone="blue" icon={Wallet} label="A receber (deste mês em diante)" value={fmtBRL(aReceberTotal)}
             sub={`${future.reduce((s, x) => s + x.a_receber_count, 0)} boleto(s) em aberto · inclui vencidos do período`} />
           <Hero tone="emerald" icon={Target} label="Expectativa realista" value={fmtBRL(aReceberExpected)}
-            sub={`${fmtPct(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)} do que está em aberto, pelo histórico dos pacientes`}
+            sub={lab ? LAB_KPIS_BOLETOS.subExpectativaRealista(fmtPct(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)) : `${fmtPct(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)} do que está em aberto, pelo histórico dos pacientes`}
             extra={bar(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)} />
           <Hero tone="amber" icon={CalendarDays} label={`Vence em ${future[0]?.label || '—'}`} value={fmtBRL(future[0]?.a_receber || 0)}
             sub={`${future[0]?.a_receber_count || 0} boleto(s) · espera ${fmtBRL(future[0]?.expected || 0)}`} />
@@ -321,13 +325,13 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
       <>
         {classes && (
           <Segments
-            title="Pacientes por perfil — quanto cada grupo tem em aberto hoje"
-            items={KLASS.map((k) => ({ label: k.label, value: classes[k.key].open_total, count: classes[k.key].patients, countLabel: 'pacientes', tone: k.tone, hint: `${classes[k.key].open_count} boleto(s) · ${fmtBRL(classes[k.key].overdue_total)} vencido` }))}
+            title={lab ? LAB_KPIS_BOLETOS.porPerfil : 'Pacientes por perfil — quanto cada grupo tem em aberto hoje'}
+            items={KLASS.map((k) => ({ label: k.label, value: classes[k.key].open_total, count: classes[k.key].patients, countLabel: lab ? LAB_KPIS_BOLETOS.clientes : 'pacientes', tone: k.tone, hint: `${classes[k.key].open_count} boleto(s) · ${fmtBRL(classes[k.key].overdue_total)} vencido` }))}
           />
         )}
         <div className="rounded-2xl p-3.5 bg-card border border-border shadow-sm">
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total de boletos por mês (vencimento) — dividido por perfil do paciente</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{lab ? LAB_KPIS_BOLETOS.boletosPorMesPerfil : 'Total de boletos por mês (vencimento) — dividido por perfil do paciente'}</p>
             <div className="flex items-center gap-3 flex-wrap">
               {KLASS.map((k) => (
                 <span key={k.key} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><span className={`w-2 h-2 rounded-full ${TONE[k.tone].bar}`} />{k.label}</span>
@@ -380,7 +384,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
     ) : null;
 
     return { negativadosCards, negativadosDetails, upcomingCards, upcomingDetails, paidCards, paidDetails, todosCards, todosDetails, monthlyDetails, aReceberCards };
-  }, [kpis]);
+  }, [kpis, lab]);
 
   if (loading && !kpis) {
     return (
@@ -416,8 +420,8 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
       <>
         <Section title="Carteira" icon={Layers}>{s.todosCards}{s.todosDetails}</Section>
         <Section title="A receber por mês" icon={Wallet}>{s.aReceberCards}</Section>
-        <Section title="Boletos por mês × perfil do paciente" icon={CalendarDays}>{s.monthlyDetails}</Section>
-        <Section title="Negativados" icon={AlertTriangle}>{s.negativadosCards}{s.negativadosDetails}</Section>
+        <Section title={lab ? LAB_KPIS_BOLETOS.secaoBoletosPorMes : 'Boletos por mês × perfil do paciente'} icon={CalendarDays}>{s.monthlyDetails}</Section>
+        <Section title={lab ? LAB_KPIS_BOLETOS.inadimplentesCurto : 'Negativados'} icon={AlertTriangle}>{s.negativadosCards}{s.negativadosDetails}</Section>
         <Section title="Vencem nos próximos 7 dias" icon={CalendarDays}>{s.upcomingCards}{s.upcomingDetails}</Section>
         <Section title="Recebimentos" icon={Wallet}>{s.paidCards}{s.paidDetails}</Section>
       </>

@@ -26,6 +26,10 @@ import { useUserPermissions } from '@/lib/useUserPermissions';
 import { useRole } from '@/lib/useRole';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
+// F5 do laboratório — o laboratório entra só com portão e texto importado.
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_FICHA_FINANCEIRO } from '@/lib/lab-financeiro-textos';
 
 interface Props {
   patientId: string;
@@ -191,6 +195,7 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
   // precisa da forma de pagamento: abre a escolha na própria linha.
   const { hasPermission } = useUserPermissions();
   const podeBaixarParcela = hasPermission('manage_financial');
+  const lab = isLab(useBusinessType());
   const [baixa, setBaixa] = useState<{ id: string; metodo: string } | null>(null);
   // Onda 18.12 — bump a cada refresh (polling/atualizar) pra os cards
   // reinvalidarem o cache das sub-parcelas (status vem do Asaas ao vivo) e a
@@ -417,9 +422,9 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
       {/* Resumo do paciente */}
       <div>
         <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-2">
-          Resumo do paciente
+          {lab ? LAB_FICHA_FINANCEIRO.resumo : 'Resumo do paciente'}
           <span className="ml-2 font-normal normal-case text-muted-foreground">
-            {contractsCount} {contractsCount === 1 ? 'contrato' : 'contratos'} · {activeCount} {activeCount === 1 ? 'ativo' : 'ativo(s)'}
+            {contractsCount} {contractsCount === 1 ? (lab ? LAB_FICHA_FINANCEIRO.trabalho : 'contrato') : (lab ? LAB_FICHA_FINANCEIRO.trabalhos : 'contratos')} · {activeCount} {activeCount === 1 ? 'ativo' : 'ativo(s)'}
           </span>
         </p>
 
@@ -785,6 +790,7 @@ function ProposalFinancialCard({
   const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
   // Fase 0 — "Dar baixa" só pra quem opera caixa/financeiro (o servidor também barra).
   const podeDarBaixa = role.isAdmin || role.isSuperAdmin || hasPermission('operate_cash') || hasPermission('manage_financial');
+  const lab = isLab(useBusinessType());
   const [validatingPlanId, setValidatingPlanId] = useState<string | null>(null);
   // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
   // dentro do proprio sistema, sem precisar mandar pro paciente ver.
@@ -813,12 +819,13 @@ function ProposalFinancialCard({
       return;
     }
     const reason = window.prompt(
+      lab ? LAB_FICHA_FINANCEIRO.promptCancelar(fmtBRL(p.value)) :
       `CANCELAR esta cobrança (${fmtBRL(p.value)})?\n\n` +
       `Apaga o boleto NO ASAAS (o link/QR para de funcionar) e tira da inadimplência,\n` +
       `MAS ela FICA REGISTRADA no cadastro como "Cancelado", com quem/quando/motivo —\n` +
       `pra eventual revisão até judicial. O paciente NÃO é avisado.\n\n` +
       `Digite o MOTIVO do cancelamento:`,
-      'Paciente cancelou o tratamento',
+      lab ? LAB_FICHA_FINANCEIRO.motivoCancelar : 'Paciente cancelou o tratamento',
     );
     if (reason === null) return; // fechou/cancelou o prompt
     const motivo = reason.trim();
@@ -849,6 +856,7 @@ function ProposalFinancialCard({
     }
     const metodo = p.method === 'PIX' ? 'PIX' : p.method === 'CREDIT_CARD' ? 'cartão' : 'dinheiro/espécie';
     if (!window.confirm(
+      lab ? LAB_FICHA_FINANCEIRO.confirmarRecebido(fmtBRL(p.value), metodo) :
       `Marcar como RECEBIDO (${fmtBRL(p.value)})?\n\n` +
       `Use só se o paciente JÁ pagou por fora (${metodo}).\n\n` +
       `Isso vai:\n` +
@@ -933,7 +941,8 @@ function ProposalFinancialCard({
     // "Carregando parcelas…" trava pra sempre. 15s → o request estoura e a UI segue.
     Promise.allSettled([
       api.get<QuoteFullDetail>(`/quotes/${quote.id}`, { timeout: 15000 }),
-      api.get<ContractInfo | null>(`/quotes/${quote.id}/contract`, { timeout: 15000 }),
+      // Laboratório: o contrato do orçamento é negado na API (sem a chamada, sem 403).
+      lab ? Promise.resolve({ data: null }) : api.get<ContractInfo | null>(`/quotes/${quote.id}/contract`, { timeout: 15000 }),
     ])
       .then(([qResp, cResp]) => {
         if (qResp.status === 'fulfilled') {
@@ -948,7 +957,7 @@ function ProposalFinancialCard({
         setLoadingQuoteDetail(false);
         setLoadingContract(false);
       });
-  }, [quoteDetail, quote.id]);
+  }, [quoteDetail, quote.id, lab]);
 
   // Onda 17.72 — true enquanto o Financeiro não validou (libera o tratamento).
   const isValidated = !!quoteDetail?.treatment_plan?.validated_by_financial_at;
@@ -958,27 +967,29 @@ function ProposalFinancialCard({
   // servidor lança a receita CARTÃO) — vale também pra plano já liberado.
   const handleValidate = async () => {
     if (!planId) {
-      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      showError(lab ? LAB_FICHA_FINANCEIRO.trabalhoNaoCarregado : 'Plano de tratamento ainda não carregado — aguarde um instante.');
       return;
     }
     if (cartaoAConfirmar > 0 && !window.confirm(
       `Confirmar que o cartão de ${fmtBRL(cartaoAConfirmar)} foi passado na maquineta?\n\n` +
       `Isso marca a venda como RECEBIDA e lança nas Entradas como CARTÃO` +
-      (isValidated ? '.' : ', e libera o tratamento pro dentista.'),
+      (isValidated ? '.' : lab ? LAB_FICHA_FINANCEIRO.eLiberaProducao : ', e libera o tratamento pro dentista.'),
     )) return;
     setValidatingPlanId(planId);
     try {
       await api.post(`/treatment-plans/${planId}/validate`);
       showSuccess(cartaoAConfirmar > 0
         ? 'Recebimento no cartão confirmado — lançado nas Entradas como cartão.'
-        : 'Tratamento liberado — o dentista já pode confirmar os procedimentos.');
+        : lab
+          ? LAB_FICHA_FINANCEIRO.trabalhoLiberado
+          : 'Tratamento liberado — o dentista já pode confirmar os procedimentos.');
       if (cartaoAConfirmar > 0) onReload?.();
       // Recarrega o quote detail pra refletir validated_by_financial_at.
       const { data } = await api.get<QuoteFullDetail>(`/quotes/${quote.id}`);
       setQuoteDetail(data);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao validar tratamento');
+      showError(e?.response?.data?.message || (lab ? LAB_FICHA_FINANCEIRO.erroValidar : 'Erro ao validar tratamento'));
     } finally {
       setValidatingPlanId(null);
     }
@@ -1057,7 +1068,7 @@ function ProposalFinancialCard({
   // e sem esperar o D+2). Não gasta a dedup do fluxo real.
   const handleTestDelivery = async () => {
     if (!planId) {
-      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      showError(lab ? LAB_FICHA_FINANCEIRO.trabalhoNaoCarregado : 'Plano de tratamento ainda não carregado — aguarde um instante.');
       return;
     }
     const phone = window.prompt(
@@ -1084,16 +1095,16 @@ function ProposalFinancialCard({
   // PACIENTE, na hora. Real (vai pro paciente) — por isso confirma antes.
   const handleSendCurrentBoleto = async () => {
     if (!planId) {
-      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      showError(lab ? LAB_FICHA_FINANCEIRO.trabalhoNaoCarregado : 'Plano de tratamento ainda não carregado — aguarde um instante.');
       return;
     }
-    if (!window.confirm('Enviar o boleto do mês (próximo a vencer) em PDF para o WhatsApp do paciente agora?')) return;
+    if (!window.confirm(lab ? LAB_FICHA_FINANCEIRO.confirmarEnvioBoletoMes : 'Enviar o boleto do mês (próximo a vencer) em PDF para o WhatsApp do paciente agora?')) return;
     setSendingCurrent(true);
     try {
       const { data } = await api.post<{ ok: boolean; detail: string }>('/payment-gateway/boleto-delivery/send-current', {
         plan_id: planId,
       });
-      if (data?.ok) showSuccess(data.detail || 'Boleto enviado ao paciente.');
+      if (data?.ok) showSuccess(data.detail || (lab ? LAB_FICHA_FINANCEIRO.boletoEnviado : 'Boleto enviado ao paciente.'));
       else showError(data?.detail || 'Falha ao enviar o boleto.');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao enviar o boleto do mês.');
@@ -1449,13 +1460,13 @@ function ProposalFinancialCard({
   const priorityLabel = (() => {
     if (quote.title && quote.title.trim()) return quote.title;
     if (quote.notes && /venda\s*r[áa]pida/i.test(quote.notes)) {
-      return 'Venda rápida';
+      return lab ? LAB_FICHA_FINANCEIRO.vendaBalcao : 'Venda rápida';
     }
     const p = (quote.priority || '').toUpperCase();
     if (p === 'URGENTE') return 'Urgente';
     if (p === 'ESSENCIAL') return 'Essencial';
     if (p === 'COMPLETO') return 'Completo';
-    return 'Plano';
+    return lab ? LAB_FICHA_FINANCEIRO.trabalhoRotulo : 'Plano';
   })();
 
   // Onda 17.32.43 — Procedimento dominante (mais frequente) pra subtitle.
@@ -1489,7 +1500,7 @@ function ProposalFinancialCard({
 
         <div className="min-w-0 flex-1 basis-[200px]">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-sm font-bold text-foreground">Contrato</span>
+            <span className="text-sm font-bold text-foreground">{lab ? LAB_FICHA_FINANCEIRO.trabalhoRotulo : 'Contrato'}</span>
             <span className="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
               {getQuoteNumberBadge(quote) || `#${index}`}
             </span>
@@ -1549,7 +1560,8 @@ function ProposalFinancialCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end ml-auto">
-          {/* Onda 17.32.52 — Contrato assinado (PDF / link ClickSign) */}
+          {/* Onda 17.32.52 — Contrato assinado (PDF / link ClickSign). Laboratório: sem contrato. */}
+          {!lab && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setShowContract(true); }}
@@ -1558,12 +1570,13 @@ function ProposalFinancialCard({
           >
             <FileText size={14} />
           </button>
+          )}
           {/* Onda 17.32.52 — Lista de procedimentos solicitados pelo orcamento */}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setShowProcedures(true); }}
             className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
-            title="Procedimentos solicitados"
+            title={lab ? LAB_FICHA_FINANCEIRO.servicosSolicitados : 'Procedimentos solicitados'}
           >
             <ClipboardList size={14} />
           </button>
@@ -1582,7 +1595,9 @@ function ProposalFinancialCard({
               className="px-2.5 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               title={cartaoAConfirmar > 0
                 ? 'Confirmar que o cartão foi passado na maquineta — marca recebido e lança nas Entradas como cartão'
-                : 'Validar a negociação e liberar o tratamento pro dentista confirmar os procedimentos'}
+                : lab
+                  ? LAB_FICHA_FINANCEIRO.validarTitulo
+                  : 'Validar a negociação e liberar o tratamento pro dentista confirmar os procedimentos'}
             >
               {validatingPlanId === planId ? (
                 <>
@@ -1599,7 +1614,7 @@ function ProposalFinancialCard({
           ) : isValidated ? (
             <span
               className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 text-xs font-bold"
-              title="Tratamento liberado pelo Financeiro — o dentista pode confirmar os procedimentos"
+              title={lab ? LAB_FICHA_FINANCEIRO.liberadoTitulo : 'Tratamento liberado pelo Financeiro — o dentista pode confirmar os procedimentos'}
             >
               <CheckCircle2 size={12} />
               Liberado
@@ -1633,7 +1648,8 @@ function ProposalFinancialCard({
               Gerar cobranças pendentes
             </button>
           )}
-          {hasBoleto && hasPermission('manage_financial') && (
+          {/* Laboratório: o teste do envio dos boletos é negado na API. */}
+          {!lab && hasBoleto && hasPermission('manage_financial') && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleTestDelivery(); }}
@@ -1650,7 +1666,7 @@ function ProposalFinancialCard({
               onClick={(e) => { e.stopPropagation(); handleSendCurrentBoleto(); }}
               disabled={sendingCurrent || !planId}
               className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50"
-              title="Enviar o boleto do mês (próximo a vencer) em PDF pro WhatsApp do paciente, na hora"
+              title={lab ? LAB_FICHA_FINANCEIRO.enviarBoletoMesTitulo : 'Enviar o boleto do mês (próximo a vencer) em PDF pro WhatsApp do paciente, na hora'}
             >
               {sendingCurrent ? 'Enviando…' : '📄 Enviar boleto do mês'}
             </button>
@@ -1683,7 +1699,7 @@ function ProposalFinancialCard({
             )}
             {totalTratamento > 0 && (
               <div className="text-xs text-muted-foreground">
-                Total do tratamento: <span className="font-semibold text-foreground">R$ {totalTratamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                {lab ? LAB_FICHA_FINANCEIRO.totalDoTrabalho : 'Total do tratamento: '}<span className="font-semibold text-foreground">R$ {totalTratamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             <div className="space-y-2">
@@ -1761,7 +1777,7 @@ function ProposalFinancialCard({
             </div>
           ) : parcelas.length === 0 ? (
             <div className="px-4 py-4 text-[11px] text-amber-800 bg-amber-500/5 border-y border-amber-500/30">
-              ⚠ Sem cobrança gerada ainda — aprove a proposta na aba Plano de tratamento pra gerar.
+              {lab ? LAB_FICHA_FINANCEIRO.semCobranca : '⚠ Sem cobrança gerada ainda — aprove a proposta na aba Plano de tratamento pra gerar.'}
             </div>
           ) : (
             <ul className="divide-y divide-border">
@@ -1822,6 +1838,7 @@ function ParcelaLinha({
   canDelete?: boolean;
   deleting?: boolean;
 }) {
+  const lab = isLab(useBusinessType());
   const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
   // Vencido = vencimento em dia ANTERIOR a hoje (dia local de Maceió). O due_date
   // vem como meia-noite UTC (a data em si), então SÓ o "hoje" precisa do fuso −3h.
@@ -1954,7 +1971,7 @@ function ParcelaLinha({
             onClick={onRegistrar}
             disabled={registering}
             className="text-xs font-semibold px-3 py-1.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
-            title="Paciente pagou por fora? Clique pra dar baixa (fecha no Asaas + lança no caixa)."
+            title={lab ? LAB_FICHA_FINANCEIRO.darBaixaParcela : 'Paciente pagou por fora? Clique pra dar baixa (fecha no Asaas + lança no caixa).'}
           >
             {registering ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
             Dar baixa
@@ -2342,6 +2359,7 @@ function ProceduresListModal({
   patientName?: string;
   onClose: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const total = quoteDetail?.items.reduce((s, it) => s + Number(it.total_price), 0) || 0;
 
   // Abre o PDF PROFISSIONAL do orçamento (backend/pdfkit — logo da clínica, dados do
@@ -2386,7 +2404,7 @@ function ProceduresListModal({
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-foreground inline-flex items-center gap-2">
               <ClipboardList size={14} className="text-muted-foreground" />
-              Procedimentos solicitados
+              {lab ? LAB_FICHA_FINANCEIRO.servicosSolicitados : 'Procedimentos solicitados'}
             </h2>
             <p className="text-[11px] text-muted-foreground">
               {quoteName}
@@ -2407,12 +2425,12 @@ function ProceduresListModal({
           {loading ? (
             <div className="h-full flex items-center justify-center p-8 text-muted-foreground">
               <Loader2 size={16} className="animate-spin mr-2" />
-              Carregando procedimentos...
+              {lab ? LAB_FICHA_FINANCEIRO.carregandoServicos : 'Carregando procedimentos...'}
             </div>
           ) : !quoteDetail?.items?.length ? (
             <div className="h-full flex items-center justify-center p-8 text-center">
               <p className="text-sm text-muted-foreground italic">
-                Nenhum procedimento listado nesse orcamento.
+                {lab ? LAB_FICHA_FINANCEIRO.nenhumServico : 'Nenhum procedimento listado nesse orcamento.'}
               </p>
             </div>
           ) : (
@@ -2429,7 +2447,7 @@ function ProceduresListModal({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-foreground">{it.procedure.name}</p>
                       <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground mt-0.5">
-                        {it.tooth_fdi && <span>Dente {it.tooth_fdi}</span>}
+                        {it.tooth_fdi && <span>{lab ? LAB_FICHA_FINANCEIRO.elemento : 'Dente '}{it.tooth_fdi}</span>}
                         {it.quantity > 1 && <span>· {it.quantity}x</span>}
                         {it.dentist?.name && <span>· {it.dentist.name}</span>}
                         {!approved && <span className="text-amber-700">· aguardando aprovacao</span>}
@@ -2448,6 +2466,8 @@ function ProceduresListModal({
         {quoteDetail?.items?.length ? (
           <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0 flex-wrap">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Laboratório: o PDF do orçamento ainda sai com os textos da clínica (até a F6). */}
+              {!lab && (
               <button
                 type="button"
                 onClick={() => openPdf(true)}
@@ -2457,6 +2477,8 @@ function ProceduresListModal({
               >
                 {pdfLoading === 'com' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF com valores
               </button>
+              )}
+              {!lab && (
               <button
                 type="button"
                 onClick={() => openPdf(false)}
@@ -2466,6 +2488,7 @@ function ProceduresListModal({
               >
                 {pdfLoading === 'sem' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF sem valores
               </button>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total</span>
@@ -2626,6 +2649,7 @@ function CancelledChargesSection({ charges }: { charges: Charge[] }) {
 /** Onda 14.9 — Renderiza uma linha de cobranca com tipo, valor, status e ações */
 function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => void }) {
   const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
+  const lab = isLab(useBusinessType());
   // Fase 0 — "Dar baixa"/"Confirmar recebimento" só pra quem opera caixa/financeiro.
   const { hasPermission } = useUserPermissions();
   const podeDarBaixa = role.isAdmin || role.isSuperAdmin || hasPermission('operate_cash') || hasPermission('manage_financial');
@@ -2682,6 +2706,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.'); return; }
     const metodoLabel = isPix ? 'PIX' : isCartao ? 'cartão' : 'dinheiro/espécie';
     if (!window.confirm(
+      lab ? LAB_FICHA_FINANCEIRO.confirmarRecebidoLinha(fmtBRL(c.amount), metodoLabel) :
       `Marcar como RECEBIDO (${fmtBRL(c.amount)})?\n\n` +
       `Use só se o paciente JÁ pagou por fora (${metodoLabel}).\n\n` +
       `Isso fecha a cobrança no Asaas (o link/QR para de funcionar), lança a receita no caixa e libera a comissão.`,
@@ -2705,12 +2730,13 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     if (isPaid) { showError('Cobrança já paga — não pode ser apagada.'); return; }
     if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra apagar.'); return; }
     const reason = window.prompt(
+      lab ? LAB_FICHA_FINANCEIRO.promptCancelarLinha(fmtBRL(c.amount)) :
       `CANCELAR esta cobrança (${fmtBRL(c.amount)})?\n\n` +
       `Apaga o boleto NO ASAAS e tira da inadimplência, MAS ela FICA REGISTRADA no\n` +
       `cadastro como "Cancelado" (quem/quando/motivo) — pra revisão até judicial.\n` +
       `O paciente NÃO é avisado.\n\n` +
       `Digite o MOTIVO do cancelamento:`,
-      'Paciente cancelou o tratamento',
+      lab ? LAB_FICHA_FINANCEIRO.motivoCancelar : 'Paciente cancelou o tratamento',
     );
     if (reason === null) return; // fechou/cancelou o prompt
     const motivo = reason.trim();
@@ -2810,7 +2836,7 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
             onClick={handleReceive}
             disabled={receiving}
             className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-500/50 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-wait"
-            title="Paciente pagou por fora? Dar baixa (marca pago + fecha no Asaas + lança no caixa)"
+            title={lab ? LAB_FICHA_FINANCEIRO.darBaixaLinha : 'Paciente pagou por fora? Dar baixa (marca pago + fecha no Asaas + lança no caixa)'}
           >
             {receiving ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
             Dar baixa
@@ -2891,6 +2917,7 @@ function ContratosTratamentosBloco({
   refreshNonce?: number;
 }) {
   const [tab, setTab] = useState<'todos' | 'ativos' | 'quitados'>('todos');
+  const lab = isLab(useBusinessType());
 
   const isPaidStatus = (s: string | null | undefined) => {
     const x = (s || '').toUpperCase();
@@ -2936,7 +2963,7 @@ function ContratosTratamentosBloco({
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div className="flex items-center gap-2">
           <Receipt size={16} className="text-orange-600" />
-          <h2 className="text-base font-bold text-foreground">Contratos &amp; tratamentos</h2>
+          <h2 className="text-base font-bold text-foreground">{lab ? LAB_FICHA_FINANCEIRO.tituloTrabalhos : 'Contratos & tratamentos'}</h2>
           {/* Tabs */}
           <div className="flex items-center gap-1 ml-2">
             {(['todos', 'ativos', 'quitados'] as const).map((t) => (
@@ -2968,7 +2995,7 @@ function ContratosTratamentosBloco({
                 </span>
                 <span className="flex-1 h-px bg-border" />
                 <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                  {g.items.length} {g.items.length === 1 ? 'contrato' : 'contratos'}
+                  {g.items.length} {g.items.length === 1 ? (lab ? LAB_FICHA_FINANCEIRO.trabalho : 'contrato') : (lab ? LAB_FICHA_FINANCEIRO.trabalhos : 'contratos')}
                 </span>
               </div>
               <div className="space-y-3">
@@ -2992,10 +3019,10 @@ function ContratosTratamentosBloco({
       ) : (
         <p className="text-xs text-muted-foreground italic px-3 py-4 border border-dashed border-border rounded-md text-center">
           {tab === 'todos'
-            ? 'Nenhum contrato ativo ainda. Quando uma proposta for aceita e o contrato assinado, aparece aqui.'
+            ? (lab ? LAB_FICHA_FINANCEIRO.nenhumTrabalho : 'Nenhum contrato ativo ainda. Quando uma proposta for aceita e o contrato assinado, aparece aqui.')
             : tab === 'ativos'
-            ? 'Nenhum contrato ativo. Todos os contratos deste paciente estão quitados.'
-            : 'Nenhum contrato quitado ainda.'}
+            ? (lab ? LAB_FICHA_FINANCEIRO.nenhumTrabalhoAtivo : 'Nenhum contrato ativo. Todos os contratos deste paciente estão quitados.')
+            : (lab ? LAB_FICHA_FINANCEIRO.nenhumTrabalhoQuitado : 'Nenhum contrato quitado ainda.')}
         </p>
       )}
     </div>
@@ -3126,6 +3153,7 @@ function ProposalDetailModal({
 }) {
   const [quote, setQuote] = useState<QuoteDetail | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(true);
+  const lab = isLab(useBusinessType());
   const [subInstallments, setSubInstallments] = useState<Record<string, SubInstallment[]>>({});
   const [loadingSubs, setLoadingSubs] = useState<Record<string, boolean>>({});
 
@@ -3182,7 +3210,7 @@ function ProposalDetailModal({
     setSendingChargeId(chargeId);
     try {
       await api.post(`/payment-gateway/charges/${chargeId}/resend-whatsapp`, {});
-      showSuccess('Boleto enviado ao paciente pelo WhatsApp.');
+      showSuccess(lab ? LAB_FICHA_FINANCEIRO.boletoEnviadoWhatsapp : 'Boleto enviado ao paciente pelo WhatsApp.');
     } catch (e: any) {
       showError(
         e?.response?.data?.message ||
@@ -3191,7 +3219,7 @@ function ProposalDetailModal({
     } finally {
       setSendingChargeId(null);
     }
-  }, []);
+  }, [lab]);
 
   return (
     <div
@@ -3220,7 +3248,7 @@ function ProposalDetailModal({
                 )}
               </div>
               <h3 className="text-base font-bold text-foreground">
-                {quote ? getQuoteDisplayName(quote) : 'Plano de tratamento'}
+                {quote ? getQuoteDisplayName(quote) : (lab ? LAB_FICHA_FINANCEIRO.trabalhoRotulo : 'Plano de tratamento')}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Total: <strong className="text-foreground">{quote ? fmtBRL(Number(quote.total_value)) : '...'}</strong>
@@ -3262,7 +3290,7 @@ function ProposalDetailModal({
                         <span className="text-foreground flex items-center gap-1.5">
                           {isApproved && <Check size={11} className="text-emerald-600" />}
                           {it.procedure.name}
-                          {it.tooth_fdi && <span className="text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                          {it.tooth_fdi && <span className="text-muted-foreground">{lab ? LAB_FICHA_FINANCEIRO.elementoNaLista : ' · Dente '}{it.tooth_fdi}</span>}
                         </span>
                         <span className="text-muted-foreground tabular-nums">
                           {fmtBRL(Number(it.total_price))}
@@ -3350,7 +3378,7 @@ function ProposalDetailModal({
                                 onClick={() => handleSendChargeWhatsapp(c.id)}
                                 disabled={sendingChargeId === c.id}
                                 className="text-[11px] font-semibold text-emerald-700 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
-                                title="Enviar este boleto pro WhatsApp do paciente (chip Financeiro)"
+                                title={lab ? LAB_FICHA_FINANCEIRO.enviarBoletoWhatsappTitulo : 'Enviar este boleto pro WhatsApp do paciente (chip Financeiro)'}
                               >
                                 {sendingChargeId === c.id ? 'Enviando…' : '📤 Enviar pelo WhatsApp'}
                               </button>

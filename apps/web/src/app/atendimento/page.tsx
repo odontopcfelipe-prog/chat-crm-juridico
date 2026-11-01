@@ -3688,7 +3688,7 @@ export default function Dashboard() {
       </main>
 
       {/* Painel do Cliente — popup ao clicar no nome no desktop */}
-      {!lab && clientPanelLeadId && (
+      {clientPanelLeadId && (
         <ClientPanel
           leadId={clientPanelLeadId}
           onClose={() => setClientPanelLeadId(null)}

@@ -14,6 +14,11 @@ import {
   telefoneNaListaDeAviso,
   type CentralDisparoEquipe,
 } from '@crm/shared';
+// F5 do laboratório: a equipe na conta de laboratório (cargos, setores e textos do
+// laboratório; sem horário de agenda, jogo, avisos, vínculo de dentista e comissão).
+import { isLab, LAB_ROLE_LABELS, LAB_SECTOR_TEXT } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
+import { LAB_EQUIPE } from './lab-equipe-textos';
 import { SectorHomePreview } from '@/components/home/SectorHomePreview';
 // Out/2026 — pontuação do "Meu jogo" por profissional (só pra quem atende como dentista).
 import {
@@ -97,7 +102,7 @@ function normalizeLegacyRole(raw: string): RoleKey {
   return 'OPERADOR';
 }
 
-function roleBadges(roles: string[] | undefined | null) {
+function roleBadges(roles: string[] | undefined | null, lab = false) {
   const normalized = (roles && roles.length > 0 ? roles : ['OPERADOR']).map(normalizeLegacyRole);
   // Dedup mantendo ordem
   const seen = new Set<string>();
@@ -118,7 +123,7 @@ function roleBadges(roles: string[] | undefined | null) {
                   : 'bg-primary/10 text-primary border-primary/20';
         return (
           <span key={r} className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border ${cls}`}>
-            {opt?.emoji} {opt?.label ?? r}
+            {opt?.emoji} {(lab && LAB_ROLE_LABELS[r]) || (opt?.label ?? r)}
           </span>
         );
       })}
@@ -166,6 +171,9 @@ const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', role
 
 export default function UsersSettingsPage() {
   const router = useRouter();
+  // Laboratório: o que aparece na tela. Efeito e handler leem isLab(btAgora()), porque a
+  // hidratação renderiza a 1ª vez como clínica (ver useBusinessType).
+  const lab = isLab(useBusinessType());
   const [users, setUsers] = useState<any[]>([]);
   const [inboxes, setInboxes] = useState<any[]>([]);
   const [lawyers, setLawyers] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
@@ -251,6 +259,7 @@ export default function UsersSettingsPage() {
   };
 
   const fetchCentralNumeros = async () => {
+    if (isLab(btAgora())) return; // laboratório: sem os avisos da Central de Disparos
     const [vf, ds] = await Promise.all([
       api.get('/followup/venda-feita-config').catch(() => null),
       api.get('/followup/daily-summary-config').catch(() => null),
@@ -359,6 +368,7 @@ export default function UsersSettingsPage() {
 
   // Pontuação do jogo DESTE profissional (só os campos que diferem do padrão).
   const loadScoring = async (userId: string) => {
+    if (isLab(btAgora())) return; // laboratório: sem o jogo do profissional
     try {
       const res = await api.get(`/users/${userId}/game-scoring`);
       setScoring(overrideToDraft(res.data?.override));
@@ -371,6 +381,7 @@ export default function UsersSettingsPage() {
   // Carrega o horário REAL do dentista. Também usado ao ligar "também atende
   // como dentista" na edição — senão o editor mostraria o padrão Seg-Sex.
   const loadSchedule = async (userId: string) => {
+    if (isLab(btAgora())) return; // laboratório: sem horário de agenda
     try {
       const res = await api.get(`/calendar/schedule/${userId}`);
       if (res.data && res.data.length > 0) {
@@ -487,7 +498,9 @@ export default function UsersSettingsPage() {
       // (scheduleLoaded) ou o admin mexeu no editor; senão uma falha na GET faria
       // o save sobrescrever a agenda real pelo padrão Seg-Sex (perda de dado +
       // IA propondo horários inexistentes). Em criação (!editingId) sempre salva.
-      const needsSchedule = form.roles.includes('DENTIST');
+      // Laboratório: sem horário de agenda e sem jogo (nenhuma chamada a essas rotas).
+      const labAgora = isLab(btAgora());
+      const needsSchedule = form.roles.includes('DENTIST') && !labAgora;
       if (needsSchedule && savedUserId && (!editingId || scheduleLoaded)) {
         try {
           await api.put(`/calendar/schedule/${savedUserId}`, {
@@ -500,7 +513,7 @@ export default function UsersSettingsPage() {
       }
 
       // Out/2026 — pontuação do jogo deste profissional (só se o admin mexeu).
-      if (form.roles.includes('DENTIST') && savedUserId && scoringTouched) {
+      if (form.roles.includes('DENTIST') && savedUserId && scoringTouched && !labAgora) {
         await api.put(`/users/${savedUserId}/game-scoring`, draftToBody(scoring));
       }
 
@@ -562,13 +575,15 @@ export default function UsersSettingsPage() {
           <p className="text-[13px] text-muted-foreground mt-1">Gerencie os usuários do sistema e seus perfis de acesso.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setOrganizarOpen(true)}
-            className="px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-medium text-foreground hover:bg-accent transition-colors"
-            title="Liga os pacientes/procedimentos antigos aos dentistas (prévia antes de gravar)"
-          >
-            Organizar pacientes por dentista
-          </button>
+          {!lab && (
+            <button
+              onClick={() => setOrganizarOpen(true)}
+              className="px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-medium text-foreground hover:bg-accent transition-colors"
+              title="Liga os pacientes/procedimentos antigos aos dentistas (prévia antes de gravar)"
+            >
+              Organizar pacientes por dentista
+            </button>
+          )}
           <button
             onClick={openCreate}
             className="px-5 py-2.5 btn-primary font-medium rounded-xl flex items-center shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
@@ -578,7 +593,7 @@ export default function UsersSettingsPage() {
           </button>
         </div>
       </header>
-      {organizarOpen && <OrganizarPacientesModal onClose={() => setOrganizarOpen(false)} />}
+      {!lab && organizarOpen && <OrganizarPacientesModal onClose={() => setOrganizarOpen(false)} />}
 
       <div className="flex-1 overflow-y-auto px-8 pb-8">
         {error && !showModal && (
@@ -603,8 +618,8 @@ export default function UsersSettingsPage() {
                     <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Email</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Telefone</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Inboxes (Chat)</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Especialidades</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Supervisores</th>
+                    {!lab && <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Especialidades</th>}
+                    {!lab && <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Supervisores</th>}
                     <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Criado em</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider text-right">Ações</th>
                   </tr>
@@ -619,7 +634,7 @@ export default function UsersSettingsPage() {
                           </div>
                           <div>
                             <span className="text-[14px] font-semibold text-foreground tracking-tight">{user.name}</span>
-                            <div className="mt-0.5">{roleBadges(user.roles || (user.role ? [user.role] : []))}</div>
+                            <div className="mt-0.5">{roleBadges(user.roles || (user.role ? [user.role] : []), lab)}</div>
                           </div>
                         </div>
                       </td>
@@ -668,26 +683,30 @@ export default function UsersSettingsPage() {
                           {!user.inboxes?.length && <span className="text-[10px] text-muted-foreground opacity-50">Nenhum</span>}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {user.specialties?.map((s: string) => (
-                            <span key={s} className="px-2 py-0.5 bg-violet-500/10 text-violet-400 text-[10px] font-bold rounded-lg border border-violet-500/20">
-                              {s}
-                            </span>
-                          ))}
-                          {!user.specialties?.length && <span className="text-[10px] text-muted-foreground opacity-50">—</span>}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {user.supervisors?.map((s: any) => (
-                            <span key={s.id} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] font-bold rounded-lg border border-indigo-500/20">
-                              {s.name}
-                            </span>
-                          ))}
-                          {!user.supervisors?.length && <span className="text-[10px] text-muted-foreground opacity-50">—</span>}
-                        </div>
-                      </td>
+                      {!lab && (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1">
+                            {user.specialties?.map((s: string) => (
+                              <span key={s} className="px-2 py-0.5 bg-violet-500/10 text-violet-400 text-[10px] font-bold rounded-lg border border-violet-500/20">
+                                {s}
+                              </span>
+                            ))}
+                            {!user.specialties?.length && <span className="text-[10px] text-muted-foreground opacity-50">—</span>}
+                          </div>
+                        </td>
+                      )}
+                      {!lab && (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1">
+                            {user.supervisors?.map((s: any) => (
+                              <span key={s.id} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] font-bold rounded-lg border border-indigo-500/20">
+                                {s.name}
+                              </span>
+                            ))}
+                            {!user.supervisors?.length && <span className="text-[10px] text-muted-foreground opacity-50">—</span>}
+                          </div>
+                        </td>
+                      )}
                       <td className="px-6 py-4 text-[13px] text-muted-foreground opacity-70">
                         {new Date(user.created_at).toLocaleDateString('pt-BR')}
                       </td>
@@ -802,7 +821,7 @@ export default function UsersSettingsPage() {
 
               {/* CRO — registro no Conselho Regional de Odontologia (só dentistas;
                   mantém visível se já houver um número salvo, pra não esconder dado). */}
-              {(form.roles.includes('DENTIST') || form.cro_number) && (
+              {!lab && (form.roles.includes('DENTIST') || form.cro_number) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Registro CRO</label>
                   <div className="flex gap-2">
@@ -835,53 +854,57 @@ export default function UsersSettingsPage() {
                 </label>
                 <div className="space-y-2.5 p-3 rounded-xl border border-border bg-background/40">
                   {/* Comissão de venda */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-semibold text-foreground">Comissão de venda</p>
-                      <p className="text-[10px] text-muted-foreground">Quando fecha a venda</p>
+                  {!lab && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-semibold text-foreground">Comissão de venda</p>
+                        <p className="text-[10px] text-muted-foreground">Quando fecha a venda</p>
+                      </div>
+                      <select
+                        value={form.commission_sale_type}
+                        onChange={e => setForm({ ...form, commission_sale_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
+                        className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value="PERCENT">%</option>
+                        <option value="FIXED">R$</option>
+                      </select>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={form.commission_sale_value}
+                        onChange={e => setForm({ ...form, commission_sale_value: e.target.value })}
+                        disabled={!form.commission_sale_type}
+                        className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
+                        placeholder={form.commission_sale_type === 'PERCENT' ? '0%' : form.commission_sale_type === 'FIXED' ? 'R$' : '—'}
+                      />
                     </div>
-                    <select
-                      value={form.commission_sale_type}
-                      onChange={e => setForm({ ...form, commission_sale_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
-                      className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-                    >
-                      <option value="">—</option>
-                      <option value="PERCENT">%</option>
-                      <option value="FIXED">R$</option>
-                    </select>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={form.commission_sale_value}
-                      onChange={e => setForm({ ...form, commission_sale_value: e.target.value })}
-                      disabled={!form.commission_sale_type}
-                      className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
-                      placeholder={form.commission_sale_type === 'PERCENT' ? '0%' : form.commission_sale_type === 'FIXED' ? 'R$' : '—'}
-                    />
-                  </div>
+                  )}
                   {/* Comissão de execução */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-semibold text-foreground">Comissão de execução</p>
-                      <p className="text-[10px] text-muted-foreground">Quando realiza o procedimento</p>
+                  {!lab && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-semibold text-foreground">Comissão de execução</p>
+                        <p className="text-[10px] text-muted-foreground">Quando realiza o procedimento</p>
+                      </div>
+                      <select
+                        value={form.commission_exec_type}
+                        onChange={e => setForm({ ...form, commission_exec_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
+                        className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value="PERCENT">%</option>
+                        <option value="FIXED">R$</option>
+                      </select>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={form.commission_exec_value}
+                        onChange={e => setForm({ ...form, commission_exec_value: e.target.value })}
+                        disabled={!form.commission_exec_type}
+                        className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
+                        placeholder={form.commission_exec_type === 'PERCENT' ? '0%' : form.commission_exec_type === 'FIXED' ? 'R$' : '—'}
+                      />
                     </div>
-                    <select
-                      value={form.commission_exec_type}
-                      onChange={e => setForm({ ...form, commission_exec_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
-                      className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-                    >
-                      <option value="">—</option>
-                      <option value="PERCENT">%</option>
-                      <option value="FIXED">R$</option>
-                    </select>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={form.commission_exec_value}
-                      onChange={e => setForm({ ...form, commission_exec_value: e.target.value })}
-                      disabled={!form.commission_exec_type}
-                      className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
-                      placeholder={form.commission_exec_type === 'PERCENT' ? '0%' : form.commission_exec_type === 'FIXED' ? 'R$' : '—'}
-                    />
-                  </div>
+                  )}
                   {/* Diária */}
                   <div className="flex items-center gap-2 pt-2 border-t border-border/60">
                     <div className="flex-1 min-w-0">
@@ -901,13 +924,15 @@ export default function UsersSettingsPage() {
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground opacity-70 ml-1 leading-snug">
-                  Comissão e diária viram <b>despesa no caixa</b> quando pagas. A <b>diária não</b> aparece no relatório de comissões. Deixe vazio se não houver.
+                  {lab ? LAB_EQUIPE.remuneracaoAjuda : (
+                    <>Comissão e diária viram <b>despesa no caixa</b> quando pagas. A <b>diária não</b> aparece no relatório de comissões. Deixe vazio se não houver.</>
+                  )}
                 </p>
               </div>
 
               {/* Out/2026 — Pontuação do "Meu jogo" deste profissional (o que ele vê no
                   lugar de comissão). Só pra quem atende como dentista. */}
-              {form.roles.includes('DENTIST') && (
+              {!lab && form.roles.includes('DENTIST') && (
                 <GameScoringSection
                   value={scoring}
                   onChange={(d) => { setScoring(d); setScoringTouched(true); }}
@@ -919,7 +944,7 @@ export default function UsersSettingsPage() {
                   ADMIN. Aberto por default. Badge OBRIGATORIO + texto explicando
                   que IA depende disso pra agendar. Permite dentistas que so
                   trabalham 2 dias na semana, ou turnos parciais (so manha, etc). */}
-              {form.roles.includes('DENTIST') && (
+              {!lab && form.roles.includes('DENTIST') && (
                 <div className="space-y-1.5">
                   <button
                     type="button"
@@ -983,7 +1008,7 @@ export default function UsersSettingsPage() {
 
               {/* Onda 17.52 — Prévia da home do setor escolhido: mostra os balões
                   que esse usuário vai ver, atualizando junto com o card de setor. */}
-              {form.sector && (
+              {!lab && form.sector && (
                 <SectorHomePreview
                   sector={form.sector as Sector}
                   extraGrants={form.extra_grants}
@@ -994,7 +1019,7 @@ export default function UsersSettingsPage() {
               {/* Onda 17.51 — Especialidades são atributo clínico do DENTISTA (como
                   CRO/horário). Não faz sentido pra recepção/admin/financeiro. Mantém
                   visível se já houver especialidade salva, pra não esconder dado. */}
-              {(form.roles.includes('DENTIST') || form.specialties.length > 0) && (
+              {!lab && (form.roles.includes('DENTIST') || form.specialties.length > 0) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🦷 Especialidades Odontológicas
@@ -1042,7 +1067,7 @@ export default function UsersSettingsPage() {
               )}
 
               {/* Dias de atendimento de ortodontia — só pra ortodontistas (especialidade Ortodontia) */}
-              {form.specialties.some(s => s.toLowerCase().includes('ortodont')) && (
+              {!lab && form.specialties.some(s => s.toLowerCase().includes('ortodont')) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🗓️ Dias de atendimento (ortodontia)
@@ -1067,7 +1092,7 @@ export default function UsersSettingsPage() {
                   como ASSISTENTE de dentistas, então só faz sentido pro papel
                   Assistente (ACD/ASB). Antes aparecia pra todos. Mantém visível se
                   já houver vínculo salvo, pra não esconder dado. */}
-              {(form.roles.includes('ASSISTANT') || form.supervisorIds.length > 0) && lawyers.length > 0 && (
+              {!lab && (form.roles.includes('ASSISTANT') || form.supervisorIds.length > 0) && lawyers.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🦷 Supervisores (Dentistas)
@@ -1103,7 +1128,7 @@ export default function UsersSettingsPage() {
 
               {/* Disparos internos que esta pessoa recebe no WhatsApp dela (telefone acima).
                   A clínica liga o disparo inteiro na Central; aqui é por pessoa. */}
-              {(() => {
+              {!lab && (() => {
                 const disparos = disparosEquipeDoPapel(form);
                 if (disparos.length === 0) return null;
                 const semTelefone = !form.phone.trim();
@@ -1176,13 +1201,17 @@ export default function UsersSettingsPage() {
                     Setor e permissões
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Escolha o setor — é a <strong>única</strong> escolha de cadastro.
-                    Ele define o <strong>perfil de acesso</strong>, qual{' '}
-                    <strong>home (balões)</strong> aparece e quais permissões já vêm
-                    marcadas. A barra lateral completa é exclusiva do{' '}
-                    <strong>Adm Geral</strong> (ADMIN). Você pode ajustar permissões
-                    individualmente abaixo. Dentista que também é administrador(a)?
-                    Escolha um dos dois e marque a opção que aparece abaixo dos cards.
+                    {lab ? LAB_EQUIPE.ajudaSetor : (
+                      <>
+                        Escolha o setor — é a <strong>única</strong> escolha de cadastro.
+                        Ele define o <strong>perfil de acesso</strong>, qual{' '}
+                        <strong>home (balões)</strong> aparece e quais permissões já vêm
+                        marcadas. A barra lateral completa é exclusiva do{' '}
+                        <strong>Adm Geral</strong> (ADMIN). Você pode ajustar permissões
+                        individualmente abaixo. Dentista que também é administrador(a)?
+                        Escolha um dos dois e marque a opção que aparece abaixo dos cards.
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -1212,10 +1241,10 @@ export default function UsersSettingsPage() {
                       >
                         <div className="text-lg mb-1">{s.icon}</div>
                         <div className={`text-xs font-bold ${selected ? 'text-violet-300' : 'text-foreground'}`}>
-                          {s.name}
+                          {lab ? LAB_SECTOR_TEXT[s.id].name : s.name}
                         </div>
                         <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                          {s.description}
+                          {lab ? LAB_SECTOR_TEXT[s.id].description : s.description}
                         </div>
                       </button>
                     );
@@ -1262,12 +1291,16 @@ export default function UsersSettingsPage() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-foreground">
-                          {isAdminSector ? '🦷 Também atende como Dentista' : '👑 Também é Administrador(a)'}
+                          {lab
+                            ? (isAdminSector ? LAB_EQUIPE.tambemProtetico : LAB_EQUIPE.tambemAdmin)
+                            : (isAdminSector ? '🦷 Também atende como Dentista' : '👑 Também é Administrador(a)')}
                         </p>
                         <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                          {isAdminSector
-                            ? 'Aparece na agenda e pra IA agendar, com CRO, horários, especialidades e comissão — mantendo o acesso total de administrador.'
-                            : 'Ganha acesso total (barra lateral completa e todas as permissões) sem deixar de atender como dentista. O setor passa a ser Administrador.'}
+                          {lab
+                            ? (isAdminSector ? LAB_EQUIPE.tambemProteticoDesc : LAB_EQUIPE.tambemAdminDesc)
+                            : (isAdminSector
+                              ? 'Aparece na agenda e pra IA agendar, com CRO, horários, especialidades e comissão — mantendo o acesso total de administrador.'
+                              : 'Ganha acesso total (barra lateral completa e todas as permissões) sem deixar de atender como dentista. O setor passa a ser Administrador.')}
                         </p>
                       </div>
                     </label>
@@ -1283,6 +1316,8 @@ export default function UsersSettingsPage() {
                   // é decidido pela role, não por permissão — o checkbox era inerte.
                   for (const p of PERMISSIONS) {
                     if (p.key === 'admin_saas') continue;
+                    // Laboratório: só as permissões das telas que ele abre (as que têm texto do laboratório).
+                    if (lab && !LAB_EQUIPE.permissoes[p.key]) continue;
                     (groups[p.group] ??= []).push(p);
                   }
                   const GROUP_LABEL: Record<string, string> = {
@@ -1296,7 +1331,7 @@ export default function UsersSettingsPage() {
                       {Object.keys(groups).map(group => (
                         <div key={group} className="bg-muted/30 rounded-xl p-3 space-y-1.5">
                           <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                            {GROUP_LABEL[group] ?? group}
+                            {(lab && LAB_EQUIPE.grupos[group]) || (GROUP_LABEL[group] ?? group)}
                           </p>
                           {groups[group].map(p => {
                             const isDefault = defaults.has(p.key);
@@ -1331,14 +1366,14 @@ export default function UsersSettingsPage() {
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-bold text-foreground">{p.label}</span>
+                                    <span className="text-xs font-bold text-foreground">{(lab && LAB_EQUIPE.permissoes[p.key]?.label) || p.label}</span>
                                     {stateLabel && (
                                       <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${stateLabel.cls}`}>
                                         {stateLabel.text}
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground leading-tight">{p.description}</p>
+                                  <p className="text-[10px] text-muted-foreground leading-tight">{(lab && LAB_EQUIPE.permissoes[p.key]?.description) || p.description}</p>
                                 </div>
                               </label>
                             );
@@ -1382,7 +1417,8 @@ export default function UsersSettingsPage() {
       {/* Trocar a função de quem tem permissões individuais: manter ou apagar */}
       {sectorSwap && (() => {
         const target = SECTORS.find(s => s.id === sectorSwap);
-        const label = (k: Permission) => PERMISSIONS.find(p => p.key === k)?.label ?? k;
+        const label = (k: Permission) => (lab && LAB_EQUIPE.permissoes[k]?.label) || (PERMISSIONS.find(p => p.key === k)?.label ?? k);
+        const nomeDoSetor = lab && target ? LAB_SECTOR_TEXT[target.id].name : target?.name;
         const quem = form.name.trim() || 'Este usuário';
         const kept = carryOver(form, sectorSwap);
         return (
@@ -1394,7 +1430,7 @@ export default function UsersSettingsPage() {
                   <ShieldCheck size={18} className="text-amber-400" />
                 </div>
                 <div>
-                  <p className="text-[14px] font-bold text-foreground">Trocar a função para {target?.name}?</p>
+                  <p className="text-[14px] font-bold text-foreground">Trocar a função para {nomeDoSetor}?</p>
                   <p className="text-[11px] text-muted-foreground">{quem} tem permissões marcadas individualmente que a função nova não tem.</p>
                 </div>
               </div>
@@ -1408,7 +1444,7 @@ export default function UsersSettingsPage() {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground leading-snug">
-                Manter leva essas permissões para a função nova. Usar o padrão deixa só o que a função {target?.name} já tem.
+                Manter leva essas permissões para a função nova. Usar o padrão deixa só o que a função {nomeDoSetor} já tem.
               </p>
 
               <div className="flex flex-col gap-2">

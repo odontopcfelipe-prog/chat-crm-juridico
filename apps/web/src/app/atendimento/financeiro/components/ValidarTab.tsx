@@ -10,8 +10,10 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
+import { pickBt } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
 
 interface PendingPlan {
   plan_id: string;
@@ -31,6 +33,7 @@ const fmtBRL = (v: number) =>
   (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function ValidarTab() {
+  const bt = useBusinessType();
   const [plans, setPlans] = useState<PendingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [validatingId, setValidatingId] = useState<string | null>(null);
@@ -42,11 +45,11 @@ export default function ValidarTab() {
       setPlans(Array.isArray(data) ? data : []);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
-      showError(err?.response?.data?.message || 'Erro ao carregar tratamentos pendentes');
+      showError(err?.response?.data?.message || pickBt(bt, 'Erro ao carregar tratamentos pendentes', 'Erro ao carregar trabalhos pendentes'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [bt]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -54,17 +57,28 @@ export default function ValidarTab() {
     const cartao = Number(p.cartao_a_confirmar) || 0;
     const ok = window.confirm(
       cartao > 0
-        ? `Confirmar que o cartão de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(cartao)}) foi passado na maquineta?\n\n` +
+        ? pickBt(
+          bt,
+          `Confirmar que o cartão de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(cartao)}) foi passado na maquineta?\n\n` +
           'Isso marca a venda como RECEBIDA e lança nas Entradas como CARTÃO' +
-          (p.ja_liberado ? '.' : ', e libera o dentista a confirmar os procedimentos no Tratamento.')
-        : `Validar o tratamento de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(p.total)})?\n\n` +
+          (p.ja_liberado ? '.' : ', e libera o dentista a confirmar os procedimentos no Tratamento.'),
+          `Confirmar que o cartão de ${p.patient_name || 'cliente'} (R$ ${fmtBRL(cartao)}) foi passado na maquineta?\n\n` +
+          'Isso marca a venda como RECEBIDA e lança nas Entradas como CARTÃO' +
+          (p.ja_liberado ? '.' : ', e libera o trabalho para a produção.'),
+        )
+        : pickBt(
+          bt,
+          `Validar o tratamento de ${p.patient_name || 'paciente'} (R$ ${fmtBRL(p.total)})?\n\n` +
           'Confirme que a negociação está certa. Isso libera o dentista a confirmar os procedimentos no Tratamento.',
+          `Validar o trabalho de ${p.patient_name || 'cliente'} (R$ ${fmtBRL(p.total)})?\n\n` +
+          'Confirme que a negociação está certa. Isso libera o trabalho para a produção.',
+        ),
     );
     if (!ok) return;
     setValidatingId(p.plan_id);
     try {
       await api.post(`/treatment-plans/${p.plan_id}/validate`);
-      showSuccess(cartao > 0 ? 'Recebimento no cartão confirmado — lançado nas Entradas.' : 'Tratamento liberado pro dentista.');
+      showSuccess(cartao > 0 ? 'Recebimento no cartão confirmado — lançado nas Entradas.' : pickBt(bt, 'Tratamento liberado pro dentista.', 'Trabalho liberado para a produção.'));
       setPlans((prev) => prev.filter((x) => x.plan_id !== p.plan_id));
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
@@ -77,7 +91,7 @@ export default function ValidarTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 size={20} className="animate-spin mr-2" /> Carregando tratamentos…
+        <Loader2 size={20} className="animate-spin mr-2" />{pickBt(bt, ' Carregando tratamentos…', ' Carregando trabalhos…')}
       </div>
     );
   }
@@ -86,7 +100,7 @@ export default function ValidarTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {plans.length} tratamento(s) aguardando validação
+          {plans.length}{pickBt(bt, ' tratamento(s) aguardando validação', ' trabalho(s) aguardando validação')}
         </p>
         <button
           onClick={load}
@@ -100,10 +114,13 @@ export default function ValidarTab() {
       {plans.length === 0 ? (
         <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
           <CheckCircle2 size={32} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm font-medium">Nenhum tratamento aguardando validação</p>
+          <p className="text-sm font-medium">{pickBt(bt, 'Nenhum tratamento aguardando validação', 'Nenhum trabalho aguardando validação')}</p>
           <p className="text-xs mt-1">
-            Quando um orçamento é encaminhado ao financeiro, ele aparece aqui pra você conferir
-            e liberar pro dentista confirmar os procedimentos.
+            {pickBt(
+              bt,
+              'Quando um orçamento é encaminhado ao financeiro, ele aparece aqui pra você conferir e liberar pro dentista confirmar os procedimentos.',
+              'Quando um trabalho é encaminhado ao financeiro, ele aparece aqui para você conferir e liberar para a produção.',
+            )}
           </p>
         </div>
       ) : (
@@ -111,7 +128,7 @@ export default function ValidarTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Paciente</th>
+                <th className="text-left px-4 py-2 font-medium">{pickBt(bt, 'Paciente', 'Dentista')}</th>
                 <th className="text-left px-4 py-2 font-medium">Aceito em</th>
                 <th className="text-right px-4 py-2 font-medium">Valor</th>
                 <th className="text-right px-4 py-2 font-medium">Ação</th>
@@ -129,7 +146,7 @@ export default function ValidarTab() {
                     {Number(p.cartao_a_confirmar) > 0 && (
                       <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
                         Cartão a confirmar: R$ {fmtBRL(Number(p.cartao_a_confirmar))}
-                        {p.ja_liberado ? ' · tratamento já liberado' : ''}
+                        {p.ja_liberado ? pickBt(bt, ' · tratamento já liberado', ' · trabalho já liberado') : ''}
                       </div>
                     )}
                   </td>
@@ -142,7 +159,7 @@ export default function ValidarTab() {
                       onClick={() => validate(p)}
                       disabled={validatingId === p.plan_id}
                       className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 inline-flex items-center gap-1.5 font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Validar a negociação e liberar o tratamento pro dentista confirmar"
+                      title={pickBt(bt, 'Validar a negociação e liberar o tratamento pro dentista confirmar', 'Validar a negociação e liberar o trabalho para a produção')}
                     >
                       {validatingId === p.plan_id
                         ? <Loader2 size={12} className="animate-spin" />

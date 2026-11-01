@@ -32,6 +32,11 @@ import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { OdontogramaPrancha, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
 import NewPatientModal from '../pacientes/components/NewPatientModal';
+// F5 do laboratório — tipo de negócio da sessão (clínica × laboratório) e os textos
+// de laboratório desta tela. Na clínica nada muda.
+import { isLab, labAllowsRoute } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
 
 interface Procedure {
   id: string;
@@ -192,6 +197,10 @@ function fmtBRL(v: number): string {
 
 export default function VendaRapidaPage() {
   const router = useRouter();
+  // F5 do laboratório — sessão de laboratório: cliente, protético, serviços e
+  // elementos no lugar dos nomes da clínica; sem categorias e sem o PIX online.
+  // Na clínica `lab` é sempre false e a tela é a de sempre.
+  const lab = isLab(useBusinessType());
   // Onda 17.39 — só quem tem `override_price` edita preço (dar desconto).
   const { hasPermission } = useUserPermissions();
   const canOverridePrice = hasPermission('override_price');
@@ -454,15 +463,15 @@ export default function VendaRapidaPage() {
   // Finaliza venda
   const handleFinish = async () => {
     if (!patient) {
-      showError('Selecione um paciente antes de finalizar');
+      showError(lab ? LAB_VENDA_RAPIDA.erros.semCliente : 'Selecione um paciente antes de finalizar');
       return;
     }
     if (cart.length === 0) {
-      showError('Adicione ao menos 1 procedimento');
+      showError(lab ? LAB_VENDA_RAPIDA.erros.semServico : 'Adicione ao menos 1 procedimento');
       return;
     }
     if (!dentistId) {
-      showError('Selecione o dentista responsável antes de finalizar');
+      showError(lab ? LAB_VENDA_RAPIDA.erros.semResponsavel : 'Selecione o dentista responsável antes de finalizar');
       return;
     }
     if (isSplit && !(card1.value > 0 && card1.value < total)) {
@@ -477,7 +486,7 @@ export default function VendaRapidaPage() {
     // português em vez do 400 cru do ValidationPipe. Cada dente conta 1 item.
     const qtdItens = cart.reduce((n, it) => n + (it.toothFdis.length > 0 ? it.toothFdis.length : 1), 0);
     if ((mixMode || isClinicReceived(billingType)) && qtdItens > MAX_ITENS_BALCAO) {
-      showError(`A venda rápida aceita até ${MAX_ITENS_BALCAO} itens (cada dente conta 1) — este carrinho tem ${qtdItens}. Divida em duas vendas.`);
+      showError(lab ? LAB_VENDA_RAPIDA.erros.maxItens(MAX_ITENS_BALCAO, qtdItens) : `A venda rápida aceita até ${MAX_ITENS_BALCAO} itens (cada dente conta 1) — este carrinho tem ${qtdItens}. Divida em duas vendas.`);
       return;
     }
     // PIX online sem conta Asaas própria: barra aqui (o backend barra de novo).
@@ -578,7 +587,7 @@ export default function VendaRapidaPage() {
           boletoUrl: null,
           chargeExternalId: null,
           mixLabel: mixMode
-            ? mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
+            ? mixLines.map((l) => `${(lab && LAB_VENDA_RAPIDA.formaSplit[l.method]) || SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
             : null,
         });
         saleKeyRef.current = null;
@@ -644,7 +653,7 @@ export default function VendaRapidaPage() {
         // em andamento), 408/429: a venda PODE ter entrado. Mantém a chave — o retry devolve
         // a venda existente em vez de lançar outra receita no caixa.
         const msg = err.response.data?.message;
-        const aviso = 'Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.';
+        const aviso = lab ? LAB_VENDA_RAPIDA.erros.confira : 'Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.';
         showError(typeof msg === 'string' && status < 500 ? `${msg}. ${aviso}` : aviso);
       } else if (err?.response) {
         // O servidor recusou (4xx de regra/permissão) ou desfez a venda: nada ficou
@@ -654,7 +663,7 @@ export default function VendaRapidaPage() {
         showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
       } else if (clinicReceived) {
         // Rede/timeout: a venda PODE ter entrado. Mantém a chave — o retry não duplica.
-        showError('Sem resposta do servidor. Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.');
+        showError(lab ? LAB_VENDA_RAPIDA.erros.semResposta : 'Sem resposta do servidor. Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.');
       } else {
         // PIX online não tem chave de idempotência: conferir antes de tentar de novo.
         showError(err?.message && err.message !== 'Network Error'
@@ -679,13 +688,19 @@ export default function VendaRapidaPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-foreground">Venda rápida</h1>
           <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-400">
-            Balcão · Sem avaliação
+            {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
           </span>
         </div>
+        {lab ? (
+          <p className="text-sm text-muted-foreground">
+            {LAB_VENDA_RAPIDA.subtitulo.antes}<strong className="text-emerald-700 dark:text-emerald-400">{LAB_VENDA_RAPIDA.subtitulo.destaque}</strong>{LAB_VENDA_RAPIDA.subtitulo.depois}
+          </p>
+        ) : (
         <p className="text-sm text-muted-foreground">
           Venda um procedimento na hora: <strong className="text-emerald-700 dark:text-emerald-400">entra no tratamento do paciente</strong>{' '}
           — gera a cobrança e dispensa a avaliação. O dentista confirma a execução depois.
         </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
@@ -698,11 +713,12 @@ export default function VendaRapidaPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar procedimento... (limpeza, clareamento, flúor)"
+              placeholder={lab ? LAB_VENDA_RAPIDA.buscarServico : 'Buscar procedimento... (limpeza, clareamento, flúor)'}
               className="w-full pl-10 pr-3 py-3 text-sm border border-border rounded-xl bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30"
             />
           </div>
           {/* Tabs */}
+          {!lab && (
           <div className="flex gap-2 mb-4 flex-wrap">
             {TABS.map((t) => (
               <button
@@ -719,22 +735,23 @@ export default function VendaRapidaPage() {
               </button>
             ))}
           </div>
+          )}
           {/* Grid de procedimentos */}
           {loadingProc ? (
             <div className="py-16 flex items-center justify-center text-muted-foreground">
               <Loader2 size={18} className="animate-spin mr-2" />
-              Carregando procedimentos...
+              {lab ? LAB_VENDA_RAPIDA.carregando : 'Carregando procedimentos...'}
             </div>
           ) : filteredProcedures.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground bg-card border border-dashed border-border rounded-xl px-6">
               {search.trim() || tab !== 'TODOS'
-                ? 'Nenhum procedimento autorizado nessa busca/categoria.'
-                : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.'}
+                ? (lab ? LAB_VENDA_RAPIDA.nadaNaBusca : 'Nenhum procedimento autorizado nessa busca/categoria.')
+                : (lab ? LAB_VENDA_RAPIDA.nadaLiberado : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.')}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredProcedures.map((p) => {
-                const tabKey = tabForProcedure(p);
+                const tabKey = lab ? 'TODOS' : tabForProcedure(p);
                 const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                 const inCart = cart.find((it) => it.procedure.id === p.id);
                 return (
@@ -747,11 +764,13 @@ export default function VendaRapidaPage() {
                     <div className={`w-10 h-10 rounded-lg ${iconCfg.bg} flex items-center justify-center mb-3`}>
                       <iconCfg.Icon size={18} className={iconCfg.fg} />
                     </div>
+                    {!lab && (
                     <p className={`text-[10px] uppercase tracking-wider font-bold mb-1 ${iconCfg.fg}`}>
                       {(TABS.find((t) => t.key === tabKey)?.label || p.category || '').toUpperCase()}
                     </p>
+                    )}
                     <p className="text-sm font-bold text-foreground mb-1 line-clamp-2">{p.name}</p>
-                    {p.duration_minutes && (
+                    {!lab && p.duration_minutes && (
                       <p className="text-[11px] text-muted-foreground mb-2">⏱ {p.duration_minutes} min</p>
                     )}
                     <p className="text-lg font-extrabold text-foreground tabular-nums mb-3">
@@ -794,7 +813,7 @@ export default function VendaRapidaPage() {
                   type="button"
                   onClick={() => { setPatient(null); setPatientQuery(''); }}
                   className="p-1 rounded-md hover:bg-accent/40 text-muted-foreground shrink-0"
-                  title="Trocar paciente"
+                  title={lab ? LAB_VENDA_RAPIDA.trocarCliente : 'Trocar paciente'}
                 >
                   <X size={14} />
                 </button>
@@ -809,7 +828,7 @@ export default function VendaRapidaPage() {
                     type="text"
                     value={patientQuery}
                     onChange={(e) => setPatientQuery(e.target.value)}
-                    placeholder="Buscar paciente por nome/CPF..."
+                    placeholder={lab ? LAB_VENDA_RAPIDA.buscarCliente : 'Buscar paciente por nome/CPF...'}
                     className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground/60"
                   />
                   {searchingPatient && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
@@ -841,9 +860,9 @@ export default function VendaRapidaPage() {
                   onClick={() => setShowNewPatient(true)}
                   className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 text-sm font-medium"
                 >
-                  <UserPlus size={15} /> Cadastrar novo paciente
+                  <UserPlus size={15} />{lab ? LAB_VENDA_RAPIDA.cadastrarCliente : ' Cadastrar novo paciente'}
                 </button>
-                <p className="text-[10px] text-muted-foreground mt-1">obrigatório para lançar no tratamento</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{lab ? LAB_VENDA_RAPIDA.obrigatorioCliente : 'obrigatório para lançar no tratamento'}</p>
               </div>
             )}
           </div>
@@ -851,7 +870,7 @@ export default function VendaRapidaPage() {
           {/* Onda 17.40 — Dentista responsável (a venda entra na comissão dele) */}
           <div className="mb-4">
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-              Dentista responsável <span className="font-medium normal-case tracking-normal text-orange-500">· obrigatório</span>
+              {lab ? LAB_VENDA_RAPIDA.responsavel : 'Dentista responsável '}<span className="font-medium normal-case tracking-normal text-orange-500">· obrigatório</span>
             </p>
             {(() => {
               const sel = dentists.find((d) => d.id === dentistId);
@@ -864,6 +883,8 @@ export default function VendaRapidaPage() {
                     <div className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300 flex items-center justify-center text-[11px] font-bold pointer-events-none">
                       {initials}
                     </div>
+                  ) : lab ? (
+                    <UserIcon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   ) : (
                     <Stethoscope size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   )}
@@ -874,7 +895,7 @@ export default function VendaRapidaPage() {
                       sel ? 'pl-11 font-semibold border-teal-500/40' : 'pl-9 border-border'
                     }`}
                   >
-                    <option value="" disabled>Selecione o dentista…</option>
+                    <option value="" disabled>{lab ? LAB_VENDA_RAPIDA.selecione : 'Selecione o dentista…'}</option>
                     {dentists.map((d) => (
                       <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
@@ -885,8 +906,8 @@ export default function VendaRapidaPage() {
             })()}
             <p className="text-[10px] text-muted-foreground mt-1">
               {dentistId
-                ? 'Os procedimentos ficam pendentes pra esse dentista confirmar a conclusão.'
-                : 'Escolha o dentista que fez o atendimento.'}
+                ? (lab ? LAB_VENDA_RAPIDA.responsavelOk : 'Os procedimentos ficam pendentes pra esse dentista confirmar a conclusão.')
+                : (lab ? LAB_VENDA_RAPIDA.responsavelVazio : 'Escolha o dentista que fez o atendimento.')}
             </p>
           </div>
 
@@ -908,14 +929,14 @@ export default function VendaRapidaPage() {
             {cart.length === 0 ? (
               <div className="bg-muted/30 rounded-lg p-6 text-center text-sm text-muted-foreground">
                 <ShoppingCart size={24} className="mx-auto mb-2 opacity-50" />
-                Clique num procedimento para começar a venda
+                {lab ? LAB_VENDA_RAPIDA.carrinhoVazio : 'Clique num procedimento para começar a venda'}
               </div>
             ) : (
               <ul className="space-y-2">
                 {cart.map((it) => {
                   const hasTeeth = it.toothFdis.length > 0;
                   // Onda 17.65 — visual por categoria (ícone + cor + chip), igual aos cards da esquerda.
-                  const tabKey = tabForProcedure(it.procedure);
+                  const tabKey = lab ? 'TODOS' : tabForProcedure(it.procedure);
                   const catMeta = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                   const CatIcon = catMeta.Icon;
                   const catLabel = TABS.find((t) => t.key === tabKey)?.label || '';
@@ -945,7 +966,7 @@ export default function VendaRapidaPage() {
 
                         {/* Tipo + dentes */}
                         <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                          {catLabel && (
+                          {!lab && catLabel && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${catMeta.bg} ${catMeta.fg}`}>{catLabel}</span>
                           )}
                           {it.toothFdis.map((fdi) => (
@@ -954,7 +975,7 @@ export default function VendaRapidaPage() {
                               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300/60"
                             >
                               {fdi}
-                              <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title="Remover dente">
+                              <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title={lab ? LAB_VENDA_RAPIDA.removerElemento : 'Remover dente'}>
                                 <X size={9} />
                               </button>
                             </span>
@@ -964,7 +985,7 @@ export default function VendaRapidaPage() {
                             onClick={() => setToothPickerFor(toothPickerFor === it.procedure.id ? null : it.procedure.id)}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
                           >
-                            <Smile size={11} /> {hasTeeth ? 'Dentes' : '+ Dente (opcional)'}
+                            <Smile size={11} /> {hasTeeth ? (lab ? LAB_VENDA_RAPIDA.elementos : 'Dentes') : (lab ? LAB_VENDA_RAPIDA.addElemento : '+ Dente (opcional)')}
                           </button>
                         </div>
 
@@ -982,9 +1003,11 @@ export default function VendaRapidaPage() {
                             ) : (
                               <span>R$ {fmtBRL(unitPriceOf(it))}</span>
                             )}
-                            {hasTeeth && (
+                            {hasTeeth && (lab ? (
+                              <span className="text-muted-foreground/70">{LAB_VENDA_RAPIDA.porElemento(itemUnits(it))}</span>
+                            ) : (
                               <span className="text-muted-foreground/70">× {itemUnits(it)} dente{itemUnits(it) > 1 ? 's' : ''}</span>
-                            )}
+                            ))}
                           </div>
                           <div className="flex items-center gap-2">
                             {!hasTeeth && (
@@ -1021,6 +1044,7 @@ export default function VendaRapidaPage() {
                         kidMode={toothKidMode}
                         onKidMode={setToothKidMode}
                         onClose={() => setToothPickerFor(null)}
+                        lab={lab}
                       />
                     )}
                   </li>
@@ -1064,7 +1088,8 @@ export default function VendaRapidaPage() {
                 // copia-e-cola e o backend manda o copia-e-cola no WhatsApp do paciente;
                 // a baixa vem pelo webhook). NÃO entra no caixa na hora.
                 { group: 'Cobrança online (Asaas)', key: 'PIX' as BillingType, label: 'TESTE-SISTEMA', sub: 'gera PIX no Asaas · QR code + copia e cola', Icon: QrCode },
-              ]).map((m, idx, arr) => {
+                // F5 do laboratório: sem o PIX online do Asaas (só formas recebidas no balcão).
+              ]).filter((m) => !lab || m.key !== 'PIX').map((m, idx, arr) => {
                 const isActive = billingType === m.key;
                 const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
                 // PIX online sem conta Asaas própria da clínica: mostra o aviso na opção.
@@ -1073,7 +1098,7 @@ export default function VendaRapidaPage() {
                   <div key={m.key}>
                     {showHeader && (
                       <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/70 mb-1 mt-2 first:mt-0">
-                        {m.group}
+                        {lab && isClinicReceived(m.key) ? LAB_VENDA_RAPIDA.grupoRecebido : m.group}
                       </p>
                     )}
                   <button
@@ -1091,8 +1116,8 @@ export default function VendaRapidaPage() {
                       <m.Icon size={14} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-foreground">{m.label}</p>
-                      <p className="text-[10px] text-muted-foreground">{m.sub}</p>
+                      <p className="text-xs font-bold text-foreground">{(lab && LAB_VENDA_RAPIDA.formaRotulo[m.key]) || m.label}</p>
+                      <p className="text-[10px] text-muted-foreground">{(lab && LAB_VENDA_RAPIDA.formaSub[m.key]) || m.sub}</p>
                       {asaasMissing && (
                         <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold mt-0.5 flex items-center gap-1">
                           <AlertCircle size={10} className="shrink-0" />
@@ -1204,7 +1229,7 @@ export default function VendaRapidaPage() {
                     onChange={(e) => setMixLines((ls) => ls.map((l, j) => (j === i ? { ...l, method: e.target.value } : l)))}
                     className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                   >
-                    {SPLIT_FORMS.map((f) => <option key={f.method} value={f.method}>{f.label}</option>)}
+                    {SPLIT_FORMS.map((f) => <option key={f.method} value={f.method}>{(lab && LAB_VENDA_RAPIDA.formaSplit[f.method]) || f.label}</option>)}
                   </select>
                   <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
                   <input
@@ -1290,7 +1315,7 @@ export default function VendaRapidaPage() {
                   <span className="block text-[10px] text-muted-foreground mt-0.5">
                     {consumo.custo_total > 0
                       ? `custo do material: R$ ${fmtBRL(consumo.custo_total)}`
-                      : 'material consumido por estes procedimentos'}
+                      : (lab ? LAB_VENDA_RAPIDA.material : 'material consumido por estes procedimentos')}
                   </span>
                 </span>
               </label>
@@ -1310,7 +1335,7 @@ export default function VendaRapidaPage() {
               )}
               {baixarEstoque && consumo.bloqueado && (
                 <p className="mt-2 text-[10px] text-red-600 dark:text-red-400 font-semibold pl-6">
-                  Esta clínica bloqueia saída sem saldo — dê entrada no produto, ou desmarque a baixa pra fechar a venda mesmo assim.
+                  {lab ? LAB_VENDA_RAPIDA.bloqueiaSemSaldo : 'Esta clínica bloqueia saída sem saldo — dê entrada no produto, ou desmarque a baixa pra fechar a venda mesmo assim.'}
                 </p>
               )}
             </div>
@@ -1331,17 +1356,17 @@ export default function VendaRapidaPage() {
             ) : !patient ? (
               <>
                 <AlertCircle size={14} />
-                Selecione um paciente
+                {lab ? LAB_VENDA_RAPIDA.cta.cliente : 'Selecione um paciente'}
               </>
             ) : cart.length === 0 ? (
               <>
                 <ShoppingCart size={14} />
-                Adicione procedimentos
+                {lab ? LAB_VENDA_RAPIDA.cta.servicos : 'Adicione procedimentos'}
               </>
             ) : !dentistId ? (
               <>
                 <AlertCircle size={14} />
-                Selecione o dentista
+                {lab ? LAB_VENDA_RAPIDA.cta.responsavel : 'Selecione o dentista'}
               </>
             ) : (
               <>
@@ -1360,6 +1385,10 @@ export default function VendaRapidaPage() {
                   Ao finalizar: gera a cobrança <strong>PIX no Asaas</strong> (QR code na tela e
                   copia-e-cola no WhatsApp do paciente); o caixa recebe quando o pagamento
                   confirmar. Os procedimentos entram no tratamento como <strong>pendentes</strong>.
+                </>
+              ) : lab ? (
+                <>
+                  {LAB_VENDA_RAPIDA.rodape.antes}<strong>{LAB_VENDA_RAPIDA.pendentes}</strong>{LAB_VENDA_RAPIDA.rodape.depois}
                 </>
               ) : (
                 <>
@@ -1382,6 +1411,7 @@ export default function VendaRapidaPage() {
           onGoToPatient={() => {
             router.push(`/atendimento/pacientes/${successDialog.patientId}?tab=financial`);
           }}
+          lab={lab}
         />
       )}
 
@@ -1409,6 +1439,7 @@ function SuccessDialog({
   data,
   onClose,
   onGoToPatient,
+  lab,
 }: {
   data: {
     billingType: BillingType;
@@ -1422,6 +1453,8 @@ function SuccessDialog({
   };
   onClose: () => void;
   onGoToPatient: () => void;
+  /** F5 do laboratório: textos do laboratório e "Ver na ficha" só com a ficha liberada. */
+  lab?: boolean;
 }) {
   const handleCopy = async () => {
     if (!data.pixCopyPaste) return;
@@ -1502,16 +1535,22 @@ function SuccessDialog({
                 <CheckCircle2 size={48} strokeWidth={2} />
               </div>
               <p className="text-lg font-extrabold text-foreground mb-1">
-                Recebido na clínica · {data.mixLabel ? 'Várias formas' : CLINIC_METHOD_LABEL[data.billingType]}
+                {lab ? LAB_VENDA_RAPIDA.sucesso.recebido : 'Recebido na clínica · '}{data.mixLabel ? 'Várias formas' : (lab && LAB_VENDA_RAPIDA.formaRotulo[data.billingType]) || CLINIC_METHOD_LABEL[data.billingType]}
               </p>
               {data.mixLabel && (
                 <p className="text-xs text-emerald-700 font-semibold mb-1">{data.mixLabel}</p>
               )}
+              {lab ? (
+                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                  {LAB_VENDA_RAPIDA.sucesso.texto.antes}<strong>{LAB_VENDA_RAPIDA.pendentes}</strong>{LAB_VENDA_RAPIDA.sucesso.texto.depois}
+                </p>
+              ) : (
               <p className="text-sm text-muted-foreground max-w-sm mx-auto">
                 Pagamento registrado e lançado no financeiro do paciente. Os
                 procedimentos entram no tratamento como <strong>pendentes</strong> —
                 o dentista confirma a conclusão de cada um.
               </p>
+              )}
             </div>
           ) : paid ? (
             <div className="text-center py-8">
@@ -1620,6 +1659,7 @@ function SuccessDialog({
             <Zap size={14} />
             Nova venda
           </button>
+          {(!lab || labAllowsRoute('/atendimento/pacientes')) && (
           <button
             type="button"
             onClick={onGoToPatient}
@@ -1628,6 +1668,7 @@ function SuccessDialog({
             Ver na ficha
             <ArrowRight size={14} />
           </button>
+          )}
         </div>
       </div>
     </div>
@@ -1685,6 +1726,7 @@ function ToothPicker({
   kidMode,
   onKidMode,
   onClose,
+  lab,
 }: {
   titulo: string;
   selected: string[];
@@ -1693,14 +1735,16 @@ function ToothPicker({
   kidMode: boolean;
   onKidMode: (v: boolean) => void;
   onClose: () => void;
+  /** F5 do laboratório: elementos do serviço no lugar dos dentes do procedimento. */
+  lab?: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-label={`Dentes — ${titulo}`}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-label={lab ? LAB_VENDA_RAPIDA.seletor.aria(titulo) : `Dentes — ${titulo}`}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full max-w-[680px] rounded-2xl border border-border bg-card p-4 shadow-2xl">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Dentes do procedimento</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{lab ? LAB_VENDA_RAPIDA.seletor.titulo : 'Dentes do procedimento'}</p>
           <p className="truncate text-sm font-semibold text-foreground">{titulo}</p>
         </div>
         <div className="inline-flex shrink-0 rounded-md border border-border overflow-hidden text-[11px] font-semibold">
@@ -1733,14 +1777,14 @@ function ToothPicker({
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <p className="text-[11px] text-muted-foreground">
-          Clique nos dentes do procedimento. Cada dente vira 1 item no tratamento.
+          {lab ? LAB_VENDA_RAPIDA.seletor.dica : 'Clique nos dentes do procedimento. Cada dente vira 1 item no tratamento.'}
         </p>
         <button
           type="button"
           onClick={onClose}
           className="h-9 shrink-0 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
         >
-          Pronto{selected.length > 0 ? ` · ${selected.length} dente${selected.length === 1 ? '' : 's'}` : ''}
+          {lab ? LAB_VENDA_RAPIDA.seletor.pronto(selected.length) : 'Pronto'}{!lab && selected.length > 0 ? ` · ${selected.length} dente${selected.length === 1 ? '' : 's'}` : ''}
         </button>
       </div>
       </div>

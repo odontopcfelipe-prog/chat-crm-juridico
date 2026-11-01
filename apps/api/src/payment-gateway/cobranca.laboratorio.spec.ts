@@ -27,9 +27,16 @@ import { PaymentGatewayService } from './payment-gateway.service';
 import { TreatmentPlanBillingService } from '../commercial/treatment-plan-billing.service';
 import { EmailAutomationService } from '../email-automation/email-automation.service';
 import { EMAIL_EVENTS } from '../email-automation/email-events';
+import { BoletoDeliveryService } from './boleto-delivery.service';
 import {
+  ENVIO_DE_BOLETO_DO_LABORATORIO,
+  NOME_PADRAO_DO_CLIENTE,
   NOME_PADRAO_DO_LABORATORIO,
+  NOTAS_DA_RECEITA_DO_LABORATORIO,
+  RECEBIDO_NO_LABORATORIO,
+  descricaoDaReceitaDoLaboratorio,
   descricaoParaClienteDoLaboratorio,
+  rotuloDoBalcaoDoLaboratorio,
   semVariaveis,
   temVocabularioDeClinica,
 } from './cobranca-laboratorio';
@@ -373,6 +380,212 @@ describe('baixa na recepção (registerClinicReceipt) — o mesmo freio do pagam
     expect(depois.efeitos()).toEqual(efeitosAntes);
     expect(depois.promove.mock.calls).toEqual([[c.id, CLINICA, 'pagamento na clínica']]);
     expect(depois.nomes()).toContain('commission.updateMany');
+  });
+});
+
+// ─── F5: receita no caixa com o texto do laboratório ─────────────────────────
+describe('receita no caixa do laboratório (F5) — "Recebido no laboratório", sem texto de clínica', () => {
+  const semClinica = (t: string) => {
+    expect(temVocabularioDeClinica(t)).toBe(false);
+    expect(t).not.toMatch(/cl[ií]nica/i);
+  };
+  const TRABALHO = `Trabalho de prótese — Dr. Exemplo (recebido no laboratório) [plan:${PLANO}]`;
+
+  it('baixa na recepção: descrição e observação do laboratório (a tag do plano fica)', async () => {
+    const c = cobranca(LAB, { description: TRABALHO });
+    const m = webhook([LAB], c);
+    await m.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', origem: 'receive-in-cash', paymentMethod: 'DINHEIRO' });
+    const [receita] = m.de('financialTransaction.create');
+    expect(receita.data).toMatchObject({
+      tenant_id: LAB,
+      type: 'RECEITA',
+      status: 'PAGO',
+      payment_method: 'DINHEIRO',
+      description: `Recebido no laboratório — Dr. Exemplo · ${TRABALHO}`,
+      notes: 'Venda recebida no laboratório (fechamento de caixa)',
+    });
+    semClinica(receita.data.description);
+    semClinica(receita.data.notes);
+  });
+
+  it('maquineta 3x: o "Cartão 3×" continua no fim', async () => {
+    const c = cobranca(LAB, { description: TRABALHO });
+    const m = webhook([LAB], c);
+    await m.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', paymentMethod: 'CARTAO', installments: 3 });
+    expect(m.de('financialTransaction.create')[0].data.description).toBe(`Recebido no laboratório — Dr. Exemplo · ${TRABALHO} · Cartão 3×`);
+  });
+
+  it('descrição antiga com "Plano de tratamento" vira "Trabalho de prótese"; com palavra de clínica, sai da receita', async () => {
+    const antiga = cobranca(LAB, { description: `Plano de tratamento — Dr. Exemplo (3x) [plan:${PLANO}]` });
+    const m = webhook([LAB], antiga);
+    await m.svc.registerClinicReceipt(antiga.external_id, { userId: 'u-recep' });
+    expect(m.de('financialTransaction.create')[0].data.description).toBe(
+      `Recebido no laboratório — Dr. Exemplo · Trabalho de prótese — Dr. Exemplo (3x) [plan:${PLANO}]`,
+    );
+
+    jest.restoreAllMocks();
+    calar();
+    const consulta = cobranca(LAB, { description: 'Consulta de avaliação — Dr. Exemplo' });
+    const n = webhook([LAB], consulta);
+    await n.svc.registerClinicReceipt(consulta.external_id, { userId: 'u-recep' });
+    expect(n.de('financialTransaction.create')[0].data.description).toBe('Recebido no laboratório — Dr. Exemplo');
+  });
+
+  it('cadastro sem nome: entra "Cliente" (não "Paciente")', async () => {
+    const c = cobranca(LAB, {
+      description: TRABALHO,
+      treatment_plan: { patient: { name: '', lead_id: 'lead-1' }, quote: { created_by_user_id: 'u-1' } },
+      patient: null,
+    });
+    const m = webhook([LAB], c);
+    await m.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep' });
+    expect(m.de('financialTransaction.create')[0].data.description).toBe(`Recebido no laboratório — Cliente · ${TRABALHO}`);
+  });
+
+  it('pagamento online (webhook): continua "Recebimento — …" com a observação do Asaas online', async () => {
+    const c = cobranca(LAB, { installment_id: 'parc-1' });
+    const m = webhook([LAB], c);
+    await m.svc.handleWebhook(evento(c, 'RECEIVED'));
+    const [receita] = m.de('financialTransaction.create');
+    expect(receita.data.description).toBe(`Recebimento — Dr. Exemplo · Parcela 1/3 — Dr. Exemplo [plan:${PLANO}]`);
+    expect(receita.data.notes).toBe('Recebimento de cobrança (Asaas online)');
+    semClinica(receita.data.description);
+  });
+
+  it('várias formas (2 cartões): uma receita por forma, cada uma com o texto do laboratório', async () => {
+    const c = cobranca(LAB, { description: TRABALHO });
+    const m = webhook([LAB], c);
+    const payments = [
+      { method: 'CARTAO', value: 150, installments: 3 },
+      { method: 'CARTAO', value: 100, debit: true },
+    ];
+    await m.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', payments });
+    const receitas = m.de('financialTransaction.create').map((a: any) => a.data);
+    expect(receitas.map((r: any) => r.description)).toEqual([
+      `Recebido no laboratório — Dr. Exemplo · ${TRABALHO} · Cartão crédito 3×`,
+      `Recebido no laboratório — Dr. Exemplo · ${TRABALHO} · Cartão débito`,
+    ]);
+    for (const r of receitas) {
+      expect(r.notes).toBe('Venda recebida no laboratório — pagamento dividido em várias formas (fechamento de caixa)');
+      semClinica(r.description);
+      semClinica(r.notes);
+    }
+    // A leitura da lista de laboratórios fica fora da transação da receita.
+    const nomes = m.nomes();
+    expect(nomes.indexOf('$transaction')).toBeGreaterThan(-1);
+    expect(nomes.slice(nomes.indexOf('$transaction'), nomes.indexOf('$transaction:fim'))).not.toContain('tenantBusinessProfile.findMany');
+  });
+
+  it('clínica com e sem outra conta de laboratório: a mesma receita de antes ("Recebido na clínica")', async () => {
+    for (const payments of [undefined, [{ method: 'CARTAO', value: 150, installments: 3 }, { method: 'CARTAO', value: 100, debit: true }]]) {
+      const c = cobranca(CLINICA, { description: `Plano de tratamento — Dr. Exemplo (recebido na clínica) [plan:${PLANO}]` });
+      const antes = webhook([], c);
+      await antes.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', payments });
+      const efeitosAntes = antes.efeitos();
+      jest.restoreAllMocks();
+      calar();
+      const depois = webhook([LAB], c);
+      await depois.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', payments });
+      expect(depois.efeitos()).toEqual(efeitosAntes);
+      for (const r of depois.de('financialTransaction.create')) {
+        expect(r.data.description.startsWith('Recebido na clínica — Dr. Exemplo · Plano de tratamento')).toBe(true);
+        expect(r.data.notes).toMatch(/recebid[oa] na clínica/);
+      }
+      jest.restoreAllMocks();
+      calar();
+    }
+  });
+});
+
+// ─── F5: cobrança local da venda de balcão (createManualReceipt) ─────────────
+describe('venda de balcão no laboratório (F5) — cobrança local com o texto do laboratório', () => {
+  it.each<[string, Record<string, any>, string, string]>([
+    ['espécie', { value: 900, paymentMethod: 'DINHEIRO' }, 'recebido no laboratório', '-AVISTA-'],
+    ['maquineta 3x', { value: 900, paymentMethod: 'CARTAO', installments: 3 }, 'cartão 3x na maquineta · recebido no laboratório', '-CARTAO-'],
+    [
+      '2 formas',
+      { value: 900, paymentMethod: 'PIX', payments: [{ method: 'PIX', value: 500 }, { method: 'DINHEIRO', value: 400 }] },
+      'recebido no laboratório · 2 formas',
+      '-AVISTA-',
+    ],
+    ['cartão a receber', { value: 900, paymentMethod: 'CARTAO', installments: 2, receiveNow: false }, 'cartão 2x · a receber', '-CARTAO-'],
+  ])('%s: "Trabalho de prótese — <cliente> (<detalhe>) [plan:<id>]", marcador e chave da venda iguais', async (_caso, opcoes, detalhe, marcador) => {
+    const m = emissao([LAB], LAB);
+    const baixa = jest.fn(async () => ({ ok: true, transaction_id: 'receita-1' }));
+    (m.svc as any).paymentGateway = { registerClinicReceipt: baixa };
+    await m.svc.createManualReceipt(PLANO, LAB, { ...opcoes, idempotencyKey: '22222222-2222-4222-8222-222222222222', origem: 'venda-balcao' } as any);
+
+    expect(m.noBanco()).toEqual([`Trabalho de prótese — Dr. Exemplo (${detalhe}) ${TAG}`]);
+    expect(m.criadas[0].external_id).toContain(marcador);
+    expect(m.criadas[0].idempotency_key).toBe('22222222-2222-4222-8222-222222222222');
+    expect(m.noBanco()[0]).not.toMatch(PALAVRAS_DE_CLINICA);
+    expect(m.noBanco()[0]).not.toMatch(/cl[ií]nica/i);
+    expect(m.noBanco()[0].match(/\[plan:([0-9a-f-]{36})\]/i)?.[1]).toBe(PLANO);
+    expect(baixa).toHaveBeenCalledTimes(opcoes.receiveNow === false ? 0 : 1);
+  });
+
+  it('clínica com e sem outra conta de laboratório: as mesmas chamadas e a descrição de sempre', async () => {
+    const rodar = async (labs: string[]) => {
+      const m = emissao(labs, CLINICA);
+      (m.svc as any).paymentGateway = { registerClinicReceipt: jest.fn(async () => ({ ok: true, transaction_id: 'receita-1' })) };
+      await m.svc.createManualReceipt(PLANO, CLINICA, { value: 900, paymentMethod: 'CARTAO', installments: 3 });
+      return m;
+    };
+    const antes = await rodar([]);
+    const depois = await rodar([LAB]);
+    expect(depois.ops).toEqual(antes.ops);
+    expect(depois.noBanco()).toEqual([`Plano de tratamento — Dr. Exemplo (cartão 3x na maquineta · recebido na clínica) ${TAG}`]);
+  });
+});
+
+// ─── F5: "Enviar boleto do mês" (BoletoDeliveryService.sendCurrentBoleto) ─────
+function boletoDoMes(labs: string[], tenant: string, opts: { telefone?: string; nome?: string } = {}) {
+  const b = banco(labs, {
+    'treatmentPlan.findFirst': () => ({ id: PLANO }),
+    'paymentGatewayCharge.findMany': () => [
+      {
+        id: 'cob-1',
+        external_id: 'pay_1',
+        boleto_url: 'https://exemplo.invalid/boleto.pdf',
+        due_date: new Date('2026-11-10T00:00:00.000Z'),
+        customer_external_id: null,
+        treatment_plan: { patient: { name: opts.nome ?? 'Dr. Exemplo Silva', phone: opts.telefone ?? '' } },
+      },
+    ],
+  });
+  const whatsapp = {
+    getInstanceForPurpose: jest.fn(async () => 'chip-financeiro'),
+    sendMedia: jest.fn(async () => ({ key: { id: 'msg-1' } })),
+  };
+  const svc = new BoletoDeliveryService(b.prisma, {} as any, whatsapp as any);
+  return { svc, whatsapp, ...b };
+}
+
+describe('"Enviar boleto do mês" no laboratório (F5) — respostas falam de cliente', () => {
+  it('sem telefone: "Cliente sem telefone cadastrado."', async () => {
+    const m = boletoDoMes([LAB], LAB);
+    expect(await m.svc.sendCurrentBoleto(PLANO, LAB)).toEqual({ ok: false, detail: 'Cliente sem telefone cadastrado.' });
+  });
+
+  it('com telefone: "Boleto enviado ao cliente (…)." e a legenda sem "Paciente"', async () => {
+    const m = boletoDoMes([LAB], LAB, { telefone: TEL });
+    expect(await m.svc.sendCurrentBoleto(PLANO, LAB)).toEqual({ ok: true, detail: `Boleto enviado ao cliente (${TEL}).` });
+    const legenda = (m.whatsapp.sendMedia.mock.calls[0] as unknown[])[3] as string;
+    expect(legenda).toContain('Oi Dr.!');
+    expect(legenda).not.toMatch(PALAVRAS_DE_CLINICA);
+  });
+
+  it('clínica com e sem outra conta de laboratório: as mesmas respostas de antes', async () => {
+    for (const telefone of ['', TEL]) {
+      const antes = boletoDoMes([], CLINICA, { telefone });
+      const rAntes = await antes.svc.sendCurrentBoleto(PLANO, CLINICA);
+      const depois = boletoDoMes([LAB], CLINICA, { telefone });
+      const rDepois = await depois.svc.sendCurrentBoleto(PLANO, CLINICA);
+      expect(rDepois).toEqual(rAntes);
+      expect(depois.ops).toEqual(antes.ops);
+      expect(depois.whatsapp.sendMedia.mock.calls).toEqual(antes.whatsapp.sendMedia.mock.calls);
+      expect(rDepois.detail).toBe(telefone ? `Boleto enviado ao paciente (${TEL}).` : 'Paciente sem telefone cadastrado.');
+    }
   });
 });
 
@@ -791,6 +1004,57 @@ describe('cobranca-laboratorio: texto sem vocabulário de clínica', () => {
     for (const t of ['Clínica Sorriso', 'Dentista', 'paciente do caso', 'consultório', 'Trabalho de prótese', null, '']) {
       expect([t, temVocabularioDeClinica(t)]).toEqual([t, false]);
     }
+  });
+
+  it('F5 — textos novos (caixa, balcão, boleto do mês): sem palavra de clínica e sem "clínica"', () => {
+    const textos = [
+      NOME_PADRAO_DO_CLIENTE,
+      RECEBIDO_NO_LABORATORIO,
+      ...Object.values(NOTAS_DA_RECEITA_DO_LABORATORIO),
+      ENVIO_DE_BOLETO_DO_LABORATORIO.nomePadrao,
+      ENVIO_DE_BOLETO_DO_LABORATORIO.semTelefone,
+      ENVIO_DE_BOLETO_DO_LABORATORIO.enviado(TEL),
+      rotuloDoBalcaoDoLaboratorio({ receiveNow: false, soCartao: true, nx: ' 3x', formas: 0 }),
+      rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: true, nx: ' 3x', formas: 1 }),
+      rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: false, nx: '', formas: 2 }),
+      rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: false, nx: '', formas: 1 }),
+      descricaoDaReceitaDoLaboratorio({ inClinic: true, nome: 'Dr. Exemplo', descricao: 'Plano de tratamento — Dr. Exemplo (3x)', parcelaSuffix: ' · Cartão 3×' }),
+      descricaoDaReceitaDoLaboratorio({ inClinic: false, nome: 'Dr. Exemplo', descricao: 'Parcela 1/3 — Dr. Exemplo', parcelaSuffix: '' }),
+    ];
+    for (const t of textos) {
+      expect([t, temVocabularioDeClinica(t)]).toEqual([t, false]);
+      expect([t, /cl[ií]nica/i.test(t)]).toEqual([t, false]);
+    }
+    expect(Object.isFrozen(NOTAS_DA_RECEITA_DO_LABORATORIO)).toBe(true);
+    expect(Object.isFrozen(ENVIO_DE_BOLETO_DO_LABORATORIO)).toBe(true);
+  });
+
+  it('F5 — rótulo do balcão do laboratório: o mesmo desenho do da clínica', () => {
+    expect(rotuloDoBalcaoDoLaboratorio({ receiveNow: false, soCartao: true, nx: ' 3x', formas: 0 })).toBe('cartão 3x · a receber');
+    expect(rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: true, nx: ' 3x', formas: 1 })).toBe('cartão 3x na maquineta · recebido no laboratório');
+    expect(rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: true, nx: '', formas: 2 })).toBe('cartão na maquineta · recebido no laboratório');
+    expect(rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: false, nx: '', formas: 2 })).toBe('recebido no laboratório · 2 formas');
+    expect(rotuloDoBalcaoDoLaboratorio({ receiveNow: true, soCartao: false, nx: '', formas: 1 })).toBe('recebido no laboratório');
+  });
+
+  it('F5 — descrição da receita do laboratório', () => {
+    const base = { nome: 'Dr. Exemplo', parcelaSuffix: '' };
+    expect(descricaoDaReceitaDoLaboratorio({ ...base, inClinic: true, descricao: 'Trabalho de prótese — Dr. Exemplo [plan:x]' })).toBe(
+      'Recebido no laboratório — Dr. Exemplo · Trabalho de prótese — Dr. Exemplo [plan:x]',
+    );
+    expect(descricaoDaReceitaDoLaboratorio({ ...base, inClinic: false, descricao: 'Parcela 2/3 — Dr. Exemplo' })).toBe(
+      'Recebimento — Dr. Exemplo · Parcela 2/3 — Dr. Exemplo',
+    );
+    expect(descricaoDaReceitaDoLaboratorio({ ...base, inClinic: true, descricao: 'Plano de tratamento odontológico — Dr. Exemplo (3x)' })).toBe(
+      'Recebido no laboratório — Dr. Exemplo · Trabalho de prótese — Dr. Exemplo (3x)',
+    );
+    // Sobrou palavra de clínica: a descrição sai da receita (fica só o começo).
+    expect(descricaoDaReceitaDoLaboratorio({ ...base, inClinic: true, descricao: 'Consulta de avaliação' })).toBe('Recebido no laboratório — Dr. Exemplo');
+    expect(descricaoDaReceitaDoLaboratorio({ ...base, inClinic: true, descricao: '' })).toBe('Recebido no laboratório — Dr. Exemplo');
+    // Forma (split) e parcelas da maquineta no fim, como na clínica.
+    expect(descricaoDaReceitaDoLaboratorio({ nome: 'Cliente', inClinic: true, descricao: 'Venda — Cliente', forma: 'Cartão crédito', parcelaSuffix: ' 3×' })).toBe(
+      'Recebido no laboratório — Cliente · Venda — Cliente · Cartão crédito 3×',
+    );
   });
 
   it('semVariaveis tira {{var}} e {var}', () => {

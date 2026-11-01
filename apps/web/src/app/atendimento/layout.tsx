@@ -29,7 +29,7 @@ import { canAccessRouteBt, isLab, labAllowsRoute } from '@crm/shared';
 // F4 do laboratório — tipo de negócio da sessão (clínica × laboratório) e os
 // textos de laboratório da casca. Na clínica nada muda.
 import { useBusinessType } from '@/lib/useBusinessType';
-import { LAB_TELA_FECHADA } from '@/lib/lab-casca-textos';
+import { LAB_LOCALIZAR, LAB_MENU, LAB_TELA_FECHADA } from '@/lib/lab-casca-textos';
 import { usePontoStatus } from '@/lib/usePontoStatus';
 import { Lock } from 'lucide-react';
 import { SocketProvider } from '@/lib/SocketProvider';
@@ -314,9 +314,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   // Onda 18.x — atalho "/" abre o "Localizar um paciente" (não dispara enquanto
   // se digita num input/textarea, ex.: campo do chat).
-  // No laboratório o localizador fica fora (sem a busca do topo, o "/" não faz nada).
+  // No laboratório a busca do topo (e o "/") só vale nas telas abertas para ele:
+  // numa tela fechada fica só o "Sem acesso". Na clínica é sempre true.
+  const buscaNoTopo = !lab || labAllowsRoute(pathname);
   useEffect(() => {
-    if (lab) return;
+    if (!buscaNoTopo) return;
     const h = (e: KeyboardEvent) => {
       if (e.key !== '/') return;
       const el = document.activeElement as HTMLElement | null;
@@ -327,7 +329,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [lab]);
+  }, [buscaNoTopo]);
 
   // Pilha de telas pro "Voltar" (ver lerPilha). Login zera: sessão nova, histórico novo.
   const [temTelaAnterior, setTemTelaAnterior] = useState(false);
@@ -368,7 +370,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const dentistTabs = [
     { label: 'Início', href: '/atendimento/dashboard', icon: Home, match: (p: string) => p.startsWith('/atendimento/dashboard'), badge: 0 },
     { label: 'Agenda', href: '/atendimento/minha-agenda', icon: Calendar, match: (p: string) => p.startsWith('/atendimento/minha-agenda'), isCenter: true, badge: 0 },
-    { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users, match: (p: string) => p.startsWith('/atendimento/pacientes'), badge: 0 },
+    { label: lab ? LAB_MENU.abaDentistas : 'Pacientes', href: '/atendimento/pacientes', icon: Users, match: (p: string) => p.startsWith('/atendimento/pacientes'), badge: 0 },
     { label: 'Pontuação', href: '/atendimento/meu-jogo', icon: Trophy, match: (p: string) => p.startsWith('/atendimento/meu-jogo'), badge: 0 },
   ];
   const allowedMainTabs = allMainTabs.filter(t => canAccessRouteBt(t.href, hasPermission, bt));
@@ -489,15 +491,15 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                   "coloque os ícones para a direita". Antes a busca tinha
                   flex-1 max-w-xl: crescia só até 576px e a sobra de largura ia
                   pra DEPOIS dos ícones, agrupando-os junto da busca (à esquerda). */}
-              {!hideSearch && !lab && (
+              {!hideSearch && buscaNoTopo && (
                 <button
                   type="button"
                   onClick={() => setLocatorOpen(true)}
-                  title={`${searchCtx.label} (atalho: / )`}
+                  title={`${lab ? LAB_LOCALIZAR[searchCtx.kind] : searchCtx.label} (atalho: / )`}
                   className="w-[min(26rem,45vw)] flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg bg-card border border-border text-sm text-muted-foreground hover:border-primary/40 transition-colors"
                 >
                   <Search size={14} className="shrink-0" />
-                  <span className="flex-1 text-left truncate">{searchCtx.label}</span>
+                  <span className="flex-1 text-left truncate">{lab ? LAB_LOCALIZAR[searchCtx.kind] : searchCtx.label}</span>
                   <kbd className="shrink-0 text-[10px] font-mono text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">/</kbd>
                 </button>
               )}

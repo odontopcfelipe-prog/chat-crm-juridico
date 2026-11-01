@@ -49,6 +49,11 @@ import OverviewClinicalSection from '../components/OverviewClinicalSection';
 import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPicker';
 // Onda 18.x — chat embutido na ficha ("Conversar"): reusa o painel do split view.
 import ChatPane from '../../split/components/ChatPane';
+// F5 do laboratório — ficha do cliente: abas prontas para ele, portões e textos próprios.
+import { formatCpfCnpj, isLab, tipoDoDocumento } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
+import { LAB_CADASTRO, LAB_FICHA } from '../lab-dentistas-textos';
+import { abasProntasNoLab } from '../lab-ficha';
 
 interface Patient {
   id: string;
@@ -164,6 +169,7 @@ function PacienteFichaInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = useRole();
+  const lab = isLab(useBusinessType());
   // Onda 17.65 — Propostas (manage_proposals) e Financeiro (view_financial) só pra
   // quem tem a permissão. Dentista sem o grant não vê as abas. Gateia por permissão
   // (não por papel), então recepção/CRC/admin que têm continuam vendo.
@@ -226,6 +232,11 @@ function PacienteFichaInner() {
       setTab('overview');
     }
   }, [permsReady, tab, canProposals, canFinancial]);
+  // Laboratório: aba que ainda não abre para ele (ex.: ?tab=odontogram num link) volta
+  // para a Visão geral antes de a ficha carregar.
+  useEffect(() => {
+    if (lab && !abasProntasNoLab().includes(tab)) setTab('overview');
+  }, [lab, tab]);
   const [editOpen, setEditOpen] = useState(false);
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
   const [addMedOpen, setAddMedOpen] = useState(false);
@@ -245,7 +256,8 @@ function PacienteFichaInner() {
         .then((r) => setBlockStatus(r.data))
         .catch(() => setBlockStatus(null));
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar paciente');
+      // btAgora(): o 1º carregamento roda na hidratação, quando o hook ainda diz clínica.
+      showError(err?.response?.data?.message || (isLab(btAgora()) ? LAB_FICHA.erroCarregar : 'Erro ao carregar paciente'));
     } finally {
       setLoading(false);
     }
@@ -258,14 +270,14 @@ function PacienteFichaInner() {
   // purpose=FINANCEIRO (nunca cai no atendimento geral/Sophia nem outro número);
   // depois abre a inbox já no modo Financeiro na conversa certa.
   const abrirChatFinanceiro = async () => {
-    if (!patient?.lead_id) { showError('Paciente sem contato vinculado ao WhatsApp.'); return; }
-    if (!patient?.phone) { showError('Paciente sem telefone — não dá pra abrir o chat do Financeiro.'); return; }
+    if (!patient?.lead_id) { showError(lab ? LAB_FICHA.semContatoWhatsapp : 'Paciente sem contato vinculado ao WhatsApp.'); return; }
+    if (!patient?.phone) { showError(lab ? LAB_FICHA.semTelefoneFinanceiro : 'Paciente sem telefone — não dá pra abrir o chat do Financeiro.'); return; }
     try {
       const { data } = await api.get<{ id: string | null }>(
         `/payment-gateway/leads/${patient.lead_id}/financeiro-conversation`,
       );
       if (!data?.id) {
-        showError('Esta clínica não tem número do Financeiro configurado.');
+        showError(lab ? LAB_FICHA.semNumeroFinanceiro : 'Esta clínica não tem número do Financeiro configurado.');
         return;
       }
       try {
@@ -307,10 +319,10 @@ function PacienteFichaInner() {
 
   const handleArchive = async () => {
     if (!patient) return;
-    if (!confirm(`Arquivar o paciente ${patient.name}? Esta ação preserva todos os dados.`)) return;
+    if (!confirm(lab ? LAB_FICHA.confirmarArquivar(patient.name) : `Arquivar o paciente ${patient.name}? Esta ação preserva todos os dados.`)) return;
     try {
       await api.delete(`/patients/${patient.id}`);
-      showSuccess('Paciente arquivado');
+      showSuccess(lab ? LAB_FICHA.arquivado : 'Paciente arquivado');
       router.push('/atendimento/pacientes');
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao arquivar');
@@ -464,21 +476,22 @@ function PacienteFichaInner() {
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2 flex-wrap">
               {patient.name}
-              {age !== null && (
+              {!lab && age !== null && (
                 <span className="text-sm font-normal text-muted-foreground">({age} anos)</span>
               )}
-              {patient.is_minor && (
+              {!lab && patient.is_minor && (
                 <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 border border-blue-500/20">
                   Menor de idade
                 </span>
               )}
               {/* Selo de devedor: vermelho = agendamento bloqueado (gate ligado +
                   atraso); âmbar = tem atraso mas o gate está desligado. Clica → Financeiro. */}
-              {canSeeValues && blockStatus?.has_overdue && (
+              {/* Laboratório: o selo leva à aba Financeiro, então só aparece quando ela abre para ele. */}
+              {canSeeValues && blockStatus?.has_overdue && (!lab || abasProntasNoLab().includes('financial')) && (
                 <button
                   type="button"
                   onClick={() => { router.replace(`/atendimento/pacientes/${patient.id}?tab=financial`); setTab('financial'); }}
-                  title={blockStatus.blocked
+                  title={lab ? LAB_FICHA.emAtraso : blockStatus.blocked
                     ? 'Agendamento bloqueado por boleto em atraso — ver Financeiro'
                     : 'Paciente com boleto em atraso — ver Financeiro'}
                   className={`text-xs px-2 py-0.5 rounded border font-semibold inline-flex items-center gap-1 ${
@@ -498,7 +511,7 @@ function PacienteFichaInner() {
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
               {canSeeContact && patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {formatPhone(patient.phone)}</span>}
               {canSeeContact && patient.email && <span className="flex items-center gap-1"><Mail size={14} /> {patient.email}</span>}
-              {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {formatCPF(patient.cpf)}</span>}
+              {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {lab ? formatCpfCnpj(patient.cpf) : formatCPF(patient.cpf)}</span>}
             </div>
             {/* Tags do paciente — gerenciamento inline */}
             <div className="mt-2">
@@ -514,7 +527,7 @@ function PacienteFichaInner() {
               Onda 5e v37: o botao "Tornar Afiliado" foi removido daqui —
               ativacao agora so pelo modal Editar > Programa de Afiliado
               (toggle), pra manter o header da ficha enxuto. */}
-          {patient.status !== 'ARCHIVED' && patient.is_affiliate && canSeeValues && (
+          {!lab && patient.status !== 'ARCHIVED' && patient.is_affiliate && canSeeValues && (
             <button
               onClick={() => {
                 router.replace(`/atendimento/pacientes/${patient.id}?tab=affiliate`);
@@ -529,7 +542,7 @@ function PacienteFichaInner() {
 
           {/* Onda 3.30 — Avaliação (antigo "Atender" renomeado). Marca
               comparecimento + abre Odontograma. */}
-          {patient.status !== 'ARCHIVED' && (
+          {!lab && patient.status !== 'ARCHIVED' && (
             <button
               onClick={handleStartAttending}
               disabled={startingAttending}
@@ -540,7 +553,7 @@ function PacienteFichaInner() {
               Avaliação
             </button>
           )}
-          {patient.status !== 'ARCHIVED' && canSchedule && (
+          {!lab && patient.status !== 'ARCHIVED' && canSchedule && (
             <button
               onClick={() => {
                 const params = new URLSearchParams({
@@ -563,7 +576,7 @@ function PacienteFichaInner() {
             <button
               type="button"
               onClick={() => {
-                if (!patient.phone) { showError('Paciente sem telefone — cadastre antes de conversar.'); return; }
+                if (!patient.phone) { showError(lab ? LAB_FICHA.semTelefoneConversar : 'Paciente sem telefone — cadastre antes de conversar.'); return; }
                 toggleChat(!chatOpen);
               }}
               className={`text-xs px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm border ${
@@ -571,7 +584,7 @@ function PacienteFichaInner() {
                   ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
                   : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
               }`}
-              title={chatOpen ? 'Fechar o chat lateral' : 'Abrir o WhatsApp deste paciente aqui na ficha'}
+              title={chatOpen ? 'Fechar o chat lateral' : lab ? LAB_FICHA.abrirWhatsapp : 'Abrir o WhatsApp deste paciente aqui na ficha'}
               aria-pressed={chatOpen}
             >
               <MessageCircle size={14} /> Conversar
@@ -586,7 +599,7 @@ function PacienteFichaInner() {
               type="button"
               onClick={abrirChatFinanceiro}
               className="text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
-              title="Abrir a conversa deste paciente no WhatsApp do Financeiro"
+              title={lab ? LAB_FICHA.falarFinanceiro : 'Abrir a conversa deste paciente no WhatsApp do Financeiro'}
             >
               <MessageCircle size={14} /> Falar no Financeiro
             </button>
@@ -599,14 +612,15 @@ function PacienteFichaInner() {
             <button
               onClick={handleArchive}
               className="text-xs text-destructive hover:bg-destructive/10 px-3 py-2 rounded-lg flex items-center gap-1"
-              title="Arquiva o paciente (preserva histórico, reversível)"
+              title={lab ? LAB_FICHA.arquivarDica : 'Arquiva o paciente (preserva histórico, reversível)'}
             >
               <Trash2 size={14} /> Arquivar
             </button>
           )}
           {/* Onda 14 — Excluir permanentemente (hard delete).
-              Onda 14.1 — Mostra preview das dependencias + badge "ADMIN". */}
-          {role.canArchivePatient && (
+              Onda 14.1 — Mostra preview das dependencias + badge "ADMIN".
+              Laboratório: escondido (a prévia é toda de clínica); fica o Arquivar. */}
+          {!lab && role.canArchivePatient && (
             <button
               onClick={openDeleteModal}
               className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-2 rounded-lg flex items-center gap-1.5 font-semibold shadow-sm"
@@ -880,6 +894,8 @@ function PacienteFichaInner() {
             .filter((t) => t.id !== 'affiliate' || (patient.is_affiliate && canSeeValues))
             // Onda 17.65 — Propostas/Financeiro só com permissão.
             .filter((t) => (t.id !== 'proposals' || canProposals) && (t.id !== 'financial' || canFinancial))
+            // Laboratório: só as abas prontas para ele (lab-ficha.ts).
+            .filter((t) => !lab || abasProntasNoLab().includes(t.id))
             .map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -898,7 +914,7 @@ function PacienteFichaInner() {
             );
           })}
           <div className="flex-1 min-w-[24px]" />
-          {TABS.filter((t) => t.group === 'clinical').map((t) => {
+          {TABS.filter((t) => t.group === 'clinical').filter((t) => !lab || abasProntasNoLab().includes(t.id)).map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
@@ -1179,6 +1195,9 @@ function OverviewTab({
   /** Onda 14.54 — leva pro historico quando click num evento da evolucao */
   onGoToTimelineAll?: () => void;
 }) {
+  // Laboratório: dados do cliente (sem RG, nascimento, sexo, estado civil, responsável,
+  // emergência, alergias, medicações e a seção clínica).
+  const lab = isLab(useBusinessType());
   const canEditPersonal = !!onEdit;
   const enderecoFmt = [
     patient.address && `${patient.address}${patient.address_number ? ', ' + patient.address_number : ''}`,
@@ -1218,7 +1237,7 @@ function OverviewTab({
       <div className="bg-card border border-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
-            <User size={16} /> Dados pessoais
+            {lab ? <><User size={16} /> {LAB_FICHA.dadosDoCliente}</> : <><User size={16} /> Dados pessoais</>}
           </h3>
           {/* Editar — escondido pra nao-ADMIN (canEditPersonal=false). */}
           {canEditPersonal && (
@@ -1232,19 +1251,22 @@ function OverviewTab({
         </div>
         <dl className="space-y-2 text-sm">
           <Field label="Nome" value={patient.name} />
-          <Field label="CPF" value={patient.cpf ? formatCPF(patient.cpf) : null} />
-          <Field label="RG" value={patient.rg ? formatRG(patient.rg) : null} />
+          {lab && <Field label={LAB_FICHA.tipo} value={LAB_CADASTRO.tipos[tipoDoDocumento(patient.cpf) ?? 'DENTISTA']} />}
+          <Field label={lab ? LAB_FICHA.documento : 'CPF'} value={patient.cpf ? (lab ? formatCpfCnpj(patient.cpf) : formatCPF(patient.cpf)) : null} />
+          {!lab && <Field label="RG" value={patient.rg ? formatRG(patient.rg) : null} />}
           {/* Onda 25.4 — DD/MM/YYYY + idade calculada (helper compartilhado) */}
-          <Field label="Nascimento" value={formatBirthDateWithAge(patient.birth_date) || null} />
+          {!lab && <Field label="Nascimento" value={formatBirthDateWithAge(patient.birth_date) || null} />}
+          {!lab && (
           <Field
             label="Sexo"
             value={patient.gender === 'F' ? 'Feminino' : patient.gender === 'M' ? 'Masculino' : patient.gender || null}
           />
-          <Field label="Estado civil" value={patient.marital_status ? MARITAL_LABEL[patient.marital_status] : null} />
+          )}
+          {!lab && <Field label="Estado civil" value={patient.marital_status ? MARITAL_LABEL[patient.marital_status] : null} />}
           <Field label="Telefone" value={patient.phone ? formatPhone(patient.phone) : null} />
           <Field label="Email" value={patient.email} />
           <Field label="Endereço" value={enderecoFmt || null} />
-          {patient.is_minor && (
+          {!lab && patient.is_minor && (
             <>
               <div className="border-t border-border my-2" />
               <Field label="Responsável" value={patient.guardian_name} />
@@ -1252,7 +1274,7 @@ function OverviewTab({
               <Field label="Tel. responsável" value={patient.guardian_phone ? formatPhone(patient.guardian_phone) : null} />
             </>
           )}
-          {(patient.emergency_contact_name || patient.emergency_contact_phone) && (
+          {!lab && (patient.emergency_contact_name || patient.emergency_contact_phone) && (
             <>
               <div className="border-t border-border my-2" />
               <Field label="Emergência" value={[patient.emergency_contact_name, patient.emergency_contact_phone ? formatPhone(patient.emergency_contact_phone) : null].filter(Boolean).join(' · ')} />
@@ -1271,6 +1293,7 @@ function OverviewTab({
       />
 
       {/* Alergias */}
+      {!lab && (
       <div className="bg-card border border-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
@@ -1309,8 +1332,10 @@ function OverviewTab({
           </ul>
         )}
       </div>
+      )}
 
       {/* Medicações */}
+      {!lab && (
       <div className="bg-card border border-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
@@ -1347,6 +1372,7 @@ function OverviewTab({
           </ul>
         )}
       </div>
+      )}
 
       {/* Observações */}
       {patient.notes && (
@@ -1359,11 +1385,13 @@ function OverviewTab({
 
       {/* Onda 14.54 — Snapshot clinico: odontograma read-only + evolucao
           recente. Clicks navegam pras abas correspondentes. */}
+      {!lab && (
       <OverviewClinicalSection
         patientId={patient.id}
         onGoToOdontogram={onGoToOdontogram}
         onGoToTimeline={onGoToTimelineAll}
       />
+      )}
     </div>
   );
 }
@@ -1381,6 +1409,8 @@ function ResumoClinicoCard({
   // "queixa principal" (ambos vao via PATCH /patients/:id que e admin-only).
   canEditPersonal?: boolean;
 }) {
+  // Laboratório: resumo do cliente só com o protético responsável (sem "Dr(a).").
+  const lab = isLab(useBusinessType());
   const [users, setUsers] = useState<UserOption[]>([]);
   const [editingDentist, setEditingDentist] = useState(false);
   const [editingComplaint, setEditingComplaint] = useState(false);
@@ -1405,7 +1435,7 @@ function ResumoClinicoCard({
     setSaving(true);
     try {
       await api.patch(`/patients/${patient.id}`, { primary_dentist_id: dentistDraft || null });
-      showSuccess('Dentista atualizado');
+      showSuccess(lab ? LAB_FICHA.proteticoAtualizado : 'Dentista atualizado');
       setEditingDentist(false);
       onReload();
     } catch (err: any) {
@@ -1434,12 +1464,12 @@ function ResumoClinicoCard({
   return (
     <div className="bg-card border border-border rounded-xl p-4">
       <h3 className="font-semibold text-sm text-foreground mb-3 flex items-center gap-2">
-        <Stethoscope size={16} /> Resumo clínico
+        {lab ? <><Stethoscope size={16} /> {LAB_FICHA.resumo}</> : <><Stethoscope size={16} /> Resumo clínico</>}
       </h3>
       <dl className="space-y-2 text-sm">
         {/* Dentista principal — editável inline */}
         <div className="flex items-start justify-between gap-3">
-          <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-1.5">Dentista principal</dt>
+          <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-1.5">{lab ? LAB_FICHA.proteticoResponsavel : 'Dentista principal'}</dt>
           <dd className="text-sm text-foreground text-right break-words flex-1 flex items-center justify-end gap-1">
             {editingDentist ? (
               <div className="flex items-center gap-1 w-full max-w-xs">
@@ -1450,7 +1480,9 @@ function ResumoClinicoCard({
                   autoFocus
                 >
                   <option value="">Nenhum</option>
-                  {users.map((u) => <option key={u.id} value={u.id}>Dr(a). {u.name}</option>)}
+                  {users.map((u) => (lab
+                    ? <option key={u.id} value={u.id}>{u.name}</option>
+                    : <option key={u.id} value={u.id}>Dr(a). {u.name}</option>))}
                 </select>
                 <button onClick={saveDentist} disabled={saving} className="p-1 text-primary hover:bg-primary/10 rounded">
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
@@ -1462,7 +1494,7 @@ function ResumoClinicoCard({
             ) : (
               <>
                 <span className={patient.primary_dentist?.name ? '' : 'text-muted-foreground'}>
-                  {patient.primary_dentist?.name ? `Dr(a). ${patient.primary_dentist.name}` : '—'}
+                  {patient.primary_dentist?.name ? (lab ? patient.primary_dentist.name : `Dr(a). ${patient.primary_dentist.name}`) : '—'}
                 </span>
                 {/* Pencil escondido pra nao-ADMIN — alocacao de dentista
                     eh decisao administrativa, mexe via PATCH /patients/:id
@@ -1477,10 +1509,11 @@ function ResumoClinicoCard({
           </dd>
         </div>
 
-        <Field label="Primeira visita" value={patient.first_visit_at?.slice(0, 10)} />
-        <Field label="Última visita" value={patient.last_visit_at?.slice(0, 10)} />
+        {!lab && <Field label="Primeira visita" value={patient.first_visit_at?.slice(0, 10)} />}
+        {!lab && <Field label="Última visita" value={patient.last_visit_at?.slice(0, 10)} />}
 
         {/* Queixa principal — editável inline */}
+        {!lab && (
         <div className="flex items-start justify-between gap-3">
           <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-1.5">Queixa principal</dt>
           <dd className="text-sm text-foreground text-right break-words flex-1 flex items-start justify-end gap-1">
@@ -1518,8 +1551,10 @@ function ResumoClinicoCard({
             )}
           </dd>
         </div>
+        )}
 
         {/* Consultas — click abre aba Histórico já filtrada por consultas/procedimentos/retornos */}
+        {!lab && (
         <ClickableCounter
           label="Consultas"
           value={patient._count?.appointments ?? 0}
@@ -1527,7 +1562,10 @@ function ResumoClinicoCard({
           tooltip="Ver no Histórico"
           onClick={() => onGoToHistory(new Set(['appointment', 'procedure', 'return']))}
         />
-        {/* Orçamentos — click abre aba Propostas (aba Orçamentos foi removida em 17.32.23) */}
+        )}
+        {/* Orçamentos — click abre aba Propostas (aba Orçamentos foi removida em 17.32.23).
+            Laboratório: só quando a aba Propostas abrir para ele. */}
+        {(!lab || abasProntasNoLab().includes('proposals')) && (
         <ClickableCounter
           label="Orçamentos"
           value={patient._count?.quotes ?? 0}
@@ -1535,16 +1573,17 @@ function ResumoClinicoCard({
           tooltip="Ver nas Propostas"
           onClick={onGoToQuotes}
         />
-        {patient.referred_by_patient && (
+        )}
+        {!lab && patient.referred_by_patient && (
           <Field
             label="Indicado por"
             value={`${patient.referred_by_patient.name || 'Sem nome'} (${patient.referred_by_patient.phone ? formatPhone(patient.referred_by_patient.phone) : 'sem telefone'})`}
           />
         )}
-        {!patient.referred_by_patient && patient.referred_by && (
+        {!lab && !patient.referred_by_patient && patient.referred_by && (
           <Field label="Indicado por" value={patient.referred_by} />
         )}
-        {patient._count && patient._count.referrals > 0 && (
+        {!lab && patient._count && patient._count.referrals > 0 && (
           <div className="flex items-start justify-between gap-3">
             <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5">Indicações feitas</dt>
             <dd className="text-sm text-foreground text-right break-words">

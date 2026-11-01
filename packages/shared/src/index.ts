@@ -48,6 +48,7 @@ export * from './disparos-equipe';
 export * from './audio-disparo';
 // F1 do laboratório: tipo de negócio da conta (CLÍNICA × LABORATÓRIO) e quem é lab
 export * from './business-type';
+export * from './documento-br';
 // F4 do laboratório: textos do laboratório (setores, cargos e função do chip)
 export * from './lab-textos';
 export * from './lab-tenants';

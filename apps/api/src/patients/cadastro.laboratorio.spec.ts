@@ -68,11 +68,15 @@ interface Cenario {
   contato: null | { is_client: boolean; name: string };
   /** O contato já pertence a OUTRO cadastro (família divide o número). */
   deOutroCadastro: boolean;
+  /** Já existe cadastro (sem contato ligado) com o número do contato. */
+  cadastroComOMesmoNumero: boolean;
+  /** A conta já chegou no limite de cadastros do plano. */
+  planoCheio: boolean;
 }
 
 /** Banco gravador + PatientsService REAL com vizinhos falsos, num rastro só. */
 function montar(c: Partial<Cenario> = {}) {
-  const cen: Cenario = { conta: CLINICA, labs: [], contato: null, deOutroCadastro: false, ...c };
+  const cen: Cenario = { conta: CLINICA, labs: [], contato: null, deOutroCadastro: false, cadastroComOMesmoNumero: false, planoCheio: false, ...c };
   __limparCacheLabTenants();
   const efeitos: Efeito[] = [];
   const contatos: Record<string, any> = {};
@@ -87,20 +91,34 @@ function montar(c: Partial<Cenario> = {}) {
       became_client_at: cen.contato.is_client ? ANTES : null,
     };
   }
-  const cadastro: Record<string, any> = { id: CADASTRO, tenant_id: cen.conta, name: 'Dra. Ana Exemplo', phone: TELEFONE, lead_id: null };
+  const cadastro: Record<string, any> = {
+    id: CADASTRO,
+    tenant_id: cen.conta,
+    name: 'Dra. Ana Exemplo',
+    // Com o mesmo número do contato, gravado já no formato canônico (o caminho rápido da busca).
+    phone: cen.cadastroComOMesmoNumero ? TELEFONE_CANONICO : TELEFONE,
+    lead_id: null,
+  };
   const casa = (l: any, w: any) =>
     (w.id === undefined || l.id === w.id) &&
     (w.tenant_id === undefined || l.tenant_id === w.tenant_id) &&
     (w.is_client === undefined || l.is_client === w.is_client);
   const respostas: Record<string, (a: any) => any> = {
     'tenant.findUnique': () => ({ plan: null }),
-    'patient.count': () => 0,
+    // Sem plano = STARTER (300 cadastros).
+    'patient.count': () => (cen.planoCheio ? 300 : 0),
     'patient.create': (a) => {
       Object.assign(cadastro, a.data);
       return { ...cadastro };
     },
     'patient.findUnique': (a) => (a.where.id === CADASTRO ? { ...cadastro } : null),
-    'patient.findFirst': (a) => (cen.deOutroCadastro && a.where.lead_id === CONTATO ? { id: 'cadastro-da-familia' } : null),
+    'patient.findFirst': (a) => {
+      if (cen.deOutroCadastro && a.where.lead_id === CONTATO) return { id: 'cadastro-da-familia' };
+      if (cen.cadastroComOMesmoNumero && a.where.phone?.in?.includes(cadastro.phone)) {
+        return { id: CADASTRO, phone: cadastro.phone, lead_id: cadastro.lead_id };
+      }
+      return null;
+    },
     'patient.update': (a) => {
       Object.assign(cadastro, a.data);
       return { ...cadastro };
@@ -322,6 +340,81 @@ describe('cadastro feito a partir de um contato (lead_id no corpo)', () => {
       'prisma.lead.findUnique',
       'prisma.patient.create',
     ]);
+    expect(sem.contatos[CONTATO].is_client).toBe(false);
+  });
+});
+
+describe('"Tornar cliente" — cadastro a partir do contato (convertFromLeadDoLaboratorio)', () => {
+  it('laboratório: cria o cadastro com os dados do contato e marca o contato como cliente', async () => {
+    const m = montar({ conta: LAB, labs: [LAB], contato: { is_client: false, name: 'Dra. Bia Exemplo' } });
+    const r: any = await m.svc.convertFromLeadDoLaboratorio(CONTATO, LAB);
+
+    expect(m.de('prisma.patient.create')).toEqual([
+      {
+        data: { tenant_id: LAB, lead_id: CONTATO, name: 'Dra. Bia Exemplo', phone: TELEFONE_CANONICO, email: null, referred_by: null },
+      },
+    ]);
+    expect(r).toMatchObject({ tenant_id: LAB, lead_id: CONTATO, name: 'Dra. Bia Exemplo' });
+    expect(m.de('prisma.lead.updateMany')).toEqual([
+      { where: { id: CONTATO, tenant_id: LAB, is_client: false }, data: { is_client: true, became_client_at: AGORA } },
+    ]);
+    expect(m.contatos[CONTATO]).toMatchObject({ is_client: true, became_client_at: AGORA, stage: 'NOVO' });
+    nadaDeClinica(m);
+    expect(registrou('log', '[LAB-GATE] cliente-do-cadastro')).toBe(true);
+    expect(avisos()).toEqual([]);
+  });
+
+  it('laboratório: contato sem nome — o cadastro nasce como "Cliente sem nome"', async () => {
+    const m = montar({ conta: LAB, labs: [LAB], contato: { is_client: false, name: '' } });
+    await m.svc.convertFromLeadDoLaboratorio(CONTATO, LAB);
+    expect(m.de('prisma.patient.create')[0].data.name).toBe('Cliente sem nome');
+  });
+
+  it('laboratório com o plano cheio: recusa ANTES de gravar (sem cadastro e sem marcar o contato)', async () => {
+    const m = montar({ conta: LAB, labs: [LAB], contato: { is_client: false, name: 'Dra. Bia Exemplo' }, planoCheio: true });
+    const e: any = await m.svc.convertFromLeadDoLaboratorio(CONTATO, LAB).catch((x) => x);
+
+    expect(e?.message).toBe('Limite do plano null atingido pra pacientes (300/300). Atualize o plano pra continuar.');
+    expect(m.de('prisma.patient.create')).toEqual([]);
+    expect(m.de('prisma.lead.updateMany')).toEqual([]);
+    expect(m.contatos[CONTATO].is_client).toBe(false);
+  });
+
+  it('laboratório: o número do contato casa com um cadastro que já existe — vincula, não duplica e marca cliente', async () => {
+    const m = montar({ conta: LAB, labs: [LAB], contato: { is_client: false, name: 'Ana (WhatsApp)' }, cadastroComOMesmoNumero: true });
+    const r: any = await m.svc.convertFromLeadDoLaboratorio(CONTATO, LAB);
+
+    expect(r.id).toBe(CADASTRO);
+    expect(m.cadastro.lead_id).toBe(CONTATO);
+    expect(m.de('prisma.patient.create')).toEqual([]);
+    expect(m.de('prisma.patient.update')).toEqual([{ where: { id: CADASTRO }, data: { lead_id: CONTATO } }]);
+    expect(m.contatos[CONTATO]).toMatchObject({ is_client: true, became_client_at: AGORA });
+    nadaDeClinica(m);
+  });
+
+  it('contato de OUTRA conta: 403 e nada gravado', async () => {
+    const m = montar({ conta: OUTRO_LAB, labs: [LAB, OUTRO_LAB], contato: { is_client: false, name: 'Dra. Bia Exemplo' } });
+    const e: any = await m.svc.convertFromLeadDoLaboratorio(CONTATO, LAB).catch((x) => x);
+    expect(e?.status).toBe(403);
+    expect(m.nomes().filter((n) => !/\.(findUnique|findFirst|findMany|count)$/.test(n))).toEqual([]);
+  });
+
+  it('clínica (convertFromLead): as mesmas chamadas com e sem laboratório, e o contato segue lead', async () => {
+    const { sem } = await clinicaIgual({ contato: { is_client: false, name: 'Dra. Bia Exemplo' } }, (m) =>
+      m.svc.convertFromLead(CONTATO, CLINICA),
+    );
+    expect(sem.nomes()).toEqual([
+      'prisma.lead.findUnique',
+      'prisma.patient.findUnique',
+      'prisma.patient.findFirst',
+      'prisma.patient.findMany',
+      'prisma.tenant.findUnique',
+      'prisma.patient.count',
+      'prisma.patient.create',
+      'prisma.calendarEvent.updateMany',
+      'prisma.calendarEvent.findMany',
+    ]);
+    expect(sem.de('prisma.patient.create')[0].data.name).toBe('Dra. Bia Exemplo');
     expect(sem.contatos[CONTATO].is_client).toBe(false);
   });
 });

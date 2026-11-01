@@ -271,6 +271,56 @@ describe('LabVocabInterceptor — moldes', () => {
   });
 });
 
+describe('F5 — mensagens do cadastro do cliente, da venda e do Validar', () => {
+  const UUID = '0b7c1d5e-3f9a-4c2b-8e6d-1a2b3c4d5e6f';
+
+  it.each<[string, string]>([
+    ['Paciente sem telefone. Edite o paciente e adicione o telefone antes de gerar cobranca.', 'Cliente sem telefone. Edite o cliente e adicione o telefone antes de gerar a cobrança.'],
+    [
+      'Este telefone já pertence a outro contato/paciente. Dois pacientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste paciente antes de gerar a cobrança.',
+      'Este telefone já pertence a outro contato/cliente. Dois clientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste cliente antes de gerar a cobrança.',
+    ],
+    [
+      'Paciente sem CPF cadastrado. Edite o paciente e adicione o CPF antes de gerar cobranca.',
+      'Cliente sem CPF/CNPJ cadastrado. Edite o cliente e adicione o CPF ou o CNPJ antes de gerar a cobrança.',
+    ],
+    ['Ja existe um paciente com este CPF neste tenant', 'Já existe um cliente com este CPF/CNPJ neste laboratório'],
+    ['Outro paciente ja usa este CPF', 'Outro cliente já usa este CPF/CNPJ'],
+    ['Plano cancelado — não pode ser validado', 'Trabalho cancelado — não pode ser validado'],
+    ['Especialidade nao encontrada', 'Grupo de serviço não encontrado'],
+    [`Procedimento ${UUID} nao encontrado`, `Serviço ${UUID} não encontrado`],
+    [
+      'Limite do plano STARTER atingido pra pacientes (50/50). Atualize o plano pra continuar.',
+      'Limite do plano STARTER atingido pra clientes (50/50). Atualize o plano pra continuar.',
+    ],
+  ])('laboratório: %j vira o texto do laboratório', (clinica, lab) => {
+    expect(trocarTexto(clinica)).toBe(lab);
+  });
+
+  it('os moldes novos só trocam a mensagem inteira (o "Procedimento nao encontrado" fixo segue o mapa exato)', () => {
+    expect(trocarTexto('Procedimento nao encontrado')).toBe('Serviço não encontrado');
+    const outroLimite = 'Limite do plano STARTER atingido pra usuarios (5/5). Atualize o plano pra continuar.';
+    expect(trocarTexto(outroLimite)).toBe(outroLimite);
+  });
+
+  it('clínica: o limite do plano chega com a MESMA referência (o interceptor sai na 1ª linha)', async () => {
+    const interceptor = new LabVocabInterceptor();
+    const original = new BadRequestException('Limite do plano STARTER atingido pra pacientes (50/50). Atualize o plano pra continuar.');
+    const obs = throwError(() => original);
+    const saida = interceptor.intercept(contexto({ id: 'u1', tenant_id: 't1' }), { handle: () => obs });
+    expect(saida).toBe(obs);
+    expect(await pegarErro(saida)).toBe(original);
+  });
+
+  it('laboratório pelo interceptor: o 400 do limite do plano troca de texto e mantém o status', async () => {
+    const interceptor = new LabVocabInterceptor();
+    const original = new BadRequestException('Limite do plano STARTER atingido pra pacientes (50/50). Atualize o plano pra continuar.');
+    const e = (await pegarErro(interceptor.intercept(contexto(LAB), { handle: () => throwError(() => original) }))) as HttpException;
+    expect(e.getStatus()).toBe(400);
+    expect((e.getResponse() as any).message).toBe('Limite do plano STARTER atingido pra clientes (50/50). Atualize o plano pra continuar.');
+  });
+});
+
 describe('LabVocabInterceptor — o erro trocado no AllExceptionsFilter', () => {
   function rodarFiltro(e: unknown) {
     const json = jest.fn();

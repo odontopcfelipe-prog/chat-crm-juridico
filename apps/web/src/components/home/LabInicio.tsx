@@ -17,7 +17,10 @@
  */
 import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Clock, LayoutGrid, MessageSquare, Settings, Wallet, type LucideIcon } from 'lucide-react';
+import {
+  ArrowRight, Clock, LayoutGrid, MessageSquare, Receipt, ReceiptText, Settings, UserCog, Users, Wallet, Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   BT_LABORATORIO,
   LAB_SECTOR_TEXT,
@@ -36,7 +39,7 @@ import { usePontoStatus } from '@/lib/usePontoStatus';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { LAB_BALOES, LAB_INICIO } from '@/lib/lab-casca-textos';
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
-import { ChatArt, ClockArt, GearArt, MoneyArt } from './dentist-illustrations';
+import { BoletoArt, ChatArt, ClockArt, GearArt, MoneyArt, PatientCardsArt } from './dentist-illustrations';
 import './dentist-home.css';
 
 interface Props {
@@ -52,17 +55,35 @@ interface Props {
 
 type ChaveBalao = keyof typeof LAB_BALOES;
 
-/** Tela liberada para o laboratório → texto do atalho. Atalho sem texto aqui não aparece. */
+/**
+ * Tela do laboratório → texto do atalho. Atalho sem texto aqui não aparece.
+ * Ter a rota aqui não abre nada: o atalho só aparece quando a rota está na lista
+ * de rotas do laboratório (filtro canAccessRouteBt abaixo).
+ */
 const BALAO_DA_ROTA: Readonly<Record<string, ChaveBalao>> = Object.freeze({
   '/atendimento': 'whatsapp',
   '/atendimento/caixa': 'caixa',
   '/atendimento/settings': 'configuracoes',
   '/atendimento/ponto': 'ponto',
   '/atendimento/ponto/equipe': 'pontoEquipe',
+  '/atendimento/pacientes': 'dentistas',
+  '/atendimento/venda-rapida': 'vendaRapida',
+  '/atendimento/financeiro/contas-a-pagar': 'financeiro',
+  '/atendimento/financeiro/boletos': 'cobrancas',
+  '/atendimento/settings/users': 'equipe',
 });
 
 /** Ícone pelo nome do lucide do balão (HomeAction.lucide). */
-const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({ MessageSquare, Wallet, Settings, Clock });
+const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({
+  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog,
+});
+
+/**
+ * Ícone fixo pela chave do atalho (vale mais que o do balão). O da lista de
+ * dentistas é sempre Users: no setor Comercial o balão que leva à lista é o dos
+ * aniversariantes (Cake).
+ */
+const ICONE_DA_CHAVE: Readonly<Partial<Record<ChaveBalao, LucideIcon>>> = Object.freeze({ dentistas: Users });
 
 /** Ilustração de cada atalho (as mesmas do painel, sem as de clínica). */
 const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
@@ -71,6 +92,11 @@ const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
   configuracoes: GearArt,
   ponto: ClockArt,
   pontoEquipe: ClockArt,
+  dentistas: PatientCardsArt,
+  vendaRapida: MoneyArt,
+  financeiro: MoneyArt,
+  cobrancas: BoletoArt,
+  equipe: PatientCardsArt,
 });
 
 function saudacao(hora: number): string {
@@ -186,7 +212,7 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
         {atalhos.length > 0 ? (
           <div className="dh-cards" style={{ '--dh-cols': colunas } as CSSProperties}>
             {atalhos.map(({ href, chave, lucide }) => {
-              const Icone = (lucide && ICONES[lucide]) || LayoutGrid;
+              const Icone = ICONE_DA_CHAVE[chave] || (lucide && ICONES[lucide]) || LayoutGrid;
               const Arte = ARTE[chave];
               const texto = LAB_BALOES[chave];
               return (

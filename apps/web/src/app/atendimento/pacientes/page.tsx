@@ -12,6 +12,9 @@ import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import BirthdaysCard from './components/BirthdaysCard';
+import { formatCpfCnpj, isLab, tipoDoDocumento } from '@crm/shared';
+import { btAgora, useBusinessType } from '@/lib/useBusinessType';
+import { LAB_CADASTRO, LAB_LISTA } from './lab-dentistas-textos';
 
 interface Patient {
   id: string;
@@ -98,6 +101,10 @@ function PacientesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = useRole();
+  // F5 do laboratório — a lista vira "Dentistas" (os clientes do laboratório): sem
+  // aniversariantes, 1ª consulta, filtros de revisão e de anamnese e sem os selos de
+  // vínculo; textos de laboratório. Na clínica nada muda.
+  const lab = isLab(useBusinessType());
   // Out/2026 — Dentista: só os pacientes DELE (a API já filtra) e sem contato
   // (sem telefone/e-mail na lista, na busca e sem exportar CSV).
   const { hasPermission } = useUserPermissions();
@@ -140,6 +147,9 @@ function PacientesPageInner() {
   // Out/2026 — 1ª consulta agendada (ainda lead, sem ficha) do dentista.
   const [firstVisits, setFirstVisits] = useState<FirstVisit[]>([]);
   useEffect(() => {
+    // Laboratório: 1ª consulta é só da clínica (a API nega). btAgora() e não o `lab` do
+    // render: na hidratação este efeito roda quando o hook ainda diz clínica.
+    if (isLab(btAgora())) { setFirstVisits([]); return; }
     if (!ownPatientsOnly && !dentistFilter) { setFirstVisits([]); return; }
     const q = ownPatientsOnly ? '' : `?dentistId=${encodeURIComponent(dentistFilter)}`;
     api.get<FirstVisit[]>(`/patients/first-visits${q}`)
@@ -192,11 +202,11 @@ function PacientesPageInner() {
       setStats(statsRes.data);
     } catch (err: any) {
       if (seq !== loadSeqRef.current) return;
-      showError(err?.response?.data?.message || 'Erro ao carregar pacientes');
+      showError(err?.response?.data?.message || (lab ? LAB_LISTA.erroCarregar : 'Erro ao carregar pacientes'));
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, dentistFilter, page]);
+  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, dentistFilter, page, lab]);
 
   // Puxa as fotos do WhatsApp pros pacientes SEM foto salva. Roda em lotes (o
   // backend busca 1 foto fresca por paciente com pausa anti-ban), até acabar.
@@ -260,7 +270,7 @@ function PacientesPageInner() {
       params.set('limit', '500');
       const { data } = await api.get<PatientList>(`/patients?${params.toString()}`);
       // Gera CSV in-browser (evita endpoint dedicado pra MVP)
-      const headers = ['Nome', 'CPF', 'Telefone', 'Email', 'Status', 'Dentista', 'Tags'];
+      const headers = lab ? [...LAB_LISTA.csvCabecalhos] : ['Nome', 'CPF', 'Telefone', 'Email', 'Status', 'Dentista', 'Tags'];
       const rows = data.data.map((p: any) => [
         p.name || '',
         p.cpf || '',
@@ -279,7 +289,9 @@ function PacientesPageInner() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `pacientes-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = lab
+        ? LAB_LISTA.csvArquivo(new Date().toISOString().slice(0, 10))
+        : `pacientes-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -312,9 +324,11 @@ function PacientesPageInner() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{ownPatientsOnly ? 'Meus pacientes' : 'Pacientes'}</h1>
+          <h1 className="text-2xl font-bold text-foreground">{lab ? (ownPatientsOnly ? LAB_LISTA.tituloProprio : LAB_LISTA.titulo) : (ownPatientsOnly ? 'Meus pacientes' : 'Pacientes')}</h1>
           <p className="text-sm text-muted-foreground">
-            {ownPatientsOnly
+            {lab
+              ? (ownPatientsOnly ? LAB_LISTA.subtituloProprio : LAB_LISTA.subtitulo)
+              : ownPatientsOnly
               ? 'Pacientes com consulta com você, que você atende como responsável ou com procedimento seu no plano'
               : 'Cadastro e ficha clínica dos pacientes da clínica'}
           </p>
@@ -324,6 +338,8 @@ function PacientesPageInner() {
             o botao "Atender" da ficha (ensure-patient idempotente). */}
         {role.canCreatePatient && (
           <div className="flex items-center gap-2">
+            {/* Laboratório: sem "Puxar fotos" (o cron das fotos já cuida sozinho). */}
+            {!lab && (
             <button
               onClick={handleBackfillPhotos}
               disabled={backfillRunning}
@@ -335,22 +351,23 @@ function PacientesPageInner() {
                 : <ImageDown size={16} />}
               {backfillMsg || 'Puxar fotos do WhatsApp'}
             </button>
+            )}
             <button
               onClick={() => setShowModal(true)}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
             >
-              <Plus size={16} /> Novo paciente
+              {lab ? <><Plus size={16} /> {LAB_LISTA.novoCliente}</> : <><Plus size={16} /> Novo paciente</>}
             </button>
           </div>
         )}
       </div>
 
       {/* Aniversariantes (auto-esconde se nao tem ninguem hoje) */}
-      <BirthdaysCard />
+      {!lab && <BirthdaysCard />}
 
       {/* Out/2026 — 1ª consulta agendada: ainda é lead (sem ficha); vira paciente ao
           comparecer/pagar. Do dentista logado ou do dentista filtrado. */}
-      {firstVisits.length > 0 && (
+      {!lab && firstVisits.length > 0 && (
         <div className="mb-4 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
           <p className="text-sm font-semibold text-foreground mb-2">
             📅 1ª consulta agendada <span className="font-normal text-muted-foreground">· {firstVisits.length} {firstVisits.length === 1 ? 'pessoa' : 'pessoas'} (ainda sem ficha — vira paciente ao comparecer)</span>
@@ -381,11 +398,11 @@ function PacientesPageInner() {
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground', hint: 'Todos os pacientes cadastrados' },
-          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600', hint: 'Com atendimento nos últimos 12 meses' },
-          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600', hint: 'Mais de 12 meses sem atendimento' },
+          { label: 'Total', value: stats.total, cls: 'text-foreground', hint: lab ? LAB_LISTA.cards.total : 'Todos os pacientes cadastrados' },
+          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600', hint: lab ? LAB_LISTA.cards.ativos : 'Com atendimento nos últimos 12 meses' },
+          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600', hint: lab ? LAB_LISTA.cards.inativos : 'Mais de 12 meses sem atendimento' },
           { label: 'Arquivados', value: stats.archived, cls: 'text-muted-foreground', hint: 'Arquivados manualmente' },
-          { label: 'Em tratamento', value: stats.with_active_plan, cls: 'text-primary', hint: 'Com plano de tratamento ativo' },
+          { label: lab ? LAB_LISTA.cards.emAndamento : 'Em tratamento', value: stats.with_active_plan, cls: 'text-primary', hint: lab ? LAB_LISTA.cards.emAndamentoDica : 'Com plano de tratamento ativo' },
         ].map((s) => (
           <div key={s.label} title={s.hint} className="bg-card border border-border rounded-xl p-4">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{s.label}</p>
@@ -405,7 +422,9 @@ function PacientesPageInner() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={canSeeContact
+            placeholder={lab
+              ? (canSeeContact ? LAB_LISTA.busca : LAB_LISTA.buscaSemContato)
+              : canSeeContact
               ? 'Buscar por nome, ficha, CPF, telefone, email ou etiqueta...'
               : 'Buscar por nome, ficha, CPF ou etiqueta...'}
             className="w-full pl-10 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -427,9 +446,9 @@ function PacientesPageInner() {
             value={dentistFilter}
             onChange={(e) => { setDentistFilter(e.target.value); setPage(1); }}
             className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            title="Pacientes de um dentista (agenda, avaliação, venda rápida, plano...)"
+            title={lab ? LAB_LISTA.filtroProtetico : 'Pacientes de um dentista (agenda, avaliação, venda rápida, plano...)'}
           >
-            <option value="">Todos os dentistas</option>
+            <option value="">{lab ? LAB_LISTA.todosProteticos : 'Todos os dentistas'}</option>
             {dentistOpts.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
@@ -477,6 +496,8 @@ function PacientesPageInner() {
       {showAdvanced && (
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Laboratório: sem revisão e sem anamnese (filtros só da clínica). */}
+            {!lab && (
             <div>
               <label className="block text-xs font-medium mb-1">Sem revisão há</label>
               <select
@@ -491,6 +512,7 @@ function PacientesPageInner() {
                 <option value="24">24 meses ou mais</option>
               </select>
             </div>
+            )}
             <div className="flex items-end">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -499,9 +521,10 @@ function PacientesPageInner() {
                   onChange={(e) => setWithActivePlan(e.target.checked)}
                   className="w-4 h-4 rounded border-border"
                 />
-                Apenas com plano ativo
+                {lab ? LAB_LISTA.apenasComTrabalho : 'Apenas com plano ativo'}
               </label>
             </div>
+            {!lab && (
             <div className="flex items-end">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -513,6 +536,7 @@ function PacientesPageInner() {
                 Sem anamnese preenchida
               </label>
             </div>
+            )}
           </div>
           {hasAdvancedActive && (
             <div className="flex justify-end">
@@ -540,9 +564,11 @@ function PacientesPageInner() {
         ) : list.data.length === 0 ? (
           <div className="py-16 text-center">
             <User size={40} className="mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">Nenhum paciente encontrado.</p>
+            <p className="text-muted-foreground">{lab ? LAB_LISTA.vazio : 'Nenhum paciente encontrado.'}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {search ? 'Ajuste os filtros ou cadastre um novo paciente.' : 'Cadastre o primeiro paciente para começar.'}
+              {lab
+                ? (search ? LAB_LISTA.vazioComBusca : LAB_LISTA.vazioSemBusca)
+                : search ? 'Ajuste os filtros ou cadastre um novo paciente.' : 'Cadastre o primeiro paciente para começar.'}
             </p>
           </div>
         ) : (
@@ -552,6 +578,8 @@ function PacientesPageInner() {
               // atendimento) que a API manda; cai pro status salvo se faltar.
               const activity = p.activity_status ?? p.status;
               const StatusIcon = STATUS_BADGE[activity].icon;
+              // Laboratório: o tipo do cliente sai do documento (sem documento = dentista).
+              const tipoCliente = lab ? tipoDoDocumento(p.cpf) : null;
               return (
                 <li
                   key={p.id}
@@ -583,7 +611,7 @@ function PacientesPageInner() {
                       </div>
                     )}
                     {/* Out/2026 — por que é deste dentista + de onde veio. */}
-                    {((p.dentist_links && p.dentist_links.length > 0) || p.origem) && (
+                    {!lab && ((p.dentist_links && p.dentist_links.length > 0) || p.origem) && (
                       <div className="flex items-center gap-1 flex-wrap mt-1">
                         {(p.dentist_links ?? []).map((l) => (
                           <span key={l.key} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${LINK_TONE[l.tone]}`}>
@@ -598,18 +626,29 @@ function PacientesPageInner() {
                       </div>
                     )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                      {lab && (
+                        <span className="font-semibold px-1.5 py-0.5 rounded border border-border bg-muted text-foreground">
+                          {LAB_CADASTRO.tipos[tipoCliente ?? 'DENTISTA']}
+                        </span>
+                      )}
                       {/* Onda 17.32.184 — ficha visivel na listagem */}
                       {(p as any).record_number && <span className="font-semibold text-primary">Ficha {(p as any).record_number}</span>}
                       {canSeeContact && p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
-                      {p.cpf && <span>CPF: {formatCPF(p.cpf)}</span>}
-                      {p.primary_dentist && <span>Dentista: {p.primary_dentist.name}</span>}
+                      {p.cpf && (lab
+                        ? <span>{tipoCliente ? LAB_LISTA.documento[tipoCliente] : LAB_LISTA.documentoSemTipo}: {formatCpfCnpj(p.cpf)}</span>
+                        : <span>CPF: {formatCPF(p.cpf)}</span>)}
+                      {p.primary_dentist && (lab
+                        ? <span>{LAB_LISTA.protetico}: {p.primary_dentist.name}</span>
+                        : <span>Dentista: {p.primary_dentist.name}</span>)}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     {p._count && (p._count.treatment_plans > 0 || p._count.anamneses > 0) && (
                       <div className="text-xs text-muted-foreground hidden md:block">
-                        {p._count.treatment_plans > 0 && <span className="mr-2">{p._count.treatment_plans} plano(s)</span>}
-                        {p._count.anamneses > 0 && <span>{p._count.anamneses} anamnese(s)</span>}
+                        {p._count.treatment_plans > 0 && (lab
+                          ? <span className="mr-2">{LAB_LISTA.trabalhos(p._count.treatment_plans)}</span>
+                          : <span className="mr-2">{p._count.treatment_plans} plano(s)</span>)}
+                        {!lab && p._count.anamneses > 0 && <span>{p._count.anamneses} anamnese(s)</span>}
                       </div>
                     )}
                     <span
@@ -627,9 +666,15 @@ function PacientesPageInner() {
 
       {list.total > 0 && (
         <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+          {lab ? (
+            <p className="text-xs text-muted-foreground">
+              {LAB_LISTA.mostrando((list.page - 1) * 50 + 1, (list.page - 1) * 50 + list.data.length, list.total)}
+            </p>
+          ) : (
           <p className="text-xs text-muted-foreground">
             Mostrando {(list.page - 1) * 50 + 1}–{(list.page - 1) * 50 + list.data.length} de {list.total} pacientes
           </p>
+          )}
           {list.totalPages > 1 && (
             <div className="flex items-center gap-2">
               <button
