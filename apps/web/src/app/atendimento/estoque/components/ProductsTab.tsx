@@ -18,6 +18,7 @@ interface Product {
   current_stock: string;
   min_stock: string | null;
   cost_price: string | null;
+  sale_price: string | null;
   is_injectable: boolean;
   requires_lot_tracking: boolean;
   anvisa_registration: string | null;
@@ -70,6 +71,10 @@ async function uploadProductPhoto(productId: string, file: File) {
   await api.post(`/products/${productId}/photo`, fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+}
+
+function fmtBRL(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function errMsg(err: any, fallback: string): string {
@@ -225,7 +230,8 @@ export default function ProductsTab() {
                 <th className="px-3 py-2 text-right">Estoque</th>
                 <th className="px-3 py-2">Lote ANVISA</th>
                 <th className="px-3 py-2">Fornecedor</th>
-                <th className="px-3 py-2 text-right">Custo</th>
+                <th className="px-3 py-2 text-right">Compra</th>
+                <th className="px-3 py-2 text-right">Venda</th>
                 <th className="px-3 py-2 w-10"><span className="sr-only">Editar</span></th>
               </tr>
             </thead>
@@ -292,8 +298,11 @@ export default function ProductsTab() {
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {p.supplier?.name || '—'}
                     </td>
-                    <td className="px-3 py-2 text-right text-xs font-mono">
-                      {p.cost_price ? `R$ ${Number(p.cost_price).toFixed(2)}` : '—'}
+                    <td className="px-3 py-2 text-right text-xs font-mono whitespace-nowrap">
+                      {p.cost_price ? fmtBRL(Number(p.cost_price)) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs font-mono whitespace-nowrap">
+                      {p.sale_price ? fmtBRL(Number(p.sale_price)) : '—'}
                     </td>
                     <td className="px-2 py-2 text-right">
                       <button
@@ -653,6 +662,8 @@ function ProductFormModal({
   const [requiresLot, setRequiresLot] = useState(product?.requires_lot_tracking ?? false);
   const [minStock, setMinStock] = useState(decimalParaCampo(product?.min_stock));
   const [costPrice, setCostPrice] = useState(decimalParaCampo(product?.cost_price));
+  const [salePrice, setSalePrice] = useState(decimalParaCampo(product?.sale_price));
+  const lucro = (parseFloat(salePrice) || 0) - (parseFloat(costPrice) || 0);
   const [supplierId, setSupplierId] = useState(product?.supplier?.id ?? '');
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -738,6 +749,7 @@ function ProductFormModal({
           requires_lot_tracking: requiresLot,
           min_stock: minStock !== '' ? parseFloat(minStock) : null,
           cost_price: costPrice !== '' ? parseFloat(costPrice) : null,
+          sale_price: salePrice !== '' ? parseFloat(salePrice) : null,
           supplier_id: supplierId || null,
         });
         productId = product.id;
@@ -753,6 +765,7 @@ function ProductFormModal({
           requires_lot_tracking: requiresLot,
           min_stock: minStock ? parseFloat(minStock) : undefined,
           cost_price: costPrice ? parseFloat(costPrice) : undefined,
+          sale_price: salePrice ? parseFloat(salePrice) : undefined,
           supplier_id: supplierId || undefined,
         });
         productId = data?.id;
@@ -1001,6 +1014,38 @@ function ProductFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <label className="block text-xs font-medium mb-1">Valor de compra (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+                placeholder={`Quanto paga por ${unit}`}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Valor de venda (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={salePrice}
+                onChange={(e) => setSalePrice(e.target.value)}
+                placeholder={`Quanto cobra por ${unit}`}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+          {costPrice !== '' && salePrice !== '' && (
+            <p className={`text-xs -mt-1 ${lucro < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {lucro < 0 ? 'Prejuízo' : 'Lucro'} por {unit}: <span className="font-mono font-medium">{fmtBRL(Math.abs(lucro))}</span>
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
               <label className="block text-xs font-medium mb-1">Estoque minimo</label>
               <input
                 type="number"
@@ -1008,16 +1053,6 @@ function ProductFormModal({
                 value={minStock}
                 onChange={(e) => setMinStock(e.target.value)}
                 placeholder="Alerta de reposicao"
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">Preco de custo (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={costPrice}
-                onChange={(e) => setCostPrice(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>

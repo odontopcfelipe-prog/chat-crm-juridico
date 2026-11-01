@@ -110,11 +110,22 @@ describe('UpdateProductDto — o corpo que a tela de edição manda', () => {
       requires_lot_tracking: false,
       min_stock: null,
       cost_price: 12.5,
+      sale_price: 39.9,
       supplier_id: null,
     });
     expect(dto.min_stock).toBeNull();
     expect(dto.supplier_id).toBeNull();
     expect(dto.cost_price).toBe(12.5);
+    expect(dto.sale_price).toBe(39.9);
+  });
+
+  it('valor de venda apagado vai como null e limpa', async () => {
+    const dto = await validar({ name: 'X', sale_price: null });
+    expect(dto.sale_price).toBeNull();
+  });
+
+  it('valor de venda negativo → 400', async () => {
+    await expect(validar({ name: 'X', sale_price: -1 })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('não aceita mudar o estoque atual pela edição (só por movimentação)', async () => {
