@@ -6,9 +6,9 @@
     "socket": 7,
     "globais": 13,
     "produtores": 24,
-    "controllers": 87,
-    "handlers": 953,
-    "@Public": 29
+    "controllers": 89,
+    "handlers": 960,
+    "@Public": 31
   },
   "automatismos": [
     { "tipo": "@Cron", "arquivo": "agenda-extended/retorno-disparos.service.ts", "alvo": "RetornoDisparosService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
@@ -1607,6 +1607,29 @@
         { "metodo": "TeamChatController.messages", "verbo": "GET", "path": "messages", "rota": "GET /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.send", "verbo": "POST", "path": "messages", "rota": "POST /team-chat/messages", "acesso": [] },
         { "metodo": "TeamChatController.read", "verbo": "POST", "path": "read", "rota": "POST /team-chat/read", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "tenants/cadastro-laboratorio.controller.ts",
+      "classe": "CadastroLaboratorioController",
+      "path": "signup/laboratorio",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "CadastroLaboratorioController.situacao", "verbo": "POST", "path": "situacao", "rota": "POST /signup/laboratorio/situacao", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 20, getTracker: quemEnvia } })"] },
+        { "metodo": "CadastroLaboratorioController.cadastrar", "verbo": "POST", "path": "", "rota": "POST /signup/laboratorio", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 5, getTracker: quemEnvia } })"] }
+      ]
+    },
+    {
+      "arquivo": "tenants/cadastro-laboratorio.controller.ts",
+      "classe": "CadastroLaboratorioPlataformaController",
+      "path": "plataforma/cadastro-laboratorio",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "CadastroLaboratorioPlataformaController.lerChave", "verbo": "GET", "path": "", "rota": "GET /plataforma/cadastro-laboratorio", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "CadastroLaboratorioPlataformaController.definirChave", "verbo": "PUT", "path": "", "rota": "PUT /plataforma/cadastro-laboratorio", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "CadastroLaboratorioPlataformaController.listarConvites", "verbo": "GET", "path": "convites", "rota": "GET /plataforma/cadastro-laboratorio/convites", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "CadastroLaboratorioPlataformaController.criarConvite", "verbo": "POST", "path": "convites", "rota": "POST /plataforma/cadastro-laboratorio/convites", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "CadastroLaboratorioPlataformaController.revogarConvite", "verbo": "POST", "path": "convites/:id/revogar", "rota": "POST /plataforma/cadastro-laboratorio/convites/:id/revogar", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {

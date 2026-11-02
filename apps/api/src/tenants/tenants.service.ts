@@ -27,6 +27,8 @@ export interface OpcoesDaCriacao {
   criadoPor?: string | null;
   /** Inscrição no CRO e responsável técnico do laboratório (opcionais). */
   perfil?: { lab_cro_inscricao?: string | null; rt_name?: string | null; rt_cro?: string | null };
+  /** F11: roda na mesma transação, só no laboratório; se lançar, nada fica gravado. */
+  dentroDaTransacao?: (tx: any, criado: { tenantId: string; adminUserId: string }) => Promise<void>;
 }
 
 /** O que o /admin mostra do tipo da conta. */
@@ -219,6 +221,7 @@ export class TenantsService {
       });
 
       if (ehLaboratorio) {
+        if (opts?.dentroDaTransacao) await opts.dentroDaTransacao(tx, { tenantId: tenant.id, adminUserId: adminUser.id });
         // F3 — o tipo é gravado ANTES do seed, na mesma transação: a conta nunca
         // existe como clínica. Seed de laboratório no lugar do da clínica (sem
         // anamnese nem procedimentos odontológicos) e chaves desligadas.

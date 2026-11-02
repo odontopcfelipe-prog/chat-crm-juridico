@@ -20,6 +20,8 @@ import {
   BlocoCriacaoLaboratorio, CODIGO_CRIACAO_DESLIGADA, EscolhaDoTipoDeConta, ehLaboratorio, useCriacaoLaboratorio,
   type EstadoCriacaoLaboratorio, type TipoDeConta,
 } from './CriacaoLaboratorio';
+import { BlocoCadastroAbertoLaboratorio, useCadastroAbertoLaboratorio } from './CadastroAbertoLaboratorio';
+import { LAB_CADASTRO_ABERTO_ADMIN } from '../lab-cadastro-admin-textos';
 
 interface Tenant {
   id: string;
@@ -86,6 +88,13 @@ export default function AdminTenantsPage() {
   const [seedingAll, setSeedingAll] = useState(false);
   // F3 — chave da plataforma "Criação de laboratório"
   const criacaoLab = useCriacaoLaboratorio();
+  // F11 — chave "Cadastro aberto ao público" do laboratório
+  const cadastroAberto = useCadastroAbertoLaboratorio();
+  /** Ligar a "Criação de laboratório" com o cadastro aberto já ligado pede um aviso a mais, antes do confirm da F3. */
+  const alternarCriacaoLab = (liberar: boolean) => {
+    if (liberar && cadastroAberto.estado?.aberto && !window.confirm(LAB_CADASTRO_ABERTO_ADMIN.avisoAoLigarMestra)) return;
+    void criacaoLab.alternar(liberar);
+  };
 
   const handleSeedAll = useCallback(async () => {
     const ok = window.confirm(
@@ -230,8 +239,16 @@ export default function AdminTenantsPage() {
         estado={criacaoLab.estado}
         erro={criacaoLab.erro}
         salvando={criacaoLab.salvando}
-        onAlternar={(liberar) => { void criacaoLab.alternar(liberar); }}
+        onAlternar={alternarCriacaoLab}
         onRecarregar={() => { void criacaoLab.carregar(); }}
+      />
+      <BlocoCadastroAbertoLaboratorio
+        estado={cadastroAberto.estado}
+        erro={cadastroAberto.erro}
+        salvando={cadastroAberto.salvando}
+        criacaoLiberada={criacaoLab.estado?.liberada === true}
+        onAlternar={(aberto) => { void cadastroAberto.alternar(aberto); }}
+        onRecarregar={() => { void cadastroAberto.carregar(); }}
       />
 
       {/* Mini KPIs */}
@@ -425,7 +442,7 @@ export default function AdminTenantsPage() {
             estado: criacaoLab.estado,
             erro: criacaoLab.erro,
             salvando: criacaoLab.salvando,
-            onLigar: () => { void criacaoLab.alternar(true); },
+            onLigar: () => alternarCriacaoLab(true),
             onRecarregar: () => { void criacaoLab.carregar(); },
           }}
         />

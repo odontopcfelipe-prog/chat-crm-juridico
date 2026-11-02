@@ -7,6 +7,11 @@
  * e ja inicia trial de 14 dias. Apos cadastro, faz login automatico
  * e redireciona pro /atendimento/dashboard.
  *
+ * F11 do laboratório — o caminho "Laboratório de prótese" mostra o cadastro do
+ * laboratório (CadastroLaboratorio.tsx) quando há convite válido ou o cadastro
+ * aberto está ligado; senão, a lista de espera de sempre. O texto da clínica e o
+ * POST /signup não mudam.
+ *
  * SEO: pode ser linkada de landing page externa pra captacao.
  */
 import { useState, useEffect } from 'react';
@@ -20,6 +25,11 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import {
+  useEstadoCadastroLab, modoLiberado, CadastroLaboratorio, LateralCadastroLab,
+  ConferindoConviteLab, AvisoConviteLab,
+} from './CadastroLaboratorio';
+import { LAB_CADASTRO_TOPO } from './lab-cadastro-textos';
 
 // Onda 17.32.94 — Info dos planos pra renderizar badge/CTA quando
 // o usuario chega via /cadastrar?plan=... (link da landing).
@@ -29,12 +39,22 @@ const PLAN_INFO: Record<string, { name: string; price: number; tagline: string }
   ENTERPRISE: { name: 'Enterprise', price: 150, tagline: 'Redes e franquias' },
 };
 
-// Caminho escolhido no topo do cadastro. "Laboratório de prótese" ainda não cria
-// conta: vira lista de espera (POST /lab-waitlist) até o laboratório abrir.
+// Caminho escolhido no topo do cadastro. "Laboratório de prótese" cria a conta só
+// com convite válido ou com o cadastro aberto (CadastroLaboratorio.tsx); senão
+// vira lista de espera (POST /lab-waitlist).
 export type Caminho = 'CLINICA' | 'LABORATORIO';
 
-/** O page.tsx (servidor) lê ?tipo= e passa o caminho inicial, sem piscar o outro. */
-export default function SignupPage({ caminhoInicial = 'CLINICA' }: { caminhoInicial?: Caminho }) {
+/**
+ * O page.tsx (servidor) lê ?tipo= e ?convite= e passa o caminho inicial, sem
+ * piscar o outro, e o código do convite (quem confere é a API, no navegador).
+ */
+export default function SignupPage({
+  caminhoInicial = 'CLINICA',
+  conviteInicial = null,
+}: {
+  caminhoInicial?: Caminho;
+  conviteInicial?: string | null;
+}) {
   const router = useRouter();
   const [caminho, setCaminho] = useState<Caminho>(caminhoInicial);
   // Dados clinica
@@ -68,6 +88,12 @@ export default function SignupPage({ caminhoInicial = 'CLINICA' }: { caminhoInic
 
   const planInfo = PLAN_INFO[plan] ?? PLAN_INFO.STARTER;
   const laboratorio = caminho === 'LABORATORIO';
+  // Laboratório: convite, cadastro aberto ou lista de espera. Só consulta a API
+  // com o caminho Laboratório aberto.
+  const estadoLab = useEstadoCadastroLab(laboratorio, conviteInicial);
+  const labLiberado = modoLiberado(estadoLab.modo); // 'CONVITE' | 'ABERTO' | null
+  // Enquanto o convite é conferido, nada da lista de espera aparece (topo neutro).
+  const labConferindo = laboratorio && estadoLab.conferindo;
 
   // Troca o caminho e deixa o link compartilhável (/cadastrar?tipo=laboratorio).
   const escolherCaminho = (c: Caminho) => {
@@ -159,10 +185,12 @@ export default function SignupPage({ caminhoInicial = 'CLINICA' }: { caminhoInic
 
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[11px] font-bold mb-5 backdrop-blur-sm">
               <Sparkles size={11} />
-              {laboratorio ? 'Em breve · lista de espera aberta' : '14 dias grátis · sem cartão'}
+              {laboratorio ? (labLiberado ? LAB_CADASTRO_TOPO.selo[labLiberado] : labConferindo ? LAB_CADASTRO_TOPO.conferindo : 'Em breve · lista de espera aberta') : '14 dias grátis · sem cartão'}
             </div>
 
-            {laboratorio ? (
+            {laboratorio && (labLiberado || labConferindo) ? (
+              <LateralCadastroLab />
+            ) : laboratorio ? (
               <>
                 <h1 className="text-4xl xl:text-5xl font-black leading-[1.1] mb-5 tracking-tight">
                   Seu laboratório online,{' '}
@@ -268,14 +296,27 @@ export default function SignupPage({ caminhoInicial = 'CLINICA' }: { caminhoInic
                 </Link>
                 <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
                   <Sparkles size={11} />
-                  {laboratorio ? 'Em breve · lista de espera aberta' : '14 dias grátis · sem cartão'}
+                  {laboratorio ? (labLiberado ? LAB_CADASTRO_TOPO.selo[labLiberado] : labConferindo ? LAB_CADASTRO_TOPO.conferindo : 'Em breve · lista de espera aberta') : '14 dias grátis · sem cartão'}
                 </div>
               </div>
 
-            <EscolhaDoCaminho caminho={caminho} onEscolher={escolherCaminho} />
+            <EscolhaDoCaminho caminho={caminho} onEscolher={escolherCaminho} semSeloLab={labLiberado !== null || labConferindo} />
 
             <div className="mb-7">
-              {laboratorio ? (
+              {laboratorio && labLiberado ? (
+                <>
+                  <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
+                    {LAB_CADASTRO_TOPO.titulo}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1.5">
+                    {LAB_CADASTRO_TOPO.subtitulo[labLiberado]}
+                  </p>
+                </>
+              ) : labConferindo ? (
+                <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
+                  {LAB_CADASTRO_TOPO.titulo}
+                </h2>
+              ) : laboratorio ? (
                 <>
                   <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
                     Laboratório de prótese
@@ -298,7 +339,16 @@ export default function SignupPage({ caminhoInicial = 'CLINICA' }: { caminhoInic
 
             {/* Os dois ficam montados: trocar de caminho e voltar não apaga o que foi digitado. */}
             <div hidden={!laboratorio}>
-              <ListaEsperaLaboratorio />
+              {estadoLab.conferindo ? (
+                <ConferindoConviteLab />
+              ) : labLiberado ? (
+                <CadastroLaboratorio modo={labLiberado} estado={estadoLab} />
+              ) : (
+                <>
+                  {estadoLab.aviso && <AvisoConviteLab tipo={estadoLab.aviso} />}
+                  <ListaEsperaLaboratorio />
+                </>
+              )}
             </div>
             <div hidden={laboratorio}>
             <form
@@ -492,7 +542,17 @@ const CAMINHOS: { valor: Caminho; Icon: any; titulo: string; sub: string; selo?:
   { valor: 'LABORATORIO', Icon: FlaskConical, titulo: 'Laboratório de prótese', sub: 'Dentistas clientes e trabalhos', selo: 'Em breve' },
 ];
 
-function EscolhaDoCaminho({ caminho, onEscolher }: { caminho: Caminho; onEscolher: (c: Caminho) => void }) {
+// semSeloLab: com o cadastro do laboratório liberado (convite ou aberto), o selo
+// "Em breve" do card some, sem texto novo.
+function EscolhaDoCaminho({
+  caminho,
+  onEscolher,
+  semSeloLab = false,
+}: {
+  caminho: Caminho;
+  onEscolher: (c: Caminho) => void;
+  semSeloLab?: boolean;
+}) {
   return (
     <div className="mb-6">
       <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
@@ -526,7 +586,7 @@ function EscolhaDoCaminho({ caminho, onEscolher }: { caminho: Caminho; onEscolhe
               </div>
               <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
                 {sub}
-                {selo && (
+                {selo && !(semSeloLab && valor === 'LABORATORIO') && (
                   <span className="ml-1.5 inline-block align-middle text-[9px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-1.5 py-px">
                     {selo}
                   </span>

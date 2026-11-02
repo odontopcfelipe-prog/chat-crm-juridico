@@ -189,6 +189,30 @@ model LabWaitlistEntry {
   @@index([phone])
 }
 
+/// F11 do laboratório (nov/2026) — convite para criar conta de laboratório pelo
+/// /cadastrar. É da plataforma (sem conta) e guarda só o sha256 do código: o
+/// código em si nunca é gravado. Uso único (used_at + tenant_id da conta criada).
+/// Ids em texto, sem relação: nenhuma tabela existente muda e apagar uma inscrição
+/// da lista de espera não apaga o convite. Nunca remover este model do schema —
+/// o db push do boot apagaria a tabela e os dados.
+model LabSignupInvite {
+  id                 String    @id @default(uuid())
+  /// sha256 (hex) do código do convite
+  token_hash         String    @unique
+  email              String?
+  lab_name           String?
+  waitlist_entry_id  String?
+  created_by_user_id String?
+  created_at         DateTime  @default(now())
+  expires_at         DateTime
+  used_at            DateTime?
+  tenant_id          String?
+  revoked_at         DateTime?
+
+  @@index([created_at])
+  @@index([waitlist_entry_id])
+}
+
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
 /// Os defaults (assunto/corpo/variaveis) vivem no codigo
 /// (apps/api/src/email-automation/email-events.ts); uma linha aqui

@@ -6,6 +6,9 @@ import { LabWaitlistService } from './lab-waitlist.service';
 import { CriacaoLaboratorioController } from './criacao-laboratorio.controller';
 import { CriacaoLaboratorioService } from './criacao-laboratorio.service';
 import { PadroesLaboratorioService } from './padroes-laboratorio.service';
+import { CadastroLaboratorioController, CadastroLaboratorioPlataformaController } from './cadastro-laboratorio.controller';
+import { CadastroLaboratorioService } from './cadastro-laboratorio.service';
+import { ConvitesLaboratorioService } from './convites-laboratorio.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 // Onda 17.32.106 — ORDEM IMPORTA. TenantsMeController PRECISA vir
@@ -17,8 +20,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 // estaticas (/me, /me/usage) corretamente.
 @Module({
   imports: [PrismaModule],
-  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController],
-  providers: [TenantsService, LabWaitlistService, CriacaoLaboratorioService, PadroesLaboratorioService],
+  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController, CadastroLaboratorioController, CadastroLaboratorioPlataformaController],
+  providers: [TenantsService, LabWaitlistService, CriacaoLaboratorioService, PadroesLaboratorioService, CadastroLaboratorioService, ConvitesLaboratorioService],
   exports: [TenantsService],
 })
 export class TenantsModule {}
