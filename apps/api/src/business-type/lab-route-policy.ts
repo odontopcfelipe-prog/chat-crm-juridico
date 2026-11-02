@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (378). */
+/** Handlers que a conta de laboratório alcança (386). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // BillingController — plano da própria conta
   'BillingController.getMine',
@@ -229,6 +229,15 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'InventoryController.listMovements',
   'InventoryController.getByBatch',
   'InventoryController.getExpiring',
+  // LabFichasController — fichas do laboratório (F8; a clínica leva 403 no SoLaboratorioGuard)
+  'LabFichasController.getPatientProfile',
+  'LabFichasController.putPatientProfile',
+  'LabFichasController.listPatientCases',
+  'LabFichasController.listProcedureSpecs',
+  'LabFichasController.getProcedureSpec',
+  'LabFichasController.putProcedureSpec',
+  'LabFichasController.getQuoteCase',
+  'LabFichasController.putQuoteCase',
   // LeadNotesController — notas do contato
   'LeadNotesController.findAll',
   'LeadNotesController.create',

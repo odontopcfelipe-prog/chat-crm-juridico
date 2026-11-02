@@ -220,6 +220,15 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'CommercialController.findQuote',
     'CommercialController.validatePlan',
     'CommercialController.applyFinancing',
+    // F8: ficha do cliente, casos dos orçamentos, ficha do caso, fichas dos serviços e aviso de telefone de outro cliente
+    'LabFichasController.getPatientProfile',
+    'LabFichasController.putPatientProfile',
+    'LabFichasController.listPatientCases',
+    'LabFichasController.getQuoteCase',
+    'LabFichasController.putQuoteCase',
+    'LabFichasController.listProcedureSpecs',
+    'LeadsController.checkPhone',
+    'PatientsController.findByLead',
   ],
   // contatos (contacts/page.tsx, Novo contato e o painel do contato do laboratório)
   '/atendimento/contacts': [
@@ -306,6 +315,13 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'PatientsController.uploadAvatar',
     'PatientTagsController.list',
     'PatientTagsController.create',
+    // F8: fichas dos serviços (entrega sugerida), ficha do caso da venda e ficha do cliente no Novo cliente
+    'LabFichasController.listProcedureSpecs',
+    'LabFichasController.putQuoteCase',
+    'LabFichasController.getPatientProfile',
+    'LabFichasController.putPatientProfile',
+    'LeadsController.checkPhone',
+    'PatientsController.findByLead',
   ],
   '/atendimento/settings/procedures': [
     ...CASCA,
@@ -314,6 +330,10 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'ProceduresController.update',
     'ProceduresController.remove',
     'SpecialtiesController.findAll',
+    // F8: ficha técnica do serviço
+    'LabFichasController.listProcedureSpecs',
+    'LabFichasController.getProcedureSpec',
+    'LabFichasController.putProcedureSpec',
   ],
   '/atendimento/settings/patient-tags': [
     ...CASCA,

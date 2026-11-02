@@ -34,6 +34,9 @@ import { useRole } from '@/lib/useRole';
 import { isLab } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { LAB_TRABALHOS } from '../lab-trabalhos-textos';
+// F8 do laboratório — ficha do caso de cada trabalho (só monta no laboratório; na
+// clínica o hook não faz nenhuma requisição).
+import { LabCasoDoTrabalho, STATUS_DO_TRABALHO_CONCLUIDO, useCasosDoCliente } from './LabFichaDoCaso';
 
 interface ItemRow {
   plan_id: string;
@@ -100,6 +103,7 @@ export default function TratamentoTab({ patientId }: Props) {
   const router = useRouter();
   const role = useRole();
   const lab = isLab(useBusinessType());
+  const { casos, recarregar } = useCasosDoCliente(lab, patientId);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Data | null>(null);
   const [validatingId, setValidatingId] = useState<string | null>(null);
@@ -160,7 +164,7 @@ export default function TratamentoTab({ patientId }: Props) {
   );
 
   const grouped = useMemo(() => {
-    if (!data) return [] as { plan_id: string; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; validated_by_financial_at: string | null; items: ItemRow[] }[];
+    if (!data) return [] as { plan_id: string; quote_id: string | null; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; validated_by_financial_at: string | null; items: ItemRow[] }[];
     const map = new Map<string, ItemRow[]>();
     for (const row of itens) {
       if (!map.has(row.plan_id)) map.set(row.plan_id, []);
@@ -168,6 +172,7 @@ export default function TratamentoTab({ patientId }: Props) {
     }
     return Array.from(map.entries()).map(([plan_id, items]) => ({
       plan_id,
+      quote_id: items[0].quote_id,
       quote_title: items[0].quote_title,
       quote_accepted_at: items[0].quote_accepted_at,
       plan_status: items[0].plan_status,
@@ -320,6 +325,18 @@ export default function TratamentoTab({ patientId }: Props) {
                 )}
               </div>
             </header>
+
+            {/* F8 do laboratório — ficha do caso do trabalho (achada pelo orçamento) */}
+            {lab && plan.quote_id && (
+              <LabCasoDoTrabalho
+                quoteId={plan.quote_id}
+                clienteId={patientId}
+                caso={casos[plan.quote_id] ?? null}
+                servicoIds={plan.items.map((r) => r.item.procedure_id)}
+                concluido={plan.plan_status === STATUS_DO_TRABALHO_CONCLUIDO}
+                aoSalvar={recarregar}
+              />
+            )}
 
             {/* Onda 17.72 — banner âmbar quando aguardando validação do Financeiro */}
             {locked && (

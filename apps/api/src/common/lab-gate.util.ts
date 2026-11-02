@@ -23,6 +23,18 @@ export function negarLaboratorio(oque: string): ForbiddenException {
 }
 
 /**
+ * F8 — o sentido inverso: função que só existe para laboratório (fichas do cliente,
+ * do serviço e do caso) pedida por uma conta de clínica ou por usuário sem conta.
+ * Usada pelo SoLaboratorioGuard (business-type/so-laboratorio.guard.ts).
+ */
+export function soDoLaboratorio(): ForbiddenException {
+  return new ForbiddenException({
+    message: 'Função disponível só para laboratório.',
+    code: CODIGO_VERTICAL_NEGADA,
+  });
+}
+
+/**
  * O erro é a recusa do laboratório? Para quem chama em segundo plano (ex.: o TCLE
  * disparado pelo aceite) registrar `[LAB-GATE]` em vez de um aviso de falha.
  */

@@ -17,6 +17,14 @@ import { ownPatientsWhere } from '../auth/patient-scope.js';
 import { computeDentistLinks, originLabel } from './dentist-links.js';
 import { levarContatoParaTelefoneNovo, mesmoNumero, type ContatoWhatsapp } from './contato-telefone';
 import { LAB_CADASTRO_API } from '../business-type/lab-cadastro-textos';
+import {
+  atividadeDoLaboratorioWhere,
+  buscaDoLaboratorio,
+  corteDoLaboratorio,
+  includeDoLaboratorio,
+  statusDoLaboratorio,
+  ultimosOrcamentosDoLaboratorio,
+} from './atividade-do-laboratorio';
 
 // ============================================================================
 // Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
@@ -436,6 +444,9 @@ export class PatientsService {
       // Out/2026 — usuário SEM view_patient_contact não busca por telefone/e-mail
       // (senão confirmaria o número de alguém pela busca).
       contactSearch?: boolean;
+      // F8 — conta de laboratório (pedidoDeLaboratorio): Ativo/Inativo pelo último
+      // orçamento, busca pelo perfil do cliente e o selo (atividade-do-laboratorio.ts).
+      lab?: boolean;
     } = {},
   ) {
     const page = Math.max(1, opts.page || 1);
@@ -482,10 +493,14 @@ export class PatientsService {
     // Pacientes). ACTIVE/INACTIVE derivam de last_visit_at/created_at; ARCHIVED
     // cai no status salvo. Param SEPARADO de `status` pra nao colidir com os pickers.
     const activityCutoff = inactiveCutoff();
+    // F8 — no laboratório, 90 dias sem orçamento não apagado (cálculo puro, sem leitura).
+    const corteLab = corteDoLaboratorio();
     if (opts.activity === 'ARCHIVED') {
       andFilters.push({ status: 'ARCHIVED' });
     } else if (opts.activity === 'ACTIVE' || opts.activity === 'INACTIVE') {
-      andFilters.push(activityWhere(opts.activity, activityCutoff));
+      andFilters.push(
+        opts.lab ? atividadeDoLaboratorioWhere(opts.activity, corteLab) : activityWhere(opts.activity, activityCutoff),
+      );
     }
     // Out/2026 — "pacientes da Dra. X" = a MESMA regra da carteira do dentista
     // (agenda, avaliação, venda rápida, plano, responsável, ortô), não só o
@@ -510,6 +525,8 @@ export class PatientsService {
             { record_number: { contains: opts.search, mode: 'insensitive' } },
             // Onda 17.33 — busca tambem pelo nome da etiqueta
             { tags: { some: { tag: { name: { contains: opts.search, mode: 'insensitive' } } } } },
+            // F8 — laboratório: nome fantasia, razão social e CRO, sempre no FIM do OR.
+            ...(opts.lab ? buscaDoLaboratorio(opts.search) : []),
           ],
         }
       : undefined;
@@ -522,6 +539,8 @@ export class PatientsService {
       lead: { select: { profile_picture_url: true, origin: true } },
       referred_by_patient: { select: { name: true } },
       _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
+      // F8 — laboratório: tipo, CRO e nomes do perfil do cliente (sem contato).
+      ...(opts.lab ? includeDoLaboratorio : {}),
     } satisfies Prisma.PatientInclude;
 
     let data: any[];
@@ -586,13 +605,18 @@ export class PatientsService {
     // por dentista do admin) + origem do paciente.
     const linksDentist = opts.dentistId || opts.ownerUserId || null;
     const links = linksDentist ? await computeDentistLinks(this.prisma, tenantId, linksDentist, data) : null;
+    // F8 — laboratório: último orçamento não apagado de cada linha, numa consulta só.
+    const ultimos = opts.lab ? await ultimosOrcamentosDoLaboratorio(this.prisma, data.map((p) => p.id)) : null;
     const dataWithActivity = data.map((p) => ({
       ...p,
-      activity_status: deriveActivityStatus(p, activityCutoff),
+      activity_status: ultimos
+        ? statusDoLaboratorio(p, ultimos.get(p.id), corteLab)
+        : deriveActivityStatus(p, activityCutoff),
       origem: p.referred_by_patient?.name
         ? `Indicação de ${p.referred_by_patient.name}`
         : originLabel(p.lead?.origin),
       ...(links ? { dentist_links: links[p.id] ?? [] } : {}),
+      ...(ultimos ? { ultimo_orcamento_em: ultimos.get(p.id)?.toISOString() ?? null } : {}),
     }));
 
     return { data: dataWithActivity, total, page, totalPages: Math.ceil(total / limit) };
@@ -1256,20 +1280,26 @@ export class PatientsService {
   }
 
   /** Estatisticas rapidas (para dashboard). */
-  async getStats(tenantId: string, ownerUserId?: string | null) {
+  async getStats(tenantId: string, ownerUserId?: string | null, lab = false) {
     // Onda 17.47 — Ativos/Inativos sao CALCULADOS por recencia (>12m sem
     // atendimento = Inativo); Arquivados continua sendo o status salvo.
     // active + inactive + archived = total (particao: archived vs nao-archived
     // dividido por recencia; created_at sempre existe, entao todo mundo cai em 1).
     const cutoff = inactiveCutoff();
+    // F8 — laboratório: os mesmos baldes pela regra dos 90 dias sem orçamento (um
+    // corte só para os dois baldes, senão um cadastro na divisa cairia em nenhum).
+    const corteLab = corteDoLaboratorio();
+    const balde = lab
+      ? (b: 'ACTIVE' | 'INACTIVE') => atividadeDoLaboratorioWhere(b, corteLab)
+      : (b: 'ACTIVE' | 'INACTIVE') => activityWhere(b, cutoff);
     // Out/2026 — usuário restrito conta só a carteira dele.
     const base: Prisma.PatientWhereInput = ownerUserId
       ? { tenant_id: tenantId, AND: [ownPatientsWhere(ownerUserId)] }
       : { tenant_id: tenantId };
     const [total, active, inactive, archived, withActivePlan] = await Promise.all([
       this.prisma.patient.count({ where: base }),
-      this.prisma.patient.count({ where: { ...base, ...activityWhere('ACTIVE', cutoff) } }),
-      this.prisma.patient.count({ where: { ...base, ...activityWhere('INACTIVE', cutoff) } }),
+      this.prisma.patient.count({ where: { ...base, ...balde('ACTIVE') } }),
+      this.prisma.patient.count({ where: { ...base, ...balde('INACTIVE') } }),
       this.prisma.patient.count({ where: { ...base, status: 'ARCHIVED' } }),
       this.prisma.patient.count({
         where: {

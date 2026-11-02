@@ -37,6 +37,14 @@ import NewPatientModal from '../pacientes/components/NewPatientModal';
 import { isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
+// F8 do laboratório — ficha do caso da venda (opcional), gravada depois da venda.
+import {
+  FICHA_VAZIA,
+  LabFichaDoCasoDaVenda,
+  erroDaFicha,
+  gravarFichaDaVenda,
+  type FichaDoCaso,
+} from '../pacientes/components/LabFichaDoCaso';
 
 interface Procedure {
   id: string;
@@ -239,6 +247,9 @@ export default function VendaRapidaPage() {
   }, [cart]);
 
   const [patient, setPatient] = useState<PatientOption | null>(null);
+  // F8 do laboratório — ficha do caso da venda. Fica FORA da chave da venda (saleKeyRef):
+  // mexer na ficha não vira outra venda. Na clínica o estado existe, mas nunca é lido.
+  const [fichaDoCaso, setFichaDoCaso] = useState<FichaDoCaso>(FICHA_VAZIA);
   const [patientQuery, setPatientQuery] = useState('');
   const [patientResults, setPatientResults] = useState<PatientOption[]>([]);
   const [searchingPatient, setSearchingPatient] = useState(false);
@@ -474,6 +485,12 @@ export default function VendaRapidaPage() {
       showError(lab ? LAB_VENDA_RAPIDA.erros.semResponsavel : 'Selecione o dentista responsável antes de finalizar');
       return;
     }
+    // F8 do laboratório — ficha do caso inválida (link, datas) trava antes de vender.
+    const erroNaFicha = lab ? erroDaFicha(fichaDoCaso) : null;
+    if (erroNaFicha) {
+      showError(erroNaFicha);
+      return;
+    }
     if (isSplit && !(card1.value > 0 && card1.value < total)) {
       showError('Pagamento em 2 cartões: o valor do Cartão 1 deve ser maior que zero e menor que o total.');
       return;
@@ -576,6 +593,9 @@ export default function VendaRapidaPage() {
           client_request_id: saleKeyRef.current,
         });
         if (sale?.quote_id) await baixarEstoqueDaVenda(sale.quote_id);
+        // F8 do laboratório — ficha do caso no orçamento que a venda criou (PUT upsert;
+        // falhar não desfaz a venda: só avisa).
+        if (lab && sale?.quote_id) await gravarFichaDaVenda(sale.quote_id, fichaDoCaso);
         setSuccessDialog({
           billingType,
           total: Number(sale?.total) || total,
@@ -592,6 +612,7 @@ export default function VendaRapidaPage() {
         });
         saleKeyRef.current = null;
         setCart([]);
+        if (lab) setFichaDoCaso(FICHA_VAZIA);
         showSuccess('Venda finalizada!');
         return;
       }
@@ -1053,6 +1074,16 @@ export default function VendaRapidaPage() {
               </ul>
             )}
           </div>
+
+          {/* F8 do laboratório — ficha do caso (opcional), gravada depois da venda */}
+          {lab && (
+            <LabFichaDoCasoDaVenda
+              valor={fichaDoCaso}
+              onChange={setFichaDoCaso}
+              clienteId={patient?.id}
+              servicoIds={cart.map((it) => it.procedure.id)}
+            />
+          )}
 
           {/* Forma de pagamento */}
           <div className="mb-4">

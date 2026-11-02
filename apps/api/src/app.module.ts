@@ -27,6 +27,7 @@ import { SettingsModule } from './settings/settings.module';
 import { MailModule } from './common/mail/mail.module';
 import { OpsModule } from './ops/ops.module';
 import { BusinessTypeModule } from './business-type/business-type.module';
+import { LabFichasModule } from './lab-fichas/lab-fichas.module';
 import { EmailAutomationModule } from './email-automation/email-automation.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -140,6 +141,8 @@ import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
     MailModule,
     OpsModule,
     BusinessTypeModule,
+    // F8 do laboratório — fichas do cliente, do serviço e do caso (módulo folha; a clínica leva 403)
+    LabFichasModule,
     EmailAutomationModule,
     InboxesModule,
     PipelinesModule,

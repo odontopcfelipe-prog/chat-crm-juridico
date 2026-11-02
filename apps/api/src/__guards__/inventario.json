@@ -6,8 +6,8 @@
     "socket": 7,
     "globais": 13,
     "produtores": 24,
-    "controllers": 86,
-    "handlers": 945,
+    "controllers": 87,
+    "handlers": 953,
     "@Public": 29
   },
   "automatismos": [
@@ -964,6 +964,22 @@
         { "metodo": "InventoryController.linkConsumable", "verbo": "POST", "path": "procedures/:procedureId/consumables", "rota": "POST /procedures/:procedureId/consumables", "acesso": ["@RequiresPermission('manage_inventory')"] },
         { "metodo": "InventoryController.listConsumables", "verbo": "GET", "path": "procedures/:procedureId/consumables", "rota": "GET /procedures/:procedureId/consumables", "acesso": [] },
         { "metodo": "InventoryController.unlinkConsumable", "verbo": "DELETE", "path": "procedure-consumables/:id", "rota": "DELETE /procedure-consumables/:id", "acesso": ["@RequiresPermission('manage_inventory')"] }
+      ]
+    },
+    {
+      "arquivo": "lab-fichas/lab-fichas.controller.ts",
+      "classe": "LabFichasController",
+      "path": "",
+      "acesso": ["@UseGuards(JwtAuthGuard, SoLaboratorioGuard)"],
+      "handlers": [
+        { "metodo": "LabFichasController.getPatientProfile", "verbo": "GET", "path": "patients/:patientId/lab-profile", "rota": "GET /patients/:patientId/lab-profile", "acesso": ["@RequiresPermission('view_patients')"] },
+        { "metodo": "LabFichasController.putPatientProfile", "verbo": "PUT", "path": "patients/:patientId/lab-profile", "rota": "PUT /patients/:patientId/lab-profile", "acesso": ["@RequiresPermission('edit_patients')"] },
+        { "metodo": "LabFichasController.listPatientCases", "verbo": "GET", "path": "patients/:patientId/lab-cases", "rota": "GET /patients/:patientId/lab-cases", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')"] },
+        { "metodo": "LabFichasController.listProcedureSpecs", "verbo": "GET", "path": "lab/procedure-specs", "rota": "GET /lab/procedure-specs", "acesso": [] },
+        { "metodo": "LabFichasController.getProcedureSpec", "verbo": "GET", "path": "procedures/:procedureId/lab-spec", "rota": "GET /procedures/:procedureId/lab-spec", "acesso": [] },
+        { "metodo": "LabFichasController.putProcedureSpec", "verbo": "PUT", "path": "procedures/:procedureId/lab-spec", "rota": "PUT /procedures/:procedureId/lab-spec", "acesso": ["@Roles('ADMIN')"] },
+        { "metodo": "LabFichasController.getQuoteCase", "verbo": "GET", "path": "quotes/:quoteId/lab-case", "rota": "GET /quotes/:quoteId/lab-case", "acesso": ["@RequiresPermission('manage_proposals', 'view_proposals', 'create_evaluation')"] },
+        { "metodo": "LabFichasController.putQuoteCase", "verbo": "PUT", "path": "quotes/:quoteId/lab-case", "rota": "PUT /quotes/:quoteId/lab-case", "acesso": ["@RequiresPermission('manage_proposals', 'create_evaluation')"] }
       ]
     },
     {

@@ -51,14 +51,16 @@ import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPi
 // Onda 18.x — chat embutido na ficha ("Conversar"): reusa o painel do split view.
 import ChatPane from '../../split/components/ChatPane';
 // F5 do laboratório — ficha do cliente: abas prontas para ele, portões e textos próprios.
-import { formatCpfCnpj, isLab, labAllowsRoute, tipoDoDocumento } from '@crm/shared';
+import { formatCpfCnpj, isLab, labAllowsRoute } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
-import { LAB_CADASTRO, LAB_FICHA } from '../lab-dentistas-textos';
+import { LAB_FICHA } from '../lab-dentistas-textos';
 import { LAB_FICHA_AGENDA } from '@/lib/lab-casca-textos';
 import { ABA_ORCAMENTO_DO_LAB, abasProntasNoLab, ordemNoLab } from '../lab-ficha';
 // F6 do laboratório — aba Orçamento (só o laboratório monta) e o nome das abas que mudam.
 import { LAB_ABAS_DA_FICHA } from '../lab-trabalhos-textos';
 const LabOrcamentoTab = dynamic(() => import('../components/LabOrcamentoTab'), { ssr: false });
+// F8 do laboratório — linhas da ficha do cliente (tipo, CRO, contato, entrega) no card de dados.
+const LabPerfilNaFicha = dynamic(() => import('../components/LabPerfilNaFicha'), { ssr: false });
 
 /** Laboratório: abas na ordem da ficha dele (lab-ficha.ts). Clínica: a mesma lista, na ordem de TABS. */
 function naOrdemDaFicha<T extends { id: string }>(lista: T[], lab: boolean): T[] {
@@ -1304,7 +1306,7 @@ function OverviewTab({
         </div>
         <dl className="space-y-2 text-sm">
           <Field label="Nome" value={patient.name} />
-          {lab && <Field label={LAB_FICHA.tipo} value={LAB_CADASTRO.tipos[tipoDoDocumento(patient.cpf) ?? 'DENTISTA']} />}
+          {lab && <LabPerfilNaFicha cadastro={patient} />}
           <Field label={lab ? LAB_FICHA.documento : 'CPF'} value={patient.cpf ? (lab ? formatCpfCnpj(patient.cpf) : formatCPF(patient.cpf)) : null} />
           {!lab && <Field label="RG" value={patient.rg ? formatRG(patient.rg) : null} />}
           {/* Onda 25.4 — DD/MM/YYYY + idade calculada (helper compartilhado) */}

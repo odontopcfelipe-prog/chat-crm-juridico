@@ -64,3 +64,5 @@ export * from './agenda-laboratorio';
 export * from './lab-agenda-textos';
 export * from './lab-disparos';
 export * from './lab-disparos-textos';
+// F8 do laboratório: fichas do cliente, do serviço e do caso (limites, datas e regras puras)
+export * from './lab-fichas';

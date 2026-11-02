@@ -31,6 +31,13 @@ const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/agenda/lab-agenda-textos.ts',
   'apps/web/src/app/atendimento/settings/disparos/lab-disparos-textos.ts',
   'apps/web/src/app/atendimento/settings/disparos/catalogo-laboratorio.ts',
+  // F8 — cadastro do cliente, ficha técnica do serviço e ficha do caso
+  'apps/web/src/app/atendimento/pacientes/lab-perfil.ts',
+  'apps/web/src/app/atendimento/pacientes/components/LabPerfilNaFicha.tsx',
+  'apps/web/src/app/atendimento/pacientes/lab-caso-textos.ts',
+  'apps/web/src/app/atendimento/pacientes/components/LabFichaDoCaso.tsx',
+  'apps/web/src/app/atendimento/settings/procedures/LabFichaServico.tsx',
+  'apps/web/src/app/atendimento/settings/procedures/lab-servicos-textos.ts',
 ];
 
 /** Trechos de rota que são só de clínica (negados ao laboratório na API). */

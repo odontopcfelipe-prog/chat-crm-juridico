@@ -34,6 +34,13 @@ export const LAB_ORCAMENTO_PDF = Object.freeze({
   telefone: (tel: string) => `Telefone: ${tel}`,
   email: (email: string) => `E-mail: ${email}`,
   endereco: (end: string) => `Endereço: ${end}`,
+  // ── dados do caso (F8): só cor, material e entrega prometida (data já em dd/mm/aaaa)
+  caso: Object.freeze({
+    titulo: 'DADOS DO CASO',
+    cor: (v: string) => `Cor: ${v}`,
+    material: (v: string) => `Material: ${v}`,
+    entregaPrometida: (d: string) => `Entrega prometida: ${d}`,
+  }),
   // ── tabela de serviços
   servicos: 'SERVIÇOS',
   colServico: 'Serviço',

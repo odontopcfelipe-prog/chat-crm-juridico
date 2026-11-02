@@ -30,6 +30,8 @@ import QuotePanel from './QuotePanel';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
 import { LAB_ORCAMENTO } from '../lab-orcamento-textos';
+// F8 — ficha do caso de cada orçamento (as chamadas de rede ficam no componente dela).
+import { LabFichaDoCasoDoOrcamento, LabSeloDoCaso, useCasosDoCliente } from './LabFichaDoCaso';
 
 interface Servico {
   id: string;
@@ -149,6 +151,9 @@ export default function LabOrcamentoTab({
   const [carregandoModelos, setCarregandoModelos] = useState(false);
   const [aplicandoModelo, setAplicandoModelo] = useState<string | null>(null);
   const [gerandoPdf, setGerandoPdf] = useState<string | null>(null);
+  // F8 — caso efetivo de cada orçamento (selo "Entrega dd/mm"): UMA chamada para a aba.
+  // A aba só existe no laboratório.
+  const { casos, recarregar: recarregarCasos } = useCasosDoCliente(true, patientId);
 
   // Contra clique duplo no "Novo orçamento de trabalho" (checado e marcado no mesmo tick).
   const criandoRef = useRef(false);
@@ -294,6 +299,8 @@ export default function LabOrcamentoTab({
       const { data } = await api.post<{ id: string }>(`/quotes/${q.id}/renegotiate`, {});
       showSuccess(LAB_ORCAMENTO.revisado);
       await carregarLista();
+      // O rascunho novo herda a ficha do caso do enviado: atualiza o selo.
+      recarregarCasos();
       if (data?.id) {
         setAberto(data.id);
         abertoRef.current = data.id;
@@ -456,6 +463,7 @@ export default function LabOrcamentoTab({
                       >
                         {rotuloDoStatus(q.status)}
                       </span>
+                      {casos[q.id]?.due_date && <LabSeloDoCaso caso={casos[q.id]} />}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap">
                       <span className="inline-flex items-center gap-1">
@@ -559,6 +567,15 @@ export default function LabOrcamentoTab({
                     ) : (
                       <TabelaSoLeitura itens={detalheDeste.items} verValores={verValores} enviado={!rascunho} />
                     )}
+
+                    {/* F8 — ficha do caso (rascunho e enviado; quem monta edita) */}
+                    <LabFichaDoCasoDoOrcamento
+                      quoteId={q.id}
+                      clienteId={patientId}
+                      servicoIds={detalheDeste?.items.map((i) => i.procedure_id) ?? []}
+                      podeEditar={podeMontar}
+                      aoSalvar={recarregarCasos}
+                    />
 
                     {podeNegociar && (
                       <div className="px-4 pt-3">

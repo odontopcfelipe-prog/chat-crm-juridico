@@ -8,6 +8,9 @@
  *     LAB_ORCAMENTO_PDF), a linha de contato e o CNPJ da conta;
  *   - bloco CLIENTE (o cliente do laboratório pode ser um dentista ou uma clínica):
  *     nome, CPF/CNPJ formatado, telefone, e-mail e endereço;
+ *   - bloco DADOS DO CASO (F8), entre CLIENTE e SERVIÇOS: só as linhas preenchidas
+ *     de cor, material e entrega prometida; sem nenhuma, o bloco não sai. Nada além
+ *     desses 3 campos chega aqui (lerCasoParaPdf tem select fechado);
  *   - tabela de SERVIÇOS: Serviço | Elemento | Qtd | Unitário | Total;
  *   - número = quote_number (sem número, o id curto);
  *   - a caixa da proposta faz a MESMA conta da clínica (ofertaDePagamentoDoLaboratorio).
@@ -22,8 +25,9 @@
  */
 import { Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
-import { formatCpfCnpj, tipoDoDocumento } from '@crm/shared';
+import { dataParaYmd, formatarYmdBR, formatCpfCnpj, tipoDoDocumento } from '@crm/shared';
 import { normalizeTenantLogo } from '../tenants/tenant-logo.util';
+import type { CasoNoPdf } from '../lab-fichas/caso-do-orcamento';
 import { LAB_ORCAMENTO_PDF } from './lab-orcamento-textos';
 
 /** Dados da conta (Tenant) que o cabeçalho do PDF usa. */
@@ -156,11 +160,29 @@ export function ofertaDePagamentoDoLaboratorio(
   return null;
 }
 
+/**
+ * Linhas do bloco DADOS DO CASO: só as preenchidas, na ordem cor, material e entrega
+ * prometida (dd/mm/aaaa do dia gravado, sem fuso). Lê só shade, material e due_date.
+ */
+export function linhasDoCasoNoPdf(caso: CasoNoPdf | null | undefined): string[] {
+  if (!caso) return [];
+  const T = LAB_ORCAMENTO_PDF.caso;
+  const linhas: string[] = [];
+  const cor = (caso.shade ?? '').trim();
+  if (cor) linhas.push(T.cor(cor));
+  const material = (caso.material ?? '').trim();
+  if (material) linhas.push(T.material(material));
+  const entrega = formatarYmdBR(dataParaYmd(caso.due_date));
+  if (entrega) linhas.push(T.entregaPrometida(entrega));
+  return linhas;
+}
+
 /** Desenha o PDF do orçamento de trabalho (conta de laboratório). */
 export async function desenharOrcamentoDoLaboratorio(
   quote: any,
   conta: ContaDoPdf | null,
   withValues: boolean,
+  caso: CasoNoPdf | null = null,
 ): Promise<Buffer> {
   const L = LAB_ORCAMENTO_PDF;
   const numero = numeroDoOrcamento(quote);
@@ -239,6 +261,16 @@ export async function desenharOrcamentoDoLaboratorio(
       .join(' — ');
     if (enderecoFmt) doc.text(L.endereco(enderecoFmt));
     doc.moveDown(1);
+
+    // ── Dados do caso (F8): cor, material e entrega prometida; sem nenhuma, sem o bloco
+    const linhasDoCaso = linhasDoCasoNoPdf(caso);
+    if (linhasDoCaso.length > 0) {
+      doc.font('Helvetica-Bold').fontSize(10).text(L.caso.titulo);
+      doc.moveDown(0.3);
+      doc.font('Helvetica').fontSize(10);
+      for (const linha of linhasDoCaso) doc.text(linha);
+      doc.moveDown(1);
+    }
 
     // ── Tabela de serviços
     doc.font('Helvetica-Bold').fontSize(11).text(L.servicos);

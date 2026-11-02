@@ -2268,6 +2268,8 @@ model Patient {
   affiliate_quotes         Quote[]               @relation("QuoteAffiliateReferrer")
   // Influenciador (Onda 5e v35) — cadastro de marketing tambem e Patient (1:1 opcional)
   influencer_profile       Influencer?
+  // F8 do laboratório — ficha do cliente (dentista/clínica). Só relação do Prisma, sem coluna.
+  lab_profile              PatientLabProfile?
 
   @@unique([tenant_id, cpf])
   @@unique([tenant_id, affiliate_code])
@@ -2692,6 +2694,8 @@ model Procedure {
   quote_template_items  QuoteTemplateItem[]
   // Onda 3.2 — sugestoes automaticas vinculadas a este procedimento
   state_suggestions     StateProcedureSuggestion[]
+  // F8 do laboratório — ficha técnica do serviço. Só relação do Prisma, sem coluna.
+  lab_spec              ProcedureLabSpec?
 
   @@unique([tenant_id, name])
   @@index([tenant_id, active])
@@ -3215,6 +3219,9 @@ model Quote {
   // pra ACCEPTED, gate antes de gerar cobranca. Opcional (operador pode
   // pular pra valores baixos). Detalhes no model Contract.
   contract Contract?
+
+  // F8 do laboratório — ficha do caso. Só relação do Prisma, sem coluna.
+  lab_case QuoteLabCase?
 
   @@index([patient_id, status])
   @@index([status, valid_until])
@@ -4867,4 +4874,76 @@ model TeamChannelRead {
 
   @@unique([user_id, channel])
   @@index([tenant_id, user_id])
+}
+
+/// F8 do laboratório (nov/2026) — ficha do cliente (quem paga: dentista ou clínica).
+/// 1:1 com Patient; a FK sai desta tabela (Patient não ganha coluna). tenant_id é
+/// sempre o do login (gravado pelo servidor). Tabela nova e isolada. Nunca remover
+/// este model do schema — o db push do boot (--accept-data-loss) apagaria a tabela.
+model PatientLabProfile {
+  patient_id          String   @id
+  patient             Patient  @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  tenant_id           String
+  /// 'DENTISTA' | 'CLINICA' (texto livre de propósito: nada de enum)
+  kind                String
+  cro_number          String?
+  cro_uf              String?
+  legal_name          String?
+  clinic_name         String?
+  contact_name        String?
+  /// Só exibição (nunca envio nem busca)
+  contact_phone       String?
+  requesting_dentists String[] @default([])
+  delivery_notes      String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @default(now()) @updatedAt
+
+  @@index([tenant_id])
+  @@index([tenant_id, cro_number])
+}
+
+/// F8 do laboratório (nov/2026) — ficha técnica do serviço. 1:1 com Procedure; a FK
+/// sai desta tabela (Procedure não ganha coluna). Tabela nova e isolada. Nunca
+/// remover este model do schema — o db push do boot (--accept-data-loss) apagaria a tabela.
+model ProcedureLabSpec {
+  procedure_id     String    @id
+  procedure        Procedure @relation(fields: [procedure_id], references: [id], onDelete: Cascade)
+  tenant_id        String
+  /// Prazo em dias corridos
+  lead_time_days   Int
+  warranty_days    Int?
+  /// 'ELEMENTO' | 'ARCADA' | 'PECA' (texto livre de propósito: nada de enum)
+  unit             String
+  default_material String?
+  needs_shade      Boolean   @default(false)
+  has_tryin        Boolean   @default(false)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @default(now()) @updatedAt
+
+  @@index([tenant_id])
+}
+
+/// F8 do laboratório (nov/2026) — ficha do caso do orçamento de trabalho. 1:1 com
+/// Quote; a FK sai desta tabela (Quote não ganha coluna). patient_ref é TEXTO (o
+/// paciente do dentista, dono do caso), sem relação com Patient, e só é lido pelas
+/// rotas de apps/api/src/lab-fichas. Datas = dia em UTC (T00:00:00.000Z). Tabela
+/// nova e isolada. Nunca remover este model do schema — o db push do boot
+/// (--accept-data-loss) apagaria a tabela.
+model QuoteLabCase {
+  quote_id           String    @id
+  quote              Quote     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  tenant_id          String
+  patient_ref        String?
+  requested_by_name  String?
+  shade              String?
+  material           String?
+  due_date           DateTime?
+  instructions       String?
+  external_files_url String?
+  received_at        DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @default(now()) @updatedAt
+
+  @@index([tenant_id])
+  @@index([tenant_id, due_date])
 }

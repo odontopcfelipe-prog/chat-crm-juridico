@@ -128,7 +128,9 @@ const CONTA = {
 
 function montar(conta: string, labs: string[], quote: any, tenant: any = CONTA) {
   const prisma: any = {
-    quote: { findUnique: jest.fn().mockResolvedValue(quote) },
+    // F8: sem ficha do caso (o bloco do caso fica em lab-caso-pdf.privacidade.spec.ts).
+    quote: { findUnique: jest.fn().mockResolvedValue(quote), findFirst: jest.fn().mockResolvedValue(null) },
+    quoteLabCase: { findFirst: jest.fn().mockResolvedValue(null) },
     tenant: { findUnique: jest.fn().mockResolvedValue(tenant) },
     tenantBusinessProfile: { findMany: jest.fn().mockResolvedValue(labs.map((tenant_id) => ({ tenant_id }))) },
   };
@@ -235,6 +237,7 @@ describe('PDF do orçamento de trabalho (F6)', () => {
       expect(t).toEqual(expect.arrayContaining(['INSTITUTO ODONTO PASSOS', 'PACIENTE', 'PROCEDIMENTOS', 'Dente']));
       expect(t.join('\n')).not.toContain('CLIENTE');
       expect(m.prisma.tenant.findUnique).not.toHaveBeenCalled();
+      expect(m.prisma.quoteLabCase.findFirst).not.toHaveBeenCalled();
       expect(documentos()[0].__imagens).toBe(0);
     }
   });

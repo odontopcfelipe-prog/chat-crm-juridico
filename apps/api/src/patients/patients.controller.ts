@@ -36,6 +36,7 @@ import {
   canArchivePatient,
 } from '../common/utils/permissions.util';
 import { isAdmin } from '../common/utils/permissions.util';
+import { pedidoDeLaboratorio } from '../business-type/pedido-de-laboratorio';
 
 @UseGuards(JwtAuthGuard)
 @Controller('patients')
@@ -134,6 +135,8 @@ export class PatientsController {
       // busca por telefone/e-mail (sem view_patient_contact).
       ownerUserId: owner,
       contactSearch: await this.canSeeContact(req),
+      // F8 — laboratório: Ativo/Inativo pelo último orçamento e busca pelo perfil.
+      lab: pedidoDeLaboratorio(req.user),
     });
   }
 
@@ -158,7 +161,7 @@ export class PatientsController {
   async getStats(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.patientsService.getStats(tenantId, await this.ownerFor(req));
+    return this.patientsService.getStats(tenantId, await this.ownerFor(req), pedidoDeLaboratorio(req.user));
   }
 
   /**

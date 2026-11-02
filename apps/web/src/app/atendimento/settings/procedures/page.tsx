@@ -22,11 +22,20 @@ import {
   DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search, Zap,
   ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
 } from 'lucide-react';
-import { isLab, pickBt } from '@crm/shared';
+import { isLab, pickBt, type FichaTecnicaLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
 import { useBusinessType } from '@/lib/useBusinessType';
+import {
+  LabFichaTecnica,
+  LabPrazoCabecalho,
+  LabPrazoCelula,
+  gravarFichaLab,
+  useFichaDoServico,
+  useFichasTecnicasLab,
+  validarFicha,
+} from './LabFichaServico';
 
 interface Procedure {
   id: string;
@@ -65,6 +74,9 @@ export default function ProceduresSettingsPage() {
   // comissão e retorno). Na clínica, nada muda.
   const bt = useBusinessType();
   const lab = isLab(bt);
+  // F8: ficha técnica dos serviços (coluna Prazo e bloco no modal). Só o laboratório
+  // lê; na clínica o hook não faz requisição e `fichas` fica vazio.
+  const { fichas, recarregar } = useFichasTecnicasLab(lab);
   const [list, setList] = useState<Procedure[]>([]);
   const [specialties, setSpecialties] = useState<Specialty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -305,6 +317,7 @@ export default function ProceduresSettingsPage() {
                         <th className="text-left px-4 py-2 font-medium">Nome</th>
                         {!lab && <th className="text-left px-4 py-2 font-medium">TUSS</th>}
                         {!lab && <th className="text-right px-4 py-2 font-medium">Duração</th>}
+                        {lab && <LabPrazoCabecalho />}
                         <th className="text-right px-4 py-2 font-medium">{pickBt(bt, 'Preço base', 'Preço de tabela')}</th>
                         <th className="text-right px-4 py-2 font-medium">Ações</th>
                       </tr>
@@ -315,6 +328,7 @@ export default function ProceduresSettingsPage() {
                           key={p.id}
                           procedure={p}
                           lab={lab}
+                          fichaLab={fichas[p.id]}
                           onPriceUpdate={load}
                           onEdit={() => setEditing(p)}
                           onDelete={() => handleDelete(p)}
@@ -334,7 +348,7 @@ export default function ProceduresSettingsPage() {
           procedure={editing}
           specialties={specialties}
           onClose={() => { setCreating(false); setEditing(null); }}
-          onSaved={() => { setCreating(false); setEditing(null); load(); }}
+          onSaved={() => { setCreating(false); setEditing(null); load(); recarregar(); }}
         />
       )}
       {bulkAdjustOpen && (
@@ -351,11 +365,13 @@ export default function ProceduresSettingsPage() {
 // ─── Linha individual com edição inline de preço ───────────
 
 function ProcedureRow({
-  procedure: p, lab, onPriceUpdate, onEdit, onDelete,
+  procedure: p, lab, fichaLab, onPriceUpdate, onEdit, onDelete,
 }: {
   procedure: Procedure;
   /** Conta de laboratório: sem as colunas TUSS e duração. */
   lab: boolean;
+  /** Laboratório: ficha técnica do serviço (coluna Prazo). Na clínica, sempre vazio. */
+  fichaLab?: FichaTecnicaLab | null;
   onPriceUpdate: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -424,6 +440,7 @@ function ProcedureRow({
           {p.duration_minutes} min
         </td>
       )}
+      {lab && <LabPrazoCelula ficha={fichaLab} />}
       <td className="px-4 py-2 text-right">
         {editingPrice ? (
           <div className="flex items-center justify-end gap-1">
@@ -527,12 +544,18 @@ function ProcedureModal({
   const [defaultRevisitMonths, setDefaultRevisitMonths] = useState<string>(
     procedure?.default_revisit_months?.toString() || ''
   );
+  // Laboratório: rascunho da ficha técnica, lido do servidor ao editar (sem uso na clínica).
+  const fichaDoServico = useFichaDoServico(lab, procedure?.id ?? null);
   const [saving, setSaving] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return showError('Nome obrigatório');
     if (!basePrice || Number(basePrice) < 0) return showError('Preço inválido');
+    // Laboratório: a ficha é conferida antes de gravar qualquer coisa.
+    // Se a ficha não carregou, ela não é conferida nem gravada (a gravada fica como está).
+    const erroFicha = lab && fichaDoServico.pronta ? validarFicha(fichaDoServico.ficha) : null;
+    if (erroFicha) return showError(erroFicha);
     setSaving(true);
     try {
       const payload = {
@@ -548,13 +571,18 @@ function ProcedureModal({
         commissionable,
         default_revisit_months: defaultRevisitMonths ? Number(defaultRevisitMonths) : null,
       };
+      let salvoId = procedure?.id;
       if (isEdit) {
         await api.patch(`/procedures/${procedure!.id}`, payload);
         showSuccess(pickBt(bt, 'Procedimento atualizado', 'Serviço atualizado'));
       } else {
-        await api.post('/procedures', payload);
+        const criado = await api.post<{ id: string }>('/procedures', payload);
+        salvoId = criado.data?.id;
         showSuccess(pickBt(bt, 'Procedimento criado', 'Serviço criado'));
       }
+      // Laboratório: a ficha vai depois do serviço. gravarFichaLab não lança (avisa
+      // sozinho): o modal fecha mesmo se ela falhar, para não criar o serviço de novo.
+      if (lab && salvoId && fichaDoServico.pronta) await gravarFichaLab(salvoId, fichaDoServico.ficha);
       onSaved();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao salvar');
@@ -671,6 +699,15 @@ function ProcedureModal({
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none"
             />
           </div>
+
+          {lab && (
+            <LabFichaTecnica
+              valor={fichaDoServico.ficha}
+              onChange={fichaDoServico.setFicha}
+              carregando={fichaDoServico.carregando}
+              pronta={fichaDoServico.pronta}
+            />
+          )}
 
           {!lab && (
             <div className="grid grid-cols-2 gap-3">

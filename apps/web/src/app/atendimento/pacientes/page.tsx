@@ -12,7 +12,7 @@ import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import BirthdaysCard from './components/BirthdaysCard';
-import { formatCpfCnpj, isLab, tipoDoDocumento } from '@crm/shared';
+import { DIAS_SEM_ORCAMENTO_PARA_INATIVO, formatCpfCnpj, isLab, tipoDoDocumento, type TipoCliente } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { LAB_CADASTRO, LAB_LISTA } from './lab-dentistas-textos';
 
@@ -37,6 +37,14 @@ interface Patient {
   origem?: string | null;
   /** Out/2026 — por que é DESTE dentista (carteira do dentista / filtro por dentista). */
   dentist_links?: Array<{ key: string; label: string; tone: LinkTone }>;
+  /** F8 — só no laboratório: a ficha do cliente (tipo gravado, CRO e o nome da clínica). */
+  lab_profile?: {
+    kind: TipoCliente;
+    cro_number: string | null;
+    cro_uf: string | null;
+    clinic_name: string | null;
+    legal_name: string | null;
+  } | null;
 }
 
 type LinkTone = 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'slate';
@@ -399,8 +407,8 @@ function PacientesPageInner() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         {[
           { label: 'Total', value: stats.total, cls: 'text-foreground', hint: lab ? LAB_LISTA.cards.total : 'Todos os pacientes cadastrados' },
-          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600', hint: lab ? LAB_LISTA.cards.ativos : 'Com atendimento nos últimos 12 meses' },
-          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600', hint: lab ? LAB_LISTA.cards.inativos : 'Mais de 12 meses sem atendimento' },
+          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600', hint: lab ? LAB_LISTA.cards.ativos(DIAS_SEM_ORCAMENTO_PARA_INATIVO) : 'Com atendimento nos últimos 12 meses' },
+          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600', hint: lab ? LAB_LISTA.cards.inativos(DIAS_SEM_ORCAMENTO_PARA_INATIVO) : 'Mais de 12 meses sem atendimento' },
           { label: 'Arquivados', value: stats.archived, cls: 'text-muted-foreground', hint: 'Arquivados manualmente' },
           { label: lab ? LAB_LISTA.cards.emAndamento : 'Em tratamento', value: stats.with_active_plan, cls: 'text-primary', hint: lab ? LAB_LISTA.cards.emAndamentoDica : 'Com plano de tratamento ativo' },
         ].map((s) => (
@@ -433,6 +441,7 @@ function PacientesPageInner() {
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as typeof status)}
+          title={lab ? LAB_LISTA.filtroStatusDica(DIAS_SEM_ORCAMENTO_PARA_INATIVO) : undefined}
           className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         >
           <option value="all">Todos os status</option>
@@ -578,8 +587,10 @@ function PacientesPageInner() {
               // atendimento) que a API manda; cai pro status salvo se faltar.
               const activity = p.activity_status ?? p.status;
               const StatusIcon = STATUS_BADGE[activity].icon;
-              // Laboratório: o tipo do cliente sai do documento (sem documento = dentista).
-              const tipoCliente = lab ? tipoDoDocumento(p.cpf) : null;
+              // Laboratório: o tipo do cliente é o gravado na ficha dele; sem ficha, sai do
+              // documento (sem documento = dentista). O rótulo CPF/CNPJ continua pelo documento.
+              const tipoDoc = lab ? tipoDoDocumento(p.cpf) : null;
+              const tipoCliente = lab ? (p.lab_profile?.kind ?? tipoDoc) : null;
               return (
                 <li
                   key={p.id}
@@ -635,8 +646,13 @@ function PacientesPageInner() {
                       {(p as any).record_number && <span className="font-semibold text-primary">Ficha {(p as any).record_number}</span>}
                       {canSeeContact && p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
                       {p.cpf && (lab
-                        ? <span>{tipoCliente ? LAB_LISTA.documento[tipoCliente] : LAB_LISTA.documentoSemTipo}: {formatCpfCnpj(p.cpf)}</span>
+                        ? <span>{tipoDoc ? LAB_LISTA.documento[tipoDoc] : LAB_LISTA.documentoSemTipo}: {formatCpfCnpj(p.cpf)}</span>
                         : <span>CPF: {formatCPF(p.cpf)}</span>)}
+                      {/* F8 — laboratório: CRO e razão social (ou clínica onde atende). */}
+                      {lab && p.lab_profile?.cro_number && <span>{LAB_LISTA.cro(p.lab_profile.cro_uf, p.lab_profile.cro_number)}</span>}
+                      {lab && (p.lab_profile?.legal_name || p.lab_profile?.clinic_name) && (
+                        <span className="truncate">{p.lab_profile?.legal_name || p.lab_profile?.clinic_name}</span>
+                      )}
                       {p.primary_dentist && (lab
                         ? <span>{LAB_LISTA.protetico}: {p.primary_dentist.name}</span>
                         : <span>Dentista: {p.primary_dentist.name}</span>)}

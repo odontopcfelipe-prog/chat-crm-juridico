@@ -18,6 +18,7 @@ import PDFDocument from 'pdfkit';
 import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { desenharOrcamentoDoLaboratorio } from './quote-pdf-laboratorio';
+import { lerCasoParaPdf } from '../lab-fichas/caso-do-orcamento';
 
 @Injectable()
 export class QuotePdfService {
@@ -63,7 +64,10 @@ export class QuotePdfService {
         where: { id: tenantId },
         select: { name: true, logo_url: true, phone: true, email: true, cpf_cnpj: true, city: true, state: true },
       });
-      return desenharOrcamentoDoLaboratorio(quote, conta, withValues);
+      // F8 — cor, material e entrega prometida da ficha do caso (própria ou herdada),
+      // numa leitura fechada nesses 3 campos. Nunca lança: sem caso, sai sem o bloco.
+      const caso = await lerCasoParaPdf(this.prisma, quoteId, tenantId, (m) => this.logger.warn(m));
+      return desenharOrcamentoDoLaboratorio(quote, conta, withValues, caso);
     }
 
     return this.renderPdf(quote, withValues);

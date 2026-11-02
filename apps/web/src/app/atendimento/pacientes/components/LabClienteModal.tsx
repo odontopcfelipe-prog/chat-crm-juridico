@@ -11,20 +11,42 @@
  * endereço com a busca do CEP, observações e, no cadastro novo, a foto (enviada depois
  * de criar o cadastro, como no cadastro de hoje).
  *
- * O tipo não tem campo próprio: sai do tamanho do documento (11 posições = dentista,
- * 14 = clínica) e o documento é gravado com a máscara. O corpo enviado leva só nome,
- * telefone, documento, e-mail, endereço e observações; no editar vão as mesmas chaves,
- * com null no campo apagado. Sem etiquetas: elas ficam na ficha.
+ * Na criação, o tipo sai do tamanho do documento (11 posições = dentista, 14 = clínica)
+ * e o documento é gravado com a máscara. O corpo do cadastro leva só nome, telefone,
+ * documento, e-mail, endereço e observações; no editar vão as mesmas chaves, com null
+ * no campo apagado. Sem etiquetas: elas ficam na ficha.
+ *
+ * F8 — a ficha do cliente (lab-perfil.ts, PUT /patients/:id/lab-profile): o tipo
+ * gravado, CRO e UF (obrigatórios para dentista, opcionais e em par para clínica),
+ * razão social (clínica) ou clínica onde atende (dentista), os dentistas que pedem
+ * trabalhos (clínica), contato e observações de entrega. É gravada DEPOIS do cadastro
+ * (como a foto): no novo, depois do POST; no editar, depois do PATCH. No editar, os
+ * campos da ficha e o Salvar esperam a ficha carregar; se a carga falhar, o resto é
+ * salvo e a ficha fica como está (sem PUT). Também avisa, sem bloquear, quando o
+ * WhatsApp digitado já é de outro cliente (GET /leads/check-phone e
+ * /patients/by-lead/:id, só para quem vê contato).
  *
  * Todo texto visível vem de lab-dentistas-textos.ts.
  */
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Camera, Loader2, MapPin, Save, Trash2, Upload, User, UserPlus, X } from 'lucide-react';
-import { maskCpfCnpjInput, tipoDoDocumento, vCpfCnpj, type TipoCliente } from '@crm/shared';
+import { Camera, Loader2, MapPin, Save, Trash2, Truck, Upload, User, UserPlus, Users, X } from 'lucide-react';
+import {
+  CRO_MAX_DIGITOS,
+  LIMITES_DO_PERFIL,
+  MAX_DENTISTAS_SOLICITANTES,
+  maskCpfCnpjInput,
+  normalizarCro,
+  normalizarDentistas,
+  tipoDoDocumento,
+  vCpfCnpj,
+  type TipoCliente,
+} from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showInfo, showSuccess } from '@/lib/toast';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { maskCEPInput, maskPhoneInput, vCEP, vPhone } from '@/lib/utils';
 import { LAB_CADASTRO } from '../lab-dentistas-textos';
+import { carregarPerfil, corpoDoPerfil, salvarPerfil, soDigitosDoCro, telefoneDoContatoOk } from '../lab-perfil';
 
 /** O que o editar recebe da ficha (o mesmo objeto que vai ao modal de hoje). */
 interface ClienteDoLab {
@@ -60,9 +82,21 @@ interface Formulario {
   cidade: string;
   uf: string;
   notas: string;
+  // F8 — ficha do cliente
+  cro: string;
+  croUf: string;
+  razaoSocial: string;
+  clinicaOndeAtende: string;
+  contatoNome: string;
+  contatoTel: string;
+  entrega: string;
+  dentistas: string[];
 }
 
-type CampoComErro = 'tel' | 'doc' | 'cep' | 'email';
+type CampoComErro = 'tel' | 'doc' | 'cep' | 'email' | 'cro' | 'contatoTel';
+
+/** Carga da ficha do cliente no editar (no novo já começa pronta). */
+type EstadoDoPerfil = 'carregando' | 'pronto' | 'falhou';
 
 const TIPOS: readonly TipoCliente[] = ['DENTISTA', 'CLINICA'];
 
@@ -71,6 +105,8 @@ const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', '
 const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30';
+/** Campos da ficha do cliente: travados enquanto ela carrega (ou se não carregou). */
+const perfilCls = `${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`;
 
 /** Mensagem que a API devolveu num erro (o servidor já manda o texto do laboratório). */
 function mensagemDaApi(err: unknown): string | undefined {
@@ -93,14 +129,22 @@ function separarTelefone(gravado: string | null | undefined): { ddi: string; tel
   return { ddi: '55', tel: maskPhoneInput(t) };
 }
 
+/** Telefone digitado no formato que o cadastro grava: "+DDI (DDD) número". */
+function telefoneComDdi(ddi: string, tel: string): string {
+  return `+${ddi || '55'} ${tel.trim()}`;
+}
+
 export default function LabClienteModal(props: Props) {
   const { onClose } = props;
   const editando = props.modo === 'editar';
   const cadastro = props.modo === 'editar' ? props.patient : null;
+  // Mesma regra da busca por telefone: só quem vê contato recebe o aviso e grava o telefone do contato.
+  const podeVerContato = useUserPermissions().hasPermission('view_patient_contact');
 
   const [salvando, setSalvando] = useState(false);
   const [cepBuscando, setCepBuscando] = useState(false);
-  // Na edição o tipo vem do documento gravado; sem documento (ou de outro tamanho) é dentista.
+  // Na edição o tipo vem do documento gravado (até a ficha do cliente carregar); sem
+  // documento (ou de outro tamanho) é dentista.
   const [tipo, setTipo] = useState<TipoCliente>(() => tipoDoDocumento(cadastro?.cpf) ?? 'DENTISTA');
   const [telInicial] = useState(() => separarTelefone(cadastro?.phone));
   const [ddi, setDdi] = useState(telInicial.ddi);
@@ -118,8 +162,22 @@ export default function LabClienteModal(props: Props) {
     cidade: cadastro?.city ?? '',
     uf: cadastro?.state ?? '',
     notas: cadastro?.notes ?? '',
+    cro: '',
+    croUf: '',
+    razaoSocial: '',
+    clinicaOndeAtende: '',
+    contatoNome: '',
+    contatoTel: '',
+    entrega: '',
+    dentistas: [],
   }));
   const [erros, setErros] = useState<Partial<Record<CampoComErro, string>>>({});
+  const [perfilEstado, setPerfilEstado] = useState<EstadoDoPerfil>(() => (editando ? 'carregando' : 'pronto'));
+  const perfilPronto = perfilEstado === 'pronto';
+  // Nome digitado no campo do dentista e ainda não adicionado (entra junto no salvar).
+  const [novoDentista, setNovoDentista] = useState('');
+  // Aviso de telefone de outro cliente: guardado com o telefone que foi conferido.
+  const [avisoTel, setAvisoTel] = useState<{ chave: string; nome: string } | null>(null);
 
   // Foto: só no cadastro novo; o envio acontece depois de criar (precisa do id).
   const [foto, setFoto] = useState<File | null>(null);
@@ -128,6 +186,13 @@ export default function LabClienteModal(props: Props) {
 
   const set = <K extends keyof Formulario>(campo: K, valor: Formulario[K]) => setForm((f) => ({ ...f, [campo]: valor }));
   const setErro = (campo: CampoComErro, msg: string) => setErros((e) => ({ ...e, [campo]: msg }));
+
+  // Telefone intocado não é validado nem conferido: fica o gravado (mesma regra do
+  // telefoneParaGravar), como o do WhatsApp, que chega no formato 55 + DDD + 8 dígitos.
+  const telIntocado = Boolean(cadastro?.phone) && ddi === telInicial.ddi && form.tel === telInicial.tel;
+  const chaveDoTel = `${ddi}|${form.tel}`;
+  const nomeDoOutroCliente =
+    podeVerContato && !telIntocado && avisoTel && avisoTel.chave === chaveDoTel ? avisoTel.nome : null;
 
   const escolherFoto = (arquivo: File) => {
     if (!arquivo.type.startsWith('image/')) {
@@ -158,6 +223,69 @@ export default function LabClienteModal(props: Props) {
     // Só o desmonte: a troca de foto já solta a prévia anterior.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // F8 — editar: carrega a ficha do cliente. Até chegar, os campos dela e o Salvar ficam
+  // travados (o que chega não atropela o que a pessoa digitou). Falhou: o resto é salvo
+  // e a ficha fica como está (sem PUT).
+  const cadastroId = cadastro?.id;
+  const cadastroCpf = cadastro?.cpf;
+  useEffect(() => {
+    if (!cadastroId) return;
+    let cancelado = false;
+    carregarPerfil(cadastroId, cadastroCpf)
+      .then((p) => {
+        if (cancelado) return;
+        // O tipo gravado vale mais que o documento (a máscara do documento não muda).
+        if (p.gravado) setTipo(p.kind);
+        setForm((f) => ({
+          ...f,
+          cro: p.cro_number ?? '',
+          croUf: p.cro_uf ?? '',
+          razaoSocial: p.legal_name ?? '',
+          clinicaOndeAtende: p.clinic_name ?? '',
+          contatoNome: p.contact_name ?? '',
+          contatoTel: p.contact_phone ?? '',
+          entrega: p.delivery_notes ?? '',
+          dentistas: [...p.requesting_dentists],
+        }));
+        setPerfilEstado('pronto');
+      })
+      .catch(() => {
+        if (cancelado) return;
+        setPerfilEstado('falhou');
+        showError(LAB_CADASTRO.perfilNaoCarregou);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [cadastroId, cadastroCpf]);
+
+  // F8 — aviso (sem bloquear) quando o WhatsApp digitado já é de outro cliente da conta.
+  // Só para quem vê contato, com o telefone mexido e 10 dígitos ou mais; o valor
+  // conferido é o mesmo que o cadastro grava. Erro é engolido: o aviso só ajuda.
+  useEffect(() => {
+    if (!podeVerContato || telIntocado || form.tel.replace(/\D/g, '').length < 10) return;
+    let cancelado = false;
+    const chave = `${ddi}|${form.tel}`;
+    const espera = setTimeout(async () => {
+      try {
+        const r = await api.get('/leads/check-phone', { params: { phone: telefoneComDdi(ddi, form.tel) } });
+        const leadId: unknown = r?.data?.exists ? r?.data?.lead?.id : null;
+        if (cancelado || typeof leadId !== 'string' || !leadId) return;
+        const dono = await api.get(`/patients/by-lead/${leadId}`);
+        const outro = dono?.data as { id?: unknown; name?: unknown } | null | undefined;
+        if (cancelado || !outro || typeof outro.id !== 'string' || outro.id === cadastroId) return;
+        const nome = typeof outro.name === 'string' ? outro.name.trim() : '';
+        setAvisoTel({ chave, nome: nome || LAB_CADASTRO.semNome });
+      } catch {
+        // o aviso só ajuda: sem ele, o salvar segue igual
+      }
+    }, 500);
+    return () => {
+      cancelado = true;
+      clearTimeout(espera);
+    };
+  }, [ddi, form.tel, podeVerContato, telIntocado, cadastroId]);
 
   // Busca do endereço pelo CEP (ViaCEP): preenche só o que estiver vazio.
   useEffect(() => {
@@ -198,31 +326,52 @@ export default function LabClienteModal(props: Props) {
   const telefoneParaGravar = (): string | null => {
     const tel = form.tel.trim();
     if (!tel) return null;
-    if (cadastro?.phone && ddi === telInicial.ddi && form.tel === telInicial.tel) return cadastro.phone;
-    return `+${ddi || '55'} ${tel}`;
+    if (cadastro?.phone && telIntocado) return cadastro.phone;
+    return telefoneComDdi(ddi, tel);
   };
+
+  // Dentistas que pedem trabalhos (só clínica): sem repetidos, no máximo MAX_DENTISTAS_SOLICITANTES.
+  const listaCheia = form.dentistas.length >= MAX_DENTISTAS_SOLICITANTES;
+  const adicionarDentista = () => {
+    if (!novoDentista.trim()) return;
+    const lista = normalizarDentistas([...form.dentistas, novoDentista]);
+    if (lista.length > MAX_DENTISTAS_SOLICITANTES) return;
+    set('dentistas', lista);
+    setNovoDentista('');
+  };
+  const removerDentista = (nome: string) => set('dentistas', form.dentistas.filter((n) => n !== nome));
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
-    if (salvando) return;
+    if (salvando || perfilEstado === 'carregando') return;
 
+    const cro = form.cro.trim();
     const faltando: string[] = [];
     if (!form.nome.trim()) faltando.push(LAB_CADASTRO.campos.nome);
     if (!form.tel.trim()) faltando.push(LAB_CADASTRO.campos.whatsapp);
     if (tipo === 'CLINICA' && !form.doc.trim()) faltando.push(LAB_CADASTRO.campos.cnpj);
+    // Ficha do cliente (só quando carregou): dentista exige CRO e UF; clínica, os dois ou nenhum.
+    if (perfilPronto) {
+      if (tipo === 'DENTISTA') {
+        if (!cro) faltando.push(LAB_CADASTRO.campos.cro);
+        if (!form.croUf) faltando.push(LAB_CADASTRO.campos.croUf);
+      } else if (!cro !== !form.croUf) {
+        faltando.push(cro ? LAB_CADASTRO.campos.croUf : LAB_CADASTRO.campos.cro);
+      }
+    }
     if (faltando.length > 0) {
       showError(LAB_CADASTRO.preencha(faltando.join(', ')));
       return;
     }
 
-    // Telefone intocado não é validado: fica o gravado (mesma regra do telefoneParaGravar),
-    // como o do WhatsApp, que chega no formato 55 + DDD + 8 dígitos.
-    const telIntocado = Boolean(cadastro?.phone) && ddi === telInicial.ddi && form.tel === telInicial.tel;
     const formato: Record<CampoComErro, string> = {
       tel: telIntocado ? '' : vPhone(form.tel),
       doc: vCpfCnpj(form.doc, tipo),
       cep: vCEP(form.cep),
       email: form.email.trim() && !EMAIL_OK.test(form.email.trim()) ? LAB_CADASTRO.emailInvalido : '',
+      cro: perfilPronto && cro && normalizarCro(cro) === null ? LAB_CADASTRO.croDica : '',
+      contatoTel:
+        perfilPronto && podeVerContato && !telefoneDoContatoOk(form.contatoTel) ? LAB_CADASTRO.contatoTelefoneInvalido : '',
     };
     const ruins = (Object.keys(formato) as CampoComErro[]).filter((k) => formato[k]);
     if (ruins.length > 0) {
@@ -232,6 +381,8 @@ export default function LabClienteModal(props: Props) {
         doc: LAB_CADASTRO.campos.documento,
         cep: LAB_CADASTRO.campos.cep,
         email: LAB_CADASTRO.campos.email,
+        cro: LAB_CADASTRO.campos.cro,
+        contatoTel: LAB_CADASTRO.campos.contatoTelefone,
       };
       showError(LAB_CADASTRO.corrija(ruins.map((k) => nomes[k]).join(', ')));
       return;
@@ -252,6 +403,8 @@ export default function LabClienteModal(props: Props) {
       state: form.uf || null,
       notes: form.notas.trim() || null,
     };
+    // Ficha do cliente: gravada depois do cadastro. Sem carga (falhou), não vai.
+    const perfil = perfilPronto ? corpoDoPerfil({ ...form, novoDentista }, tipo, podeVerContato) : null;
 
     setSalvando(true);
     try {
@@ -266,12 +419,30 @@ export default function LabClienteModal(props: Props) {
           if (Object.prototype.hasOwnProperty.call(foi, contato)) showInfo(foi[contato]);
           else if (Object.prototype.hasOwnProperty.call(ficou, contato)) showError(ficou[contato]);
         }
+        // Ficha do cliente depois do PATCH. Se falhar, o modal fica aberto: o Salvar de
+        // novo regrava os dois (o PATCH repetido não muda nada).
+        if (perfil) {
+          try {
+            await salvarPerfil(props.patient.id, perfil);
+          } catch (err: unknown) {
+            showError(LAB_CADASTRO.perfilFalhouEditar(mensagemDaApi(err) || LAB_CADASTRO.perfilFalhouEditarPadrao));
+            return;
+          }
+        }
         props.onUpdated();
         return;
       }
 
       const corpo = Object.fromEntries(Object.entries(campos).filter(([, v]) => v !== null));
       const { data } = await api.post('/patients', corpo);
+      // Ficha do cliente: depois de criar. Se falhar, o cadastro fica (avisa e segue).
+      if (perfil && data?.id) {
+        try {
+          await salvarPerfil(data.id, perfil);
+        } catch (err: unknown) {
+          showError(LAB_CADASTRO.perfilFalhouNovo(mensagemDaApi(err) || LAB_CADASTRO.perfilFalhouNovoPadrao));
+        }
+      }
       // Foto: envio depois de criar. Se falhar, o cadastro fica (avisa e segue).
       if (foto && data?.id) {
         try {
@@ -381,7 +552,8 @@ export default function LabClienteModal(props: Props) {
                     role="radio"
                     aria-checked={tipo === t}
                     onClick={() => trocarTipo(t)}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    disabled={perfilEstado === 'carregando'}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed ${
                       tipo === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -405,7 +577,7 @@ export default function LabClienteModal(props: Props) {
             </Campo>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Campo rotulo={LAB_CADASTRO.whatsapp} obrigatorio erro={erros.tel}>
+              <Campo rotulo={LAB_CADASTRO.whatsapp} obrigatorio erro={erros.tel} aviso={nomeDoOutroCliente ? LAB_CADASTRO.telefoneDeOutroCliente(nomeDoOutroCliente) : undefined}>
                 <div className="flex items-stretch gap-1.5">
                   <div className="flex items-center rounded-lg bg-background border border-border px-2 shrink-0">
                     <span className="text-sm text-muted-foreground">+</span>
@@ -449,6 +621,76 @@ export default function LabClienteModal(props: Props) {
               </Campo>
             </div>
 
+            {/* F8 — ficha do cliente: CRO e UF, razão social (clínica) ou clínica onde atende (dentista). */}
+            {perfilEstado === 'carregando' && (
+              <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
+                <Loader2 size={12} className="animate-spin" />
+                {LAB_CADASTRO.perfilCarregando}
+              </p>
+            )}
+            {perfilEstado === 'falhou' && (
+              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">{LAB_CADASTRO.perfilNaoCarregou}</p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <Campo rotulo={LAB_CADASTRO.cro} obrigatorio={!ehClinica} opcional={ehClinica} erro={erros.cro}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.cro}
+                  onChange={(e) => {
+                    set('cro', soDigitosDoCro(e.target.value));
+                    if (erros.cro) setErro('cro', '');
+                  }}
+                  placeholder={LAB_CADASTRO.croExemplo}
+                  maxLength={CRO_MAX_DIGITOS}
+                  disabled={!perfilPronto}
+                  className={`${perfilCls}${erros.cro ? ' !border-red-500' : ''}`}
+                />
+              </Campo>
+              <Campo rotulo={LAB_CADASTRO.croUf} obrigatorio={!ehClinica} opcional={ehClinica}>
+                <select
+                  value={form.croUf}
+                  onChange={(e) => set('croUf', e.target.value)}
+                  disabled={!perfilPronto}
+                  aria-label={LAB_CADASTRO.croUf}
+                  className={perfilCls}
+                >
+                  <option value="">{LAB_CADASTRO.uf}</option>
+                  {UFS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+              {ehClinica ? (
+                <Campo rotulo={LAB_CADASTRO.razaoSocial} className="md:col-span-2">
+                  <input
+                    type="text"
+                    value={form.razaoSocial}
+                    onChange={(e) => set('razaoSocial', e.target.value)}
+                    placeholder={LAB_CADASTRO.razaoSocialExemplo}
+                    maxLength={LIMITES_DO_PERFIL.legal_name}
+                    disabled={!perfilPronto}
+                    className={perfilCls}
+                  />
+                </Campo>
+              ) : (
+                <Campo rotulo={LAB_CADASTRO.clinicaOndeAtende} opcional className="md:col-span-2">
+                  <input
+                    type="text"
+                    value={form.clinicaOndeAtende}
+                    onChange={(e) => set('clinicaOndeAtende', e.target.value)}
+                    placeholder={LAB_CADASTRO.clinicaOndeAtendeExemplo}
+                    maxLength={LIMITES_DO_PERFIL.clinic_name}
+                    disabled={!perfilPronto}
+                    className={perfilCls}
+                  />
+                </Campo>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground -mt-1">{LAB_CADASTRO.croDica}</p>
+
             <Campo rotulo={LAB_CADASTRO.email} erro={erros.email}>
               <input
                 type="email"
@@ -461,6 +703,66 @@ export default function LabClienteModal(props: Props) {
               />
             </Campo>
           </Secao>
+
+          {ehClinica && (
+            <Secao icone={<Users size={14} />} titulo={LAB_CADASTRO.dentistas}>
+              <p className="text-[11px] text-muted-foreground -mt-1">{LAB_CADASTRO.dentistasDica}</p>
+              <div className="flex items-stretch gap-1.5">
+                <input
+                  type="text"
+                  value={novoDentista}
+                  onChange={(e) => setNovoDentista(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter adiciona o nome (sem enviar o formulário).
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      adicionarDentista();
+                    }
+                  }}
+                  placeholder={LAB_CADASTRO.dentistaExemplo}
+                  maxLength={LIMITES_DO_PERFIL.dentista}
+                  disabled={!perfilPronto || listaCheia}
+                  aria-label={LAB_CADASTRO.dentistas}
+                  className={`${perfilCls} flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={adicionarDentista}
+                  disabled={!perfilPronto || listaCheia || !novoDentista.trim()}
+                  className="px-3 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  {LAB_CADASTRO.adicionarDentista}
+                </button>
+              </div>
+              {form.dentistas.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {form.dentistas.map((nome) => (
+                    <span
+                      key={nome}
+                      className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-accent text-accent-foreground text-xs font-medium"
+                    >
+                      {nome}
+                      <button
+                        type="button"
+                        onClick={() => removerDentista(nome)}
+                        disabled={!perfilPronto}
+                        className="p-0.5 rounded hover:bg-background/60 disabled:cursor-not-allowed"
+                        title={LAB_CADASTRO.removerDentista(nome)}
+                        aria-label={LAB_CADASTRO.removerDentista(nome)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">{LAB_CADASTRO.semDentistas}</p>
+              )}
+              {listaCheia && (
+                <p className="text-[11px] text-muted-foreground">{LAB_CADASTRO.dentistasLimite(MAX_DENTISTAS_SOLICITANTES)}</p>
+              )}
+            </Secao>
+          )}
 
           <Secao icone={<MapPin size={14} />} titulo={LAB_CADASTRO.endereco}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -512,6 +814,49 @@ export default function LabClienteModal(props: Props) {
             </div>
           </Secao>
 
+          <Secao icone={<Truck size={14} />} titulo={LAB_CADASTRO.contatoEntrega}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Campo rotulo={LAB_CADASTRO.contatoNome}>
+                <input
+                  type="text"
+                  value={form.contatoNome}
+                  onChange={(e) => set('contatoNome', e.target.value)}
+                  placeholder={LAB_CADASTRO.contatoNomeExemplo}
+                  maxLength={LIMITES_DO_PERFIL.contact_name}
+                  disabled={!perfilPronto}
+                  className={perfilCls}
+                />
+              </Campo>
+              {podeVerContato && (
+                <Campo rotulo={LAB_CADASTRO.contatoTelefone} erro={erros.contatoTel}>
+                  <input
+                    type="tel"
+                    value={form.contatoTel}
+                    onChange={(e) => {
+                      set('contatoTel', maskPhoneInput(e.target.value));
+                      if (erros.contatoTel) setErro('contatoTel', '');
+                    }}
+                    placeholder={LAB_CADASTRO.telefoneExemplo}
+                    maxLength={LIMITES_DO_PERFIL.contact_phone}
+                    disabled={!perfilPronto}
+                    className={`${perfilCls}${erros.contatoTel ? ' !border-red-500' : ''}`}
+                  />
+                </Campo>
+              )}
+            </div>
+            <Campo rotulo={LAB_CADASTRO.entrega}>
+              <textarea
+                value={form.entrega}
+                onChange={(e) => set('entrega', e.target.value)}
+                rows={2}
+                placeholder={LAB_CADASTRO.entregaExemplo}
+                maxLength={LIMITES_DO_PERFIL.delivery_notes}
+                disabled={!perfilPronto}
+                className={`${perfilCls} resize-none`}
+              />
+            </Campo>
+          </Secao>
+
           <Campo rotulo={LAB_CADASTRO.observacoes}>
             <textarea
               value={form.notas}
@@ -532,10 +877,10 @@ export default function LabClienteModal(props: Props) {
             </button>
             <button
               type="submit"
-              disabled={salvando}
+              disabled={salvando || perfilEstado === 'carregando'}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
             >
-              {salvando ? <Loader2 size={16} className="animate-spin" /> : editando ? <Save size={16} /> : <UserPlus size={16} />}
+              {salvando || perfilEstado === 'carregando' ? <Loader2 size={16} className="animate-spin" /> : editando ? <Save size={16} /> : <UserPlus size={16} />}
               {editando ? LAB_CADASTRO.salvar : LAB_CADASTRO.cadastrar}
             </button>
           </div>
@@ -563,6 +908,7 @@ function Campo({
   opcional,
   extra,
   erro,
+  aviso,
   className,
   children,
 }: {
@@ -572,6 +918,8 @@ function Campo({
   /** Texto curto ao lado do rótulo (ex.: a busca do CEP em andamento). */
   extra?: string;
   erro?: string;
+  /** Aviso que não bloqueia o salvar (ex.: telefone que já é de outro cliente). */
+  aviso?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -585,6 +933,7 @@ function Campo({
       </label>
       {children}
       {erro && <p className="text-[11px] font-medium text-red-600 mt-1">{erro}</p>}
+      {aviso && <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400 mt-1">{aviso}</p>}
     </div>
   );
 }
