@@ -27,7 +27,7 @@ export const LAB_ENDERECO_EXEMPLO = 'Av. Exemplo, 100 — Sala 3 (consultório d
 /** Cabeçalho, semáforo do chip e selo da régua de cobrança. */
 export const LAB_CENTRAL = Object.freeze({
   cabecalho: 'Configure aqui as mensagens automáticas do laboratório. Cada aviso liga e desliga no botão do card.',
-  semChipProprio: 'Sem chip próprio desta função — os disparos saem pelo chip principal (Atendimento)',
+  semChipProprio: 'Sem chip próprio desta função — os disparos saem pelo chip de Atendimento ou, sem ele, pelo Comercial',
   reguaBadge: 'Em breve no laboratório',
   reguaTitulo:
     'A régua de cobrança liga no laboratório quando o envio em fila por chip chegar. Até lá fica desligada.',

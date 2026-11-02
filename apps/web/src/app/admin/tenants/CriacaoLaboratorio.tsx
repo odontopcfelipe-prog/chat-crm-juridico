@@ -227,8 +227,8 @@ export function EscolhaDoTipoDeConta({
       {labEscolhido && liberada && (
         <p className="mt-2 text-[11px] text-sky-800 dark:text-sky-200 bg-sky-500/5 border border-sky-500/20 rounded-md px-3 py-2 flex items-start gap-1.5">
           <FlaskConical size={11} className="shrink-0 mt-0.5" />
-          O laboratório nasce ativo, no plano Custom, sem período de teste e sem e-mail de boas-vindas. Ainda não passe o acesso ao
-          laboratório: as telas com os nomes de laboratório chegam na próxima etapa (por enquanto ele veria as telas da clínica).
+          O laboratório nasce ativo, no plano Custom, sem período de teste e sem e-mail de boas-vindas. Antes de passar o acesso a um
+          laboratório real, faça o ensaio de 7 dias com uma conta de teste (roteiro em docs/ensaio-laboratorio.md).
         </p>
       )}
     </section>

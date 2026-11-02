@@ -2,9 +2,10 @@ import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@ne
 import { SettingsService } from '../settings/settings.service';
 import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import { isLabTenant, toBrazilWhatsappNumber } from '@crm/shared';
 import * as crypto from 'crypto';
 import { chipPadraoDaClinica } from './env-chip';
+import { voltaDoChipNoLaboratorio } from './chip-do-laboratorio';
 
 // Onda 17.61 — fallback do 9º dígito do celular BR. Vários DDDs (ex.: 82/Nordeste)
 // têm o número registrado no WhatsApp SEM o 9 extra, mas o sistema às vezes guarda
@@ -685,7 +686,21 @@ export class WhatsappService {
       orderBy: { created_at: 'asc' },
       select: { name: true },
     });
-    return inst?.name ?? null;
+    if (inst?.name) return inst.name;
+    // F9 do laboratório — um só número (função Comercial) faz tudo: sem o chip da
+    // função, tenta Atendimento e depois Comercial (chip-do-laboratorio.ts). Clínica:
+    // a lista de laboratórios vem do cache de 60 s e o resultado continua null.
+    const volta = voltaDoChipNoLaboratorio(norm);
+    if (!volta.length || !(await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) return null;
+    for (const funcao of volta) {
+      const outro = await this.prisma.instance.findFirst({
+        where: { tenant_id: tenantId, type: 'whatsapp', purpose: funcao },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+      if (outro?.name) return outro.name;
+    }
+    return null;
   }
 
   /**

@@ -645,7 +645,9 @@ export default function CentralDisparosPage() {
   const chipStatusOf = (setorId: Setor): 'open' | 'down' | 'unknown' | null => {
     if (!chips) return null;
     const purpose = setorId === 'comercial' ? 'COMERCIAL' : setorId === 'financeiro' ? 'FINANCEIRO' : 'CLINICA';
-    const c = chips.find((x) => x.purpose === purpose);
+    // F9 do laboratório — com um só número (Comercial), ele é também o de Atendimento.
+    const c = chips.find((x) => x.purpose === purpose)
+      ?? (lab && purpose === 'CLINICA' ? chips.find((x) => x.purpose === 'COMERCIAL') : undefined);
     if (!c) return null;
     return c.status === 'open' ? 'open' : c.status === 'unknown' ? 'unknown' : 'down';
   };
