@@ -483,11 +483,11 @@ export default function SignupPage({
                   />
                   <span>
                     Aceito os{' '}
-                    <Link href="/termos" className="text-violet-700 font-semibold hover:underline">
+                    <Link href="/termos" target="_blank" rel="noopener noreferrer" className="text-violet-700 font-semibold hover:underline">
                       termos de uso
                     </Link>{' '}
                     e a{' '}
-                    <Link href="/privacidade" className="text-violet-700 font-semibold hover:underline">
+                    <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-violet-700 font-semibold hover:underline">
                       política de privacidade
                     </Link>
                     .

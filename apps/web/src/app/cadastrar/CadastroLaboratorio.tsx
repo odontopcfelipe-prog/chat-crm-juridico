@@ -493,11 +493,11 @@ export function CadastroLaboratorio({ modo, estado }: { modo: ModoLiberado; esta
           />
           <span>
             {LAB_CADASTRO_FORM.aceiteAntes}{' '}
-            <Link href="/termos" className="text-violet-700 font-semibold hover:underline">
+            <Link href="/termos" target="_blank" rel="noopener noreferrer" className="text-violet-700 font-semibold hover:underline">
               {LAB_CADASTRO_FORM.aceiteTermos}
             </Link>{' '}
             {LAB_CADASTRO_FORM.aceiteMeio}{' '}
-            <Link href="/privacidade" className="text-violet-700 font-semibold hover:underline">
+            <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-violet-700 font-semibold hover:underline">
               {LAB_CADASTRO_FORM.aceitePrivacidade}
             </Link>
             {LAB_CADASTRO_FORM.aceiteFim}
