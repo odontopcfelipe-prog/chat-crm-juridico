@@ -151,7 +151,7 @@ export class BillingService {
     externalReference?: string;
   }): Promise<any> {
     // AsaasClient nao expoe createSubscription, mas o endpoint eh
-    // /subscriptions com mesmo header apikey. Vamos chamar via wrapper
+    // /subscriptions com o mesmo header access_token. Vamos chamar via wrapper
     // do AsaasClient (privado) — temporariamente fazemos uma chamada
     // direta. Idealmente: adicionar AsaasClient.createSubscription().
     const config = await this.asaas.getConfig();
@@ -160,7 +160,9 @@ export class BillingService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: config.apiKey,
+        // O Asaas só lê a chave em access_token (o mesmo do AsaasClient).
+        access_token: config.apiKey,
+        'User-Agent': 'LexCRM/1.0',
       },
       body: JSON.stringify(payload),
     });

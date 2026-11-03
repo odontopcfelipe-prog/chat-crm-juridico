@@ -449,7 +449,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'WhatsappController.renameMyNumber',
 ]);
 
-/** Controllers só de clínica/IA/plataforma (48): TODO handler deles (inclusive os novos) é negado. */
+/** Controllers só de clínica/IA/plataforma (49): TODO handler deles (inclusive os novos) é negado. */
 export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'AdverseReactionsController', // reação adversa (clínico)
   'AgendaExtendedController', // agenda de consulta: salas, retornos, marcadores

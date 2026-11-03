@@ -59,7 +59,8 @@ export async function chamarAsaas(
     method: metodo,
     headers: {
       'Content-Type': 'application/json',
-      apikey: conta.apiKey,
+      // O Asaas só lê a chave neste cabeçalho (o mesmo do AsaasClient).
+      access_token: conta.apiKey,
       'User-Agent': 'LexCRM/1.0',
     },
     body: corpo === undefined ? undefined : JSON.stringify(corpo),

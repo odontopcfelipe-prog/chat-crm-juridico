@@ -42,18 +42,21 @@ function contaDaAssinatura(comChave = true) {
   };
 }
 
-/** fetch falso: responde por "METODO caminho-sem-base" e guarda as chamadas. */
+/**
+ * fetch falso: responde por "METODO caminho-sem-base" e guarda as chamadas. A chave
+ * gravada é a do cabeçalho access_token, o único em que o Asaas lê a chave.
+ */
 function asaasFalso(respostas: Record<string, (corpo: any) => { status?: number; json: any }>) {
-  const chamadas: Array<{ metodo: string; url: string; apikey: string; corpo: any }> = [];
+  const chamadas: Array<{ metodo: string; url: string; chave: string; agente: string; corpo: any }> = [];
   const fn = jest.fn(async (url: string, init: any) => {
     const metodo = init?.method ?? 'GET';
     const corpo = init?.body ? JSON.parse(init.body) : undefined;
-    chamadas.push({ metodo, url, apikey: init?.headers?.apikey, corpo });
+    chamadas.push({ metodo, url, chave: init?.headers?.access_token, agente: init?.headers?.['User-Agent'], corpo });
     const caminho = url.replace(/^https:\/\/api(-sandbox)?\.asaas\.com\/v3/, '');
     const chave = Object.keys(respostas).find((k) => `${metodo} ${caminho}`.startsWith(k));
     const r = chave ? respostas[chave](corpo) : { status: 404, json: { errors: [{ description: 'não achado' }] } };
     const status = r.status ?? 200;
-    return { ok: status < 400, status, text: async () => JSON.stringify(r.json) } as any;
+    return { ok: status < 400, status, text: async () => JSON.stringify(r.json), json: async () => r.json } as any;
   });
   (global as any).fetch = fn;
   return { fn, chamadas };
@@ -194,7 +197,8 @@ describe('assinatura do laboratório', () => {
 
     expect(trava).toHaveBeenCalledTimes(1);
     expect(trava.mock.calls[0]).toContain(`assinatura-lab:${LAB}`);
-    expect(chamadas.every((c) => c.apikey === CHAVE && c.url.startsWith('https://api.asaas.com/v3/'))).toBe(true);
+    expect(chamadas.every((c) => c.chave === CHAVE && c.url.startsWith('https://api.asaas.com/v3/'))).toBe(true);
+    expect(chamadas.every((c) => c.agente === 'LexCRM/1.0')).toBe(true);
     // A conta é lida sempre sem conta: nunca a conta Asaas do laboratório.
     expect(asaas.getConfig).toHaveBeenCalled();
     expect(asaas.getConfig.mock.calls.every((args) => args.length === 0)).toBe(true);
@@ -469,5 +473,19 @@ describe('BillingService: laboratório desvia, clínica no caminho de sempre', (
       data: { status: 'ACTIVE', suspended_at: null, suspended_reason: null },
     });
     expect(asaas.createCustomer).not.toHaveBeenCalled();
+  });
+
+  it('clínica: a assinatura vai ao Asaas com a chave em access_token, na mesma conta (lida sem conta)', async () => {
+    const { asaas, prisma, svc } = servico(false);
+    prisma.saasPlan.findUnique.mockResolvedValueOnce({ id: 'plano-pro', slug: 'pro', name: 'Pro', price_monthly: '90.00', active: true });
+    prisma.saasSubscription.create = jest.fn(async () => ({}));
+    asaas.getConfig.mockResolvedValue({ apiKey: CHAVE, baseUrl: PRODUCAO, sandbox: false, webhookToken: '' });
+    const { chamadas } = asaasFalso({ 'POST /subscriptions': () => ({ json: { id: 'sub_c' } }) });
+
+    expect(await svc.checkout(CLINICA, { plan_slug: 'pro', billing_type: 'PIX' })).toMatchObject({ ok: true, subscription_id: 'sub_c' });
+    expect(chamadas).toHaveLength(1);
+    expect([chamadas[0].url, chamadas[0].chave, chamadas[0].agente]).toEqual([`${PRODUCAO}/subscriptions`, CHAVE, 'LexCRM/1.0']);
+    expect(asaas.getConfig.mock.calls.every((args: unknown[]) => args.length === 0)).toBe(true);
+    expect(prisma.saasSubscription.create).toHaveBeenCalled();
   });
 });
