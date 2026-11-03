@@ -443,8 +443,10 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
     expect(ops.some((op) => /anamnesis/i.test(op))).toBe(false);
   });
 
-  it('conta ACTIVE, plano CUSTOM, sem teste, sem slug; documento e WhatsApp normalizados', async () => {
+  it('conta em teste como a da clínica (STARTER, 14 dias), sem slug; documento e WhatsApp normalizados', async () => {
+    const antes = Date.now();
     const { g } = await cadastrar();
+    const depois = Date.now();
     expect(g.de('tx.tenant.create')).toEqual([
       {
         data: {
@@ -453,12 +455,15 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
           email: 'ana@lab.teste',
           phone: toAlertPhone('(82) 99999-0000'),
           cpf_cnpj: '11222333000181',
-          plan: 'CUSTOM',
-          status: 'ACTIVE',
-          trial_ends_at: null,
+          plan: 'STARTER',
+          status: 'TRIAL',
+          trial_ends_at: expect.any(Date),
         },
       },
     ]);
+    const fimDoTeste = g.de('tx.tenant.create')[0].data.trial_ends_at.getTime();
+    expect(fimDoTeste).toBeGreaterThanOrEqual(antes + 14 * DIA);
+    expect(fimDoTeste).toBeLessThanOrEqual(depois + 14 * DIA);
     const [admin] = g.de('tx.user.create');
     expect(admin.data).toMatchObject({ tenant_id: LAB, name: 'Ana Teste', email: 'ana@lab.teste', phone: '5582999990000', roles: ['ADMIN'] });
     expect(g.de('user.findFirst')).toEqual([{ where: { email: { equals: 'ana@lab.teste', mode: 'insensitive' } }, select: { id: true } }]);

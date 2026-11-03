@@ -127,6 +127,8 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
   // Início do laboratório (LabInicio)
   '/atendimento/dashboard': [...CASCA, 'UsersController.getMe', 'TenantsMeController.getMyTenant', 'PontoController.status', 'CalendarController.findAll'],
   '/atendimento/caixa': [...CASCA, ...doController('CaixaController')],
+  // Assinatura (mensalidade da conta, na conta Asaas da plataforma)
+  '/atendimento/billing': [...CASCA, 'BillingController.getMine', 'BillingController.checkout'], // + GET /billing/plans (pública)
   // ponto e ponto/equipe
   '/atendimento/ponto': [
     ...CASCA,

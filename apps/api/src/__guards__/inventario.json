@@ -2,12 +2,12 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
-    "automatismos": { "@Cron": 28, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "automatismos": { "@Cron": 29, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
     "globais": 13,
     "produtores": 24,
-    "controllers": 89,
-    "handlers": 960,
+    "controllers": 90,
+    "handlers": 963,
     "@Public": 31
   },
   "automatismos": [
@@ -15,6 +15,7 @@
     { "tipo": "@Cron", "arquivo": "auth/registro-de-acesso.ts", "alvo": "LimpezaDoRegistroDeAcesso.limpar", "detalhe": "'20 4 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkNoResponse", "detalhe": "CronExpression.EVERY_HOUR" },
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkPaymentOverdue", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
+    { "tipo": "@Cron", "arquivo": "billing/assinatura-do-laboratorio.service.ts", "alvo": "AssinaturaDoLaboratorioService.sincronizarPendentes", "detalhe": "'25 * * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "billing/billing.service.ts", "alvo": "BillingService.dailyBillingCheck", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
     { "tipo": "@Cron", "arquivo": "business-type/lab-sentinel.service.ts", "alvo": "LabSentinelService.verificar", "detalhe": "'30 7 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "calendar/calendar-cron.service.ts", "alvo": "CalendarCronService.checkBirthdayGreetings", "detalhe": "'0 * * * *'" },
@@ -259,6 +260,17 @@
         { "metodo": "BillingController.getMine", "verbo": "GET", "path": "me", "rota": "GET /billing/me", "acesso": [] },
         { "metodo": "BillingController.checkout", "verbo": "POST", "path": "checkout", "rota": "POST /billing/checkout", "acesso": ["@Roles('ADMIN', 'SUPER_ADMIN')"] },
         { "metodo": "BillingController.webhook", "verbo": "POST", "path": "webhook/asaas", "rota": "POST /billing/webhook/asaas", "acesso": ["@Public()"] }
+      ]
+    },
+    {
+      "arquivo": "billing/conta-da-plataforma.controller.ts",
+      "classe": "ContaDaPlataformaController",
+      "path": "plataforma/mensalidade-laboratorio",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "ContaDaPlataformaController.ler", "verbo": "GET", "path": "", "rota": "GET /plataforma/mensalidade-laboratorio", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "ContaDaPlataformaController.salvar", "verbo": "PUT", "path": "", "rota": "PUT /plataforma/mensalidade-laboratorio", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "ContaDaPlataformaController.testar", "verbo": "POST", "path": "testar", "rota": "POST /plataforma/mensalidade-laboratorio/testar", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {

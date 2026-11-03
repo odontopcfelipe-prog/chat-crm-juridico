@@ -76,7 +76,8 @@ const TRAVA_CADASTRO_ABERTO = 'cadastro-laboratorio-aberto';
  *
  * Só funciona com a chave mestra CRIACAO_LABORATORIO_LIBERADA ligada e, além
  * dela, um convite válido OU o cadastro aberto (LAB_SIGNUP_ENABLED). A conta sai
- * igual à criada pelo /admin (F3): ACTIVE, plano CUSTOM, sem teste e sem e-mail.
+ * como a da clínica no /signup: plano STARTER com 14 dias de teste (depois assina
+ * na tela Assinatura, cobrada na conta Asaas da plataforma), sem e-mail.
  * O convite é gasto na mesma transação que cria a conta. O POST /signup da
  * clínica não passa por aqui.
  */
@@ -163,7 +164,7 @@ export class CadastroLaboratorioService {
     });
     if (jaUsado) throw new ConflictException(MSG_EMAIL_JA_USADO);
 
-    // (g) a mesma criação do /admin (F3); convite gasto e auditoria na mesma transação.
+    // (g) a criação do /admin (F3), em teste como a clínica; convite gasto e auditoria na mesma transação.
     try {
       await this.tenants.create(
         {
@@ -171,8 +172,8 @@ export class CadastroLaboratorioService {
           email,
           phone,
           cpf_cnpj: documento,
-          plan: 'CUSTOM',
-          status: 'ACTIVE',
+          plan: 'STARTER',
+          status: 'TRIAL',
           admin: { name: adminName, email, password: senha, phone },
         },
         {

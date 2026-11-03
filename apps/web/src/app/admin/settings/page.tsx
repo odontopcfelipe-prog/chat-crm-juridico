@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, Loader2, Mail, Save, ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
+import { ContaAsaasDaPlataforma } from './ContaAsaasDaPlataforma';
 
 interface SmtpForm {
   host: string;
@@ -202,6 +203,9 @@ export default function AdminSettingsPage() {
 
           {error && <p className="mt-3 text-xs font-semibold text-rose-500">{error}</p>}
         </div>
+
+        {/* ─── Mensalidade dos laboratórios (conta Asaas da plataforma) ─── */}
+        <ContaAsaasDaPlataforma />
       </div>
     </div>
   );

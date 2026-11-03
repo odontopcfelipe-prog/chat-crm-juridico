@@ -13,10 +13,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Loader2, CreditCard, Building2, AlertCircle, CheckCircle2, Calendar,
-  TrendingUp, Receipt, Shield, ArrowRight, Sparkles, DollarSign,
+  TrendingUp, Receipt, Shield, ArrowRight, Sparkles, DollarSign, ExternalLink,
 } from 'lucide-react';
+import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ASSINATURA, LAB_ASSINATURA_PLANOS } from './lab-assinatura-textos';
 
 interface Plan {
   id: string;
@@ -52,9 +55,20 @@ interface BillingData {
     phone: string | null;
   };
   subscription: Subscription | null;
+  /** Só no laboratório: a conta Asaas da mensalidade está configurada? */
+  assinatura_disponivel?: boolean;
+  /** Só no laboratório: a mensalidade em aberto, com o link do Asaas. */
+  pagamento_pendente?: { link: string | null; vencimento: string; valor: number | null } | null;
+}
+
+/** 'AAAA-MM-DD' → 'DD/MM/AAAA' (sem passar por fuso). */
+function dataCurta(d: string): string {
+  const [a, m, dia] = d.split('-');
+  return a && m && dia ? `${dia}/${m}/${a}` : d;
 }
 
 export default function BillingPage() {
+  const lab = isLab(useBusinessType());
   const [billing, setBilling] = useState<BillingData | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +121,8 @@ export default function BillingPage() {
   const isSuspended = billing.tenant.status === 'SUSPENDED';
   const trialEnds = billing.tenant.trial_ends_at ? new Date(billing.tenant.trial_ends_at) : null;
   const trialDaysLeft = trialEnds ? Math.max(0, Math.ceil((trialEnds.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+  const pendente = billing.pagamento_pendente ?? null;
+  const semAssinatura = billing.assinatura_disponivel === false;
 
   return (
     <div className="h-full overflow-y-auto p-6 max-w-5xl mx-auto">
@@ -140,6 +156,43 @@ export default function BillingPage() {
             <p className="text-xs text-amber-700">
               Sua avaliação termina em {trialEnds?.toLocaleDateString('pt-BR')}. Escolha um plano agora pra não perder acesso.
             </p>
+          </div>
+        </div>
+      )}
+      {pendente && (
+        <div className="mb-6 bg-violet-500/10 border-2 border-violet-500/40 rounded-xl p-4 flex items-start gap-3">
+          <Receipt size={20} className="text-violet-700 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold text-violet-700 mb-1">{LAB_ASSINATURA.pagarTitulo}</p>
+            <p className="text-xs text-violet-700">
+              {LAB_ASSINATURA.pagarDetalhe(
+                dataCurta(pendente.vencimento),
+                pendente.valor !== null ? Number(pendente.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : null,
+              )}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {pendente.link ? LAB_ASSINATURA.pagarDica : LAB_ASSINATURA.semLink}
+            </p>
+          </div>
+          {pendente.link && (
+            <a
+              href={pendente.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 text-xs font-bold px-3 py-2 rounded-md inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              <ExternalLink size={12} />
+              {LAB_ASSINATURA.pagarBotao}
+            </a>
+          )}
+        </div>
+      )}
+      {semAssinatura && (
+        <div className="mb-6 bg-muted/40 border border-border rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle size={20} className="text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-foreground mb-1">{LAB_ASSINATURA.indisponivelTitulo}</p>
+            <p className="text-xs text-muted-foreground">{LAB_ASSINATURA.indisponivelTexto}</p>
           </div>
         </div>
       )}
@@ -204,7 +257,9 @@ export default function BillingPage() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {plans.map((p) => {
-            const features: string[] = p.features_json ? JSON.parse(p.features_json) : [];
+            const textoLab = lab ? LAB_ASSINATURA_PLANOS[p.slug] : undefined;
+            const features: string[] = textoLab ? [...textoLab.recursos] : p.features_json ? JSON.parse(p.features_json) : [];
+            const descricao = textoLab ? textoLab.descricao : p.description;
             const isCurrent = currentPlan?.slug === p.slug;
             return (
               <div
@@ -219,8 +274,8 @@ export default function BillingPage() {
                   </p>
                 )}
                 <h3 className="text-lg font-extrabold text-foreground">{p.name}</h3>
-                {p.description && (
-                  <p className="text-xs text-muted-foreground mb-3">{p.description}</p>
+                {descricao && (
+                  <p className="text-xs text-muted-foreground mb-3">{descricao}</p>
                 )}
                 <p className="text-3xl font-extrabold tabular-nums mb-3">
                   R$ {Number(p.price_monthly).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -234,7 +289,7 @@ export default function BillingPage() {
                     </li>
                   ))}
                 </ul>
-                {!isCurrent && (
+                {!isCurrent && !semAssinatura && (
                   <div className="space-y-1.5">
                     <CheckoutButton
                       onClick={() => handleCheckout(p.slug, 'PIX')}

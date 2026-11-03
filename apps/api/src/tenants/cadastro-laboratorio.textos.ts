@@ -27,4 +27,6 @@ export const LAB_CONVITE_MSG = Object.freeze({
   validade: 'Validade do convite: de 1 a 60 dias',
   conviteNaoEncontrado: 'Convite não encontrado',
   conviteJaUsado: 'Este convite já foi usado: a conta do laboratório já existe.',
+  semMensalidade:
+    'Antes de abrir o cadastro, configure a conta Asaas da mensalidade dos laboratórios em Configurações da Plataforma.',
 });

@@ -17,6 +17,7 @@ import { Injectable, BadRequestException, NotFoundException, Logger } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { AssinaturaDoLaboratorioService } from './assinatura-do-laboratorio.service';
 
 @Injectable()
 export class BillingService {
@@ -26,6 +27,8 @@ export class BillingService {
     private prisma: PrismaService,
     // Usa a conta Asaas DA PLATAFORMA (sem tenantId — config global)
     private asaas: AsaasClient,
+    // Conta de laboratório: mesmas regras, cobrada na conta Asaas da plataforma
+    private lab: AssinaturaDoLaboratorioService,
   ) {}
 
   /** Lista planos disponiveis pra escolha do tenant. */
@@ -38,6 +41,7 @@ export class BillingService {
 
   /** Retorna assinatura + uso do tenant pra UI mostrar no /billing. */
   async getSubscriptionForTenant(tenantId: string) {
+    if (await this.lab.ehLaboratorio(tenantId)) return this.lab.minhaAssinatura(tenantId);
     const sub = await this.prisma.saasSubscription.findUnique({
       where: { tenant_id: tenantId },
       include: { plan: true },
@@ -57,6 +61,7 @@ export class BillingService {
     plan_slug: string;
     billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
   }) {
+    if (await this.lab.ehLaboratorio(tenantId)) return this.lab.checkout(tenantId, body);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('Tenant nao encontrado');
     if (!tenant.cpf_cnpj) {
@@ -179,6 +184,17 @@ export class BillingService {
       where: { asaas_subscription_id: subscriptionId },
     });
     if (!sub) return;
+
+    // Laboratório: o aviso só pede uma leitura dos pagamentos na conta da plataforma.
+    // Falha fica para a passada de hora em hora (o webhook responde ok do mesmo jeito).
+    if (await this.lab.ehLaboratorio(sub.tenant_id)) {
+      try {
+        await this.lab.sincronizar(sub.id);
+      } catch (e: any) {
+        this.logger.warn(`[SAAS-BILLING] Leitura da assinatura de laboratório ${sub.id} falhou: ${e?.message}`);
+      }
+      return;
+    }
 
     // Calcula proximo vencimento (+1 mes)
     const next = sub.next_charge_date ? new Date(sub.next_charge_date) : new Date();

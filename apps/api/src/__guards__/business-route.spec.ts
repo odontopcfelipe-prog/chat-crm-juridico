@@ -105,7 +105,6 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/settings/quote-coupons',
       '/atendimento/fechamentos',
       '/atendimento/progresso',
-      '/atendimento/billing',
       '/atendimento/financeiro/dashboard',
       '/atendimento/relatorios',
       '/atendimento/dashboard-completo',
@@ -119,6 +118,7 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/chat/abc',
       '/atendimento/dashboard',
       '/atendimento/caixa',
+      '/atendimento/billing',
       '/atendimento/settings',
       '/atendimento/settings/whatsapp',
       // [F5a]

@@ -23,7 +23,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
 
 /** Handlers que a conta de laboratório alcança (386). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
-  // BillingController — plano da própria conta
+  // BillingController — plano da própria conta (a lista de planos é pública)
   'BillingController.getMine',
   'BillingController.checkout',
   // CaixaController — caixa
@@ -446,7 +446,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'WhatsappController.renameMyNumber',
 ]);
 
-/** Controllers só de clínica/IA/plataforma (48): TODO handler deles (inclusive os novos) é negado. */
+/** Controllers só de clínica/IA/plataforma (49): TODO handler deles (inclusive os novos) é negado. */
 export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'AdverseReactionsController', // reação adversa (clínico)
   'AgendaExtendedController', // agenda de consulta: salas, retornos, marcadores
@@ -494,6 +494,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CriacaoLaboratorioController', // liga/desliga a criação de laboratório (plataforma)
   'CadastroLaboratorioController', // cadastro público de laboratório do /cadastrar (plataforma; rotas públicas)
   'CadastroLaboratorioPlataformaController', // convites e chave do cadastro de laboratório (plataforma)
+  'ContaDaPlataformaController', // conta Asaas da mensalidade dos laboratórios (plataforma)
   'WaitlistController', // lista de espera da agenda de consulta
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);

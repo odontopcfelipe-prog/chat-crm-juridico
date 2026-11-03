@@ -100,6 +100,7 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   '/atendimento/dashboard',
   '/atendimento/caixa',
   '/atendimento/ponto',
+  '/atendimento/billing',
   Object.freeze({ path: '/atendimento/settings', exact: true as const }),
   '/atendimento/settings/whatsapp',
   '/atendimento/settings/inboxes',

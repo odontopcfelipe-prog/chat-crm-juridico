@@ -519,8 +519,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           );
         })()}
         {/* Onda 17.32.86 — Banner de trial/inadimplencia (sticky no topo
-            do main, abaixo do header global). So aparece se relevante. */}
-        {!lab && <TrialBanner />}
+            do main, abaixo do header global). So aparece se relevante.
+            Vale tambem para o laboratorio (mesmo teste e mesma assinatura). */}
+        <TrialBanner />
         <WhatsappDisconnectedBanner />
         <main className="flex-1 overflow-hidden">
           {/* Antes de /users/me chegar, a decisão usa o fallback do JWT: se ele

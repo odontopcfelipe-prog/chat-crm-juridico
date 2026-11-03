@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { auditData, registrarAuditoria } from '../common/utils/audit-log.util';
 import { criacaoLaboratorioLiberada } from './criacao-laboratorio.service';
 import { LAB_CONVITE_MSG } from './cadastro-laboratorio.textos';
+import { lerContaDaPlataforma } from '../billing/conta-asaas-da-plataforma';
 import {
   CHAVE_CADASTRO_LABORATORIO,
   VALIDADE_MAX_DIAS,
@@ -79,10 +80,17 @@ export class ConvitesLaboratorioService {
     return { aberto: c.cadastroAberto, criacao_liberada: c.criacaoLiberada, atualizado_em: c.atualizadoEm };
   }
 
-  /** Liga/desliga o cadastro aberto. Ligar com a chave mestra desligada é permitido (a tela avisa). */
+  /**
+   * Liga/desliga o cadastro aberto. Ligar com a chave mestra desligada é permitido (a
+   * tela avisa); ligar sem a conta Asaas da mensalidade não (o laboratório não teria
+   * onde pagar quando o teste acabar). Desligar sempre pode.
+   */
   async definirChave(aberto: unknown, quem?: string | null): Promise<ChaveCadastroLaboratorio> {
     if (typeof aberto !== 'boolean') {
       throw new BadRequestException(LAB_CONVITE_MSG.aberto);
+    }
+    if (aberto && !(await lerContaDaPlataforma(this.prisma))) {
+      throw new ConflictException(LAB_CONVITE_MSG.semMensalidade);
     }
     const key = CHAVE_CADASTRO_LABORATORIO;
     const value = aberto ? 'true' : 'false';

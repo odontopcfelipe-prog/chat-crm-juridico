@@ -411,17 +411,37 @@ describe('revogar convite', () => {
 });
 
 describe('chave do cadastro aberto (LAB_SIGNUP_ENABLED)', () => {
-  function montarChave(mestra: string | null = null) {
+  /** mensalidade: a chave da conta Asaas da plataforma (null = não configurada). */
+  function montarChave(mestra: string | null = null, mensalidade: string | null = 'chave-da-plataforma') {
+    const linhas: Record<string, string | null> = {
+      CRIACAO_LABORATORIO_LIBERADA: mestra,
+      ASAAS_PLATAFORMA_API_KEY: mensalidade,
+    };
     const prisma: any = {
       globalSetting: {
         upsert: jest.fn(async (a: any) => ({ key: a.where.key, value: a.create.value, updated_at: AGORA })),
-        findUnique: jest.fn(async () => (mestra === null ? null : { key: 'CRIACAO_LABORATORIO_LIBERADA', value: mestra })),
+        findUnique: jest.fn(async (a: any) => {
+          const value = linhas[a?.where?.key];
+          return value == null ? null : { key: a.where.key, value };
+        }),
         findMany: jest.fn(async () => []),
       },
       auditLog: { create: jest.fn(async () => ({})) },
     };
     return { prisma, svc: new ConvitesLaboratorioService(prisma) };
   }
+
+  it('ligar sem a conta Asaas da mensalidade dos laboratórios → 409, nada gravado; desligar continua livre', async () => {
+    const { prisma, svc } = montarChave('true', null);
+    const erro = await svc.definirChave(true, SUPER).catch((e) => e);
+    expect(erro).toBeInstanceOf(ConflictException);
+    expect(erro.message).toBe(LAB_CONVITE_MSG.semMensalidade);
+    expect(prisma.globalSetting.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+
+    expect((await svc.definirChave(false, SUPER)).aberto).toBe(false);
+    expect(prisma.globalSetting.upsert).toHaveBeenCalledTimes(1);
+  });
 
   it('definir: grava true/false com auditoria PLATAFORMA; a resposta tem o formato do ler', async () => {
     const { prisma, svc } = montarChave();
