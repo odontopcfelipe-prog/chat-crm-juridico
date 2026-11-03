@@ -82,6 +82,32 @@ function Saldo({ produto }: { produto: ProdutoResumo }) {
   );
 }
 
+/**
+ * Botão "Materiais" da linha do procedimento, com a contagem. Mora aqui (e não na
+ * page.tsx) porque a page tem pickBt e o CI trava texto novo em arquivo com pickBt.
+ */
+export function BotaoMateriais({ quantidade, onClick }: { quantidade: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative p-1 mr-1 rounded transition-colors ${
+        quantidade > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground/50 hover:text-foreground'
+      }`}
+      title={quantidade > 0
+        ? `Gasta ${quantidade} ${quantidade === 1 ? 'material' : 'materiais'} do estoque — clique para ver`
+        : 'Ligar materiais do estoque (a venda rápida dá baixa por eles)'}
+      aria-label="Materiais do estoque"
+    >
+      <Boxes size={14} />
+      {quantidade > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold leading-[14px] text-center">
+          {quantidade}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function MateriaisProcedimento({
   procedureId, procedureName, onClose, onChanged,
 }: {

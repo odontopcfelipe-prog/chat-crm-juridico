@@ -22,7 +22,7 @@
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import {
   DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search, Zap,
-  ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers, Boxes,
+  ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
 } from 'lucide-react';
 import { isLab, pickBt, type FichaTecnicaLab } from '@crm/shared';
 import api from '@/lib/api';
@@ -38,7 +38,7 @@ import {
   useFichasTecnicasLab,
   validarFicha,
 } from './LabFichaServico';
-import MateriaisProcedimento from './MateriaisProcedimento';
+import MateriaisProcedimento, { BotaoMateriais } from './MateriaisProcedimento';
 
 interface Procedure {
   id: string;
@@ -519,26 +519,10 @@ function ProcedureRow({
         >
           <Zap size={14} className={quickSale ? 'fill-amber-500' : ''} />
         </button>
-        {/* Materiais do estoque que o procedimento gasta (a Venda rápida baixa por eles) */}
-        {onMateriais && (
-          <button
-            onClick={onMateriais}
-            className={`relative p-1 mr-1 rounded transition-colors ${
-              qtdMateriais > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground/50 hover:text-foreground'
-            }`}
-            title={qtdMateriais > 0
-              ? `Gasta ${qtdMateriais} ${qtdMateriais === 1 ? 'material' : 'materiais'} do estoque — clique para ver`
-              : 'Ligar materiais do estoque (a venda rápida dá baixa por eles)'}
-            aria-label="Materiais do estoque"
-          >
-            <Boxes size={14} />
-            {qtdMateriais > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold leading-[14px] text-center">
-                {qtdMateriais}
-              </span>
-            )}
-          </button>
-        )}
+        {/* Materiais do estoque que o procedimento gasta (a Venda rápida baixa por eles).
+            Os textos do botão moram em MateriaisProcedimento.tsx: este arquivo tem pickBt e
+            o CI (check-pick-literals) trava qualquer texto novo aqui. */}
+        {onMateriais && <BotaoMateriais quantidade={qtdMateriais} onClick={onMateriais} />}
         <button
           onClick={onEdit}
           className="text-muted-foreground hover:text-foreground p-1 mr-1"
