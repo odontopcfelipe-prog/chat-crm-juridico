@@ -229,11 +229,12 @@ describe('PDF do laboratório — bloco DADOS DO CASO sem o paciente do caso (F8
       documentos().length = 0;
       __limparCacheLabTenants();
       const m = montar(CLINICA, labs, orcamento(CLINICA), [fichaInteira(ORC, { tenant_id: CLINICA })]);
+      m.prisma.tenant.findUnique.mockResolvedValue({ name: 'Clínica Exemplo' });
       await m.svc.generatePdf(ORC, CLINICA);
       expect(m.prisma.quoteLabCase.findFirst).not.toHaveBeenCalled();
       expect(m.prisma.quote.findFirst).not.toHaveBeenCalled();
       const t = textos(documentos()[0]);
-      expect(t).toEqual(expect.arrayContaining(['INSTITUTO ODONTO PASSOS', 'PACIENTE']));
+      expect(t).toEqual(expect.arrayContaining(['CLÍNICA EXEMPLO', 'PACIENTE']));
       expect(t.filter((x) => x === 'DADOS DO CASO' || /^(Cor|Material|Entrega prometida):/.test(x))).toEqual([]);
       semSentinela(documentos()[0]);
     }

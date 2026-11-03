@@ -70,10 +70,12 @@ export class QuotePdfService {
       return desenharOrcamentoDoLaboratorio(quote, conta, withValues, caso);
     }
 
-    return this.renderPdf(quote, withValues);
+    // Cabeçalho com o nome da PRÓPRIA clínica.
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim();
+    return this.renderPdf(quote, withValues, clinica);
   }
 
-  private renderPdf(quote: any, withValues = true): Promise<Buffer> {
+  private renderPdf(quote: any, withValues = true, clinica?: string): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'A4',
@@ -88,9 +90,11 @@ export class QuotePdfService {
 
       const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-      // ── Header da clinica
-      doc.font('Helvetica-Bold').fontSize(18)
-        .text('INSTITUTO ODONTO PASSOS', { align: 'center' });
+      // ── Header da clinica (sem nome cadastrado, fica só a linha de baixo)
+      if (clinica) {
+        doc.font('Helvetica-Bold').fontSize(18)
+          .text(clinica.toLocaleUpperCase('pt-BR'), { align: 'center' });
+      }
       doc.font('Helvetica').fontSize(10)
         .text('Clinica Odontologica', { align: 'center' });
       doc.moveDown(1.5);

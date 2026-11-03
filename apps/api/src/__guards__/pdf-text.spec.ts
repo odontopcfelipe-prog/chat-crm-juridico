@@ -306,10 +306,33 @@ afterEach(() => {
 // ─── 1. Proposta / orçamento ─────────────────────────────────────────────────
 
 describe('retrato: PDF da proposta (QuotePdfService) (F1)', () => {
-  function montar(quote: any) {
-    const prisma: any = { quote: { findUnique: jest.fn().mockResolvedValue(quote) } };
+  function montar(quote: any, nomeClinica: string | null = 'Clínica Exemplo') {
+    const prisma: any = {
+      quote: { findUnique: jest.fn().mockResolvedValue(quote) },
+      tenant: { findUnique: jest.fn().mockResolvedValue(nomeClinica === null ? null : { name: nomeClinica }) },
+    };
     return { svc: new QuotePdfService(prisma), prisma };
   }
+
+  it('cabeçalho com o nome da própria clínica; sem nome cadastrado, só a linha de baixo', async () => {
+    const { svc, prisma } = montar(proposta(), '  Clínica Exemplo do Sul ');
+    await svc.generatePdf('a1b2c3d4-0000-4000-8000-000000000001', TENANT);
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith({ where: { id: TENANT }, select: { name: true } });
+    expect(linhasDoPdf(documentosPdfkit()[0]).slice(0, 3)).toEqual([
+      '──── página 1 ────',
+      '[Helvetica-Bold 18 center] CLÍNICA EXEMPLO DO SUL',
+      '[Helvetica 10 center] Clinica Odontologica',
+    ]);
+
+    for (const semNome of [null, '   ']) {
+      documentosPdfkit().length = 0;
+      await montar(proposta(), semNome).svc.generatePdf('a1b2c3d4-0000-4000-8000-000000000001', TENANT);
+      expect(linhasDoPdf(documentosPdfkit()[0]).slice(1, 3)).toEqual([
+        '[Helvetica 10 center] Clinica Odontologica',
+        '[Helvetica-Bold 15 center] ORÇAMENTO',
+      ]);
+    }
+  });
 
   it('com valores: cabeçalho, paciente, tabela, totais, condições, proposta de pagamento, anexos, assinatura e rodapé', async () => {
     const { svc, prisma } = montar(proposta());

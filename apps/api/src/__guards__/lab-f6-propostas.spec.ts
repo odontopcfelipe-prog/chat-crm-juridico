@@ -150,13 +150,14 @@ const TEXTOS_DA_CLINICA: ReadonlyArray<readonly [string, number]> = [
   ["Recebido na clínica — entra direto no caixa, sem cobrança no Asaas", 1],
   ["NA CLÍNICA", 1],
   ["Proposta salva — aguardando decisão do paciente", 1],
-  ["/commercial/patients/", 1],
+  // A API não tem o prefixo /commercial/ — o rascunho e a aprovação usam as rotas reais.
+  ["/commercial/patients/", 0],
   ["criada. Adicione os procedimentos pela aba Avaliacao quando puder.", 1],
   ["Proposta enviada pro paciente", 1],
   ["⚠ Consulta de crédito DISPENSADA — operador assume o risco.", 1],
   ["• Ativar o plano", 1],
   ["Proposta aprovada e boletos gerados (consulta dispensada).", 1],
-  ["/commercial/treatment-plans/", 1],
+  ["/commercial/treatment-plans/", 0],
   ["(recebido na clínica, sem Asaas)", 1],
   ["• Ativar o plano de tratamento", 2],
   ["• Aceitar o orçamento + ativar o plano", 1],
@@ -346,33 +347,20 @@ describe('F6 — aba Propostas no laboratório (PropostasTab.tsx)', () => {
     expect(ruins).toEqual([]);
   });
 
-  it('as cobranças do plano só são buscadas fora do laboratório e o rascunho da clínica segue no caminho de hoje', () => {
-    const planos = todos(sf, (no) => ts.isTemplateHead(no) && no.text === '/commercial/treatment-plans/');
-    expect(planos.length).toBe(1);
-    const dentroDeIfNaoLab = (no: ts.Node): boolean => {
-      let p: ts.Node | undefined = no.parent;
-      while (p && !ts.isSourceFile(p)) {
-        if (ts.isIfStatement(p) && operandosE(p.expression).some(ehNaoLab)) return true;
-        p = p.parent;
-      }
-      return false;
-    };
-    expect(planos.filter((no) => !dentroDeIfNaoLab(no)).map((no) => `${ARQ}:${linha(sf, no)}`)).toEqual([]);
+  it('nenhuma chamada com o prefixo /commercial/ (a API não tem) e o rascunho é um caminho só, na clínica e no laboratório', () => {
+    const comPrefixo = todos(
+      sf,
+      (no) =>
+        (ts.isTemplateHead(no) || ts.isStringLiteral(no) || ts.isNoSubstitutionTemplateLiteral(no)) &&
+        no.text.startsWith('/commercial/'),
+    );
+    expect(comPrefixo.map((no) => `${ARQ}:${linha(sf, no)}`)).toEqual([]);
 
-    const rascunhos = todos(sf, (no) => ts.isTemplateHead(no) && no.text === '/commercial/patients/');
+    const rascunhos = todos(sf, (no) => ts.isTemplateTail(no) && no.text === '/quotes/draft-or-create');
     expect(rascunhos.length).toBe(1);
-    const noRamoDaClinica = rascunhos.every((no) => {
-      const tpl = no.parent;
-      const cond = tpl?.parent;
-      return (
-        !!cond &&
-        ts.isConditionalExpression(cond) &&
-        ts.isIdentifier(semParenteses(cond.condition)) &&
-        (semParenteses(cond.condition) as ts.Identifier).text === 'lab' &&
-        cond.whenFalse === tpl
-      );
-    });
-    expect(noRamoDaClinica).toBe(true);
+    const tpl = rascunhos[0].parent?.parent;
+    expect(!!tpl && ts.isTemplateExpression(tpl) && tpl.head.text === '/patients/').toBe(true);
+    expect(!!tpl?.parent && ts.isConditionalExpression(tpl.parent)).toBe(false);
   });
 });
 

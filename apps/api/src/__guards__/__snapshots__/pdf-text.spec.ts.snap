@@ -116,7 +116,7 @@ exports[`retrato: PDF da proposta (QuotePdfService) (F1) com valores: cabeçalho
 exports[`retrato: PDF da proposta (QuotePdfService) (F1) com valores: cabeçalho, paciente, tabela, totais, condições, proposta de pagamento, anexos, assinatura e rodapé: texto desenhado 1`] = `
 [
   "──── página 1 ────",
-  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica-Bold 18 center] CLÍNICA EXEMPLO",
   "[Helvetica 10 center] Clinica Odontologica",
   "[Helvetica-Bold 15 center] ORÇAMENTO",
   "[Helvetica 10 center] #A1B2C3D4",
@@ -186,7 +186,7 @@ exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta longa: onde a 
   {
     "pagina": "──── página 1 ────",
     "primeiros": [
-      "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+      "[Helvetica-Bold 18 center] CLÍNICA EXEMPLO",
       "[Helvetica 10 center] Clinica Odontologica",
       "[Helvetica-Bold 15 center] ORÇAMENTO",
       "[Helvetica 10 center] #A1B2C3D4",
@@ -235,7 +235,7 @@ exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta longa: onde a 
 exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta mínima (sem validade, sem atendente, paciente só com nome, sem forma de pagamento): texto desenhado 1`] = `
 [
   "──── página 1 ────",
-  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica-Bold 18 center] CLÍNICA EXEMPLO",
   "[Helvetica 10 center] Clinica Odontologica",
   "[Helvetica-Bold 15 center] ORÇAMENTO",
   "[Helvetica 10 center] #A1B2C3D4",
@@ -280,7 +280,7 @@ exports[`retrato: PDF da proposta (QuotePdfService) (F1) proposta mínima (sem v
 exports[`retrato: PDF da proposta (QuotePdfService) (F1) sem valores (o PDF que vai junto do plano): só procedimentos, sem totais nem pagamento: texto desenhado 1`] = `
 [
   "──── página 1 ────",
-  "[Helvetica-Bold 18 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica-Bold 18 center] CLÍNICA EXEMPLO",
   "[Helvetica 10 center] Clinica Odontologica",
   "[Helvetica-Bold 15 center] ORÇAMENTO",
   "[Helvetica 10 center] #A1B2C3D4",
@@ -372,7 +372,7 @@ exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE 
 exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) PDF do TCLE + o que vai pro ClickSign + a mensagem do link no WhatsApp: texto desenhado 1`] = `
 [
   "──── página 1 ────",
-  "[Helvetica-Bold 16 center] INSTITUTO ODONTO PASSOS",
+  "[Helvetica-Bold 16 center] CLÍNICA EXEMPLO",
   "[Helvetica 9 center] Clínica Odontológica",
   "[Helvetica-Bold 14 center] TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO",
   "[Helvetica 11 center] Plano de Tratamento Odontológico",
@@ -439,7 +439,6 @@ https://assinatura.exemplo.test/tcle-1"
 exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) paciente com o mínimo (sem CPF, RG, nascimento e e-mail) e clínica sem nome: cabeçalho e identificação 1`] = `
 [
   "──── página 1 ────",
-  "[Helvetica-Bold 16 center] INSTITUTO ODONTO PASSOS",
   "[Helvetica 9 center] Clínica Odontológica",
   "[Helvetica-Bold 14 center] TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO",
   "[Helvetica 11 center] Plano de Tratamento Odontológico",
@@ -450,6 +449,7 @@ exports[`retrato: TCLE do plano (TreatmentPlanContractService) (F1) paciente com
   "[Helvetica-Bold 9] Procedimento",
   "[Helvetica-Bold 9 right] Qtd",
   "[Helvetica-Bold 9 right] Unitário",
+  "[Helvetica-Bold 9 right] Total",
 ]
 `;
 

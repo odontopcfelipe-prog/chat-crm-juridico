@@ -79,8 +79,11 @@ export class TreatmentPlanContractService {
     // antes de subir o documento no ClickSign.
     const conversationId = await this.resolvePatientConversation(plan.patient.lead_id, tenantId, signerPhone);
 
+    // Nome da clínica do PRÓPRIO tenant: cabeçalho do PDF e mensagem do link.
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim();
+
     // Gera o PDF do TCLE
-    const buffer = await this.generateTclePdf(plan);
+    const buffer = await this.generateTclePdf(plan, clinica);
 
     const safeName = signerName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
     const filename = `TCLE_${safeName}_${Date.now()}.pdf`;
@@ -105,7 +108,6 @@ export class TreatmentPlanContractService {
     // Link no WhatsApp pela conversa de PACIENTE (chip Clínica/Comercial). Nome da
     // clínica do PRÓPRIO tenant (era "Instituto Odonto Passos" fixo) e o link de
     // verdade (antes saía "{will-be-replaced}" no lugar do link).
-    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim();
     const whatsappMessage =
       `🦷 *Plano de Tratamento${clinica ? ` — ${clinica}` : ''}*\n\n` +
       `Olá ${signerName.split(' ')[0]}!\n\n` +
@@ -130,7 +132,7 @@ export class TreatmentPlanContractService {
 
   // ─── Geracao do PDF do TCLE ──────────────────────────────────
 
-  private async generateTclePdf(plan: any): Promise<Buffer> {
+  private async generateTclePdf(plan: any, clinica?: string): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'A4',
@@ -145,8 +147,10 @@ export class TreatmentPlanContractService {
 
       const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-      // ── Header
-      doc.font('Helvetica-Bold').fontSize(16).text('INSTITUTO ODONTO PASSOS', { align: 'center' });
+      // ── Header (sem nome cadastrado, fica só a linha de baixo)
+      if (clinica) {
+        doc.font('Helvetica-Bold').fontSize(16).text(clinica.toLocaleUpperCase('pt-BR'), { align: 'center' });
+      }
       doc.font('Helvetica').fontSize(9).text('Clínica Odontológica', { align: 'center' });
       doc.moveDown(1.5);
 

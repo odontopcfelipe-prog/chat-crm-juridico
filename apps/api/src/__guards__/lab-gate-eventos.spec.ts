@@ -258,7 +258,8 @@ describe('TCLE (sendForSignature) — laboratório recusa; o aceite em segundo p
     const m = montar([]);
     const r = await m.svc.sendForSignature('plano-1', CLINICA);
     expect(r).toEqual({ signingUrl: 'https://assinar.exemplo.test/x', whatsappSent: true });
-    expect(m.nomes()).toEqual(['treatmentPlan.findUnique', 'treatmentPlan.update', 'tenant.findUnique']);
+    // O nome da clínica é lido antes do PDF (cabeçalho) e reaproveitado na mensagem.
+    expect(m.nomes()).toEqual(['treatmentPlan.findUnique', 'tenant.findUnique', 'treatmentPlan.update']);
     expect(m.de('treatmentPlan.update')).toEqual([{ where: { id: 'plano-1' }, data: { contract_signature_id: 'assinatura-1' } }]);
     expect(m.conversa).toHaveBeenCalledWith(`lead-${CLINICA}`, CLINICA, TEL[CLINICA]);
     expect(m.clicksign.createGenericSignature).toHaveBeenCalledTimes(1);

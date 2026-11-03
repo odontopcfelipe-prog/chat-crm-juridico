@@ -1,10 +1,9 @@
 /**
- * F6 do laboratório — modelos de orçamento (QuoteTemplatesService), liberados ao
- * laboratório com uma regra a mais: o modelo só leva serviço da PRÓPRIA conta.
- *   - laboratório: criar/editar com serviço de outra conta = 400; aplicar o modelo copia
- *     só os itens com serviço da conta (order_index e totais seguem os copiados);
- *   - clínica: as mesmas operações de hoje (com e sem outra conta de laboratório), sem a
- *     leitura dos serviços.
+ * Modelos de orçamento (QuoteTemplatesService): o modelo só leva serviço da PRÓPRIA
+ * conta, na clínica e no laboratório.
+ *   - criar/editar com serviço de outra conta = 400; aplicar o modelo copia só os itens
+ *     com serviço da conta (order_index e totais seguem os copiados);
+ *   - o resultado da clínica não depende de existir laboratório cadastrado.
  *
  * Sem banco: o Prisma é um gravador; dados de exemplo (repositório público).
  */
@@ -139,33 +138,48 @@ describe('modelos de orçamento no laboratório: só serviço da própria conta 
   });
 });
 
-describe('modelos de orçamento na clínica: como hoje (F6)', () => {
-  it('criar e editar com qualquer serviço: grava, sem ler os serviços', async () => {
+describe('modelos de orçamento na clínica: a mesma regra (só serviço da própria conta)', () => {
+  it('criar e editar com serviço de outra conta: 400, nada gravado — com e sem laboratório cadastrado', async () => {
     for (const labs of [[], [LAB]]) {
       const m = montar(CLINICA, labs);
-      await m.svc.create(CLINICA, { name: 'Implante', items: ITENS_COM_OUTRA_CONTA });
-      await m.svc.update('tpl-1', CLINICA, { items: ITENS_COM_OUTRA_CONTA });
-      expect(m.de('quoteTemplate.create')).toHaveLength(1);
-      expect(m.de('quoteTemplateItem.createMany')).toHaveLength(1);
-      expect(m.de('procedure.findMany')).toEqual([]);
+      const e1 = await m.svc.create(CLINICA, { name: 'Implante', items: ITENS_COM_OUTRA_CONTA }).catch((x) => x);
+      const e2 = await m.svc.update('tpl-1', CLINICA, { items: ITENS_COM_OUTRA_CONTA }).catch((x) => x);
+      expect(e1).toBeInstanceOf(BadRequestException);
+      expect(e2).toBeInstanceOf(BadRequestException);
+      expect(m.de('quoteTemplate.create')).toEqual([]);
+      expect(m.de('quoteTemplate.update')).toEqual([]);
+      expect(m.de('quoteTemplateItem.deleteMany')).toEqual([]);
+      expect(m.de('procedure.findMany')[0]).toEqual({
+        where: { id: { in: ['proc-da-conta-1', 'proc-de-outra-conta'] }, tenant_id: CLINICA },
+        select: { id: true },
+      });
+      expect(m.perfis).not.toHaveBeenCalled();
     }
   });
 
-  it('aplicar: os mesmos itens, order_index e totais, com e sem outra conta de laboratório', async () => {
+  it('criar e editar só com serviços da conta: grava como sempre', async () => {
+    const m = montar(CLINICA, []);
+    const itens = [{ procedure_id: 'proc-da-conta-1', quantity: 1 }, { procedure_id: 'proc-da-conta-2', quantity: 2 }];
+    await m.svc.create(CLINICA, { name: 'Implante', items: itens });
+    await m.svc.update('tpl-1', CLINICA, { items: itens });
+    expect(m.de('quoteTemplate.create')).toHaveLength(1);
+    expect(m.de('quoteTemplateItem.createMany')).toHaveLength(1);
+  });
+
+  it('aplicar: copia só os itens da conta, igual com e sem laboratório cadastrado', async () => {
     const antes = montar(CLINICA, []);
     const r1 = await antes.svc.applyToQuote('q-1', 'tpl-1', CLINICA);
     const depois = montar(CLINICA, [LAB]);
     const r2 = await depois.svc.applyToQuote('q-1', 'tpl-1', CLINICA);
-    expect(r1).toEqual({ added: 3 });
+    expect(r1).toEqual({ added: 2 });
     expect(r2).toEqual(r1);
     expect(depois.ops).toEqual(antes.ops);
     const [{ data }] = antes.de('quoteItem.createMany');
     expect(data.map((d: any) => [d.procedure_id, d.order_index, d.total_price])).toEqual([
       ['proc-da-conta-1', 2, 100],
-      ['proc-de-outra-conta', 3, 1998],
-      ['proc-da-conta-2', 4, 120],
+      ['proc-da-conta-2', 3, 120],
     ]);
-    expect(antes.de('procedure.findMany')).toEqual([]);
+    expect(antes.de('quote.update')).toEqual([{ where: { id: 'q-1' }, data: { subtotal: 250, discount_value: 25, total_value: 225 } }]);
   });
 
   it('o modelo de outra conta continua recusado como hoje', async () => {

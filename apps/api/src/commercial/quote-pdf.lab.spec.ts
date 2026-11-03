@@ -227,16 +227,17 @@ describe('PDF do orçamento de trabalho (F6)', () => {
     expect(tudo).not.toMatch(/RG|Nascimento|1990/);
   });
 
-  it('clínica (com e sem outra conta de laboratório): o desenho de sempre e a conta não é lida', async () => {
+  it('clínica (com e sem outra conta de laboratório): o desenho de sempre com o nome da própria clínica', async () => {
     for (const labs of [[], [LAB]]) {
       documentos().length = 0;
       __limparCacheLabTenants();
-      const m = montar(CLINICA, labs, orcamento(CLINICA));
+      const m = montar(CLINICA, labs, orcamento(CLINICA), { name: 'Clínica Exemplo' });
       await m.svc.generatePdf('a1b2c3d4-0000-4000-8000-000000000001', CLINICA);
       const t = textos(documentos()[0]);
-      expect(t).toEqual(expect.arrayContaining(['INSTITUTO ODONTO PASSOS', 'PACIENTE', 'PROCEDIMENTOS', 'Dente']));
+      expect(t).toEqual(expect.arrayContaining(['CLÍNICA EXEMPLO', 'PACIENTE', 'PROCEDIMENTOS', 'Dente']));
       expect(t.join('\n')).not.toContain('CLIENTE');
-      expect(m.prisma.tenant.findUnique).not.toHaveBeenCalled();
+      // Da conta, a clínica só lê o nome (sem logo, telefone ou documento).
+      expect(m.prisma.tenant.findUnique.mock.calls).toEqual([[{ where: { id: CLINICA }, select: { name: true } }]]);
       expect(m.prisma.quoteLabCase.findFirst).not.toHaveBeenCalled();
       expect(documentos()[0].__imagens).toBe(0);
     }

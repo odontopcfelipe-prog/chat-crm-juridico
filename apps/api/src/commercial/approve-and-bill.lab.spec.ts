@@ -371,7 +371,8 @@ const TEXTOS_DA_CLINICA: Record<string, Array<[string, number]>> = {
     ["'Paciente sem CPF cadastrado. Edite o paciente e adicione o CPF antes de gerar cobranca.'", 1],
   ],
   'quote-pdf.service.ts': [
-    ["'INSTITUTO ODONTO PASSOS'", 1],
+    // O cabeçalho usa o nome da própria clínica (Tenant.name), nunca um nome fixo.
+    ["'INSTITUTO ODONTO PASSOS'", 0],
     ["'Clinica Odontologica'", 1],
     ["'ORÇAMENTO'", 1],
     ["'PACIENTE'", 1],
