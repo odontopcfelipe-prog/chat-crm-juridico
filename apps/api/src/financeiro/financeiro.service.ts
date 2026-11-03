@@ -267,8 +267,13 @@ export class FinanceiroService {
     // o paciente resolvendo pela cobrança (reference_id = charge.external_id) →
     // treatment_plan → patient. Só display; as novas já vêm com lead_id gravado.
     await this.fillClientFromCharge(data);
-    // ORIGEM das entradas (filtro Vendas rápidas / Boletos da aba Entradas).
-    await this.fillOrigem(data);
+    // ORIGEM das entradas (filtro Vendas rápidas / Boletos da aba Entradas). Só display:
+    // se falhar, a lista sai sem origem (o front esconde o filtro) em vez de dar 500.
+    try {
+      await this.fillOrigem(data);
+    } catch (e: any) {
+      this.logger.warn(`[ENTRADAS] origem não calculada: ${e?.message}`);
+    }
 
     // Enriquecer transações PENDENTE/ATRASADO de honorários com juros legais
     const enriched = await this.enrichWithInterest(data);
