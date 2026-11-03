@@ -50,8 +50,6 @@ export const SENSITIVE_KEYS = new Set([
   'GOOGLE_TTS_API_KEY',
   'asaas_api_key',
   'asaas_webhook_token',
-  // Conta Asaas da plataforma (mensalidade dos laboratórios).
-  'ASAAS_PLATAFORMA_API_KEY',
   'nfse_api_key',
   'GDRIVE_SERVICE_ACCOUNT_B64',
   'GDRIVE_OAUTH_CLIENT_ID',

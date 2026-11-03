@@ -95,7 +95,7 @@ export const LAB_CADASTRO_ABERTO_ADMIN = Object.freeze({
   desligado: 'desligado',
   descDesligado: 'Sem convite, o /cadastrar do laboratório mostra a lista de espera.',
   avisoPrecos:
-    'Para ligar, configure antes a conta Asaas da mensalidade dos laboratórios (Configurações da Plataforma). ' +
+    'A mensalidade do laboratório é paga na mesma conta Asaas da assinatura das clínicas. ' +
     'Quem se cadastra ganha 14 dias de teste e depois assina um plano.',
   descLigado: 'Qualquer pessoa que escolher "Laboratório de prótese" no /cadastrar cria a conta, sem convite.',
   semEfeito: 'Ligado, mas sem efeito: a "Criação de laboratório" está desligada.',
@@ -110,7 +110,7 @@ export const LAB_CADASTRO_ABERTO_ADMIN = Object.freeze({
     'Abrir o cadastro de laboratório ao público?\n\n' +
     'Com a chave ligada, qualquer pessoa que escolher "Laboratório de prótese" no /cadastrar cria a conta na hora, ' +
     'sem convite, com 14 dias de teste. Depois do teste o laboratório assina um plano (os mesmos preços da clínica) ' +
-    'e paga a mensalidade na conta Asaas da plataforma.\n\n' +
+    'e paga a mensalidade na mesma conta Asaas da assinatura das clínicas.\n\n' +
     'As clínicas não mudam.',
   confirmaDesligar:
     'Fechar o cadastro aberto de laboratório?\n\n' +

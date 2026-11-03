@@ -449,7 +449,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'WhatsappController.renameMyNumber',
 ]);
 
-/** Controllers só de clínica/IA/plataforma (49): TODO handler deles (inclusive os novos) é negado. */
+/** Controllers só de clínica/IA/plataforma (48): TODO handler deles (inclusive os novos) é negado. */
 export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'AdverseReactionsController', // reação adversa (clínico)
   'AgendaExtendedController', // agenda de consulta: salas, retornos, marcadores
@@ -498,7 +498,6 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CadastroLaboratorioController', // cadastro público de laboratório do /cadastrar (plataforma; rotas públicas)
   'CadastroLaboratorioPlataformaController', // convites e chave do cadastro de laboratório (plataforma)
   'ComparativoContasController', // comparativo das contas no Admin SaaS (plataforma)
-  'ContaDaPlataformaController', // conta Asaas da mensalidade dos laboratórios (plataforma)
   'WaitlistController', // lista de espera da agenda de consulta
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);

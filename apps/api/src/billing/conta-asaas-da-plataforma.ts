@@ -1,22 +1,14 @@
 /**
- * Mensalidade dos laboratórios — conta Asaas DA PLATAFORMA.
+ * Mensalidade dos laboratórios — a mesma conta Asaas da assinatura das clínicas.
  *
- * O laboratório paga a mensalidade numa conta Asaas própria da plataforma, separada
- * de qualquer clínica. A mensalidade da clínica continua no caminho de sempre
- * (BillingService, conta global), sem mudança. Chave e ambiente ficam na
- * GlobalSetting; a chave é gravada cifrada (SENSITIVE_KEYS). Sem chave, a
- * assinatura do laboratório não abre e nada é criado em conta nenhuma.
+ * O laboratório paga a mensalidade na conta Asaas da própria plataforma: a mesma em
+ * que a clínica assina o plano (BillingService: AsaasClient.getConfig() sem conta,
+ * a configuração global). A mensalidade da clínica continua no caminho de sempre,
+ * sem mudança. Sem chave, a assinatura do laboratório não abre e nada é criado.
  *
  * O que vale é sempre o que o Asaas responde: o aviso (webhook) só pede uma nova
  * leitura dos pagamentos da assinatura, nunca é tomado como pagamento.
  */
-import { decryptValue, encryptValue } from '../common/utils/crypto.util';
-
-export const CHAVE_API_PLATAFORMA = 'ASAAS_PLATAFORMA_API_KEY';
-export const CHAVE_SANDBOX_PLATAFORMA = 'ASAAS_PLATAFORMA_SANDBOX';
-
-const URL_PRODUCAO = 'https://api.asaas.com/v3';
-const URL_SANDBOX = 'https://api-sandbox.asaas.com/v3';
 const TEMPO_LIMITE_MS = 15_000;
 
 export interface ContaAsaasDaPlataforma {
@@ -25,79 +17,24 @@ export interface ContaAsaasDaPlataforma {
   sandbox: boolean;
 }
 
-type LinhaGlobal = { value?: string | null; updated_at?: Date | null } | null;
-type PrismaGlobal = {
-  globalSetting: {
-    findUnique(args: { where: { key: string } }): Promise<LinhaGlobal>;
-    upsert(args: { where: { key: string }; create: { key: string; value: string }; update: { value: string } }): Promise<unknown>;
-  };
-};
+/** De onde vem a conta: o AsaasClient da assinatura das clínicas. */
+export interface FonteDaContaDaPlataforma {
+  getConfig(): Promise<{ apiKey?: string | null; baseUrl?: string | null; sandbox?: boolean | null }>;
+}
 
 /**
- * Valor cifrado → texto; o gravado em texto puro (manual) volta como está. Cifrado
- * que não abre (segredo trocado) conta como sem chave: nunca vai cifrado para o Asaas.
+ * A conta da assinatura das clínicas, ou null sem chave (ou se a leitura falhar).
+ * Lida SEM conta: com a do laboratório, o AsaasClient daria a conta Asaas dele.
  */
-function abrir(valor: string | null | undefined): string {
-  if (!valor) return '';
+export async function lerContaDaPlataforma(asaas: FonteDaContaDaPlataforma): Promise<ContaAsaasDaPlataforma | null> {
   try {
-    return decryptValue(valor).trim();
-  } catch {
-    return '';
-  }
-}
-
-/** A conta da plataforma, ou null sem chave (ou se a leitura falhar). */
-export async function lerContaDaPlataforma(prisma: PrismaGlobal): Promise<ContaAsaasDaPlataforma | null> {
-  try {
-    const [chave, sandbox] = await Promise.all([
-      prisma.globalSetting.findUnique({ where: { key: CHAVE_API_PLATAFORMA } }),
-      prisma.globalSetting.findUnique({ where: { key: CHAVE_SANDBOX_PLATAFORMA } }),
-    ]);
-    const apiKey = abrir(chave?.value);
-    if (!apiKey) return null;
-    const ehSandbox = sandbox?.value === 'true';
-    return { apiKey, sandbox: ehSandbox, baseUrl: ehSandbox ? URL_SANDBOX : URL_PRODUCAO };
+    const c = await asaas.getConfig();
+    const apiKey = typeof c?.apiKey === 'string' ? c.apiKey.trim() : '';
+    const baseUrl = typeof c?.baseUrl === 'string' ? c.baseUrl : '';
+    if (!apiKey || !baseUrl) return null;
+    return { apiKey, baseUrl, sandbox: !!c.sandbox };
   } catch {
     return null;
-  }
-}
-
-/** O que a tela do administrador vê: nunca a chave. */
-export async function resumoDaContaDaPlataforma(
-  prisma: PrismaGlobal,
-): Promise<{ configurada: boolean; sandbox: boolean; atualizado_em: Date | null }> {
-  const [chave, sandbox] = await Promise.all([
-    prisma.globalSetting.findUnique({ where: { key: CHAVE_API_PLATAFORMA } }),
-    prisma.globalSetting.findUnique({ where: { key: CHAVE_SANDBOX_PLATAFORMA } }),
-  ]);
-  return {
-    configurada: !!abrir(chave?.value),
-    sandbox: sandbox?.value === 'true',
-    atualizado_em: chave?.updated_at ?? null,
-  };
-}
-
-/** Grava a chave (cifrada) e/ou o ambiente. Chave vazia = mantém a atual. */
-export async function gravarContaDaPlataforma(
-  prisma: PrismaGlobal,
-  dados: { apiKey?: string | null; sandbox?: boolean | null },
-): Promise<void> {
-  const apiKey = typeof dados.apiKey === 'string' ? dados.apiKey.trim() : '';
-  if (apiKey) {
-    const value = encryptValue(apiKey);
-    await prisma.globalSetting.upsert({
-      where: { key: CHAVE_API_PLATAFORMA },
-      create: { key: CHAVE_API_PLATAFORMA, value },
-      update: { value },
-    });
-  }
-  if (typeof dados.sandbox === 'boolean') {
-    const value = dados.sandbox ? 'true' : 'false';
-    await prisma.globalSetting.upsert({
-      where: { key: CHAVE_SANDBOX_PLATAFORMA },
-      create: { key: CHAVE_SANDBOX_PLATAFORMA, value },
-      update: { value },
-    });
   }
 }
 

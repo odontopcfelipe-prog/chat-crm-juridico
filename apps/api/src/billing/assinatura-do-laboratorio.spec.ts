@@ -1,10 +1,9 @@
 /**
- * Mensalidade do laboratório: conta Asaas da plataforma (separada das clínicas),
- * pagamento sempre conferido no Asaas e a clínica no caminho de sempre.
+ * Mensalidade do laboratório: a mesma conta Asaas da assinatura das clínicas (lida
+ * sem conta), pagamento sempre conferido no Asaas e a clínica no caminho de sempre.
  */
 import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { invalidarCacheLabTenants } from '@crm/shared';
-import { encryptValue, isSensitiveKey } from '../common/utils/crypto.util';
 import { BillingService } from './billing.service';
 import {
   AssinaturaDoLaboratorioService,
@@ -13,15 +12,11 @@ import {
   MSG_ASSINATURA_JA_CRIADA,
 } from './assinatura-do-laboratorio.service';
 import {
-  CHAVE_API_PLATAFORMA,
-  CHAVE_SANDBOX_PLATAFORMA,
   chamarAsaas,
   dataDoPagamento,
   ErroDoAsaas,
-  gravarContaDaPlataforma,
   lerContaDaPlataforma,
   primeiroEmAberto,
-  resumoDaContaDaPlataforma,
   ultimoPago,
   umMesDepois,
 } from './conta-asaas-da-plataforma';
@@ -30,34 +25,20 @@ const LAB = '11111111-1111-4111-8111-111111111111';
 const CLINICA = '22222222-2222-4222-8222-222222222222';
 const SUB = 'sub-local-1';
 const AGORA = new Date('2026-11-03T15:00:00Z');
-const CHAVE = '$aact_chave_da_plataforma';
+const CHAVE = '$aact_chave_da_assinatura';
+const PRODUCAO = 'https://api.asaas.com/v3';
 
-const segredoAntes = process.env.JWT_SECRET;
-beforeAll(() => {
-  process.env.JWT_SECRET = 'segredo-so-do-teste';
-});
-afterAll(() => {
-  process.env.JWT_SECRET = segredoAntes;
-});
 beforeEach(() => invalidarCacheLabTenants());
 
-/** GlobalSetting em memória. */
-function globais(inicial: Record<string, string> = {}) {
-  const linhas = new Map<string, { value: string; updated_at: Date }>(
-    Object.entries(inicial).map(([k, v]) => [k, { value: v, updated_at: AGORA }]),
-  );
+/** A conta da assinatura das clínicas, como o AsaasClient devolve (sem chave: apiKey vazia). */
+function contaDaAssinatura(comChave = true) {
   return {
-    linhas,
-    globalSetting: {
-      findUnique: jest.fn(async (a: any) => {
-        const l = linhas.get(a.where.key);
-        return l ? { key: a.where.key, ...l } : null;
-      }),
-      upsert: jest.fn(async (a: any) => {
-        linhas.set(a.where.key, { value: a.update.value, updated_at: AGORA });
-        return {};
-      }),
-    },
+    getConfig: jest.fn(async (..._conta: unknown[]) => ({
+      apiKey: comChave ? CHAVE : '',
+      baseUrl: PRODUCAO,
+      sandbox: false,
+      webhookToken: '',
+    })),
   };
 }
 
@@ -82,39 +63,16 @@ afterEach(() => {
   delete (global as any).fetch;
 });
 
-describe('conta Asaas da plataforma', () => {
-  it('sem chave: null (e a tela vê "não configurada"); a chave gravada sai cifrada e só a leitura interna a abre', async () => {
-    const g = globais();
-    expect(await lerContaDaPlataforma(g)).toBeNull();
-    expect(await resumoDaContaDaPlataforma(g)).toEqual({ configurada: false, sandbox: false, atualizado_em: null });
+describe('conta Asaas da assinatura (a mesma das clínicas)', () => {
+  it('lida sem conta; sem chave ou com erro na leitura, null', async () => {
+    const asaas = contaDaAssinatura();
+    asaas.getConfig.mockResolvedValueOnce({ apiKey: `  ${CHAVE}  `, baseUrl: 'https://api-sandbox.asaas.com/v3', sandbox: true, webhookToken: '' });
+    expect(await lerContaDaPlataforma(asaas)).toEqual({ apiKey: CHAVE, baseUrl: 'https://api-sandbox.asaas.com/v3', sandbox: true });
+    expect(asaas.getConfig).toHaveBeenCalledWith();
 
-    await gravarContaDaPlataforma(g, { apiKey: `  ${CHAVE}  `, sandbox: true });
-    const guardada = g.linhas.get(CHAVE_API_PLATAFORMA)!.value;
-    expect(guardada).not.toContain(CHAVE);
-    expect(guardada.startsWith('enc:')).toBe(true);
-    expect(g.linhas.get(CHAVE_SANDBOX_PLATAFORMA)!.value).toBe('true');
-    expect(await lerContaDaPlataforma(g)).toEqual({ apiKey: CHAVE, sandbox: true, baseUrl: 'https://api-sandbox.asaas.com/v3' });
-    expect(await resumoDaContaDaPlataforma(g)).toEqual({ configurada: true, sandbox: true, atualizado_em: AGORA });
-  });
-
-  it('chave em branco mantém a atual; produção por padrão; leitura com erro = não configurada', async () => {
-    const g = globais({ [CHAVE_API_PLATAFORMA]: encryptValue(CHAVE) });
-    await gravarContaDaPlataforma(g, { apiKey: '   ', sandbox: false });
-    expect(await lerContaDaPlataforma(g)).toEqual({ apiKey: CHAVE, sandbox: false, baseUrl: 'https://api.asaas.com/v3' });
-    expect(g.globalSetting.upsert).toHaveBeenCalledTimes(1); // só o ambiente
-
-    g.globalSetting.findUnique.mockRejectedValueOnce(new Error('banco fora'));
-    expect(await lerContaDaPlataforma(g)).toBeNull();
-  });
-
-  it('chave cifrada que não abre (segredo trocado) conta como não configurada: nunca vai cifrada para o Asaas', async () => {
-    const g = globais({ [CHAVE_API_PLATAFORMA]: 'enc:00:00:00' });
-    expect(await lerContaDaPlataforma(g)).toBeNull();
-    expect((await resumoDaContaDaPlataforma(g)).configurada).toBe(false);
-  });
-
-  it('a chave da plataforma está na lista das cifradas', () => {
-    expect(isSensitiveKey(CHAVE_API_PLATAFORMA)).toBe(true);
+    expect(await lerContaDaPlataforma(contaDaAssinatura(false))).toBeNull();
+    asaas.getConfig.mockRejectedValueOnce(new Error('banco fora'));
+    expect(await lerContaDaPlataforma(asaas)).toBeNull();
   });
 
   it('erro do Asaas vira ErroDoAsaas com status e a descrição dele', async () => {
@@ -153,11 +111,10 @@ describe('conta Asaas da plataforma', () => {
 
 /** Prisma falso do laboratório: tenant, plano, assinatura e perfis. */
 function montar(opts: { conta?: boolean; sub?: any; tenant?: any; labs?: string[] } = {}) {
-  const g = globais(opts.conta === false ? {} : { [CHAVE_API_PLATAFORMA]: encryptValue(CHAVE) });
+  const asaas = contaDaAssinatura(opts.conta !== false);
   let sub: any = opts.sub ?? null;
   const trava = jest.fn(async () => 0);
   const prisma: any = {
-    ...g,
     $transaction: jest.fn(async (fn: any) => fn({ $executeRaw: trava })),
     tenantBusinessProfile: {
       findMany: jest.fn(async () => (opts.labs ?? [LAB]).map((t) => ({ tenant_id: t }))),
@@ -191,13 +148,13 @@ function montar(opts: { conta?: boolean; sub?: any; tenant?: any; labs?: string[
       }),
     },
   };
-  return { prisma, trava, svc: new AssinaturaDoLaboratorioService(prisma), atual: () => sub };
+  return { prisma, trava, asaas, svc: new AssinaturaDoLaboratorioService(prisma, asaas as any), atual: () => sub };
 }
 
 const pagamentosDe = (lista: any[]) => () => ({ json: { data: lista } });
 
 describe('assinatura do laboratório', () => {
-  it('sem a conta da plataforma: 409 e nada é criado em conta nenhuma', async () => {
+  it('sem a chave da conta da assinatura: 409 e nada é criado em conta nenhuma', async () => {
     const { prisma, svc } = montar({ conta: false });
     const { fn } = asaasFalso({});
     const erro = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }).catch((e) => e);
@@ -214,7 +171,7 @@ describe('assinatura do laboratório', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it('é laboratório? lê o perfil direto; se a leitura falhar, lança (nunca cai na conta da clínica)', async () => {
+  it('é laboratório? lê o perfil direto; se a leitura falhar, lança (nunca cai no caminho da clínica)', async () => {
     const { prisma, svc } = montar();
     expect(await svc.ehLaboratorio(LAB)).toBe(true);
     expect(await svc.ehLaboratorio(CLINICA)).toBe(false);
@@ -222,8 +179,8 @@ describe('assinatura do laboratório', () => {
     await expect(svc.ehLaboratorio(LAB)).rejects.toThrow('banco fora');
   });
 
-  it('assina na conta da plataforma, sob trava por conta: cliente, assinatura mensal, plano na conta e o link da 1ª mensalidade', async () => {
-    const { prisma, trava, svc, atual } = montar();
+  it('assina na conta da assinatura das clínicas, sob trava por conta: cliente, assinatura mensal, plano na conta e o link da 1ª mensalidade', async () => {
+    const { prisma, trava, asaas, svc, atual } = montar();
     const { chamadas } = asaasFalso({
       'GET /customers?externalReference=': () => ({ json: { data: [] } }),
       'POST /customers': () => ({ json: { id: 'cus_1' } }),
@@ -238,6 +195,9 @@ describe('assinatura do laboratório', () => {
     expect(trava).toHaveBeenCalledTimes(1);
     expect(trava.mock.calls[0]).toContain(`assinatura-lab:${LAB}`);
     expect(chamadas.every((c) => c.apikey === CHAVE && c.url.startsWith('https://api.asaas.com/v3/'))).toBe(true);
+    // A conta é lida sempre sem conta: nunca a conta Asaas do laboratório.
+    expect(asaas.getConfig).toHaveBeenCalled();
+    expect(asaas.getConfig.mock.calls.every((args) => args.length === 0)).toBe(true);
     // Sem telefone: o do cadastro está no formato do WhatsApp, que o Asaas pode recusar.
     expect(chamadas.find((c) => c.metodo === 'POST' && c.url.endsWith('/customers'))!.corpo).toEqual({
       name: 'Laboratório Sorriso',
@@ -433,7 +393,7 @@ describe('assinatura do laboratório', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it('passada de hora em hora: sem conta da plataforma ou sem laboratório, não lê nada', async () => {
+  it('passada de hora em hora: sem a chave da conta da assinatura ou sem laboratório, não lê nada', async () => {
     const semConta = montar({ conta: false });
     expect(await semConta.svc.sincronizarPendentes(AGORA)).toBe(0);
     expect(semConta.prisma.saasSubscription.findMany).not.toHaveBeenCalled();
@@ -477,7 +437,7 @@ describe('BillingService: laboratório desvia, clínica no caminho de sempre', (
     return { lab, asaas, prisma, svc: new BillingService(prisma, asaas, lab) };
   }
 
-  it('laboratório: checkout e tela vão para a assinatura do laboratório (nada na conta global)', async () => {
+  it('laboratório: checkout e tela vão para a assinatura do laboratório (não passam pelo caminho da clínica)', async () => {
     const { lab, asaas, svc } = servico(true);
     expect(await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' })).toEqual({ ok: true, lab: true });
     expect(await svc.getSubscriptionForTenant(LAB)).toEqual({ lab: true });

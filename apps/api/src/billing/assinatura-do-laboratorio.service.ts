@@ -1,9 +1,9 @@
 /**
  * Mensalidade do LABORATÓRIO — as mesmas regras da clínica (planos, 14 dias de
- * teste, PIX/boleto/cartão, suspensão pelo BillingService.dailyBillingCheck), mas
- * cobrada na conta Asaas da plataforma (conta-asaas-da-plataforma.ts), nunca na
- * conta de uma clínica. O BillingService desvia para cá só quando a conta é de
- * laboratório; a clínica segue o caminho de sempre.
+ * teste, PIX/boleto/cartão, suspensão pelo BillingService.dailyBillingCheck) e a
+ * mesma conta Asaas da assinatura das clínicas (conta-asaas-da-plataforma.ts), nunca
+ * a conta Asaas do próprio laboratório. O BillingService desvia para cá só quando a
+ * conta é de laboratório; a clínica segue o caminho de sempre.
  *
  * Pagamento: o que vale é a lista de pagamentos da assinatura lida no Asaas. O aviso
  * do Asaas (webhook), a tela de Assinatura e a passada de hora em hora só disparam
@@ -26,6 +26,7 @@ import {
 import { Cron } from '@nestjs/schedule';
 import { getLabTenantIds, isLab } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 import {
   chamarAsaas,
   ContaAsaasDaPlataforma,
@@ -69,7 +70,11 @@ function paraATela(e: unknown): unknown {
 export class AssinaturaDoLaboratorioService {
   private readonly logger = new Logger('AssinaturaDoLaboratorio');
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // A conta da assinatura das clínicas: lida sempre sem conta (lerContaDaPlataforma).
+    private asaas: AsaasClient,
+  ) {}
 
   /**
    * A conta é de laboratório? Decide em que conta Asaas fica o dinheiro, então lê o
@@ -101,7 +106,7 @@ export class AssinaturaDoLaboratorioService {
     conta?: ContaAsaasDaPlataforma | null,
     agora: Date = new Date(),
   ): Promise<{ aplicado: boolean; emAberto: PagamentoAsaas | null }> {
-    const c = conta ?? (await lerContaDaPlataforma(this.prisma));
+    const c = conta ?? (await lerContaDaPlataforma(this.asaas));
     const sub = await this.prisma.saasSubscription.findUnique({ where: { id: subId } });
     if (!c || !sub?.asaas_subscription_id) return { aplicado: false, emAberto: null };
 
@@ -142,7 +147,7 @@ export class AssinaturaDoLaboratorioService {
 
   /** GET /billing/me do laboratório: o mesmo formato da clínica + o pagamento em aberto. */
   async minhaAssinatura(tenantId: string) {
-    const conta = await lerContaDaPlataforma(this.prisma);
+    const conta = await lerContaDaPlataforma(this.asaas);
     const atual = await this.prisma.saasSubscription.findUnique({
       where: { tenant_id: tenantId },
       select: { id: true, status: true, asaas_subscription_id: true },
@@ -173,7 +178,7 @@ export class AssinaturaDoLaboratorioService {
     };
   }
 
-  /** POST /billing/checkout do laboratório: cliente e assinatura na conta da plataforma. */
+  /** POST /billing/checkout do laboratório: cliente e assinatura na conta da assinatura das clínicas. */
   async checkout(tenantId: string, body: { plan_slug?: unknown; billing_type?: unknown }, agora: Date = new Date()) {
     const forma = body?.billing_type;
     if (typeof forma !== 'string' || !FORMAS.has(forma)) {
@@ -187,7 +192,7 @@ export class AssinaturaDoLaboratorioService {
     const plan = typeof body?.plan_slug === 'string' ? await this.prisma.saasPlan.findUnique({ where: { slug: body.plan_slug } }) : null;
     if (!plan || !plan.active) throw new BadRequestException('Plano inválido');
 
-    const conta = await lerContaDaPlataforma(this.prisma);
+    const conta = await lerContaDaPlataforma(this.asaas);
     if (!conta) throw new ConflictException(MSG_ASSINATURA_INDISPONIVEL);
 
     try {
@@ -296,13 +301,13 @@ export class AssinaturaDoLaboratorioService {
 
   /**
    * De hora em hora: lê as assinaturas de laboratório que podem ter pagamento novo
-   * (as não ativas e as com vencimento até amanhã), as mais novas primeiro. Sem conta
-   * da plataforma ou sem laboratório, não faz nada. Funciona sem o webhook configurado.
+   * (as não ativas e as com vencimento até amanhã), as mais novas primeiro. Sem a conta
+   * da assinatura ou sem laboratório, não faz nada. Funciona sem o webhook configurado.
    */
   @Cron('25 * * * *', { timeZone: 'America/Maceio' })
   async sincronizarPendentes(agora: Date = new Date()): Promise<number> {
     try {
-      const conta = await lerContaDaPlataforma(this.prisma);
+      const conta = await lerContaDaPlataforma(this.asaas);
       if (!conta) return 0;
       const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
       if (!labs.size) return 0;

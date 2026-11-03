@@ -27,7 +27,7 @@ export class BillingService {
     private prisma: PrismaService,
     // Usa a conta Asaas DA PLATAFORMA (sem tenantId — config global)
     private asaas: AsaasClient,
-    // Conta de laboratório: mesmas regras, cobrada na conta Asaas da plataforma
+    // Conta de laboratório: mesmas regras e a mesma conta Asaas da plataforma
     private lab: AssinaturaDoLaboratorioService,
   ) {}
 
