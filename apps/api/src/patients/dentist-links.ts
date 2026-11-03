@@ -13,7 +13,7 @@
  * pros ids da página (nada de N+1). Datas de consulta em naive-UTC.
  */
 import type { PrismaService } from '../prisma/prisma.service';
-// Mesma marca de isVendaRapidaQuote (commercial/venda-balcao.util.ts) — copiada de
+// Mesma marca de isVendaRapidaQuote (commercial/venda-rapida.util.ts) — copiada de
 // propósito: importar o serviço de orçamentos aqui criaria ciclo de import entre
 // módulos Nest (já derrubou a API em crash loop).
 const norm = (s: string | null | undefined) =>

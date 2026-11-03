@@ -26,21 +26,6 @@ export const LAB_ROTULO_FORMA: Readonly<Record<string, string>> = Object.freeze(
 
 export type FormaBalcao = { method: string; value: number; installments?: number; debit?: boolean };
 
-/**
- * Venda rápida x proposta real — marca ÚNICA usada em TODO lugar (findAll, findByPatient,
- * board de progresso, origem das Entradas do Financeiro). A venda rápida grava title/notes
- * começando em "Venda rapida" (o fluxo gera automático: "Venda rapida — recebido na
- * clinica: ..."). Accent-strip (NFD) cobre "Venda rápida" com acento; checa title OU notes.
- * Centralizar evita a MESMA venda ser classificada diferente em telas diferentes (e furar o
- * gate de A_AGENDAR/STANDBY, que geraria cobrança de agendamento indevida pra quem já é
- * venda rápida). Mora aqui (arquivo puro, sem DI) pra outros módulos importarem sem ciclo.
- */
-export function isVendaRapidaQuote(q: { title?: string | null; notes?: string | null }): boolean {
-  const norm = (s: string | null | undefined) =>
-    (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-  return norm(q.title).startsWith('venda rapida') || norm(q.notes).startsWith('venda rapida');
-}
-
 const rotulo = (m: string, lab = false) => (lab ? LAB_ROTULO_FORMA[m] : undefined) ?? ROTULO_FORMA[m] ?? m;
 
 /** Forma de MAIOR valor; empate fica com a que chegou primeiro. Lista vazia = ''. */
@@ -54,7 +39,7 @@ export function formaDominante(ps: FormaBalcao[]): string {
 
 /**
  * Notas do orçamento. SEMPRE começam com "Venda rapida": é a marca de
- * isVendaRapidaQuote (acima, e a cópia em patients/dentist-links.ts).
+ * isVendaRapidaQuote (venda-rapida.util.ts e a cópia em patients/dentist-links.ts).
  * lab=true (conta de laboratório): "recebido no laboratorio" e o rótulo do PIX do laboratório.
  */
 export function notasVendaBalcao(ps: FormaBalcao[], lab = false): string {

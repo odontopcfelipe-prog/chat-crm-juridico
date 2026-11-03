@@ -9,7 +9,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
-import { isVendaRapidaQuote } from '../commercial/venda-balcao.util';
+import { isVendaRapidaQuote } from '../commercial/venda-rapida.util';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
 /**

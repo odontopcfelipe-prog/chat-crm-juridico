@@ -28,7 +28,8 @@ import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/uti
 import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { negarPermissao } from '../auth/require-any-permission';
 import { erroSomaFormas, round2 } from '../payment-gateway/baixa-regras';
-import { notasVendaBalcao, roteamentoBalcao, isVendaRapidaQuote, type FormaBalcao } from './venda-balcao.util';
+import { notasVendaBalcao, roteamentoBalcao, type FormaBalcao } from './venda-balcao.util';
+import { isVendaRapidaQuote } from './venda-rapida.util';
 import type { VendaBalcaoDto } from './dto/commercial.dto';
 // F6 — orçamento de trabalho do laboratório: envio pelo WhatsApp (função pura) e texto
 // da recusa do elemento fora da numeração FDI.
@@ -59,7 +60,7 @@ const DEFAULT_VALID_DAYS = 30;
 // Antecedencia da notificacao de expiracao (lembrete pro paciente)
 const EXPIRY_REMINDER_DAYS = 3;
 
-// Venda rápida x proposta: a marca ÚNICA mora em venda-balcao.util (arquivo puro).
+// Venda rápida x proposta: a marca ÚNICA mora em venda-rapida.util (arquivo puro).
 export { isVendaRapidaQuote };
 
 @Injectable()
