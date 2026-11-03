@@ -16,11 +16,13 @@
  *  - Modal completo pra criar/editar todos os campos
  *  - Reajuste em massa (aplica %) — apply 5% em todos da especialidade X
  *  - Indicador visual: quantos orçamentos usam cada procedimento
+ *  - "Materiais" (só clínica): produtos do estoque que o procedimento gasta — é o
+ *    que a Venda rápida usa para dar baixa no estoque (MateriaisProcedimento.tsx)
  */
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import {
   DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search, Zap,
-  ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
+  ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers, Boxes,
 } from 'lucide-react';
 import { isLab, pickBt, type FichaTecnicaLab } from '@crm/shared';
 import api from '@/lib/api';
@@ -36,6 +38,7 @@ import {
   useFichasTecnicasLab,
   validarFicha,
 } from './LabFichaServico';
+import MateriaisProcedimento from './MateriaisProcedimento';
 
 interface Procedure {
   id: string;
@@ -54,6 +57,8 @@ interface Procedure {
   requires_anesthesia: boolean;
   commissionable: boolean;
   default_revisit_months: number | null;
+  /** Quantos materiais do estoque o procedimento gasta (vem do GET /procedures). */
+  _count?: { consumables?: number };
 }
 
 interface Specialty {
@@ -87,6 +92,8 @@ export default function ProceduresSettingsPage() {
   const [editing, setEditing] = useState<Procedure | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkAdjustOpen, setBulkAdjustOpen] = useState(false);
+  // Janela "Materiais" (produtos do estoque que o procedimento gasta) — só clínica.
+  const [materiaisDe, setMateriaisDe] = useState<Procedure | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -332,6 +339,7 @@ export default function ProceduresSettingsPage() {
                           onPriceUpdate={load}
                           onEdit={() => setEditing(p)}
                           onDelete={() => handleDelete(p)}
+                          onMateriais={lab ? undefined : () => setMateriaisDe(p)}
                         />
                       ))}
                     </tbody>
@@ -351,6 +359,17 @@ export default function ProceduresSettingsPage() {
           onSaved={() => { setCreating(false); setEditing(null); load(); recarregar(); }}
         />
       )}
+      {materiaisDe && (
+        <MateriaisProcedimento
+          procedureId={materiaisDe.id}
+          procedureName={materiaisDe.name}
+          onClose={() => setMateriaisDe(null)}
+          // Atualiza só a contagem do botão, sem recarregar a tabela inteira.
+          onChanged={(total) => setList((prev) => prev.map((x) => (
+            x.id === materiaisDe.id ? { ...x, _count: { ...x._count, consumables: total } } : x
+          )))}
+        />
+      )}
       {bulkAdjustOpen && (
         <BulkAdjustModal
           specialties={specialties}
@@ -365,7 +384,7 @@ export default function ProceduresSettingsPage() {
 // ─── Linha individual com edição inline de preço ───────────
 
 function ProcedureRow({
-  procedure: p, lab, fichaLab, onPriceUpdate, onEdit, onDelete,
+  procedure: p, lab, fichaLab, onPriceUpdate, onEdit, onDelete, onMateriais,
 }: {
   procedure: Procedure;
   /** Conta de laboratório: sem as colunas TUSS e duração. */
@@ -375,7 +394,10 @@ function ProcedureRow({
   onPriceUpdate: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Abre "Materiais" (estoque que o procedimento gasta). Ausente = sem o botão (laboratório). */
+  onMateriais?: () => void;
 }) {
+  const qtdMateriais = p._count?.consumables ?? 0;
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceDraft, setPriceDraft] = useState(String(p.base_price));
   const [saving, setSaving] = useState(false);
@@ -497,6 +519,26 @@ function ProcedureRow({
         >
           <Zap size={14} className={quickSale ? 'fill-amber-500' : ''} />
         </button>
+        {/* Materiais do estoque que o procedimento gasta (a Venda rápida baixa por eles) */}
+        {onMateriais && (
+          <button
+            onClick={onMateriais}
+            className={`relative p-1 mr-1 rounded transition-colors ${
+              qtdMateriais > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground/50 hover:text-foreground'
+            }`}
+            title={qtdMateriais > 0
+              ? `Gasta ${qtdMateriais} ${qtdMateriais === 1 ? 'material' : 'materiais'} do estoque — clique para ver`
+              : 'Ligar materiais do estoque (a venda rápida dá baixa por eles)'}
+            aria-label="Materiais do estoque"
+          >
+            <Boxes size={14} />
+            {qtdMateriais > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold leading-[14px] text-center">
+                {qtdMateriais}
+              </span>
+            )}
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="text-muted-foreground hover:text-foreground p-1 mr-1"

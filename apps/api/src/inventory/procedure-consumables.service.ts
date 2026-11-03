@@ -231,6 +231,7 @@ export class ProcedureConsumablesService {
 
     return this.prisma.procedureConsumable.findMany({
       where: { procedure_id: procedureId },
+      orderBy: { created_at: 'asc' },
       include: {
         product: {
           select: {
@@ -240,6 +241,10 @@ export class ProcedureConsumablesService {
             unit: true,
             current_stock: true,
             cost_price: true,
+            // Tela "Materiais" da Tabela de Preços: foto (miniatura) e produto arquivado.
+            photo_url: true,
+            updated_at: true,
+            active: true,
           },
         },
       },
@@ -247,14 +252,12 @@ export class ProcedureConsumablesService {
   }
 
   async remove(tenantId: string, id: string) {
-    const consumable = await this.prisma.procedureConsumable.findUnique({
-      where: { id },
-      include: { procedure: { select: { tenant_id: true } } },
+    // Vínculo de outra clínica responde 404, como todo id que vem da URL.
+    const consumable = await this.prisma.procedureConsumable.findFirst({
+      where: { id, procedure: { tenant_id: tenantId } },
+      select: { id: true },
     });
     if (!consumable) throw new NotFoundException('Vinculo nao encontrado');
-    if (consumable.procedure.tenant_id !== tenantId) {
-      throw new BadRequestException('Vinculo pertence a outro tenant');
-    }
     await this.prisma.procedureConsumable.delete({ where: { id } });
     return { ok: true };
   }

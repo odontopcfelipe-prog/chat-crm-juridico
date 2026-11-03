@@ -34,6 +34,8 @@ export class ProceduresService {
       orderBy: [{ specialty_id: 'asc' }, { name: 'asc' }],
       include: {
         specialty: { select: { id: true, name: true, icon: true } },
+        // Tabela de Preços: quantos materiais do estoque o procedimento gasta (botão "Materiais").
+        _count: { select: { consumables: true } },
       },
     });
   }
