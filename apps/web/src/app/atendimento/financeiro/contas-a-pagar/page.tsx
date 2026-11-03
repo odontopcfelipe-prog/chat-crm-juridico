@@ -76,7 +76,12 @@ interface Tx {
   is_variable_amount?: boolean | null;
   lead?: { name?: string } | null;
   source?: string | null; // 'PAYABLES' | 'CAIXA_SANGRIA' (sangria/troco do caixa) | null
+  origem?: Exclude<OrigemEntrada, 'all'> | null; // aba Entradas: calculada da cobrança no backend
 }
+// Filtro da aba Entradas pela ORIGEM (fillOrigem no financeiro.service): venda de balcão,
+// boleto (parcela do carnê ou boleto pago no banco) ou o resto (proposta à vista, entrada/sinal no balcão, manual).
+type OrigemEntrada = 'all' | 'VENDA_RAPIDA' | 'BOLETO' | 'OUTRA';
+const ORIGENS_ENTRADA: [OrigemEntrada, string][] = [['all', 'Todas'], ['VENDA_RAPIDA', 'Vendas rápidas'], ['BOLETO', 'Boletos'], ['OUTRA', 'Outras']];
 interface Category { id: string; name: string; type: string; }
 interface CashAccount { id: string; name: string; kind: string; active: boolean; }
 interface Company { id: string; name: string; }
@@ -115,6 +120,7 @@ export default function ContasAPagarPage() {
   const [txs, setTxs] = useState<Tx[]>([]); // saídas (fixas ou gastos, conforme a aba)
   const [entradas, setEntradas] = useState<Tx[]>([]); // RECEITA PAGA (aba Entradas)
   const [entradasTotal, setEntradasTotal] = useState(0); // total no banco (pra avisar se cortou)
+  const [origemEntrada, setOrigemEntrada] = useState<OrigemEntrada>('all'); // filtro da aba Entradas
   const [logRows, setLogRows] = useState<LogRow[]>([]); // aba Log
   const [cats, setCats] = useState<Category[]>([]); // categorias de DESPESA (payables)
   const [receitaCats, setReceitaCats] = useState<Category[]>([]); // categorias de RECEITA (Nova Receita)
@@ -490,9 +496,22 @@ export default function ContasAPagarPage() {
             </div>
           </div>
         )}
-        {effTab === 'entradas' && canManageFinancial && (
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setModal('receita')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"><Plus size={15} /> Nova receita</button>
+        {effTab === 'entradas' && (canManageFinancial || entradas.some((t) => t.origem)) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {canManageFinancial && (
+              <button onClick={() => setModal('receita')} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"><Plus size={15} /> Nova receita</button>
+            )}
+            {/* Filtro por origem (só quando a API já manda a origem) — cada botão com a contagem do mês */}
+            {entradas.some((t) => t.origem) && ORIGENS_ENTRADA.map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setOrigemEntrada(k)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold rounded-lg border transition-colors ${origemEntrada === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'border-border bg-card text-muted-foreground hover:bg-accent'}`}
+              >
+                {label}
+                <span className="tabular-nums opacity-70">{k === 'all' ? entradas.length : entradas.filter((t) => (t.origem ?? 'OUTRA') === k).length}</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -504,7 +523,7 @@ export default function ContasAPagarPage() {
         ) : effTab === 'log' ? (
           <LogTab rows={logRows} />
         ) : effTab === 'entradas' ? (
-          <EntradasTab items={entradas} totalInDb={entradasTotal} />
+          <EntradasTab items={entradas} totalInDb={entradasTotal} origem={origemEntrada} />
         ) : (
           <>
             <TxList
@@ -1054,16 +1073,19 @@ function SangriaList({ items }: { items: Tx[] }) {
 // ─── Aba Entradas (RECEITA do mês, só leitura) ────────────────────────────────
 // Espelho das entradas do Financeiro — o lançamento continua na tela de recepção;
 // aqui é a visão consolidada pro adm/gerente (mesma fonte, nada é duplicado).
-function EntradasTab({ items, totalInDb }: { items: Tx[]; totalInDb: number }) {
+function EntradasTab({ items, totalInDb, origem }: { items: Tx[]; totalInDb: number; origem: OrigemEntrada }) {
   const lab = isLab(useBusinessType());
   if (items.length === 0) return <div className="text-center text-sm text-muted-foreground py-12">Nenhuma entrada paga neste mês.</div>;
-  const total = items.reduce((s, t) => s + Number(t.amount), 0);
-  const sorted = [...items].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
+  // Sem a origem (API antiga) o filtro some e tudo aparece; senão filtra pela origem escolhida.
+  const shown = origem === 'all' || !items.some((t) => t.origem) ? items : items.filter((t) => (t.origem ?? 'OUTRA') === origem);
+  const rotulo = shown === items ? '' : ` · ${ORIGENS_ENTRADA.find(([k]) => k === origem)?.[1] ?? ''}`;
+  const total = shown.reduce((s, t) => s + Number(t.amount), 0);
+  const sorted = [...shown].sort((a, b) => (dayOf(b.date) < dayOf(a.date) ? -1 : 1));
   const cut = totalInDb > items.length;
   return (
     <div className="space-y-2">
       <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-emerald-600">Total recebido · {items.length}</span>
+        <span className="text-[12px] font-bold uppercase tracking-wide text-emerald-600">Total recebido{rotulo} · {shown.length}</span>
         <span className="text-lg font-bold tabular-nums text-emerald-600">{fmt(total)}</span>
       </div>
       {cut && (
@@ -1071,6 +1093,7 @@ function EntradasTab({ items, totalInDb }: { items: Tx[]; totalInDb: number }) {
           ⚠ Mostrando {items.length} de {totalInDb} entradas do mês — o total acima está incompleto.
         </div>
       )}
+      {shown.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">Nenhuma entrada deste tipo neste mês.</div>}
       {sorted.map((t) => (
         <div key={t.id} className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">

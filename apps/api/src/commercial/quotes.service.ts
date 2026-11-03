@@ -28,7 +28,7 @@ import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/uti
 import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { negarPermissao } from '../auth/require-any-permission';
 import { erroSomaFormas, round2 } from '../payment-gateway/baixa-regras';
-import { notasVendaBalcao, roteamentoBalcao, type FormaBalcao } from './venda-balcao.util';
+import { notasVendaBalcao, roteamentoBalcao, isVendaRapidaQuote, type FormaBalcao } from './venda-balcao.util';
 import type { VendaBalcaoDto } from './dto/commercial.dto';
 // F6 — orçamento de trabalho do laboratório: envio pelo WhatsApp (função pura) e texto
 // da recusa do elemento fora da numeração FDI.
@@ -59,19 +59,8 @@ const DEFAULT_VALID_DAYS = 30;
 // Antecedencia da notificacao de expiracao (lembrete pro paciente)
 const EXPIRY_REMINDER_DAYS = 3;
 
-/**
- * Venda rápida x proposta real — marca ÚNICA usada em TODO lugar (findAll, findByPatient,
- * board de progresso). A venda rápida grava title/notes começando em "Venda rapida" (o
- * fluxo gera automático: "Venda rapida — recebido na clinica: ..."). Accent-strip (NFD)
- * cobre "Venda rápida" com acento; checa title OU notes. Centralizar evita a MESMA venda
- * ser classificada diferente em telas diferentes (e furar o gate de A_AGENDAR/STANDBY, que
- * geraria cobrança de agendamento indevida pra quem já é venda rápida).
- */
-export function isVendaRapidaQuote(q: { title?: string | null; notes?: string | null }): boolean {
-  const norm = (s: string | null | undefined) =>
-    (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-  return norm(q.title).startsWith('venda rapida') || norm(q.notes).startsWith('venda rapida');
-}
+// Venda rápida x proposta: a marca ÚNICA mora em venda-balcao.util (arquivo puro).
+export { isVendaRapidaQuote };
 
 @Injectable()
 export class QuotesService {

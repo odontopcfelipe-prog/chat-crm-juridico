@@ -9,6 +9,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
+import { isVendaRapidaQuote } from '../commercial/venda-balcao.util';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
 /**
@@ -266,6 +267,8 @@ export class FinanceiroService {
     // o paciente resolvendo pela cobrança (reference_id = charge.external_id) →
     // treatment_plan → patient. Só display; as novas já vêm com lead_id gravado.
     await this.fillClientFromCharge(data);
+    // ORIGEM das entradas (filtro Vendas rápidas / Boletos da aba Entradas).
+    await this.fillOrigem(data);
 
     // Enriquecer transações PENDENTE/ATRASADO de honorários com juros legais
     const enriched = await this.enrichWithInterest(data);
@@ -301,6 +304,55 @@ export class FinanceiroService {
     for (const r of pend) {
       const name = byRef.get(key(r.reference_id, r.tenant_id));
       if (name) r.lead = { id: '', name, phone: null };
+    }
+  }
+
+  /**
+   * ORIGEM de cada receita (display/filtro da aba Entradas), pela cobrança vinculada
+   * (reference_id == external_id, ou o elo charge.transaction_id):
+   *   VENDA_RAPIDA = orçamento de balcão (isVendaRapidaQuote) ·
+   *   BOLETO = parcela do carnê (paga no banco OU na clínica) ou boleto pago no banco ·
+   *   OUTRA = o resto (proposta à vista, entrada/sinal pagos na clínica, receita lançada à mão).
+   * Entrada/sinal pagos no balcão nascem como cobrança BOLETO, mas o dinheiro entrou na
+   * clínica — por isso não contam como boleto.
+   * NÃO grava nada. Uma query batelada, tenant-safe (a cobrança tem que ser da conta da receita).
+   */
+  private async fillOrigem(rows: any[]) {
+    const recs = rows.filter((r) => r.type === 'RECEITA');
+    if (recs.length === 0) return;
+    const refs = [...new Set(recs.map((r) => r.reference_id).filter(Boolean))];
+    const charges = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        OR: [
+          ...(refs.length ? [{ external_id: { in: refs } }] : []),
+          { transaction_id: { in: recs.map((r) => r.id) } },
+        ],
+      },
+      select: {
+        external_id: true,
+        transaction_id: true,
+        tenant_id: true,
+        billing_type: true,
+        kind: true,
+        received_in_cash: true,
+        treatment_plan: { select: { quote: { select: { title: true, notes: true } } } },
+      },
+    });
+    const origemDe = (c: (typeof charges)[number]) => {
+      const q = c.treatment_plan?.quote;
+      if (q && isVendaRapidaQuote(q)) return 'VENDA_RAPIDA';
+      const entradaNoBalcao = c.received_in_cash && (c.kind === 'ENTRADA' || c.kind === 'SINAL');
+      return c.billing_type === 'BOLETO' && !entradaNoBalcao ? 'BOLETO' : 'OUTRA';
+    };
+    const key = (ref: string | null, tid: string | null) => `${tid ?? ''}::${ref ?? ''}`;
+    const byRef = new Map<string, string>();
+    const byTx = new Map<string, string>();
+    for (const c of charges) {
+      byRef.set(key(c.external_id, c.tenant_id), origemDe(c));
+      if (c.transaction_id) byTx.set(key(c.transaction_id, c.tenant_id), origemDe(c));
+    }
+    for (const r of recs) {
+      r.origem = byRef.get(key(r.reference_id, r.tenant_id)) ?? byTx.get(key(r.id, r.tenant_id)) ?? 'OUTRA';
     }
   }
 
