@@ -753,3 +753,12 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
 export function rotaDoLaboratorio(chave: string): boolean {
   return ROTAS_DO_LABORATORIO.has(chave);
 }
+
+/**
+ * A própria assinatura (ver e pagar a mensalidade): a conta de laboratório congelada
+ * (suspensa por falta de pagamento, por exemplo) ainda chega aqui para regularizar.
+ */
+export const ROTAS_DA_ASSINATURA: ReadonlySet<string> = new Set<string>([
+  'BillingController.getMine',
+  'BillingController.checkout',
+]);

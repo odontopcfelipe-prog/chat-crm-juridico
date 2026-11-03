@@ -33,13 +33,16 @@ type PrismaGlobal = {
   };
 };
 
-/** Valor cifrado → texto; o gravado em texto puro (antigo ou manual) volta como está. */
+/**
+ * Valor cifrado → texto; o gravado em texto puro (manual) volta como está. Cifrado
+ * que não abre (segredo trocado) conta como sem chave: nunca vai cifrado para o Asaas.
+ */
 function abrir(valor: string | null | undefined): string {
   if (!valor) return '';
   try {
     return decryptValue(valor).trim();
   } catch {
-    return valor.trim();
+    return '';
   }
 }
 
@@ -173,6 +176,17 @@ export function primeiroEmAberto(pagamentos: readonly unknown[]): PagamentoAsaas
   return abertos.reduce((a, b) => (b.dueDate < a.dueDate || (b.dueDate === a.dueDate && b.id < a.id) ? b : a));
 }
 
+/** Vencimento (AAAA-MM-DD) do pagamento com este id na lista, ou null. */
+export function vencimentoDe(pagamentos: readonly unknown[], id: string | null | undefined): string | null {
+  if (!id) return null;
+  return pagamentos.filter(valido).find((p) => p.id === id)?.dueDate ?? null;
+}
+
+/** AAAA-MM-DD ao meio-dia UTC. */
+export function meioDia(data: string): Date {
+  return new Date(`${data}T12:00:00Z`);
+}
+
 /** Um mês depois do vencimento (dia 31 vira o último dia do mês seguinte), ao meio-dia UTC. */
 export function umMesDepois(vencimento: string): Date {
   const [a, m, d] = vencimento.split('-').map(Number);
@@ -183,5 +197,5 @@ export function umMesDepois(vencimento: string): Date {
 /** Data do pagamento (a do cliente, se houver), ao meio-dia UTC; sem data, agora. */
 export function dataDoPagamento(p: PagamentoAsaas, agora: Date): Date {
   const d = p.clientPaymentDate || p.paymentDate;
-  return typeof d === 'string' && DATA.test(d) ? new Date(`${d}T12:00:00Z`) : agora;
+  return typeof d === 'string' && DATA.test(d) ? meioDia(d) : agora;
 }

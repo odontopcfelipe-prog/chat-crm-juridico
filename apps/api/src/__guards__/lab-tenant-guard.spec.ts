@@ -227,6 +227,18 @@ describe('laboratório congelado — 403 TENANT_INACTIVE mesmo com token antigo'
     expect(m.prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it.each(casos)('%s: a própria assinatura (ver e pagar a mensalidade) continua alcançável', async (_n, opcoes) => {
+    class BillingController {
+      getMine() {}
+      checkout() {}
+    }
+    const m = montar({ labs: [LAB], ...opcoes });
+    for (const handler of [BillingController.prototype.getMine, BillingController.prototype.checkout]) {
+      expect(await m.guard.canActivate(contexto(usuario(LAB), BillingController, handler))).toBe(true);
+    }
+    expect(m.prisma.tenant.findUnique).not.toHaveBeenCalled();
+  });
+
   it('congelar OUTRO laboratório, LAB_FREEZE false ou conta TRIAL/ACTIVE não congela', async () => {
     for (const opcoes of [
       { chaves: [{ key: `LAB_FREEZE_${OUTRO_LAB}`, value: 'true' }] },

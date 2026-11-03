@@ -123,6 +123,8 @@ export default function BillingPage() {
   const trialDaysLeft = trialEnds ? Math.max(0, Math.ceil((trialEnds.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
   const pendente = billing.pagamento_pendente ?? null;
   const semAssinatura = billing.assinatura_disponivel === false;
+  // Laboratório: um pedido de assinatura por vez (todos os botões travam enquanto um roda).
+  const travado = lab && checkingOut !== null;
 
   return (
     <div className="h-full overflow-y-auto p-6 max-w-5xl mx-auto">
@@ -294,6 +296,7 @@ export default function BillingPage() {
                     <CheckoutButton
                       onClick={() => handleCheckout(p.slug, 'PIX')}
                       loading={checkingOut === p.slug}
+                      travado={travado}
                       label="Pagar com PIX"
                       Icon={DollarSign}
                       primary
@@ -301,12 +304,14 @@ export default function BillingPage() {
                     <CheckoutButton
                       onClick={() => handleCheckout(p.slug, 'CREDIT_CARD')}
                       loading={false}
+                      travado={travado}
                       label="Cartão de crédito"
                       Icon={CreditCard}
                     />
                     <CheckoutButton
                       onClick={() => handleCheckout(p.slug, 'BOLETO')}
                       loading={false}
+                      travado={travado}
                       label="Boleto"
                       Icon={Receipt}
                     />
@@ -348,9 +353,10 @@ function InfoItem({ Icon, label, value }: { Icon: any; label: string; value: str
   );
 }
 
-function CheckoutButton({ onClick, loading, label, Icon, primary }: {
+function CheckoutButton({ onClick, loading, travado, label, Icon, primary }: {
   onClick: () => void;
   loading: boolean;
+  travado?: boolean;
   label: string;
   Icon: any;
   primary?: boolean;
@@ -359,7 +365,7 @@ function CheckoutButton({ onClick, loading, label, Icon, primary }: {
     <button
       type="button"
       onClick={onClick}
-      disabled={loading}
+      disabled={loading || !!travado}
       className={`w-full text-xs font-bold px-3 py-2 rounded-md inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 ${
         primary
           ? 'bg-violet-600 hover:bg-violet-700 text-white'

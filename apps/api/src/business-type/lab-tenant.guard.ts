@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CODIGO_VERTICAL_NEGADA } from '../common/lab-gate.util';
 import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { contaInativa, laboratorioCongelado } from './lab-congelamento';
-import { chaveDoHandler, rotaDoLaboratorio } from './lab-route-policy';
+import { chaveDoHandler, ROTAS_DA_ASSINATURA, rotaDoLaboratorio } from './lab-route-policy';
 
 const UMA_HORA_MS = 3600_000;
 
@@ -17,7 +17,8 @@ const UMA_HORA_MS = 3600_000;
  *   - conta de CLÍNICA → passa. A lista de laboratórios vem do mesmo cache de
  *     60 s que os freios das partes 1-3 já usam (com ele quente, zero consulta);
  *   - conta de LABORATÓRIO:
- *       1. congelada (SUSPENDED/DELETED ou LAB_FREEZE) → 403 TENANT_INACTIVE,
+ *       1. congelada (SUSPENDED/DELETED ou LAB_FREEZE) → 403 TENANT_INACTIVE
+ *          (menos a própria assinatura, para regularizar a mensalidade),
  *          menos o SUPER_ADMIN (como no login: precisa entrar para reativar);
  *       2. handler na política de rotas do laboratório → passa;
  *       3. qualquer outro → 403 VERTICAL_DENIED, com log '[VERTICAL_DENIED]' e
@@ -43,12 +44,16 @@ export class LabTenantGuard implements CanActivate {
     // réplica ver a conta recém-criada. Token de clínica não tem bt.
     if (!labs.has(tenantId) && !isLab(user.bt)) return true;
 
+    const chave = chaveDoHandler(context.getClass(), context.getHandler());
     const roles: unknown[] = Array.isArray(user.roles) ? user.roles : [];
-    if (!roles.includes('SUPER_ADMIN') && (await laboratorioCongelado(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+    if (
+      !roles.includes('SUPER_ADMIN') &&
+      !ROTAS_DA_ASSINATURA.has(chave) &&
+      (await laboratorioCongelado(this.prisma, tenantId, (m) => this.logger.warn(m)))
+    ) {
       throw contaInativa();
     }
 
-    const chave = chaveDoHandler(context.getClass(), context.getHandler());
     if (rotaDoLaboratorio(chave)) return true;
 
     this.logger.warn(`[VERTICAL_DENIED] ${tenantId} ${chave}`);

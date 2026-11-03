@@ -2,12 +2,13 @@
  * Mensalidade do laboratório: conta Asaas da plataforma (separada das clínicas),
  * pagamento sempre conferido no Asaas e a clínica no caminho de sempre.
  */
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { invalidarCacheLabTenants } from '@crm/shared';
 import { encryptValue, isSensitiveKey } from '../common/utils/crypto.util';
 import { BillingService } from './billing.service';
 import {
   AssinaturaDoLaboratorioService,
+  MSG_ASAAS_FORA,
   MSG_ASSINATURA_INDISPONIVEL,
   MSG_ASSINATURA_JA_CRIADA,
 } from './assinatura-do-laboratorio.service';
@@ -106,6 +107,12 @@ describe('conta Asaas da plataforma', () => {
     expect(await lerContaDaPlataforma(g)).toBeNull();
   });
 
+  it('chave cifrada que não abre (segredo trocado) conta como não configurada: nunca vai cifrada para o Asaas', async () => {
+    const g = globais({ [CHAVE_API_PLATAFORMA]: 'enc:00:00:00' });
+    expect(await lerContaDaPlataforma(g)).toBeNull();
+    expect((await resumoDaContaDaPlataforma(g)).configurada).toBe(false);
+  });
+
   it('a chave da plataforma está na lista das cifradas', () => {
     expect(isSensitiveKey(CHAVE_API_PLATAFORMA)).toBe(true);
   });
@@ -148,9 +155,14 @@ describe('conta Asaas da plataforma', () => {
 function montar(opts: { conta?: boolean; sub?: any; tenant?: any; labs?: string[] } = {}) {
   const g = globais(opts.conta === false ? {} : { [CHAVE_API_PLATAFORMA]: encryptValue(CHAVE) });
   let sub: any = opts.sub ?? null;
+  const trava = jest.fn(async () => 0);
   const prisma: any = {
     ...g,
-    tenantBusinessProfile: { findMany: jest.fn(async () => (opts.labs ?? [LAB]).map((t) => ({ tenant_id: t }))) },
+    $transaction: jest.fn(async (fn: any) => fn({ $executeRaw: trava })),
+    tenantBusinessProfile: {
+      findMany: jest.fn(async () => (opts.labs ?? [LAB]).map((t) => ({ tenant_id: t }))),
+      findUnique: jest.fn(async (a: any) => ((opts.labs ?? [LAB]).includes(a.where.tenant_id) ? { business_type: 'LABORATORIO' } : null)),
+    },
     tenant: {
       findUnique: jest.fn(async () =>
         opts.tenant === null
@@ -179,7 +191,7 @@ function montar(opts: { conta?: boolean; sub?: any; tenant?: any; labs?: string[
       }),
     },
   };
-  return { prisma, svc: new AssinaturaDoLaboratorioService(prisma), atual: () => sub };
+  return { prisma, trava, svc: new AssinaturaDoLaboratorioService(prisma), atual: () => sub };
 }
 
 const pagamentosDe = (lista: any[]) => () => ({ json: { data: lista } });
@@ -202,8 +214,16 @@ describe('assinatura do laboratório', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it('assina na conta da plataforma: cliente, assinatura mensal, plano na conta e o link da 1ª mensalidade', async () => {
-    const { prisma, svc, atual } = montar();
+  it('é laboratório? lê o perfil direto; se a leitura falhar, lança (nunca cai na conta da clínica)', async () => {
+    const { prisma, svc } = montar();
+    expect(await svc.ehLaboratorio(LAB)).toBe(true);
+    expect(await svc.ehLaboratorio(CLINICA)).toBe(false);
+    prisma.tenantBusinessProfile.findUnique.mockRejectedValueOnce(new Error('banco fora'));
+    await expect(svc.ehLaboratorio(LAB)).rejects.toThrow('banco fora');
+  });
+
+  it('assina na conta da plataforma, sob trava por conta: cliente, assinatura mensal, plano na conta e o link da 1ª mensalidade', async () => {
+    const { prisma, trava, svc, atual } = montar();
     const { chamadas } = asaasFalso({
       'GET /customers?externalReference=': () => ({ json: { data: [] } }),
       'POST /customers': () => ({ json: { id: 'cus_1' } }),
@@ -215,12 +235,14 @@ describe('assinatura do laboratório', () => {
 
     const r = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'BOLETO' }, AGORA);
 
+    expect(trava).toHaveBeenCalledTimes(1);
+    expect(trava.mock.calls[0]).toContain(`assinatura-lab:${LAB}`);
     expect(chamadas.every((c) => c.apikey === CHAVE && c.url.startsWith('https://api.asaas.com/v3/'))).toBe(true);
+    // Sem telefone: o do cadastro está no formato do WhatsApp, que o Asaas pode recusar.
     expect(chamadas.find((c) => c.metodo === 'POST' && c.url.endsWith('/customers'))!.corpo).toEqual({
       name: 'Laboratório Sorriso',
       cpfCnpj: '11222333000181',
       email: 'ana@lab.teste',
-      mobilePhone: '5582999990000',
       externalReference: `saas-tenant-${LAB}`,
     });
     expect(chamadas.find((c) => c.url.endsWith('/subscriptions'))!.corpo).toEqual({
@@ -251,6 +273,7 @@ describe('assinatura do laboratório', () => {
     const { svc } = montar();
     const { chamadas } = asaasFalso({
       'GET /customers?externalReference=': () => ({ json: { data: [{ id: 'cus_antigo' }] } }),
+      'GET /subscriptions?customer=cus_antigo': () => ({ json: { data: [] } }),
       'POST /subscriptions': () => ({ json: { id: 'sub_asaas_2' } }),
       'GET /subscriptions/sub_asaas_2/payments': pagamentosDe([]),
     });
@@ -260,34 +283,63 @@ describe('assinatura do laboratório', () => {
     expect(r.link_pagamento).toBeNull();
   });
 
-  it('assinatura já paga: 409 (troca só com o suporte), sem criar outra', async () => {
-    const { svc } = montar({
-      sub: { id: SUB, tenant_id: LAB, status: 'ACTIVE', asaas_subscription_id: 'sub_asaas_1', current_charge_id: 'pay_1' },
-    });
-    const { chamadas } = asaasFalso({
-      'GET /subscriptions/sub_asaas_1/payments': pagamentosDe([{ id: 'pay_1', status: 'RECEIVED', dueDate: '2026-11-04' }]),
-    });
-    const erro = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }, AGORA).catch((e) => e);
-    expect(erro).toBeInstanceOf(ConflictException);
-    expect(erro.message).toBe(MSG_ASSINATURA_JA_CRIADA);
-    expect(chamadas.some((c) => c.metodo !== 'GET')).toBe(false);
-  });
+  it.each([['ACTIVE'], ['PAST_DUE'], ['PENDING_PAYMENT']])(
+    'assinatura já criada (%s): 409, troca só com o suporte — nada muda no Asaas',
+    async (status) => {
+      const { svc, atual } = montar({
+        sub: { id: SUB, tenant_id: LAB, status, asaas_subscription_id: 'sub_asaas_1', current_charge_id: null },
+      });
+      const { fn } = asaasFalso({});
+      const erro = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }, AGORA).catch((e) => e);
+      expect(erro).toBeInstanceOf(ConflictException);
+      expect(erro.message).toBe(MSG_ASSINATURA_JA_CRIADA);
+      expect(fn).not.toHaveBeenCalled();
+      expect(atual().asaas_subscription_id).toBe('sub_asaas_1');
+    },
+  );
 
-  it('assinatura ainda sem pagamento: a anterior sai do Asaas e a nova entra', async () => {
-    const { svc, atual } = montar({
-      sub: { id: SUB, tenant_id: LAB, status: 'PENDING_PAYMENT', asaas_subscription_id: 'sub_velha', current_charge_id: null },
-    });
+  it('assinatura que ficou no Asaas sem chegar ao banco: sem pagamento, é apagada antes de criar a nova', async () => {
+    const { svc, atual } = montar();
     const { chamadas } = asaasFalso({
-      'GET /subscriptions/sub_velha/payments': pagamentosDe([{ id: 'pay_v', status: 'PENDING', dueDate: '2026-11-04' }]),
-      'DELETE /subscriptions/sub_velha': () => ({ json: { deleted: true } }),
       'GET /customers?externalReference=': () => ({ json: { data: [{ id: 'cus_1' }] } }),
+      'GET /subscriptions?customer=cus_1': () => ({ json: { data: [{ id: 'sub_solta' }] } }),
+      'GET /subscriptions/sub_solta/payments': pagamentosDe([{ id: 'pay_s', status: 'PENDING', dueDate: '2026-11-04' }]),
+      'DELETE /subscriptions/sub_solta': () => ({ json: { deleted: true } }),
       'POST /subscriptions': () => ({ json: { id: 'sub_nova' } }),
       'GET /subscriptions/sub_nova/payments': pagamentosDe([]),
     });
     await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'CREDIT_CARD' }, AGORA);
     const ordem = chamadas.map((c) => `${c.metodo} ${c.url.replace('https://api.asaas.com/v3', '')}`);
-    expect(ordem.indexOf('DELETE /subscriptions/sub_velha')).toBeLessThan(ordem.indexOf('POST /subscriptions'));
+    expect(ordem.indexOf('DELETE /subscriptions/sub_solta')).toBeLessThan(ordem.indexOf('POST /subscriptions'));
     expect(atual()).toMatchObject({ asaas_subscription_id: 'sub_nova', status: 'PENDING_PAYMENT', billing_type: 'CREDIT_CARD' });
+  });
+
+  it('assinatura fora do banco e já paga: 409 (suporte), sem apagar nem criar', async () => {
+    const { svc, atual } = montar();
+    const { chamadas } = asaasFalso({
+      'GET /customers?externalReference=': () => ({ json: { data: [{ id: 'cus_1' }] } }),
+      'GET /subscriptions?customer=cus_1': () => ({ json: { data: [{ id: 'sub_paga' }] } }),
+      'GET /subscriptions/sub_paga/payments': pagamentosDe([{ id: 'pay_p', status: 'RECEIVED', dueDate: '2026-11-04' }]),
+    });
+    const erro = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }, AGORA).catch((e) => e);
+    expect(erro).toBeInstanceOf(ConflictException);
+    expect(chamadas.some((c) => c.metodo !== 'GET')).toBe(false);
+    expect(atual()).toBeNull();
+  });
+
+  it('erro do Asaas vira mensagem para a tela; Asaas fora do ar vira "tente de novo"', async () => {
+    const { svc } = montar();
+    asaasFalso({ 'GET /customers?externalReference=': () => ({ status: 400, json: { errors: [{ description: 'CPF/CNPJ inválido' }] } }) });
+    const recusa = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }, AGORA).catch((e) => e);
+    expect(recusa).toBeInstanceOf(BadRequestException);
+    expect(recusa.message).toBe('O Asaas recusou: CPF/CNPJ inválido');
+
+    (global as any).fetch = jest.fn(async () => {
+      throw new Error('timeout');
+    });
+    const fora = await svc.checkout(LAB, { plan_slug: 'pro', billing_type: 'PIX' }, AGORA).catch((e) => e);
+    expect(fora).toBeInstanceOf(ServiceUnavailableException);
+    expect(fora.message).toBe(MSG_ASAAS_FORA);
   });
 
   it('pagamento novo no Asaas: assinatura ativa, próximo vencimento e a conta ativa de novo — uma vez só', async () => {
@@ -316,6 +368,39 @@ describe('assinatura do laboratório', () => {
     const outra = await svc.sincronizar(SUB, undefined, AGORA);
     expect(outra.aplicado).toBe(false);
     expect(prisma.tenant.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('estorno do pagamento atual não faz o anterior valer de novo (nem reativa a conta)', async () => {
+    const { prisma, svc, atual } = montar({
+      sub: { id: SUB, tenant_id: LAB, status: 'ACTIVE', asaas_subscription_id: 'sub_asaas_1', current_charge_id: 'pay_2' },
+    });
+    asaasFalso({
+      'GET /subscriptions/sub_asaas_1/payments': pagamentosDe([
+        { id: 'pay_1', status: 'RECEIVED', dueDate: '2026-10-04' },
+        { id: 'pay_2', status: 'REFUNDED', dueDate: '2026-11-04' },
+      ]),
+    });
+    expect((await svc.sincronizar(SUB, undefined, AGORA)).aplicado).toBe(false);
+    expect(atual().current_charge_id).toBe('pay_2');
+    expect(prisma.saasSubscription.updateMany).not.toHaveBeenCalled();
+    expect(prisma.tenant.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('pagou a mais nova com uma antiga vencida: o próximo vencimento é a antiga; atrasada há mais de 5 dias não reativa', async () => {
+    const { prisma, svc, atual } = montar({
+      sub: { id: SUB, tenant_id: LAB, status: 'PAST_DUE', asaas_subscription_id: 'sub_asaas_1', current_charge_id: 'pay_1' },
+    });
+    asaasFalso({
+      'GET /subscriptions/sub_asaas_1/payments': pagamentosDe([
+        { id: 'pay_1', status: 'RECEIVED', dueDate: '2026-09-04' },
+        { id: 'pay_2', status: 'OVERDUE', dueDate: '2026-10-04' },
+        { id: 'pay_3', status: 'RECEIVED', dueDate: '2026-11-04' },
+      ]),
+    });
+    expect((await svc.sincronizar(SUB, undefined, AGORA)).aplicado).toBe(true);
+    expect(atual()).toMatchObject({ status: 'PAST_DUE', current_charge_id: 'pay_3' });
+    expect(atual().next_charge_date.toISOString()).toBe('2026-10-04T12:00:00.000Z');
+    expect(prisma.tenant.updateMany).not.toHaveBeenCalled();
   });
 
   it('duas leituras ao mesmo tempo: só quem troca o pagamento reativa a conta', async () => {
