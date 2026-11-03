@@ -116,6 +116,7 @@ export function Sidebar() {
   // nome no rodape da sidebar (estilo LUMEN "Cirurgia-Dentista"). Fallback
   // pro role bruto se nao houver mapping.
   const ROLE_LABELS: Record<string, string> = {
+    SUPER_ADMIN: 'Adm master',
     ADMIN: 'Administrador',
     DENTIST: 'Dentista',
     OPERADOR: 'Atendimento',

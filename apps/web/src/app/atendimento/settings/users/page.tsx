@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, ChevronUp, ShieldCheck, Sparkles } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 // Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
 import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
 // Disparos internos (WhatsApp da pessoa): o que cada um recebe, por papel.
@@ -61,9 +62,12 @@ const SPECIALTY_SUGGESTIONS = [
 
 // Roles canônicos aceitos pelo sistema. DEVEM bater com AppRole em apps/web/src/lib/useRole.ts
 // e com os checks do backend (Guards/Roles). Qualquer valor fora dessa lista quebra permissões.
-type RoleKey = 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
+// SUPER_ADMIN (dono do sistema) não é escolha do formulário: só é lido pra não virar
+// OPERADOR ao abrir a conta; o backend mantém e nunca concede esse papel.
+type RoleKey = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
 
 const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: string }[] = [
+  { key: 'SUPER_ADMIN', label: 'Adm master', emoji: '👑', description: 'Dono do sistema' },
   { key: 'ADMIN', label: 'Administrador', emoji: '🛡️', description: 'Acesso total ao sistema' },
   { key: 'DENTIST', label: 'Dentista', emoji: '🦷', description: 'Atendimento clínico, prontuários, prescrições' },
   { key: 'OPERADOR', label: 'Operador', emoji: '💬', description: 'Atendimento no chat e CRC' },
@@ -93,6 +97,7 @@ const SECTOR_ROLE: Record<Sector, RoleKey> = {
 function normalizeLegacyRole(raw: string): RoleKey {
   if (!raw) return 'OPERADOR';
   const upper = raw.toUpperCase().trim();
+  if (upper === 'SUPER_ADMIN') return 'SUPER_ADMIN';
   if (upper === 'ADMIN') return 'ADMIN';
   if (upper === 'ADVOGADO' || upper === 'ADVOGADOS' || upper === 'DENTIST' || upper === 'DENTISTS') return 'DENTIST';
   if (upper === 'OPERADOR' || upper === 'OPERADORES') return 'OPERADOR';
@@ -112,7 +117,7 @@ function roleBadges(roles: string[] | undefined | null, lab = false) {
       {unique.map(r => {
         const opt = ROLE_OPTIONS.find(o => o.key === r);
         const cls =
-          r === 'ADMIN'
+          r === 'SUPER_ADMIN' || r === 'ADMIN'
             ? 'bg-red-900/30 text-red-300 border-red-800/30'
             : r === 'FINANCEIRO'
               ? 'bg-emerald-900/30 text-emerald-300 border-emerald-800/30'
@@ -174,6 +179,7 @@ export default function UsersSettingsPage() {
   // Laboratório: o que aparece na tela. Efeito e handler leem isLab(btAgora()), porque a
   // hidratação renderiza a 1ª vez como clínica (ver useBusinessType).
   const lab = isLab(useBusinessType());
+  const { isSuperAdmin } = useRole();
   const [users, setUsers] = useState<any[]>([]);
   const [inboxes, setInboxes] = useState<any[]>([]);
   const [lawyers, setLawyers] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
@@ -711,6 +717,8 @@ export default function UsersSettingsPage() {
                         {new Date(user.created_at).toLocaleDateString('pt-BR')}
                       </td>
                       <td className="px-6 py-4 text-right">
+                        {/* Conta do dono do sistema: só ele mesmo altera (o backend também barra). */}
+                        {(!(user.roles || []).includes('SUPER_ADMIN') || isSuperAdmin) && (
                         <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEdit(user)}
@@ -727,6 +735,7 @@ export default function UsersSettingsPage() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   ))}

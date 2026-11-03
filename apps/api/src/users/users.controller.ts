@@ -142,7 +142,7 @@ export class UsersController {
   @Patch(':id')
   @Roles('ADMIN')
   update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; ortho_days?: number[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; disparos_off?: string[]; disparos_on?: string[] }) {
-    return this.usersService.update(id, data, req.user?.tenant_id);
+    return this.usersService.update(id, data, req.user?.tenant_id, req.user?.roles);
   }
 
   /**
@@ -165,6 +165,7 @@ export class UsersController {
         extra_revokes: data.extra_revokes,
       },
       req.user?.tenant_id,
+      req.user?.roles,
     );
   }
 
@@ -193,6 +194,6 @@ export class UsersController {
     if (req.user.id === id) {
       throw new ForbiddenException('Você não pode remover a si mesmo');
     }
-    return this.usersService.remove(id, req.user?.tenant_id, body?.transferToId);
+    return this.usersService.remove(id, req.user?.tenant_id, body?.transferToId, req.user?.roles);
   }
 }

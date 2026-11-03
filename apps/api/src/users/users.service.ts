@@ -45,6 +45,15 @@ function normalizeRoles(roles: string[] | undefined | null, legacyRole?: string)
   return normalized.filter(r => (seen.has(r) ? false : (seen.add(r), true)));
 }
 
+/**
+ * Papel do dono do sistema (adm master). Não é escolha do editor de usuários:
+ * nunca entra pelo formulário e quem já o tem não o perde quando a conta é
+ * salva. Antes o normalizeRole trocava 'SUPER_ADMIN' por 'OPERADOR', e salvar
+ * a conta do dono tirava dele o Admin SaaS.
+ */
+const PAPEL_DO_DONO = 'SUPER_ADMIN';
+const ehPapelDoDono = (role: unknown) => String(role ?? '').toUpperCase().trim() === PAPEL_DO_DONO;
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -69,6 +78,16 @@ export class UsersService {
     if (!user || user.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
+  }
+
+  /** Conta do dono do sistema: só ele mesmo altera ou exclui. Devolve se o alvo é o dono. */
+  private async assertContaDoDono(id: string, quemAltera: string[]): Promise<boolean> {
+    const alvo = await this.prisma.user.findUnique({ where: { id }, select: { roles: true } });
+    const alvoEhDono = (alvo?.roles ?? []).some(ehPapelDoDono);
+    if (alvoEhDono && !quemAltera.some(ehPapelDoDono)) {
+      throw new ForbiddenException('Esta é a conta do dono do sistema: só ele mesmo pode alterá-la.');
+    }
+    return alvoEhDono;
   }
 
   /**
@@ -307,16 +326,19 @@ export class UsersService {
     return { ok: true, sent: true };
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; ortho_days?: number[]; disparos_off?: string[]; disparos_on?: string[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; ortho_days?: number[]; disparos_off?: string[]; disparos_on?: string[] }, tenantId?: string, quemAltera: string[] = []): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
+    const alvoEhDono = await this.assertContaDoDono(id, quemAltera);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
     if (data.email) updateData.email = data.email;
     // Multi-role: aceita roles[] (array) OU role (string legado). Sempre normaliza p/ enum canônico.
-    let normalizedRoles: CanonicalRole[] | undefined;
-    if ((data.roles && data.roles.length > 0) || data.role) {
-      normalizedRoles = normalizeRoles(data.roles, data.role);
-      (updateData as any).roles = { set: normalizedRoles };
+    // O papel do dono não vem do formulário; a conta do dono continua com ele.
+    const rolesPedidos = (data.roles ?? []).filter((r) => !ehPapelDoDono(r));
+    const roleLegado = data.role && !ehPapelDoDono(data.role) ? data.role : undefined;
+    if (rolesPedidos.length > 0 || roleLegado) {
+      const normalizedRoles: string[] = normalizeRoles(rolesPedidos, roleLegado);
+      (updateData as any).roles = { set: alvoEhDono ? [PAPEL_DO_DONO, ...normalizedRoles] : normalizedRoles };
     }
     if (data.phone !== undefined) updateData.phone = data.phone || null;
     if (data.password) updateData.password_hash = await argon2.hash(data.password);
@@ -404,8 +426,9 @@ export class UsersService {
     return { cases: 0, conversations, tasks, events, leads };
   }
 
-  async remove(id: string, tenantId?: string, transferToId?: string): Promise<void> {
+  async remove(id: string, tenantId?: string, transferToId?: string, quemAltera: string[] = []): Promise<void> {
     await this.verifyTenantOwnership(id, tenantId);
+    await this.assertContaDoDono(id, quemAltera);
 
     // Se informou transferToId, transferir tudo antes de excluir
     if (transferToId) {
