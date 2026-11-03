@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { BT_LABORATORIO, isLab } from '@crm/shared';
 import { eSessaoDaEquipe } from './sessao-da-equipe';
+import { lerAcessoClinica } from './acesso-clinica';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -34,6 +35,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       : (payload.role ? [payload.role] : ['OPERADOR']);
     const user = { id: payload.sub, email: payload.email, roles, role: roles[0], tenant_id: payload.tenant_id };
     // F3 do laboratório — bt só no token de conta de laboratório; clínica sem chave nova.
-    return isLab(payload.bt) ? { ...user, bt: BT_LABORATORIO } : user;
+    const sessao = isLab(payload.bt) ? { ...user, bt: BT_LABORATORIO } : user;
+    // Dono do sistema dentro de outra conta (auth/acesso-clinica.ts); login normal sem chave nova.
+    if (payload.acesso_clinica === undefined) return sessao;
+    const acesso = lerAcessoClinica(payload.acesso_clinica);
+    // Marca que não se lê nunca vira sessão comum (seria acesso total na conta visitada).
+    if (!acesso) throw new UnauthorizedException();
+    return { ...sessao, acesso_clinica: acesso };
   }
 }

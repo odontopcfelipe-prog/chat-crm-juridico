@@ -10,6 +10,10 @@ import { CadastroLaboratorioController, CadastroLaboratorioPlataformaController 
 import { CadastroLaboratorioService } from './cadastro-laboratorio.service';
 import { ConvitesLaboratorioService } from './convites-laboratorio.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ComparativoContasController } from './comparativo-contas.controller';
+import { ComparativoContasService } from './comparativo-contas.service';
+// Só depende do Prisma: instância própria aqui, sem importar o FinanceiroModule.
+import { FinanceiroChargesService } from '../financeiro/financeiro-charges.service';
 
 // Onda 17.32.106 — ORDEM IMPORTA. TenantsMeController PRECISA vir
 // antes do TenantsController. Os dois usam @Controller('tenants'),
@@ -20,8 +24,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 // estaticas (/me, /me/usage) corretamente.
 @Module({
   imports: [PrismaModule],
-  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController, CadastroLaboratorioController, CadastroLaboratorioPlataformaController],
-  providers: [TenantsService, LabWaitlistService, CriacaoLaboratorioService, PadroesLaboratorioService, CadastroLaboratorioService, ConvitesLaboratorioService],
+  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController, CadastroLaboratorioController, CadastroLaboratorioPlataformaController, ComparativoContasController],
+  providers: [TenantsService, LabWaitlistService, CriacaoLaboratorioService, PadroesLaboratorioService, CadastroLaboratorioService, ConvitesLaboratorioService, ComparativoContasService, FinanceiroChargesService],
   exports: [TenantsService],
 })
 export class TenantsModule {}

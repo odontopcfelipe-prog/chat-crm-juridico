@@ -4,10 +4,10 @@
   "resumo": {
     "automatismos": { "@Cron": 29, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
-    "globais": 13,
+    "globais": 14,
     "produtores": 24,
-    "controllers": 90,
-    "handlers": 963,
+    "controllers": 91,
+    "handlers": 966,
     "@Public": 31
   },
   "automatismos": [
@@ -84,6 +84,7 @@
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "RolesGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PermissionsGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "ModoSoVerGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "LabTenantGuard" },
     { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "SensitiveDataInterceptor" },
     { "arquivo": "app.module.ts", "token": "APP_INTERCEPTOR", "classe": "LabVocabInterceptor" },
@@ -233,6 +234,8 @@
       "acesso": [],
       "handlers": [
         { "metodo": "AuthController.login", "verbo": "POST", "path": "login", "rota": "POST /auth/login", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 10 } })"] },
+        { "metodo": "AuthController.acessarClinica", "verbo": "POST", "path": "acessar-clinica", "rota": "POST /auth/acessar-clinica", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "AuthController.voltarParaMinhaConta", "verbo": "POST", "path": "voltar-conta", "rota": "POST /auth/voltar-conta", "acesso": [] },
         { "metodo": "AuthController.mcpToken", "verbo": "POST", "path": "mcp-token", "rota": "POST /auth/mcp-token", "acesso": [] },
         { "metodo": "AuthController.forgotPassword", "verbo": "POST", "path": "forgot-password", "rota": "POST /auth/forgot-password", "acesso": ["@Public()"] },
         { "metodo": "AuthController.resetPassword", "verbo": "POST", "path": "reset-password", "rota": "POST /auth/reset-password", "acesso": ["@Public()"] }
@@ -1643,6 +1646,15 @@
         { "metodo": "CadastroLaboratorioPlataformaController.listarConvites", "verbo": "GET", "path": "convites", "rota": "GET /plataforma/cadastro-laboratorio/convites", "acesso": ["@SuperAdmin()"] },
         { "metodo": "CadastroLaboratorioPlataformaController.criarConvite", "verbo": "POST", "path": "convites", "rota": "POST /plataforma/cadastro-laboratorio/convites", "acesso": ["@SuperAdmin()"] },
         { "metodo": "CadastroLaboratorioPlataformaController.revogarConvite", "verbo": "POST", "path": "convites/:id/revogar", "rota": "POST /plataforma/cadastro-laboratorio/convites/:id/revogar", "acesso": ["@SuperAdmin()"] }
+      ]
+    },
+    {
+      "arquivo": "tenants/comparativo-contas.controller.ts",
+      "classe": "ComparativoContasController",
+      "path": "admin/contas",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "ComparativoContasController.comparar", "verbo": "GET", "path": "comparativo", "rota": "GET /admin/contas/comparativo", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {

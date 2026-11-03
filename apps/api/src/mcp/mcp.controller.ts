@@ -230,6 +230,10 @@ export class McpController {
       if (!eSessaoDaEquipe(user)) {
         return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Token inválido'));
       }
+      // Login do dono do sistema dentro de outra conta (auth/acesso-clinica.ts) não vale aqui.
+      if (user?.acesso_clinica !== undefined) {
+        return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Use o login da sua própria conta.'));
+      }
     } else {
       return res.status(401).json(this.jsonRpcError(body?.id ?? null, -32600, 'Authorization header requerido'));
     }

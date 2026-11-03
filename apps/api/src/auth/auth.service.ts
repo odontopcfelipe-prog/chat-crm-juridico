@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +8,8 @@ import { randomBytes } from 'crypto';
 import { BT_LABORATORIO, isLab } from '@crm/shared';
 import type { OrigemDaRequisicao } from '../common/utils/origem-da-requisicao';
 import { dadosDoAcesso } from './registro-de-acesso';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
+import { ENTIDADE_DO_ACESSO, VALIDADE_DO_ACESSO, eModoDeAcesso, type AcessoClinica } from './acesso-clinica';
 
 @Injectable()
 export class AuthService {
@@ -92,7 +94,65 @@ export class AuthService {
     }
   }
 
+  /**
+   * Dono do sistema entra numa conta (clínica ou laboratório) sem usuário nela, ou
+   * volta para a dele (tenantId vazio ou a própria). Ver auth/acesso-clinica.ts.
+   * Papel conferido no BANCO (token antigo não basta); conta encerrada = 404.
+   */
+  async acessarClinica(userId: string, tenantId: string | null | undefined, modo: unknown, origem: OrigemDaRequisicao) {
+    const dono = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, roles: true, tenant_id: true },
+    });
+    if (!dono || !(dono.roles ?? []).includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Acesso restrito ao dono do sistema.');
+    }
+    const meta = { ip: origem.ip, navegador: origem.user_agent };
+
+    if (!tenantId || tenantId === dono.tenant_id) {
+      const sessao = await this.login({ ...dono, bt: await this.tipoDaConta(dono.tenant_id) });
+      await registrarAuditoria(
+        this.prisma,
+        { tenantId: dono.tenant_id, actorUserId: dono.id, entity: ENTIDADE_DO_ACESSO, entityId: dono.tenant_id ?? '-', action: 'VOLTOU', meta },
+        this.logger,
+      );
+      return sessao;
+    }
+
+    if (!eModoDeAcesso(modo)) throw new BadRequestException('Escolha "ver" ou "mexer".');
+    const conta = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, name: true, status: true } });
+    if (!conta || conta.status === 'DELETED') throw new NotFoundException('Conta não encontrada.');
+
+    const acesso_clinica: AcessoClinica = { modo, nome: conta.name };
+    const payload = {
+      ...this.payloadDaSessao({ ...dono, tenant_id: conta.id, bt: await this.tipoDaConta(conta.id) }),
+      acesso_clinica,
+    };
+    const access_token = this.jwtService.sign(payload, { expiresIn: VALIDADE_DO_ACESSO });
+    await registrarAuditoria(
+      this.prisma,
+      {
+        tenantId: conta.id, actorUserId: dono.id, entity: ENTIDADE_DO_ACESSO, entityId: conta.id,
+        action: modo === 'ver' ? 'ENTROU_SO_VER' : 'ENTROU_VER_E_MEXER', meta,
+      },
+      this.logger,
+    );
+    return { access_token, user: payload };
+  }
+
+  /** bt da conta: BT_LABORATORIO no laboratório; clínica (ou sem conta) = undefined. */
+  private async tipoDaConta(tenantId: string | null | undefined): Promise<string | undefined> {
+    if (!tenantId) return undefined;
+    const perfil = await this.prisma.tenantBusinessProfile.findUnique({
+      where: { tenant_id: tenantId },
+      select: { business_type: true },
+    });
+    return isLab(perfil?.business_type) ? BT_LABORATORIO : undefined;
+  }
+
   async generateMcpToken(user: any) {
+    // Token de 1 ano só da própria conta, nunca de uma conta visitada.
+    if (user?.acesso_clinica) throw new ForbiddenException('Gere o token do MCP na sua própria conta.');
     // user = req.user (JwtStrategy): o bt, quando existe, veio do token assinado no login.
     const payload = this.payloadDaSessao(user);
     const mcp_token = this.jwtService.sign(payload, { expiresIn: '365d' });

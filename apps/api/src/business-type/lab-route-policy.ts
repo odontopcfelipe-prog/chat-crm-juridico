@@ -23,6 +23,9 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
 
 /** Handlers que a conta de laboratório alcança (386). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
+  // AuthController — dono do sistema volta de dentro do laboratório para a conta dele
+  // (devolve só o login dele; quem não é o dono no banco leva 403)
+  'AuthController.voltarParaMinhaConta',
   // BillingController — plano da própria conta (a lista de planos é pública)
   'BillingController.getMine',
   'BillingController.checkout',
@@ -494,6 +497,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CriacaoLaboratorioController', // liga/desliga a criação de laboratório (plataforma)
   'CadastroLaboratorioController', // cadastro público de laboratório do /cadastrar (plataforma; rotas públicas)
   'CadastroLaboratorioPlataformaController', // convites e chave do cadastro de laboratório (plataforma)
+  'ComparativoContasController', // comparativo das contas no Admin SaaS (plataforma)
   'ContaDaPlataformaController', // conta Asaas da mensalidade dos laboratórios (plataforma)
   'WaitlistController', // lista de espera da agenda de consulta
   'EvolutionAdminController', // manutenção de chip da plataforma
@@ -503,6 +507,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
+  'AuthController.acessarClinica', // dono do sistema entra em outra conta (plataforma)
   // CalendarController — agenda (sem consulta, expediente nem tipos de atendimento)
   'CalendarController.notifyEvent',
   'CalendarController.validate',

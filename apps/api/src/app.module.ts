@@ -97,6 +97,7 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
 import { PatientScopeGuard } from './auth/patient-scope';
 // F2 parte 4 do laboratório — negação por padrão, por handler, para conta de laboratório.
 import { LabTenantGuard } from './business-type/lab-tenant.guard';
+import { ModoSoVerGuard } from './auth/modo-so-ver.guard';
 import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
 // F4 do laboratório — textos que a API devolve à conta de laboratório.
 import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
@@ -250,6 +251,12 @@ import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
     {
       provide: APP_GUARD,
       useClass: PatientScopeGuard,
+    },
+    // Dono do sistema dentro de outra conta no modo "só ver": fora o GET (e as
+    // rotas da plataforma), 403 SO_VER antes do handler. Ver auth/acesso-clinica.ts.
+    {
+      provide: APP_GUARD,
+      useClass: ModoSoVerGuard,
     },
     // F2 parte 4 do laboratório — ÚLTIMO guard: conta de laboratório só alcança os
     // handlers da política de rotas do laboratório (o resto: 403 VERTICAL_DENIED) e,

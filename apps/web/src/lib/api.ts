@@ -170,6 +170,17 @@ api.interceptors.response.use(
       );
     }
 
+    // Dono do sistema "só vendo" outra conta (lib/acesso-clinica.ts): a API recusa
+    // tudo que grava com code SO_VER. Um aviso só, mesmo com várias recusas juntas.
+    if (
+      error.response?.status === 403 &&
+      (error.response?.data as any)?.code === 'SO_VER' &&
+      !isSilent &&
+      typeof window !== 'undefined'
+    ) {
+      toast.error((error.response?.data as any)?.message || 'Você está só vendo esta conta.', { id: 'so-ver', duration: 5000 });
+    }
+
     return Promise.reject(error);
   }
 );

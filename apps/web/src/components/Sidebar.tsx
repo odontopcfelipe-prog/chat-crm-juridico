@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog, Route, Clock,
+  User, UserCog, Route, Clock, Eye,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -123,7 +123,10 @@ export function Sidebar() {
     ASSISTANT: 'Assistente',
     FINANCEIRO: 'Financeiro',
   };
-  const userCargo = perms.role ? ((lab ? LAB_ROLE_LABELS : ROLE_LABELS)[perms.role] ?? perms.role) : '';
+  // Laboratório usa os cargos dele; o que ele não tem (Adm master) cai no rótulo da clínica.
+  const userCargo = perms.role
+    ? ((lab ? LAB_ROLE_LABELS[perms.role] : undefined) ?? ROLE_LABELS[perms.role] ?? perms.role)
+    : '';
 
   const [expanded, setExpanded] = useState(false);
   // Onda 5c (Fase 25) — estado de cada grupo (expandido/colapsado).
@@ -559,6 +562,14 @@ export function Sidebar() {
       match: (p) => p === '/admin/tenants' || p.startsWith('/admin/tenants/'),
       show: perms.isSuperAdmin,
     },
+    // Dono do sistema entra em qualquer conta (só ver / ver e mexer) e compara contas.
+    verClinicas: {
+      label: 'Ver clínicas',
+      href: '/admin/clinicas',
+      icon: <Eye size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/admin/clinicas'),
+      show: perms.isSuperAdmin,
+    },
     // Onda 17.32.112 — Anamnese MASTER do SaaS (controlada por SUPER_ADMIN)
     anamneseMaster: {
       label: 'Anamnese master',
@@ -972,6 +983,7 @@ export function Sidebar() {
       items: [
         allItems.billing,        // Assinatura (Onda 17.32.88 — só pra ADMIN)
         allItems.adminTenants,   // Admin SaaS (Onda 17.32.88 — só SUPER_ADMIN)
+        allItems.verClinicas,    // Entrar em qualquer conta / comparar (só SUPER_ADMIN)
         allItems.anamneseMaster, // Anamnese master (Onda 17.32.112 — só SUPER_ADMIN)
         allItems.settings,       // Configuracoes
         allItems.manual,         // Manual

@@ -4,6 +4,7 @@ import { SignInDto } from './dto/sign-in.dto';
 import { Public } from './decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { origemDaRequisicao } from '../common/utils/origem-da-requisicao';
+import { SuperAdmin } from './decorators/super-admin.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -24,6 +25,29 @@ export class AuthController {
     // Marco Civil: data, hora e IP de cada entrada, guardados por 6 meses.
     await this.authService.registrarAcesso(user, origemDaRequisicao(req));
     return sessao;
+  }
+
+  /**
+   * Dono do sistema entra numa conta sem ter usuário nela ({ tenant_id, modo:
+   * 'ver' | 'mexer' }) ou volta para a dele ({ tenant_id: null }). Devolve um
+   * login novo. Ver auth/acesso-clinica.ts.
+   */
+  @SuperAdmin()
+  @HttpCode(HttpStatus.OK)
+  @Post('acessar-clinica')
+  async acessarClinica(@Request() req: any, @Body() body: { tenant_id?: string | null; modo?: string }) {
+    return this.authService.acessarClinica(req.user?.id, body?.tenant_id, body?.modo, origemDaRequisicao(req));
+  }
+
+  /**
+   * Volta do dono para a própria conta: o login de sempre dele. Sem @SuperAdmin de
+   * propósito (de dentro de um laboratório o guard do laboratório só deixa passar
+   * rota liberada para ele); o papel é conferido no banco e quem não é o dono leva 403.
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('voltar-conta')
+  async voltarParaMinhaConta(@Request() req: any) {
+    return this.authService.acessarClinica(req.user?.id, null, undefined, origemDaRequisicao(req));
   }
 
   /** Gera um token JWT de longa duração (1 ano) para uso no MCP. */

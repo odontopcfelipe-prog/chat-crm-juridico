@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
+import { AcessoClinicaFaixa } from '@/components/AcessoClinicaFaixa';
 // Onda 17.32.86 — Banner global de trial/inadimplencia
 import { TrialBanner } from '@/components/TrialBanner';
 // Onda 17.32.102 — Modal de boas-vindas 1x/dia pra tenant em TRIAL (legacy)
@@ -417,6 +418,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Dono do sistema dentro de outra conta: qual, em que modo e "Voltar". No
+            chatonly (iframe do Split) sem faixa, mas recarrega se a conta mudar. */}
+        <AcessoClinicaFaixa esconder={isChatOnly} />
         {/* Header global com busca de paciente — esconde em telas
             administrativas/configuracao onde nao faz sentido buscar paciente,
             e dentro de paciente especifico (ja achou — redundante).
