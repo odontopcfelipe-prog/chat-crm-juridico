@@ -33,19 +33,54 @@ export class ProductsService {
     private fileStorage: FileStorageService,
   ) {}
 
-  async create(tenantId: string, dto: CreateProductDto) {
+  async create(tenantId: string, dto: CreateProductDto, userId?: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
 
-    if (dto.sku) {
-      const existing = await this.prisma.product.findUnique({
-        where: { tenant_id_sku: { tenant_id: tenantId, sku: dto.sku } },
-      });
-      if (existing) throw new BadRequestException(`Ja existe um produto com SKU "${dto.sku}"`);
+    // Quantidade inicial não vai calada no saldo: entra como ENTRADA "Estoque
+    // inicial" em Movimentações (quem lançou e quando), com as mesmas regras de
+    // lote/validade de uma entrada comum.
+    const { current_stock, initial_batch_number, initial_expiration_date, ...campos } = dto;
+    const qtd = current_stock ?? 0;
+    const lote = initial_batch_number?.trim() || undefined;
+    if (qtd > 0 && campos.requires_lot_tracking && !lote) {
+      throw new BadRequestException(
+        'Produto exige rastreabilidade de lote (ANVISA): informe o lote da quantidade em estoque.',
+      );
     }
-    await this.assertSupplierDaConta(tenantId, dto.supplier_id);
+    if (qtd > 0 && campos.has_expiration && !initial_expiration_date) {
+      throw new BadRequestException('Produto com validade: informe a validade da quantidade em estoque.');
+    }
 
-    return this.prisma.product.create({
-      data: { ...comCategoriaNormalizada(dto), tenant_id: tenantId },
+    if (campos.sku) {
+      const existing = await this.prisma.product.findUnique({
+        where: { tenant_id_sku: { tenant_id: tenantId, sku: campos.sku } },
+      });
+      if (existing) throw new BadRequestException(`Ja existe um produto com SKU "${campos.sku}"`);
+    }
+    await this.assertSupplierDaConta(tenantId, campos.supplier_id);
+
+    const data = { ...comCategoriaNormalizada(campos), tenant_id: tenantId };
+    if (qtd <= 0) return this.prisma.product.create({ data });
+
+    return this.prisma.$transaction(async (tx) => {
+      const quantidade = new Prisma.Decimal(qtd);
+      const product = await tx.product.create({ data: { ...data, current_stock: quantidade } });
+      const custo = campos.cost_price ? new Prisma.Decimal(campos.cost_price) : undefined;
+      await tx.stockMovement.create({
+        data: {
+          tenant_id: tenantId,
+          product_id: product.id,
+          type: 'ENTRADA',
+          quantity: quantidade,
+          unit_cost: custo,
+          total_cost: custo ? custo.times(quantidade).toDecimalPlaces(2) : undefined,
+          batch_number: lote,
+          expiration_date: initial_expiration_date ? new Date(initial_expiration_date) : undefined,
+          notes: 'Estoque inicial (cadastro do produto)',
+          performed_by_user_id: userId,
+        },
+      });
+      return product;
     });
   }
 

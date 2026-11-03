@@ -664,6 +664,12 @@ function ProductFormModal({
   const [costPrice, setCostPrice] = useState(decimalParaCampo(product?.cost_price));
   const [salePrice, setSalePrice] = useState(decimalParaCampo(product?.sale_price));
   const lucro = (parseFloat(salePrice) || 0) - (parseFloat(costPrice) || 0);
+  // Só no cadastro (vira "Estoque inicial" em Movimentações); depois a quantidade
+  // muda por entrada/saída.
+  const [initialStock, setInitialStock] = useState('');
+  const [initialBatch, setInitialBatch] = useState('');
+  const temEstoqueInicial = !product && parseFloat(initialStock) > 0;
+  const pedeLote = temEstoqueInicial && requiresLot;
   const [supplierId, setSupplierId] = useState(product?.supplier?.id ?? '');
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -732,6 +738,10 @@ function ProductFormModal({
       showError('Nome e obrigatorio');
       return;
     }
+    if (pedeLote && !initialBatch.trim()) {
+      showError('Informe o lote da quantidade em estoque (produto exige rastreabilidade)');
+      return;
+    }
     setSaving(true);
     try {
       let productId: string | undefined;
@@ -767,6 +777,8 @@ function ProductFormModal({
           cost_price: costPrice ? parseFloat(costPrice) : undefined,
           sale_price: salePrice ? parseFloat(salePrice) : undefined,
           supplier_id: supplierId || undefined,
+          current_stock: temEstoqueInicial ? parseFloat(initialStock) : undefined,
+          initial_batch_number: pedeLote ? initialBatch.trim() : undefined,
         });
         productId = data?.id;
       }
@@ -1045,6 +1057,20 @@ function ProductFormModal({
           )}
 
           <div className="grid grid-cols-2 gap-3">
+            {!product && (
+              <div>
+                <label className="block text-xs font-medium mb-1">Quantidade em estoque</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={initialStock}
+                  onChange={(e) => setInitialStock(e.target.value)}
+                  placeholder={`Quanto tem hoje (${unit})`}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium mb-1">Estoque minimo</label>
               <input
@@ -1056,7 +1082,23 @@ function ProductFormModal({
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
+            {pedeLote && (
+              <div>
+                <label className="block text-xs font-medium mb-1">Lote *</label>
+                <input
+                  value={initialBatch}
+                  onChange={(e) => setInitialBatch(e.target.value)}
+                  placeholder="Lote dessa quantidade"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+            )}
           </div>
+          {temEstoqueInicial && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Entra na aba Movimentacoes como estoque inicial.
+            </p>
+          )}
 
           {product && (
             <p className="text-xs text-muted-foreground">

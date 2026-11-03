@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsUUID,
   IsIn,
+  IsDateString,
   Min,
   MaxLength,
 } from 'class-validator';
@@ -51,8 +52,15 @@ export class CreateProductDto {
   @IsOptional() @IsBoolean() is_controlled?: boolean;
   @IsOptional() @IsBoolean() requires_lot_tracking?: boolean;
 
-  // Estoque
-  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) current_stock?: number;
+  // Estoque — a quantidade inicial entra como ENTRADA "Estoque inicial" em Movimentações
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Quantidade em estoque com no maximo 3 casas decimais' })
+  @Min(0, { message: 'Quantidade em estoque nao pode ser negativa' })
+  current_stock?: number;
+  // Lote/validade dessa entrada inicial (mesmas regras de uma entrada comum)
+  @IsOptional() @IsString() initial_batch_number?: string;
+  @IsOptional() @IsDateString() initial_expiration_date?: string;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) min_stock?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) max_stock?: number;
 

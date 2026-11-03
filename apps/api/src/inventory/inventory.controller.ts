@@ -200,7 +200,7 @@ export class InventoryController {
   createProduct(@Body() dto: CreateProductDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.products.create(tenantId, dto);
+    return this.products.create(tenantId, dto, req.user?.id);
   }
 
   @Get('products')
