@@ -1,12 +1,14 @@
 /**
  * Política de privacidade da plataforma (página /privacidade). Vale para
- * clínicas e laboratórios. Ao mudar o texto, atualize também `atualizadoEm`.
+ * clínicas e laboratórios. Ao mudar o texto, atualize também a versão dele em
+ * packages/shared/src/documentos-legais.ts.
  */
+import { VERSAO_POLITICA_DE_PRIVACIDADE, versaoPorExtenso } from '@crm/shared';
 import { EMPRESA_DA_PLATAFORMA as EMPRESA, identificacaoDaEmpresa, type DocumentoLegal } from './documento-legal';
 
 export const POLITICA_DE_PRIVACIDADE: DocumentoLegal = Object.freeze({
   titulo: 'Política de privacidade',
-  atualizadoEm: '2 de novembro de 2026',
+  atualizadoEm: versaoPorExtenso(VERSAO_POLITICA_DE_PRIVACIDADE),
   resumo: [
     'Tratamos os dados de quem contrata e usa o sistema para prestar o serviço, cobrar a assinatura e manter a plataforma segura.',
     'Os dados de pacientes e clientes que a clínica ou o laboratório cadastra são deles: nós só tratamos esses dados para prestar o serviço, conforme as instruções deles.',

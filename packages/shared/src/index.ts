@@ -66,3 +66,5 @@ export * from './lab-disparos';
 export * from './lab-disparos-textos';
 // F8 do laboratório: fichas do cliente, do serviço e do caso (limites, datas e regras puras)
 export * from './lab-fichas';
+// Versão em vigor dos termos de uso e da política de privacidade (páginas e aceite do cadastro)
+export * from './documentos-legais';

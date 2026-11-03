@@ -369,6 +369,7 @@ describe('POST /signup continua ignorando o tipo', () => {
       admin_email: 'fulano@lab.teste',
       admin_password: 'senha-de-teste-123',
       business_type: 'LABORATORIO',
+      aceite_termos: true,
     } as any);
     await depoisDasBoasVindas();
 
@@ -376,7 +377,9 @@ describe('POST /signup continua ignorando o tipo', () => {
     expect(ops).not.toContain('globalSetting.findUnique');
     expect(ops.some((op) => op.includes('tenantBusinessProfile'))).toBe(false);
     expect(g.de('tx.tenant.create')[0].data).toMatchObject({ status: 'TRIAL', plan: 'STARTER' });
-    expect(ops[6]).toBe('tx.specialty.upsert');
+    // Depois do admin e do dono: o aceite dos termos, e então o seed da clínica.
+    expect(ops.slice(5, 8)).toEqual(['tx.tenant.update', 'tx.termsAcceptance.create', 'tx.specialty.upsert']);
+    expect(g.de('tx.termsAcceptance.create')[0].data.source).toBe('CADASTRO_CLINICA');
     expect(mail.send).toHaveBeenCalledTimes(1);
   });
 });

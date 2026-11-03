@@ -127,6 +127,7 @@ export default function SignupPage({
         admin_email: adminEmail,
         admin_password: adminPassword,
         plan,
+        aceite_termos: accepted,
       });
       const trialEnds = signupResp.data?.trial_ends_at
         ? new Date(signupResp.data.trial_ends_at)

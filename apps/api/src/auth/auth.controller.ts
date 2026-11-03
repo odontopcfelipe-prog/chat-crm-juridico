@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { Public } from './decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
+import { origemDaRequisicao } from '../common/utils/origem-da-requisicao';
 
 @Controller('auth')
 export class AuthController {
@@ -14,12 +15,15 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  async login(@Body() signInDto: SignInDto) {
+  async login(@Body() signInDto: SignInDto, @Request() req?: any) {
     const user = await this.authService.validateUser(signInDto.email, signInDto.password);
     if (!user) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
-    return this.authService.login(user);
+    const sessao = await this.authService.login(user);
+    // Marco Civil: data, hora e IP de cada entrada, guardados por 6 meses.
+    await this.authService.registrarAcesso(user, origemDaRequisicao(req));
+    return sessao;
   }
 
   /** Gera um token JWT de longa duração (1 ano) para uso no MCP. */

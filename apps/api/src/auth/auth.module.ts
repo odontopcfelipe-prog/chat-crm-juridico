@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { PrismaModule } from '../prisma/prisma.module';
+import { LimpezaDoRegistroDeAcesso } from './registro-de-acesso';
 
 const jwtLogger = new Logger('AuthModule');
 
@@ -47,7 +48,7 @@ function getJwtSecret(): string {
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, LimpezaDoRegistroDeAcesso],
   controllers: [AuthController],
 })
 export class AuthModule {}

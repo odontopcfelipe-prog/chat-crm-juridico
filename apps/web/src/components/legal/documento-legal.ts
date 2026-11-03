@@ -4,7 +4,8 @@
  *
  * Os textos ficam em termos-de-uso.ts e politica-de-privacidade.ts; a página
  * que mostra os dois é o PaginaLegal.tsx. Para mudar um texto, mude só o
- * arquivo do documento e a data de atualização dele.
+ * arquivo do documento e a versão (data) dele em packages/shared/src/documentos-legais.ts:
+ * é a data que a página mostra e a que o aceite do cadastro grava.
  */
 
 /** Parágrafo simples ou lista de itens. */

@@ -213,6 +213,48 @@ model LabSignupInvite {
   @@index([waitlist_entry_id])
 }
 
+/// Aceite dos termos de uso e da política de privacidade no cadastro público
+/// (clínica e laboratório): quem aceitou, quando, de qual IP e quais versões
+/// (data AAAA-MM-DD do texto, em packages/shared/src/documentos-legais.ts). Gravado
+/// na mesma transação que cria a conta. Fica mesmo se a conta for encerrada (prova
+/// do aceite). Ids em texto, sem relação: nenhuma tabela existente muda. Nunca
+/// remover este model do schema — o db push do boot apagaria a tabela e os dados.
+model TermsAcceptance {
+  id              String   @id @default(uuid())
+  tenant_id       String
+  user_id         String
+  /// e-mail no momento do aceite (o usuário pode trocar depois)
+  email           String
+  /// 'CADASTRO_CLINICA' | 'CADASTRO_LABORATORIO'
+  source          String
+  terms_version   String
+  privacy_version String
+  ip              String?
+  user_agent      String?
+  accepted_at     DateTime @default(now())
+
+  @@index([tenant_id])
+  @@index([user_id])
+}
+
+/// Registro de acesso (Marco Civil da Internet, art. 15): data e hora de cada
+/// entrada pela tela de login e o IP de origem. Guardado por 6 meses; o que passa
+/// disso é apagado uma vez por dia (auth/registro-de-acesso.ts). Ids em texto, sem
+/// relação: nenhuma tabela existente muda. Nunca remover este model do schema — o
+/// db push do boot apagaria a tabela e os dados.
+model AccessLog {
+  id         String   @id @default(uuid())
+  user_id    String
+  tenant_id  String?
+  ip         String?
+  user_agent String?
+  created_at DateTime @default(now())
+
+  @@index([created_at])
+  @@index([user_id, created_at])
+  @@index([tenant_id, created_at])
+}
+
 /// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
 /// Os defaults (assunto/corpo/variaveis) vivem no codigo
 /// (apps/api/src/email-automation/email-events.ts); uma linha aqui

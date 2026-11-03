@@ -38,6 +38,7 @@ exports[`retrato: POST /signup de clínica (F0a) cria tenant TRIAL + admin ADMIN
   "tx.specialty.upsert": 9,
   "tx.tenant.create": 1,
   "tx.tenant.update": 1,
+  "tx.termsAcceptance.create": 1,
   "tx.user.create": 1,
   "user.findUnique": 1,
   "user.update": 1,

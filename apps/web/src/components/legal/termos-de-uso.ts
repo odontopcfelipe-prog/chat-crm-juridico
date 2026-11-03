@@ -1,12 +1,14 @@
 /**
  * Termos de uso da plataforma (página /termos). Vale para clínicas e
- * laboratórios. Ao mudar o texto, atualize também `atualizadoEm`.
+ * laboratórios. Ao mudar o texto, atualize também a versão dele em
+ * packages/shared/src/documentos-legais.ts.
  */
+import { VERSAO_TERMOS_DE_USO, versaoPorExtenso } from '@crm/shared';
 import { EMPRESA_DA_PLATAFORMA as EMPRESA, identificacaoDaEmpresa, type DocumentoLegal } from './documento-legal';
 
 export const TERMOS_DE_USO: DocumentoLegal = Object.freeze({
   titulo: 'Termos de uso',
-  atualizadoEm: '2 de novembro de 2026',
+  atualizadoEm: versaoPorExtenso(VERSAO_TERMOS_DE_USO),
   resumo: [
     `O ${EMPRESA.marca} é um sistema online de gestão para clínicas odontológicas e laboratórios de prótese.`,
     'Cada conta é de um tipo só (clínica ou laboratório), e os dados de uma conta não se misturam com os de outra.',

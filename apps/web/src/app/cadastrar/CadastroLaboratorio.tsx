@@ -313,6 +313,7 @@ export function CadastroLaboratorio({ modo, estado }: { modo: ModoLiberado; esta
         rt_cro: rtCro.trim() || undefined,
         convite: modo === 'CONVITE' ? estado.convite ?? undefined : undefined,
         website: website || undefined,
+        aceite_termos: aceite,
       });
       if (data?.ok !== true) {
         showError(LAB_CADASTRO_ERROS.generico);

@@ -8,6 +8,7 @@ import { CadastroLaboratorioService } from './cadastro-laboratorio.service';
 import { ConvitesLaboratorioService } from './convites-laboratorio.service';
 import { VALIDADE_MAX_DIAS } from './convite-laboratorio';
 import { LAB_CADASTRO_MSG, LAB_CONVITE_MSG } from './cadastro-laboratorio.textos';
+import { origemDaRequisicao } from '../common/utils/origem-da-requisicao';
 
 export class CadastroLaboratorioDto {
   @IsString({ message: LAB_CADASTRO_MSG.nomeLab })
@@ -59,6 +60,11 @@ export class CadastroLaboratorioDto {
   @IsString()
   @MaxLength(200)
   website?: string;
+
+  /** Caixa do aceite dos termos marcada (o service exige true). */
+  @IsOptional()
+  @IsBoolean()
+  aceite_termos?: boolean;
 }
 
 export class SituacaoCadastroLabDto {
@@ -116,8 +122,8 @@ export class CadastroLaboratorioController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post()
-  cadastrar(@Body() body: CadastroLaboratorioDto) {
-    return this.service.cadastrar(body);
+  cadastrar(@Body() body: CadastroLaboratorioDto, @Req() req?: any) {
+    return this.service.cadastrar(body, origemDaRequisicao(req));
   }
 }
 

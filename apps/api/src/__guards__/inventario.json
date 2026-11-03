@@ -2,7 +2,7 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "api",
   "resumo": {
-    "automatismos": { "@Cron": 27, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
+    "automatismos": { "@Cron": 28, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 7,
     "globais": 13,
     "produtores": 24,
@@ -12,6 +12,7 @@
   },
   "automatismos": [
     { "tipo": "@Cron", "arquivo": "agenda-extended/retorno-disparos.service.ts", "alvo": "RetornoDisparosService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "auth/registro-de-acesso.ts", "alvo": "LimpezaDoRegistroDeAcesso.limpar", "detalhe": "'20 4 * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkNoResponse", "detalhe": "CronExpression.EVERY_HOUR" },
     { "tipo": "@Cron", "arquivo": "automations/automations.service.ts", "alvo": "AutomationsService.checkPaymentOverdue", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },
     { "tipo": "@Cron", "arquivo": "billing/billing.service.ts", "alvo": "BillingService.dailyBillingCheck", "detalhe": "CronExpression.EVERY_DAY_AT_9AM" },

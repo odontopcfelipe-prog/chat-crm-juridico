@@ -6,6 +6,8 @@ import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 import { BT_LABORATORIO, isLab } from '@crm/shared';
+import type { OrigemDaRequisicao } from '../common/utils/origem-da-requisicao';
+import { dadosDoAcesso } from './registro-de-acesso';
 
 @Injectable()
 export class AuthService {
@@ -78,6 +80,16 @@ export class AuthService {
       access_token: this.jwtService.sign(payload),
       user: payload
     };
+  }
+
+  /** Registro de acesso (auth/registro-de-acesso.ts). Se falhar, o login segue. */
+  async registrarAcesso(user: any, origem: OrigemDaRequisicao): Promise<void> {
+    if (!user?.id) return;
+    try {
+      await this.prisma.accessLog.create({ data: dadosDoAcesso(user, origem) });
+    } catch (e: any) {
+      this.logger.warn(`[ACESSO] registro de acesso não gravado: ${e?.message}`);
+    }
   }
 
   async generateMcpToken(user: any) {

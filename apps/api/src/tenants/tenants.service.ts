@@ -16,6 +16,7 @@ import { seedTenantDefaults, getLabTenantIds, isLabTenant, withoutLabTenants } f
 import { BT_LABORATORIO, invalidarCacheLabTenants, isLab, seedLabTenantDefaults } from '@crm/shared';
 import { negarLaboratorio } from '../common/lab-gate.util';
 import { exigirCriacaoLaboratorioLiberada } from './criacao-laboratorio.service';
+import { dadosDoAceite, type AceiteDoCadastro } from './aceite-dos-termos';
 
 /**
  * F3 do laboratório — segundo argumento do create. Sem ele (ou sem lab: true) o
@@ -29,6 +30,8 @@ export interface OpcoesDaCriacao {
   perfil?: { lab_cro_inscricao?: string | null; rt_name?: string | null; rt_cro?: string | null };
   /** F11: roda na mesma transação, só no laboratório; se lançar, nada fica gravado. */
   dentroDaTransacao?: (tx: any, criado: { tenantId: string; adminUserId: string }) => Promise<void>;
+  /** Cadastro público (clínica e laboratório): grava o aceite dos termos na mesma transação. */
+  aceite?: AceiteDoCadastro;
 }
 
 /** O que o /admin mostra do tipo da conta. */
@@ -219,6 +222,11 @@ export class TenantsService {
         where: { id: tenant.id },
         data: { owner_user_id: adminUser.id },
       });
+
+      // Aceite dos termos do cadastro público: a conta nunca existe sem ele.
+      if (opts?.aceite) {
+        await tx.termsAcceptance.create({ data: dadosDoAceite(tenant.id, adminUser, opts.aceite) });
+      }
 
       if (ehLaboratorio) {
         if (opts?.dentroDaTransacao) await opts.dentroDaTransacao(tx, { tenantId: tenant.id, adminUserId: adminUser.id });

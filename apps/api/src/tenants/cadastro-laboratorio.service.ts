@@ -5,6 +5,8 @@ import { auditData } from '../common/utils/audit-log.util';
 import { TenantsService } from './tenants.service';
 import { CODIGO_CRIACAO_LABORATORIO_DESLIGADA } from './criacao-laboratorio.service';
 import { LAB_CADASTRO_MSG } from './cadastro-laboratorio.textos';
+import { aceitouOsTermos, MSG_ACEITE_OBRIGATORIO } from './aceite-dos-termos';
+import type { OrigemDaRequisicao } from '../common/utils/origem-da-requisicao';
 import {
   CODIGO_CADASTRO_LAB_FECHADO,
   CODIGO_CADASTRO_LAB_TETO,
@@ -42,6 +44,8 @@ export interface CadastroLaboratorio {
   convite?: string;
   /** Campo escondido na tela: só robô preenche. */
   website?: string;
+  /** Caixa do aceite dos termos: só true deixa seguir. */
+  aceite_termos?: boolean;
 }
 
 /** Aparado, com espaço colapsado e cortado no máximo (igual à lista de espera). */
@@ -105,11 +109,15 @@ export class CadastroLaboratorioService {
   }
 
   /** Cria a conta do laboratório. A resposta é sempre {ok:true} (sem id da conta). */
-  async cadastrar(dados: CadastroLaboratorio): Promise<{ ok: true }> {
+  async cadastrar(
+    dados: CadastroLaboratorio,
+    origem: OrigemDaRequisicao = { ip: null, user_agent: null },
+  ): Promise<{ ok: true }> {
     // (a) campo escondido preenchido: robô. Mesma resposta, nenhuma leitura.
     if (texto(dados?.website, 200)) return { ok: true };
 
     // (b) normaliza e valida, sem banco.
+    if (!aceitouOsTermos(dados?.aceite_termos)) throw new BadRequestException(MSG_ACEITE_OBRIGATORIO);
     const labName = texto(dados?.lab_name, 200);
     if (labName.length < 2 || labName.length > 120) throw new BadRequestException(LAB_CADASTRO_MSG.nomeLab);
     const adminName = texto(dados?.admin_name, 200);
@@ -171,6 +179,7 @@ export class CadastroLaboratorioService {
           lab: true,
           criadoPor: convite?.created_by_user_id ?? null,
           perfil: { lab_cro_inscricao: dados?.lab_cro_inscricao, rt_name: dados?.rt_name, rt_cro: dados?.rt_cro },
+          aceite: { source: 'CADASTRO_LABORATORIO', ip: origem.ip, user_agent: origem.user_agent },
           dentroDaTransacao: async (tx, c) => {
             if (convite) await consumirConviteNaTransacao(tx, { conviteId: convite.id, tenantId: c.tenantId, agora });
             // Cadastro aberto: a mesma conta do (e), agora sob a trava. Pedidos ao mesmo

@@ -18,6 +18,8 @@ import { Public } from '../auth/decorators/public.decorator';
 import { BT_LABORATORIO, isLab, isLabTenantCached } from '@crm/shared';
 import { TenantsService } from './tenants.service';
 import { normalizeTenantLogo } from './tenant-logo.util';
+import { aceitouOsTermos, MSG_ACEITE_OBRIGATORIO } from './aceite-dos-termos';
+import { origemDaRequisicao } from '../common/utils/origem-da-requisicao';
 
 /**
  * Onda 17.32.85 — Signup publico (rota nao autenticada).
@@ -40,7 +42,9 @@ export class SignupController {
     admin_email: string;
     admin_password: string;
     plan?: string;
-  }) {
+    /** Caixa "Aceito os termos de uso e a política de privacidade" marcada. */
+    aceite_termos?: boolean;
+  }, @Req() req?: any) {
     if (!body.clinic_name?.trim()) {
       throw new BadRequestException('Nome da clinica eh obrigatorio');
     }
@@ -49,6 +53,9 @@ export class SignupController {
     }
     if (body.admin_password.length < 6) {
       throw new BadRequestException('Senha precisa ter ao menos 6 caracteres');
+    }
+    if (!aceitouOsTermos(body.aceite_termos)) {
+      throw new BadRequestException(MSG_ACEITE_OBRIGATORIO);
     }
 
     // Slug auto-gerado a partir do nome — Onda 17.32.88: usa range
@@ -77,7 +84,7 @@ export class SignupController {
         password: body.admin_password,
         phone: body.phone?.replace(/\D/g, ''),
       },
-    });
+    }, { aceite: { source: 'CADASTRO_CLINICA', ...origemDaRequisicao(req) } });
   }
 }
 

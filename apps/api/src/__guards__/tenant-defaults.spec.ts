@@ -17,7 +17,11 @@ import {
   DEFAULT_PROCEDURES,
   DEFAULT_SPECIALTIES,
   seedTenantDefaults,
+  VERSAO_POLITICA_DE_PRIVACIDADE,
+  VERSAO_TERMOS_DE_USO,
 } from '@crm/shared';
+import { BadRequestException } from '@nestjs/common';
+import { MSG_ACEITE_OBRIGATORIO } from '../tenants/aceite-dos-termos';
 import { SignupController } from '../tenants/tenants.controller';
 import { TenantsService } from '../tenants/tenants.service';
 
@@ -240,19 +244,36 @@ describe('retrato: POST /signup de clínica (F0a)', () => {
       admin_name: ' Maria Teste ',
       admin_email: ' Maria@Clinica.Teste ',
       admin_password: 'senha-de-teste-123',
-    });
+      aceite_termos: true,
+    }, { headers: { 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'Navegador de teste' } });
     // As boas-vindas saem depois da transação (sem await no service).
     await new Promise((res) => setImmediate(res));
 
     expect(r).toMatchSnapshot('resposta do POST /signup');
     expect(g.contagem()).toMatchSnapshot('chamadas por model');
 
-    // Ordem: checa slug e e-mail, abre a transação, cria tenant → admin → owner → defaults.
+    // Ordem: checa slug e e-mail, abre a transação, cria tenant → admin → owner →
+    // aceite dos termos → defaults.
     const ops = g.chamadas.map((c) => c.op);
-    expect(ops.slice(0, 6)).toEqual([
+    expect(ops.slice(0, 7)).toEqual([
       'tenant.findUnique', 'user.findUnique', '$transaction', 'tx.tenant.create', 'tx.user.create', 'tx.tenant.update',
+      'tx.termsAcceptance.create',
     ]);
-    expect(ops[6]).toBe('tx.specialty.upsert');
+    expect(ops[7]).toBe('tx.specialty.upsert');
+    expect(g.de('tx.termsAcceptance.create')).toEqual([
+      {
+        data: {
+          tenant_id: TENANT,
+          user_id: 'admin-1',
+          email: 'maria@clinica.teste',
+          source: 'CADASTRO_CLINICA',
+          terms_version: VERSAO_TERMOS_DE_USO,
+          privacy_version: VERSAO_POLITICA_DE_PRIVACIDADE,
+          ip: '203.0.113.7',
+          user_agent: 'Navegador de teste',
+        },
+      },
+    ]);
 
     // Tudo entre a abertura e o fim da transação passa pelo tx (nada pelo prisma de
     // fora): se o seed falhar, o tenant é revertido e não fica meio criado. Depois do
@@ -266,7 +287,7 @@ describe('retrato: POST /signup de clínica (F0a)', () => {
     // chamadas, mesma ordem, mesmos argumentos), só que dentro do tx.
     const direto = gravador(bancoVazio());
     await seedTenantDefaults(direto.prisma, TENANT);
-    const seedNoSignup = g.chamadas.slice(6, fim).map((c) => ({ op: c.op.replace(/^tx\./, ''), args: c.args }));
+    const seedNoSignup = g.chamadas.slice(7, fim).map((c) => ({ op: c.op.replace(/^tx\./, ''), args: c.args }));
     expect(seedNoSignup).toEqual(direto.chamadas);
 
     expect(g.de('tenant.findUnique')).toMatchSnapshot('tenant.findUnique (slug)');
@@ -293,5 +314,24 @@ describe('retrato: POST /signup de clínica (F0a)', () => {
     const tpl = mail.renderTemplate.mock.calls[0][0];
     expect(tpl.ctaUrl).toBe(`https://clinica.teste/verificar-email?token=${token}`);
     expect({ ...tpl, ctaUrl: '<link de confirmação>' }).toMatchSnapshot('mail.renderTemplate');
+  });
+
+  it.each([undefined, false, 'true'])('sem a caixa do aceite marcada (%p): 400 e nada gravado', async (aceite) => {
+    const g = gravador(bancoVazio());
+    const mail: any = { send: jest.fn(), renderTemplate: jest.fn() };
+    const controller = new SignupController(new TenantsService(g.prisma, mail));
+    const erro = await controller
+      .signup({
+        clinic_name: 'Clínica Sorriso Teste',
+        admin_name: 'Maria Teste',
+        admin_email: 'maria@clinica.teste',
+        admin_password: 'senha-de-teste-123',
+        aceite_termos: aceite as any,
+      })
+      .catch((e) => e);
+    expect(erro).toBeInstanceOf(BadRequestException);
+    expect(erro.message).toBe(MSG_ACEITE_OBRIGATORIO);
+    expect(g.chamadas).toEqual([]);
+    expect(mail.send).not.toHaveBeenCalled();
   });
 });

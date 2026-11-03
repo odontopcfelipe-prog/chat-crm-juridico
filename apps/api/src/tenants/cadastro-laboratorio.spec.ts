@@ -8,7 +8,14 @@
  */
 import { BadRequestException, ConflictException, ForbiddenException, HttpException, Logger, ValidationPipe } from '@nestjs/common';
 import { HTTP_CODE_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { __limparCacheLabTenants, seedLabTenantDefaults, toAlertPhone } from '@crm/shared';
+import {
+  __limparCacheLabTenants,
+  seedLabTenantDefaults,
+  toAlertPhone,
+  VERSAO_POLITICA_DE_PRIVACIDADE,
+  VERSAO_TERMOS_DE_USO,
+} from '@crm/shared';
+import { MSG_ACEITE_OBRIGATORIO } from './aceite-dos-termos';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
 import { IS_SUPER_ADMIN_KEY } from '../auth/decorators/super-admin.decorator';
 import { CONTROLLERS_SO_DE_CLINICA } from '../business-type/lab-route-policy';
@@ -164,6 +171,7 @@ const corpo = (extra: Record<string, unknown> = {}) => ({
   admin_name: ' Ana   Teste ',
   admin_email: ' Ana@Lab.Teste ',
   admin_password: 'senha-de-teste-123',
+  aceite_termos: true,
   ...extra,
 });
 
@@ -227,6 +235,7 @@ describe('POST /signup da clínica não muda com as chaves do laboratório', () 
     admin_name: ' Maria Teste ',
     admin_email: ' Maria@Clinica.Teste ',
     admin_password: 'senha-de-teste-123',
+    aceite_termos: true,
   };
 
   async function signup(g: ReturnType<typeof gravador>) {
@@ -373,6 +382,9 @@ describe('POST /signup/laboratorio — validação (sem banco)', () => {
     [{ cpf_cnpj: '1234' }, 'Faltam 7 dígito(s)'],
     [{ phone: '9999-0000' }, LAB_CADASTRO_MSG.whatsapp],
     [{ phone: '' }, LAB_CADASTRO_MSG.whatsapp],
+    [{ aceite_termos: undefined }, MSG_ACEITE_OBRIGATORIO],
+    [{ aceite_termos: false }, MSG_ACEITE_OBRIGATORIO],
+    [{ aceite_termos: 'true' }, MSG_ACEITE_OBRIGATORIO],
   ])('dado errado → 400 com a mensagem certa e nenhuma operação (%#)', async (extra, mensagem) => {
     const g = banco();
     const erro = await erroDe(montar(g).ctl.cadastrar(corpo(extra) as any));
@@ -396,7 +408,7 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
     const ops = g.ops();
     expect(r).toEqual({ ok: true });
 
-    expect(ops.slice(0, 14)).toEqual([
+    expect(ops.slice(0, 15)).toEqual([
       'globalSetting.findMany',
       'tenantBusinessProfile.count',
       'user.findFirst',
@@ -406,6 +418,7 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
       'tx.tenant.create',
       'tx.user.create',
       'tx.tenant.update',
+      'tx.termsAcceptance.create',
       'tx.$executeRaw',
       'tx.tenantBusinessProfile.count',
       'tx.auditLog.create',
@@ -426,7 +439,7 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
     // O seed dentro do tx é exatamente o seedLabTenantDefaults.
     const direto = gravador();
     await seedLabTenantDefaults(direto.prisma, LAB);
-    expect(g.chamadas.slice(13, fim).map((c) => ({ op: c.op.replace(/^tx\./, ''), args: c.args }))).toEqual(direto.chamadas);
+    expect(g.chamadas.slice(14, fim).map((c) => ({ op: c.op.replace(/^tx\./, ''), args: c.args }))).toEqual(direto.chamadas);
     expect(ops.some((op) => /anamnesis/i.test(op))).toBe(false);
   });
 
@@ -450,6 +463,28 @@ describe('POST /signup/laboratorio — cadastro aberto (sem convite)', () => {
     expect(admin.data).toMatchObject({ tenant_id: LAB, name: 'Ana Teste', email: 'ana@lab.teste', phone: '5582999990000', roles: ['ADMIN'] });
     expect(g.de('user.findFirst')).toEqual([{ where: { email: { equals: 'ana@lab.teste', mode: 'insensitive' } }, select: { id: true } }]);
     expect(g.ops()).not.toContain('tenant.findUnique');
+  });
+
+  it('aceite dos termos na transação: o admin novo, as versões em vigor e a origem do pedido', async () => {
+    const g = banco();
+    const r = await montar(g).ctl.cadastrar(corpo() as any, {
+      headers: { 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'Navegador de teste' },
+    });
+    expect(r).toEqual({ ok: true });
+    expect(g.de('tx.termsAcceptance.create')).toEqual([
+      {
+        data: {
+          tenant_id: LAB,
+          user_id: 'admin-1',
+          email: 'ana@lab.teste',
+          source: 'CADASTRO_LABORATORIO',
+          terms_version: VERSAO_TERMOS_DE_USO,
+          privacy_version: VERSAO_POLITICA_DE_PRIVACIDADE,
+          ip: '203.0.113.7',
+          user_agent: 'Navegador de teste',
+        },
+      },
+    ]);
   });
 
   it('perfil LABORATORIO sem quem convidou; CRO e RT opcionais aparados', async () => {
@@ -514,7 +549,7 @@ describe('POST /signup/laboratorio — pelo convite', () => {
     expect(r).toEqual({ ok: true });
 
     const ops = g.ops();
-    expect(ops.slice(0, 11)).toEqual([
+    expect(ops.slice(0, 12)).toEqual([
       'globalSetting.findMany',
       'labSignupInvite.findUnique',
       'user.findFirst',
@@ -524,10 +559,11 @@ describe('POST /signup/laboratorio — pelo convite', () => {
       'tx.tenant.create',
       'tx.user.create',
       'tx.tenant.update',
+      'tx.termsAcceptance.create',
       'tx.labSignupInvite.updateMany',
       'tx.auditLog.create',
     ]);
-    expect(ops[11]).toBe('tx.tenantBusinessProfile.create');
+    expect(ops[12]).toBe('tx.tenantBusinessProfile.create');
     expect(g.de('labSignupInvite.findUnique')).toEqual([
       {
         where: { token_hash: hashDoCodigo(CODIGO) },
@@ -755,8 +791,9 @@ describe('rotas: públicas com limite por visitante; as da plataforma só do SUP
     await ctl.situacao({ convite: 'abc' });
     await ctl.situacao({});
     const body = corpo() as any;
-    await ctl.cadastrar(body);
+    await ctl.cadastrar(body, { headers: { 'cf-connecting-ip': '203.0.113.7' } });
     expect(svc.situacao.mock.calls).toEqual([['abc'], [undefined]]);
     expect(svc.cadastrar.mock.calls[0][0]).toBe(body);
+    expect(svc.cadastrar.mock.calls[0][1]).toEqual({ ip: '203.0.113.7', user_agent: null });
   });
 });
