@@ -5,6 +5,7 @@
 import { lerMalha, escreverStl } from './arquivos';
 import { Bvh, centroide, cross, dot, norma, recortarCaixa, sub, unit, vert, type Malha, type V3 } from './geo';
 import { acharPreparo, proporMargem, type PontoMargem, type Preparo } from './margem';
+import { Escultor, type FimDoTraco, type MedidasDaCoroa, type MudancaDaMalha, type OpcoesPincel, type RespostaDoPincel } from './escultura';
 import {
   anatomiaNoLugar,
   arcoSemTroquel,
@@ -74,6 +75,7 @@ export class Sessao {
   private anatomia: Malha | null = null;
   private parametros: Parametros | null = null;
   private coroa: ResultadoCoroa | null = null;
+  private escultor: Escultor | null = null;
 
   abrirArco(nome: string, buf: ArrayBuffer): Malha {
     this.arco = lerMalha(nome, buf);
@@ -82,6 +84,7 @@ export class Sessao {
     this.prep = null;
     this.margem = null;
     this.coroa = null;
+    this.escultor = null;
     return this.arco;
   }
 
@@ -124,6 +127,7 @@ export class Sessao {
     this.margem = proporMargem(this.recorteB, this.prep, { fixos, meridianos: this.grade.meridianos });
     this.ambiente = new Bvh(arcoSemTroquel(this.recorte, this.prep, this.margem));
     this.coroa = null;
+    this.escultor = null;
     return {
       a: this.prep.a,
       O: this.prep.O,
@@ -177,8 +181,37 @@ export class Sessao {
   construir(aj: Ajuste, p: Parametros): ResumoCoroa {
     this.parametros = p;
     this.coroa = construirCoroa(this.entrada(p), this.ambiente as Bvh, aj, this.grade.linhas);
+    this.escultor = null;
     const c = this.coroa;
     return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, externos: c.externos, relatorio: c.relatorio };
+  }
+
+  private pincel(): Escultor {
+    if (!this.coroa) throw new Error('Gere a coroa primeiro.');
+    this.escultor ??= new Escultor(this.coroa);
+    return this.escultor;
+  }
+
+  mirarPincel(o: V3, d: V3): { centro: V3; normal: V3 } | null {
+    return this.pincel().mira(o, d);
+  }
+
+  pincelar(raios: readonly (readonly [V3, V3])[], opcoes: OpcoesPincel, inicio: boolean): RespostaDoPincel {
+    const e = this.pincel();
+    if (inicio) e.iniciar();
+    return e.pincelar(raios, opcoes);
+  }
+
+  terminarTraco(): FimDoTraco | null {
+    return this.pincel().terminar();
+  }
+
+  desfazerTraco(): { mudanca: MudancaDaMalha; tracos: number } | null {
+    return this.pincel().desfazer();
+  }
+
+  medirCoroa(): MedidasDaCoroa | null {
+    return this.pincel().medirUmPouco();
   }
 
   exportarStl(): ArrayBuffer {

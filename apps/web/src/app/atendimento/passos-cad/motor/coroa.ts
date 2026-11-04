@@ -333,6 +333,20 @@ function amostraFolgaDoPreparo(e: EntradaCoroa, aj: Ajuste, amostra: number[]): 
   return r;
 }
 
+/** O que o pincel precisa para mexer na superfície e medir de novo. */
+export interface DadosDaEscultura {
+  troquel: Bvh;
+  /** Vértices da superfície externa mais os da linha de margem, que vêm logo depois. */
+  fimDaSuperficie: number;
+  /** Por vértice externo: a espessura que o pincel não pode tirar. */
+  pedida: Float32Array;
+  /** Por vértice externo: quanto falta até a margem, descendo pela superfície. */
+  distanciaDaMargem: Float32Array;
+  /** Mede de novo espessura e folgas de um vértice. */
+  medir: (v: number) => void;
+  relatorio: (normais: Float64Array) => Relatorio;
+}
+
 export interface ResultadoCoroa {
   malha: Malha;
   /** Por vértice: até o preparo, até o antagonista, até o vizinho (NaN = sem dado). */
@@ -342,6 +356,7 @@ export interface ResultadoCoroa {
   /** Quantos vértices são da superfície externa (os primeiros da malha). */
   externos: number;
   relatorio: Relatorio;
+  escultura: DadosDaEscultura;
 }
 
 export interface Relatorio {
@@ -598,14 +613,11 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   const espessura = new Float32Array(n).fill(NaN);
   const folgaA = new Float32Array(n).fill(NaN);
   const folgaV = new Float32Array(n).fill(NaN);
-  const normais = new Bvh(malha).normais;
-  const ocl: number[] = [];
-  const axi: number[] = [];
   const ambienteViz = vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente];
-  for (let v = 0; v < externos; v++) {
+  const medir = (v: number): void => {
     const p = vert(malha, v);
     const c = dieB.proximo(p, 6);
-    if (c) espessura[v] = Math.abs(c.d);
+    espessura[v] = c ? Math.abs(c.d) : NaN;
     if (ant) {
       const q = ant.proximo(p, 2);
       folgaA[v] = q ? q.d : 2;
@@ -618,12 +630,8 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       }
     }
     folgaV[v] = melhorV === Infinity ? 1 : melhorV;
-    if (c && Math.abs(c.d) > 0.05) {
-      const nz = normais[3 * v] * a[0] + normais[3 * v + 1] * a[1] + normais[3 * v + 2] * a[2];
-      if (nz > 0.6) ocl.push(Math.abs(c.d));
-      else if (Math.abs(nz) < 0.45) axi.push(Math.abs(c.d));
-    }
-  }
+  };
+  for (let v = 0; v < externos; v++) medir(v);
   // Coroa muito maior que qualquer dente: a margem ou o eixo estão errados.
   let raioMax = 0;
   for (let v = 0; v < externos; v++) raioMax = Math.max(raioMax, relevo(sub(vert(malha, v), O))[0]);
@@ -638,21 +646,58 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     }
     return mx - mn;
   };
-  let alt = -Infinity;
-  for (let v = 0; v < externos; v++) alt = Math.max(alt, dot(sub(vert(malha, v), base), a));
-  const relatorio: Relatorio = {
-    malha: conferirMalha(malha),
-    mdMm: arred(proj(e.eixos.mesial)),
-    vlMm: arred(proj(e.eixos.vestibular)),
-    alturaMm: arred(alt),
-    espessuraOclusal: resumo(ocl),
-    espessuraAxial: resumo(axi),
-    regioesContatoAntagonista: contarRegioes(malha, folgaA, externos, P.folgaAntagonista + 0.1),
-    regioesContatoVizinho: contarRegioes(malha, folgaV, externos, P.folgaVizinho + 0.05),
-    conflitosEspessura: conflitos,
-    retencoesPreenchidas: retencoes,
+  const relatorioAtual = (normais: Float64Array): Relatorio => {
+    const ocl: number[] = [];
+    const axi: number[] = [];
+    let alt = -Infinity;
+    for (let v = 0; v < externos; v++) {
+      alt = Math.max(alt, dot(sub(vert(malha, v), base), a));
+      if (espessura[v] > 0.05) {
+        const nz = normais[3 * v] * a[0] + normais[3 * v + 1] * a[1] + normais[3 * v + 2] * a[2];
+        if (nz > 0.6) ocl.push(espessura[v]);
+        else if (Math.abs(nz) < 0.45) axi.push(espessura[v]);
+      }
+    }
+    return {
+      malha: conferirMalha(malha),
+      mdMm: arred(proj(e.eixos.mesial)),
+      vlMm: arred(proj(e.eixos.vestibular)),
+      alturaMm: arred(alt),
+      espessuraOclusal: resumo(ocl),
+      espessuraAxial: resumo(axi),
+      regioesContatoAntagonista: contarRegioes(malha, folgaA, externos, P.folgaAntagonista + 0.1),
+      regioesContatoVizinho: contarRegioes(malha, folgaV, externos, P.folgaVizinho + 0.05),
+      conflitosEspessura: conflitos,
+      retencoesPreenchidas: retencoes,
+    };
   };
-  return { malha, espessura, folgaAntagonista: folgaA, folgaVizinho: folgaV, externos, relatorio };
+  const pedidaPorVertice = new Float32Array(externos);
+  const distanciaDaMargem = new Float32Array(externos);
+  for (let i = 0; i < NT; i++) {
+    let falta = 0;
+    for (let j = J - 1; j >= 0; j--) {
+      falta += norma(sub(externa[i][j], externa[i][j + 1]));
+      const v = j === 0 ? 0 : 1 + i * (J - 1) + (j - 1);
+      pedidaPorVertice[v] = arco[i][j] < 0.2 ? 0 : pedida(arco[i][j]);
+      distanciaDaMargem[v] = Math.max(distanciaDaMargem[v], falta);
+    }
+  }
+  return {
+    malha,
+    espessura,
+    folgaAntagonista: folgaA,
+    folgaVizinho: folgaV,
+    externos,
+    relatorio: relatorioAtual(normaisDeVertice(malha)),
+    escultura: {
+      troquel: dieB,
+      fimDaSuperficie: externos + NT,
+      pedida: pedidaPorVertice,
+      distanciaDaMargem,
+      medir,
+      relatorio: relatorioAtual,
+    },
+  };
 }
 
 const MAIOR_ESPACO_A_FECHAR = 1.2;

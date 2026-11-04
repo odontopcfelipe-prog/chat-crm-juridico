@@ -5,6 +5,7 @@
  */
 import type { Malha, V3 } from './geo';
 import type { Ajuste, Parametros } from './coroa';
+import type { MedidasDaCoroa, MudancaDaMalha, OpcoesPincel } from './escultura';
 import { Sessao } from './sessao';
 
 export type Pedido =
@@ -17,6 +18,11 @@ export type Pedido =
   | { tipo: 'reposicionar'; parametros: Parametros }
   | { tipo: 'mover'; ajuste: Ajuste; parametros: Parametros }
   | { tipo: 'coroa'; ajuste: Ajuste; parametros: Parametros }
+  | { tipo: 'mira'; o: V3; d: V3 }
+  | { tipo: 'pincel'; raios: [V3, V3][]; opcoes: OpcoesPincel; inicio: boolean }
+  | { tipo: 'pincelFim' }
+  | { tipo: 'pincelDesfazer' }
+  | { tipo: 'pincelMedir' }
   | { tipo: 'stl' };
 
 export interface MalhaLeve {
@@ -26,6 +32,9 @@ export interface MalhaLeve {
 
 const escopo = self as unknown as DedicatedWorkerGlobalScope;
 const sessao = new Sessao();
+
+const buffersDaMudanca = (m: MudancaDaMalha | null): Transferable[] => (m ? [m.idx.buffer, m.pos.buffer, m.nor.buffer] : []);
+const buffersDasMedidas = (r: MedidasDaCoroa | null): Transferable[] => (r ? [r.espessura.buffer, r.folgaAntagonista.buffer, r.folgaVizinho.buffer] : []);
 
 /** Cópia em float32 para a tela: a original fica no worker. */
 function leve(m: Malha): MalhaLeve {
@@ -72,6 +81,22 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
         dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, externos: c.externos, relatorio: c.relatorio },
         envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer],
       };
+    }
+    case 'mira':
+      return { dados: sessao.mirarPincel(p.o, p.d), envio: [] };
+    case 'pincel': {
+      const r = sessao.pincelar(p.raios, p.opcoes, p.inicio);
+      return { dados: r, envio: buffersDaMudanca(r.mudanca) };
+    }
+    case 'pincelFim':
+      return { dados: sessao.terminarTraco(), envio: [] };
+    case 'pincelDesfazer': {
+      const r = sessao.desfazerTraco();
+      return { dados: r, envio: buffersDaMudanca(r?.mudanca ?? null) };
+    }
+    case 'pincelMedir': {
+      const r = sessao.medirCoroa();
+      return { dados: r, envio: buffersDasMedidas(r) };
     }
     case 'stl': {
       const b = sessao.exportarStl();

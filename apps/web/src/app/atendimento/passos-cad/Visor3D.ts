@@ -13,6 +13,15 @@ export interface MalhaDoVisor {
 
 export type V3 = readonly [number, number, number];
 
+/** O pincel na tela: cada movimento vira um raio, e quem decide o que fazer é o motor. */
+export interface ControleDoPincel {
+  inicio: (o: V3, d: V3) => void;
+  mover: (o: V3, d: V3) => void;
+  fim: () => void;
+  mira: (o: V3, d: V3) => void;
+  saiu: () => void;
+}
+
 export interface OpcoesDaMalha {
   cor?: number;
   opacidade?: number;
@@ -28,7 +37,9 @@ export class Visor3D {
   private readonly obs: ResizeObserver;
   private quadro = 0;
   private inicio: { x: number; y: number } | null = null;
+  private pincelando = false;
   aoClicar: ((o: V3, d: V3) => void) | null = null;
+  aoPincel: ControleDoPincel | null = null;
 
   constructor(private readonly caixa: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.5, 2000);
@@ -52,16 +63,48 @@ export class Visor3D {
     const tela = this.render.domElement;
     tela.addEventListener('pointerdown', (e) => {
       this.inicio = { x: e.clientX, y: e.clientY };
+      if (!this.aoPincel || e.button !== 0 || !e.isPrimary) return;
+      this.pincelando = true;
+      try {
+        tela.setPointerCapture(e.pointerId);
+      } catch {
+        // Sem captura o traço só para ao sair da tela.
+      }
+      const [o, d] = this.raioDoPonteiro(e);
+      this.aoPincel.inicio(o, d);
+    });
+    const soltar = () => {
+      if (!this.pincelando) return;
+      this.pincelando = false;
+      this.aoPincel?.fim();
+    };
+    tela.addEventListener('pointermove', (e) => {
+      if (!this.aoPincel) return;
+      // O botão foi solto sem o aviso chegar: o traço termina aqui, não continua sozinho.
+      if (this.pincelando && !(e.buttons & 1)) soltar();
+      if (this.pincelando) {
+        // Num arrasto rápido o navegador junta vários pontos num evento só: sem eles, o traço fica com buracos.
+        const juntos = e.getCoalescedEvents?.();
+        for (const c of juntos && juntos.length ? juntos : [e]) {
+          const [o, d] = this.raioDoPonteiro(c);
+          this.aoPincel.mover(o, d);
+        }
+      } else if (e.buttons === 0) {
+        const [o, d] = this.raioDoPonteiro(e);
+        this.aoPincel.mira(o, d);
+      }
+    });
+    tela.addEventListener('pointercancel', soltar);
+    tela.addEventListener('pointerleave', () => {
+      if (!this.pincelando) this.aoPincel?.saiu();
     });
     tela.addEventListener('pointerup', (e) => {
+      soltar();
       if (!this.inicio || Math.hypot(e.clientX - this.inicio.x, e.clientY - this.inicio.y) > 4) return;
       this.inicio = null;
       if (!this.aoClicar) return;
-      const r = tela.getBoundingClientRect();
-      const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      const raio = new THREE.Raycaster();
-      raio.setFromCamera(ndc, this.camera);
-      this.aoClicar(raio.ray.origin.toArray() as unknown as V3, raio.ray.direction.toArray() as unknown as V3);
+      const [o, d] = this.raioDoPonteiro(e);
+      this.aoClicar(o, d);
     });
     this.obs = new ResizeObserver(() => this.ajustarTamanho());
     this.obs.observe(caixa);
@@ -72,6 +115,56 @@ export class Visor3D {
       this.render.render(this.cena, this.camera);
     };
     laco();
+  }
+
+  private raioDoPonteiro(e: PointerEvent): [V3, V3] {
+    const r = this.render.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    const raio = new THREE.Raycaster();
+    raio.setFromCamera(ndc, this.camera);
+    return [raio.ray.origin.toArray() as unknown as V3, raio.ray.direction.toArray() as unknown as V3];
+  }
+
+  /** Com o pincel, o botão esquerdo esculpe, o direito gira e a roda aproxima. */
+  definirModoPincel(ativo: boolean): void {
+    this.controle.mouseButtons = ativo
+      ? { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+      : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    // No toque: um dedo esculpe, dois giram e aproximam.
+    this.controle.touches = ativo ? { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE } : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+    this.render.domElement.style.cursor = ativo ? 'crosshair' : '';
+    if (!ativo) this.pincelando = false;
+  }
+
+  /** Troca só os vértices que o pincel mexeu. */
+  atualizarMalha(nome: string, m: { idx: Uint32Array; pos: Float32Array; nor: Float32Array }): void {
+    const o = this.objetos.get(nome) as THREE.Mesh | undefined;
+    if (!o) return;
+    const pos = o.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const nor = o.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    for (let k = 0; k < m.idx.length; k++) {
+      const v = m.idx[k];
+      pos.setXYZ(v, m.pos[3 * k], m.pos[3 * k + 1], m.pos[3 * k + 2]);
+      nor.setXYZ(v, m.nor[3 * k], m.nor[3 * k + 1], m.nor[3 * k + 2]);
+    }
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
+    o.geometry.computeBoundingSphere();
+  }
+
+  /** Anel deitado na superfície: mostra onde e com que tamanho o pincel vai agir. */
+  definirAnel(nome: string, centro: V3, normal: V3, raio: number, cor: number): void {
+    const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
+    const u = new THREE.Vector3(Math.abs(n.x) < 0.8 ? 1 : 0, Math.abs(n.x) < 0.8 ? 0 : 1, 0).cross(n).normalize();
+    const w = n.clone().cross(u);
+    const pontos: V3[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (2 * Math.PI * i) / 48;
+      const x = Math.cos(a) * raio;
+      const y = Math.sin(a) * raio;
+      pontos.push([centro[0] + u.x * x + w.x * y, centro[1] + u.y * x + w.y * y, centro[2] + u.z * x + w.z * y]);
+    }
+    this.definirLinha(nome, pontos, cor);
   }
 
   private ajustarTamanho(): void {

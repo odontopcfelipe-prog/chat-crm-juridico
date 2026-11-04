@@ -20,6 +20,7 @@ import {
 } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
 import { chaveDoDente, denteDoFdi, indexarPasta } from '../../../web/src/app/atendimento/passos-cad/motor/biblioteca-indice';
 import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao';
+import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -433,6 +434,171 @@ describe('Passos CAD — coroa', () => {
     expect(conf.volume).toBeGreaterThan(0);
     expect(unit([1, 0, 0])[0]).toBe(1);
     expect(juntar(fechar).tri.length).toBe(fechar.tri.length);
+  });
+});
+
+describe('Passos CAD — escultura à mão', () => {
+  const caso = () => {
+    const { e, ambiente } = entrada(16, null);
+    const r = construirCoroa(e, ambiente, posicionarAutomatico(e, ambiente), 60);
+    return { r, escultor: new Escultor(r) };
+  };
+  const deCima = (x: number, y: number): readonly [V3, V3] => [[x, y, 40], [0, 0, -1]];
+  const caminho: [number, number][] = [[-1.5, 0], [-1, 0], [-0.5, 0], [0, 0], [0.5, 0], [1, 0], [1.5, 0]];
+  const traco = (es: Escultor, modo: ModoPincel, pontos: [number, number][] = caminho, raio = 2, forca = 1, vezes = 1) => {
+    es.iniciar();
+    for (let q = 0; q < vezes; q++) for (const [x, y] of pontos) es.pincelar([deCima(x, y)], { modo, raio, forca });
+    const fim = es.terminar();
+    let medidas = es.medirUmPouco();
+    while (!medidas) medidas = es.medirUmPouco();
+    return { fim, medidas };
+  };
+  const altura = (es: Escultor, x: number, y: number) => (es.mira(deCima(x, y)[0], deCima(x, y)[1]) as { centro: V3 }).centro[2];
+
+  it('as caixas acompanham a superfície que mudou', () => {
+    const m = revolucao(denso([[0, 1], [6, 1]]));
+    const b = new Bvh(m);
+    for (let v = 0; v < m.pos.length / 3; v++) m.pos[3 * v + 2] += 5;
+    b.ajustarCaixas();
+    expect(b.raio([1, 1, 20], [0, 0, -1])?.ponto[2]).toBeCloseTo(6, 6);
+    expect(b.proximo([1, 1, 7], 3)?.ponto[2]).toBeCloseTo(6, 6);
+  });
+
+  it('adicionar sobe a superfície; margem e lado de dentro não saem do lugar; a coroa continua fechada', () => {
+    const { r, escultor } = caso();
+    const antes = r.malha.pos.slice();
+    const volumeAntes = conferirMalha(r.malha).volume;
+    const z0 = altura(escultor, 0, 0);
+    const { fim } = traco(escultor, 'adicionar');
+    expect(altura(escultor, 0, 0)).toBeGreaterThan(z0 + 0.05);
+    expect(fim?.tracos).toBe(1);
+    for (let i = r.externos * 3; i < antes.length; i++) if (r.malha.pos[i] !== antes[i]) throw new Error('mexeu fora da superfície externa');
+    const c = conferirMalha(r.malha);
+    expect([c.arestasAbertas, c.arestasRepetidas, c.degenerados]).toEqual([0, 0, 0]);
+    expect(c.volume).toBeGreaterThan(volumeAntes);
+  });
+
+  it('perto da margem nada se move, nem com o pincel em cima', () => {
+    const { r, escultor } = caso();
+    const antes = r.malha.pos.slice();
+    const pontos: [number, number][] = [];
+    for (let k = 0; k < 24; k++) pontos.push([4.6 * Math.cos((k * Math.PI) / 12), 4.6 * Math.sin((k * Math.PI) / 12)]);
+    traco(escultor, 'adicionar', pontos, 3, 1, 4);
+    for (let v = 0; v < r.externos; v++) {
+      if (r.escultura.distanciaDaMargem[v] > 0.1) continue;
+      for (let e = 0; e < 3; e++) expect(r.malha.pos[3 * v + e]).toBe(antes[3 * v + e]);
+    }
+  });
+
+  it('tirar para na espessura mínima, sem empilhar pontos nem abrir a malha', () => {
+    const { r, escultor } = caso();
+    const piso = Float32Array.from(r.espessura.subarray(0, r.externos), (e, v) => Math.min(e, r.escultura.pedida[v]));
+    const { fim } = traco(escultor, 'tirar', caminho, 2.5, 1, 60);
+    expect(fim?.noLimite).toBe(true);
+    let tocouNoPiso = 0;
+    for (let v = 0; v < r.externos; v++) {
+      if (r.espessura[v] < piso[v] - 0.03) throw new Error(`passou da espessura: ${r.espessura[v]} < ${piso[v]}`);
+      if (r.espessura[v] < piso[v] + 0.05) tocouNoPiso++;
+    }
+    expect(tocouNoPiso).toBeGreaterThan(20);
+    const c = conferirMalha(r.malha);
+    expect([c.arestasAbertas, c.arestasRepetidas, c.degenerados]).toEqual([0, 0, 0]);
+    expect(c.volume).toBeGreaterThan(0);
+  });
+
+  it('muitas passadas não deixam a superfície fugir: no máximo 3 mm de onde nasceu', () => {
+    const { r, escultor } = caso();
+    const antes = r.malha.pos.slice();
+    traco(escultor, 'adicionar', caminho, 2, 1, 150);
+    let maior = 0;
+    for (let v = 0; v < r.externos; v++) {
+      maior = Math.max(maior, Math.hypot(r.malha.pos[3 * v] - antes[3 * v], r.malha.pos[3 * v + 1] - antes[3 * v + 1], r.malha.pos[3 * v + 2] - antes[3 * v + 2]));
+    }
+    expect(maior).toBeLessThanOrEqual(3 + 1e-9);
+    expect(maior).toBeGreaterThan(2.5);
+    expect(conferirMalha(r.malha).arestasAbertas).toBe(0);
+  });
+
+  it('suavizar baixa o calombo que o pincel fez', () => {
+    const { escultor } = caso();
+    traco(escultor, 'adicionar', [[0, 0], [0.5, 0], [0, 0.5], [-0.5, 0], [0, -0.5]], 1.2, 1, 12);
+    const calombo = altura(escultor, 0, 0) - altura(escultor, 2.5, 0);
+    traco(escultor, 'suavizar', [[0, 0], [0.5, 0], [0, 0.5], [-0.5, 0], [0, -0.5]], 2.5, 1, 6);
+    expect(altura(escultor, 0, 0) - altura(escultor, 2.5, 0)).toBeLessThan(calombo - 0.05);
+  });
+
+  it('desfazer volta exatamente como estava, um traço de cada vez', () => {
+    const { r, escultor } = caso();
+    const original = r.malha.pos.slice();
+    const espessuraOriginal = r.espessura.slice();
+    traco(escultor, 'adicionar');
+    const depoisDoPrimeiro = r.malha.pos.slice();
+    traco(escultor, 'tirar', [[0, 0.5], [0.5, 0.5]]);
+    expect(escultor.tracos).toBe(2);
+    expect(escultor.desfazer()?.tracos).toBe(1);
+    expect(Array.from(r.malha.pos)).toEqual(Array.from(depoisDoPrimeiro));
+    expect(escultor.desfazer()?.tracos).toBe(0);
+    expect(Array.from(r.malha.pos)).toEqual(Array.from(original));
+    expect(escultor.desfazer()).toBeNull();
+    let medidas = escultor.medirUmPouco();
+    while (!medidas) medidas = escultor.medirUmPouco();
+    for (let v = 0; v < r.externos; v++) expect(medidas.espessura[v]).toBeCloseTo(espessuraOriginal[v], 3);
+  });
+
+  it('não desfaz com o traço ainda aberto: a volta sairia misturada', () => {
+    const { escultor } = caso();
+    traco(escultor, 'adicionar');
+    escultor.iniciar();
+    escultor.pincelar([deCima(0, 0)], { modo: 'tirar', raio: 2, forca: 1 });
+    expect(escultor.desfazer()).toBeNull();
+    expect(escultor.terminar()?.tracos).toBe(2);
+    expect(escultor.desfazer()?.tracos).toBe(1);
+  });
+
+  it('vários raios no mesmo pedido: cada um acha a superfície onde ela já está', () => {
+    const { escultor } = caso();
+    const z0 = altura(escultor, 0, 0);
+    escultor.iniciar();
+    const raios = Array.from({ length: 40 }, (_, k) => deCima(k % 2 === 0 ? 0 : 0.5, 0));
+    escultor.pincelar(raios, { modo: 'adicionar', raio: 2, forca: 1 });
+    escultor.terminar();
+    expect(altura(escultor, 0, 0)).toBeGreaterThan(z0 + 0.5);
+  });
+
+  it('a quantidade depende do caminho, não do tempo: parado no mesmo ponto não acumula', () => {
+    const { escultor } = caso();
+    const z0 = altura(escultor, 0, 0);
+    escultor.iniciar();
+    for (let q = 0; q < 50; q++) escultor.pincelar([deCima(0, 0)], { modo: 'adicionar', raio: 2, forca: 1 });
+    escultor.terminar();
+    expect(altura(escultor, 0, 0) - z0).toBeLessThan(0.08);
+  });
+
+  it('fora da coroa o pincel não faz nada e não conta traço', () => {
+    const { escultor } = caso();
+    escultor.iniciar();
+    expect(escultor.pincelar([[[60, 60, 40], [0, 0, -1]]], { modo: 'adicionar', raio: 2, forca: 1 }).mudanca).toBeNull();
+    expect(escultor.terminar()).toBeNull();
+    expect(escultor.tracos).toBe(0);
+    expect(escultor.mira([60, 60, 40], [0, 0, -1])).toBeNull();
+  });
+
+  it('o STL sai com a escultura; gerar de novo apaga a escultura', () => {
+    const s = new Sessao({ meridianos: 60, linhas: 40 });
+    s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
+    const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+    s.abrirDente(16, h!.ponto, h!.normal);
+    const a = s.abrirAnatomia('dente.stl', escreverStl(denteSintetico(), 'dente'), { ...PARAMETROS_PADRAO });
+    s.construir(a.ajuste, { ...PARAMETROS_PADRAO });
+    const volumeOriginal = conferirMalha(lerStl(s.exportarStl())).volume;
+    s.pincelar(caminho.map(([x, y]) => deCima(x, y)), { modo: 'adicionar', raio: 2, forca: 1 }, true);
+    expect(s.terminarTraco()?.tracos).toBe(1);
+    const conf = conferirMalha(lerStl(s.exportarStl()));
+    expect(conf.arestasAbertas).toBe(0);
+    expect(conf.volume).toBeGreaterThan(volumeOriginal + 0.05);
+    s.construir(a.ajuste, { ...PARAMETROS_PADRAO });
+    expect(s.desfazerTraco()).toBeNull();
+    expect(conferirMalha(lerStl(s.exportarStl())).volume).toBeCloseTo(volumeOriginal, 3);
   });
 });
 

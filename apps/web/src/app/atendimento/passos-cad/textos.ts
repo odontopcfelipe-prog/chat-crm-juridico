@@ -2,6 +2,7 @@
  * Passos CAD — textos e listas da tela. Só o laboratório monta esta tela.
  */
 import { PARAMETROS_PADRAO, type Ajuste, type Parametros } from './motor/coroa';
+import type { ModoPincel } from './motor/escultura';
 
 export const TEXTOS = Object.freeze({
   titulo: 'Passos CAD',
@@ -56,6 +57,18 @@ export const TEXTOS = Object.freeze({
   exportarTexto: 'A coroa sai nas mesmas coordenadas da arcada, pronta para abrir sobre o modelo.',
   baixarStl: 'Baixar STL da coroa',
   avisoRevisao: 'Confira a margem, os contatos e a espessura, e prove em resina antes de fresar. A decisão final é do técnico.',
+  centralizarVista: 'Centralizar',
+  esculpir: 'Esculpir',
+  pincelTamanho: 'Tamanho do pincel',
+  pincelForca: 'Força',
+  pincelAjuda: 'Arraste com o botão esquerdo sobre a coroa. O direito gira e a roda aproxima. A margem não se move.',
+  desfazerTraco: 'Desfazer traço',
+  desfazendoTraco: 'Desfazendo…',
+  medindo: 'Medindo de novo…',
+  pincelNoLimite: 'O pincel parou no limite nesse ponto: espessura mínima ou 3 mm de mudança.',
+  avisoEntrouVizinho: 'A coroa está entrando no dente vizinho. Veja no mapa de vizinhos e tire material.',
+  avisoEntrouAntagonista: 'A coroa está entrando no antagonista. Veja no mapa do antagonista e tire material.',
+  recalcularApaga: 'Recalcular refaz a coroa e apaga o que foi esculpido.',
   voltar: 'Voltar',
   avancar: 'Avançar',
   gerar: 'Gerar coroa',
@@ -69,6 +82,12 @@ export const TEXTOS = Object.freeze({
   erroGenerico: 'Não foi possível concluir. Tente de novo.',
   arquivoGrande: 'Arquivo grande demais para abrir aqui (limite de 400 MB).',
 });
+
+export const PINCEIS: readonly { id: ModoPincel; nome: string }[] = Object.freeze([
+  { id: 'adicionar', nome: 'Adicionar' },
+  { id: 'tirar', nome: 'Tirar' },
+  { id: 'suavizar', nome: 'Suavizar' },
+]);
 
 export const ETAPAS = Object.freeze(['Caso', 'Preparo e margem', 'Anatomia', 'Ajustes', 'Exportar']);
 

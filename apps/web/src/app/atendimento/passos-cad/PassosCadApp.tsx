@@ -6,10 +6,11 @@
  * Os arquivos do caso e as bibliotecas ficam neste computador: nada sobe para o servidor.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download, FolderOpen, Loader2, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Loader2, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { Visor3D, type V3 } from './Visor3D';
 import { ClienteDoMotor } from './motor/cliente';
 import type { MalhaLeve } from './motor/worker';
+import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Ajuste, Parametros, Relatorio } from './motor/coroa';
 import type { ResumoDente } from './motor/sessao';
 import {
@@ -22,7 +23,7 @@ import {
   lerDenteGuardado,
 } from './motor/biblioteca';
 import type { BibliotecaDaPasta } from './motor/biblioteca-indice';
-import { AJUSTES_DA_ANATOMIA, DENTES_FDI, ETAPAS, MAPAS, MATERIAIS, TEXTOS as T, type MapaId } from './textos';
+import { AJUSTES_DA_ANATOMIA, DENTES_FDI, ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
 
 interface CoroaNaTela {
   malha: MalhaLeve;
@@ -37,6 +38,9 @@ const COR_ARCO = 0xcfc4ae;
 const COR_ANT = 0x8d98a6;
 const COR_DENTE = 0xf1ece0;
 const COR_PONTO = 0xffd60a;
+const COR_PINCEL = 0x0a84ff;
+/** Medir é demorado: espera o técnico parar de esculpir. */
+const PAUSA_PARA_MEDIR_MS = 350;
 const TAMANHO_MAXIMO = 400 * 1024 * 1024;
 
 const faixa = (v: number, limites: [number, number[]][], fim: number[]): number[] => {
@@ -136,6 +140,17 @@ export default function PassosCadApp() {
   const [verArco, setVerArco] = useState(true);
   const [verAnt, setVerAnt] = useState(false);
 
+  const [pincel, setPincel] = useState<ModoPincel | null>(null);
+  const [tamanhoPincel, setTamanhoPincel] = useState(1.5);
+  const [forcaPincel, setForcaPincel] = useState(0.5);
+  const [tracos, setTracos] = useState(0);
+  const [medindo, setMedindo] = useState(false);
+  const [noLimite, setNoLimite] = useState(false);
+  const [entrou, setEntrou] = useState({ vizinho: false, antagonista: false });
+  const relogioDeMedida = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tracando = useRef(false);
+  const faltaMedir = useRef(false);
+
   useEffect(() => {
     if (!caixa.current) return undefined;
     const v = new Visor3D(caixa.current);
@@ -164,14 +179,27 @@ export default function PassosCadApp() {
   }, []);
 
   /** A coroa e a posição do dente dependem da margem: mudou a margem, elas saem. */
+  const zerarEscultura = useCallback(() => {
+    if (relogioDeMedida.current) clearTimeout(relogioDeMedida.current);
+    relogioDeMedida.current = null;
+    faltaMedir.current = false;
+    tracando.current = false;
+    setPincel(null);
+    setTracos(0);
+    setMedindo(false);
+    setNoLimite(false);
+    setEntrou({ vizinho: false, antagonista: false });
+  }, []);
+
   const descartarCoroa = useCallback(() => {
     setAjuste(null);
     setCoroa(null);
     setNomeBib(null);
+    zerarEscultura();
     const v = visor.current;
     v?.definirMalha('anatomia', null);
     v?.definirMalha('coroa', null);
-  }, []);
+  }, [zerarEscultura]);
 
   /** Volta ao clique no preparo: arcada, antagonista ou dente mudaram, nada do caso anterior vale. */
   const descartarDente = useCallback(() => {
@@ -259,6 +287,14 @@ export default function PassosCadApp() {
       setDente(r);
     });
 
+  /** Volta para a vista do dente (ou da arcada): girando de perto, é fácil se perder no modelo. */
+  const centralizarVista = () => {
+    const v = visor.current;
+    if (!v) return;
+    if (dente) v.enquadrar(null, dente.O, 11, dente.a, dente.vestibular);
+    else v.enquadrar('arco', undefined, undefined, frenteDoArco);
+  };
+
   const mostrarAnatomia = (m: MalhaLeve) => {
     const v = visor.current as Visor3D;
     v.definirMalha('anatomia', m, { cor: COR_DENTE, opacidade: 0.72 });
@@ -273,6 +309,7 @@ export default function PassosCadApp() {
       setNomeBib(nomeBiblioteca);
       setAjuste(r.ajuste);
       setCoroa(null);
+      zerarEscultura();
       (visor.current as Visor3D).definirMalha('coroa', null);
       mostrarAnatomia(r.malha);
     });
@@ -305,6 +342,7 @@ export default function PassosCadApp() {
   const moverAnatomia = (novo: Ajuste) => {
     setAjuste(novo);
     setCoroa(null);
+    zerarEscultura();
     (visor.current as Visor3D).definirMalha('coroa', null);
     void (motor.current as ClienteDoMotor)
       .pedir<MalhaLeve>({ tipo: 'mover', ajuste: novo, parametros })
@@ -316,6 +354,7 @@ export default function PassosCadApp() {
     executar(T.gerandoCoroa, async () => {
       if (!ajuste) return;
       const c = await (motor.current as ClienteDoMotor).pedir<CoroaNaTela>({ tipo: 'coroa', ajuste, parametros });
+      zerarEscultura();
       setCoroa(c);
       const v = visor.current as Visor3D;
       v.definirMalha('anatomia', null);
@@ -333,6 +372,176 @@ export default function PassosCadApp() {
   // Esconder arcada ou mostrar antagonista é da conferência; antes disso atrapalharia o clique.
   useEffect(() => visor.current?.definirVisivel('arco', verArco || etapa < 3), [verArco, etapa]);
   useEffect(() => visor.current?.definirVisivel('ant', verAnt && etapa >= 3), [verAnt, etapa]);
+
+  // ---------- pincel ----------
+
+  /** Mede em pedaços; se o técnico voltar a esculpir, para e retoma na próxima pausa. */
+  const medirNaPausa = useCallback(() => {
+    if (relogioDeMedida.current) clearTimeout(relogioDeMedida.current);
+    faltaMedir.current = true;
+    setMedindo(true);
+    const passo = () => {
+      if (tracando.current || !faltaMedir.current) return;
+      (motor.current as ClienteDoMotor)
+        .pedir<MedidasDaCoroa | null>({ tipo: 'pincelMedir' })
+        .then((r) => {
+          if (!r) {
+            passo();
+            return;
+          }
+          setCoroa((c) => c && { ...c, espessura: r.espessura, folgaAntagonista: r.folgaAntagonista, folgaVizinho: r.folgaVizinho, relatorio: r.relatorio });
+          setEntrou({ vizinho: r.entrouNoVizinho, antagonista: r.entrouNoAntagonista });
+          faltaMedir.current = false;
+          setMedindo(false);
+        })
+        .catch((e: unknown) => {
+          faltaMedir.current = false;
+          setMedindo(false);
+          setErro(e instanceof Error ? e.message : T.erroGenerico);
+        });
+    };
+    relogioDeMedida.current = setTimeout(passo, PAUSA_PARA_MEDIR_MS);
+  }, []);
+
+  const temCoroa = Boolean(coroa);
+  const calculando = Boolean(ocupado);
+  useEffect(() => {
+    const v = visor.current;
+    const m = motor.current;
+    if (!v || !m) return undefined;
+    // Enquanto gera a coroa, a que está na tela já não é a do motor.
+    const ativo = etapa === 3 && temCoroa && pincel !== null && !calculando;
+    v.definirModoPincel(ativo);
+    if (!ativo || !pincel) {
+      v.aoPincel = null;
+      v.definirLinha('mira', null, 0);
+      return undefined;
+    }
+    const opcoes: OpcoesPincel = { modo: pincel, raio: tamanhoPincel, forca: forcaPincel };
+    const falhou = (e: unknown) => setErro(e instanceof Error ? e.message : T.erroGenerico);
+    const anel = (c: V3 | null, n: V3 | null) => {
+      if (c && n) v.definirAnel('mira', c, n, opcoes.raio, COR_PINCEL);
+      else v.definirLinha('mira', null, 0);
+    };
+    // Um pedido por vez, na ordem: o que chega enquanto o motor trabalha vai junto no próximo,
+    // sem nunca juntar dois traços. Cada traço tem o seu desfazer.
+    type Item = { raio: [V3, V3]; inicio: boolean } | { fim: true };
+    const fila: Item[] = [];
+    let voando = false;
+    let abertos = 0;
+    let segurando = false;
+    let miraNova: [V3, V3] | null = null;
+    let miraVoando = false;
+    const fechouTraco = () => {
+      abertos--;
+      tracando.current = abertos > 0;
+    };
+    const enviar = () => {
+      if (voando || !fila.length) return;
+      voando = true;
+      const seguir = () => {
+        voando = false;
+        enviar();
+      };
+      const primeiro = fila[0];
+      if ('fim' in primeiro) {
+        fila.shift();
+        m.pedir<FimDoTraco | null>({ tipo: 'pincelFim' })
+          .then((r) => {
+            fechouTraco();
+            if (!r) {
+              // Clique fora da coroa no meio de uma medição: retoma o que faltava.
+              if (faltaMedir.current) medirNaPausa();
+              return;
+            }
+            setTracos(r.tracos);
+            setNoLimite(r.noLimite);
+            medirNaPausa();
+          })
+          .catch((e: unknown) => {
+            fechouTraco();
+            faltaMedir.current = false;
+            setMedindo(false);
+            falhou(e);
+          })
+          .finally(seguir);
+        return;
+      }
+      const raios: [V3, V3][] = [];
+      while (fila.length) {
+        const item = fila[0];
+        if ('fim' in item || (raios.length > 0 && item.inicio)) break;
+        raios.push(item.raio);
+        fila.shift();
+      }
+      m.pedir<RespostaDoPincel>({ tipo: 'pincel', raios, opcoes, inicio: primeiro.inicio })
+        .then((r) => {
+          if (r.mudanca) v.atualizarMalha('coroa', r.mudanca);
+          anel(r.centro, r.normal);
+        })
+        .catch(falhou)
+        .finally(seguir);
+    };
+    const pedirMira = () => {
+      if (miraVoando || !miraNova || tracando.current) return;
+      const [o, d] = miraNova;
+      miraNova = null;
+      miraVoando = true;
+      m.pedir<{ centro: V3; normal: V3 } | null>({ tipo: 'mira', o, d })
+        .then((r) => {
+          if (!tracando.current) anel(r?.centro ?? null, r?.normal ?? null);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          miraVoando = false;
+          pedirMira();
+        });
+    };
+    const soltar = () => {
+      segurando = false;
+      fila.push({ fim: true });
+      enviar();
+    };
+    v.aoPincel = {
+      inicio: (o, d) => {
+        segurando = true;
+        abertos++;
+        tracando.current = true;
+        if (relogioDeMedida.current) clearTimeout(relogioDeMedida.current);
+        setErro(null);
+        fila.push({ raio: [o, d], inicio: true });
+        enviar();
+      },
+      mover: (o, d) => {
+        fila.push({ raio: [o, d], inicio: false });
+        enviar();
+      },
+      fim: soltar,
+      mira: (o, d) => {
+        miraNova = [o, d];
+        pedirMira();
+      },
+      saiu: () => {
+        miraNova = null;
+        anel(null, null);
+      },
+    };
+    return () => {
+      v.aoPincel = null;
+      // A tela mudou com o botão apertado: o traço termina aqui.
+      if (segurando) soltar();
+    };
+  }, [etapa, temCoroa, calculando, pincel, tamanhoPincel, forcaPincel, medirNaPausa]);
+
+  const desfazerTraco = () =>
+    executar(T.desfazendoTraco, async () => {
+      const r = await (motor.current as ClienteDoMotor).pedir<{ mudanca: MudancaDaMalha; tracos: number } | null>({ tipo: 'pincelDesfazer' });
+      if (!r) return;
+      (visor.current as Visor3D).atualizarMalha('coroa', r.mudanca);
+      setTracos(r.tracos);
+      setNoLimite(false);
+      medirNaPausa();
+    });
 
   const exportar = () =>
     executar(T.exportando, async () => {
@@ -563,6 +772,50 @@ export default function PassosCadApp() {
                 <label className="inline-flex items-center gap-1"><input type="checkbox" checked={verArco} onChange={(e) => setVerArco(e.target.checked)} /> {T.verArco}</label>
                 {nomeAnt && <label className="inline-flex items-center gap-1"><input type="checkbox" checked={verAnt} onChange={(e) => setVerAnt(e.target.checked)} /> {T.verAntagonista}</label>}
               </div>
+              <div className="space-y-2 pt-2 border-t border-border" data-testid="esculpir">
+                <p className="text-xs font-semibold text-foreground">{T.esculpir}</p>
+                <div className="grid grid-cols-3 gap-1">
+                  {PINCEIS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      data-testid={`pincel-${p.id}`}
+                      aria-pressed={pincel === p.id}
+                      disabled={Boolean(ocupado)}
+                      onClick={() => setPincel(pincel === p.id ? null : p.id)}
+                      className={`px-2 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-40 ${pincel === p.id ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'}`}
+                    >
+                      {p.nome}
+                    </button>
+                  ))}
+                </div>
+                {pincel && (
+                  <>
+                    <label className="block">
+                      <span className="flex justify-between text-xs">
+                        <span className="font-semibold">{T.pincelTamanho}</span>
+                        <span className="text-muted-foreground">{tamanhoPincel.toFixed(1)} mm</span>
+                      </span>
+                      <input type="range" data-testid="pincel-tamanho" className="w-full" min={0.5} max={4} step={0.1} value={tamanhoPincel} onChange={(e) => setTamanhoPincel(+e.target.value)} />
+                    </label>
+                    <label className="block">
+                      <span className="flex justify-between text-xs">
+                        <span className="font-semibold">{T.pincelForca}</span>
+                        <span className="text-muted-foreground">{Math.round(forcaPincel * 100)}%</span>
+                      </span>
+                      <input type="range" data-testid="pincel-forca" className="w-full" min={0.05} max={1} step={0.05} value={forcaPincel} onChange={(e) => setForcaPincel(+e.target.value)} />
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">{T.pincelAjuda}</p>
+                  </>
+                )}
+                <button type="button" data-testid="desfazer-traco" disabled={!tracos || Boolean(ocupado)} onClick={() => void desfazerTraco()} className="w-full inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-border text-xs disabled:opacity-40">
+                  <RotateCcw size={14} /> {T.desfazerTraco}
+                </button>
+                {medindo && <p className="text-[11px] text-muted-foreground" data-testid="medindo">{T.medindo}</p>}
+                {noLimite && <p className="text-xs text-amber-600" data-testid="aviso-limite">{T.pincelNoLimite}</p>}
+                {entrou.vizinho && <p className="text-xs text-amber-600" data-testid="aviso-entrou-vizinho">{T.avisoEntrouVizinho}</p>}
+                {entrou.antagonista && <p className="text-xs text-amber-600" data-testid="aviso-entrou-antagonista">{T.avisoEntrouAntagonista}</p>}
+              </div>
               <div className="space-y-2 pt-2 border-t border-border">
                 {([
                   ['cimento', T.pCimento],
@@ -579,6 +832,7 @@ export default function PassosCadApp() {
                 <button type="button" disabled={Boolean(ocupado)} onClick={() => void gerarCoroa()} className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40">
                   <RotateCcw size={14} /> {T.recalcular}
                 </button>
+                {tracos > 0 && <p className="text-[11px] text-amber-600">{T.recalcularApaga}</p>}
               </div>
               <dl className="text-xs grid grid-cols-2 gap-x-3 gap-y-1 pt-2 border-t border-border" data-testid="relatorio">
                 <dt className="text-muted-foreground">{T.rTamanho}</dt>
@@ -625,6 +879,11 @@ export default function PassosCadApp() {
 
       <div className="relative flex-1 min-h-[360px]">
         <div ref={caixa} className="absolute inset-0" data-testid="visor" />
+        {nomeArco && (
+          <button type="button" data-testid="centralizar" onClick={centralizarVista} className="absolute top-3 right-3 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-black/60 text-white text-xs hover:bg-black/75">
+            <Focus size={14} /> {T.centralizarVista}
+          </button>
+        )}
         {ocupado && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs inline-flex items-center gap-2" data-testid="ocupado">
             <Loader2 size={14} className="animate-spin" /> {ocupado}

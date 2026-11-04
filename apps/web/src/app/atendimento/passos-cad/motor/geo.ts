@@ -214,6 +214,43 @@ export class Bvh {
     return id;
   }
 
+  /** Os vértices mudaram de lugar, a ligação não: refaz as caixas, dos nós mais fundos para a raiz. */
+  ajustarCaixas(): void {
+    const c = this.caixas;
+    const f = this.filhos;
+    const p = this.m.pos;
+    const tri = this.m.tri;
+    for (let n = f.length / 4 - 1; n >= 0; n--) {
+      const b = 6 * n;
+      if (f[4 * n + 3] === 0) {
+        const e = 6 * f[4 * n];
+        const d = 6 * f[4 * n + 1];
+        for (let k = 0; k < 3; k++) {
+          c[b + k] = Math.min(c[e + k], c[d + k]);
+          c[b + 3 + k] = Math.max(c[e + 3 + k], c[d + 3 + k]);
+        }
+        continue;
+      }
+      for (let k = 0; k < 3; k++) {
+        c[b + k] = Infinity;
+        c[b + 3 + k] = -Infinity;
+      }
+      const ini = f[4 * n + 2];
+      const fim = ini + f[4 * n + 3];
+      for (let i = ini; i < fim; i++) {
+        const t = this.ordem[i];
+        for (let q = 0; q < 3; q++) {
+          const v = tri[3 * t + q] * 3;
+          for (let k = 0; k < 3; k++) {
+            const x = p[v + k];
+            if (x < c[b + k]) c[b + k] = x;
+            if (x > c[b + 3 + k]) c[b + 3 + k] = x;
+          }
+        }
+      }
+    }
+  }
+
   normalEm(t: number, u: number, v: number): V3 {
     const a = this.m.tri[3 * t] * 3;
     const b = this.m.tri[3 * t + 1] * 3;
