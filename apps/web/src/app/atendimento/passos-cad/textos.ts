@@ -58,6 +58,14 @@ export const TEXTOS = Object.freeze({
   baixarStl: 'Baixar STL da coroa',
   avisoRevisao: 'Confira a margem, os contatos e a espessura, e prove em resina antes de fresar. A decisão final é do técnico.',
   centralizarVista: 'Centralizar',
+  pBroca: 'Diâmetro da broca (mm)',
+  brocaAjuda: 'A menor broca da sua fresadora que trabalha o lado de dentro. Use 0 para impressão.',
+  rFresa: 'Corte da broca',
+  rFresaAte: 'até',
+  rFresaNada: 'não precisou',
+  rFresaDesligada: 'desligado',
+  avisoBrocaGrande: 'A broca corta muito neste preparo: quinas vivas ou preparo estreito. Confira no mapa do corte ou use uma broca menor.',
+  verPorDentro: 'Ver por dentro',
   esculpir: 'Esculpir',
   pincelTamanho: 'Tamanho do pincel',
   pincelForca: 'Força',
@@ -96,13 +104,14 @@ export const DENTES_FDI: readonly number[] = Object.freeze([
   48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
 ]);
 
-export type MapaId = 'nenhum' | 'espessura' | 'antagonista' | 'vizinhos';
+export type MapaId = 'nenhum' | 'espessura' | 'antagonista' | 'vizinhos' | 'broca';
 
 export const MAPAS: readonly { id: MapaId; nome: string }[] = Object.freeze([
   { id: 'nenhum', nome: 'Sem mapa' },
-  { id: 'espessura', nome: 'Espessura até o preparo' },
+  { id: 'espessura', nome: 'Espessura da coroa' },
   { id: 'antagonista', nome: 'Distância ao antagonista' },
   { id: 'vizinhos', nome: 'Distância aos vizinhos' },
+  { id: 'broca', nome: 'Corte da broca (lado de dentro)' },
 ]);
 
 export const MATERIAIS: readonly { id: string; nome: string; parametros: Parametros }[] = Object.freeze([

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Loader2, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { Visor3D, type V3 } from './Visor3D';
 import { ClienteDoMotor } from './motor/cliente';
+import { MAIOR_BROCA, normalizarBroca } from './motor/fresa';
 import type { MalhaLeve } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Ajuste, Parametros, Relatorio } from './motor/coroa';
@@ -30,6 +31,7 @@ interface CoroaNaTela {
   espessura: Float32Array;
   folgaAntagonista: Float32Array;
   folgaVizinho: Float32Array;
+  corteFresa: Float32Array;
   externos: number;
   relatorio: Relatorio;
 }
@@ -43,12 +45,36 @@ const COR_PINCEL = 0x0a84ff;
 const PAUSA_PARA_MEDIR_MS = 350;
 const TAMANHO_MAXIMO = 400 * 1024 * 1024;
 
+/** Número em português: 0,09 e não 0.09. */
+const nr = (x: number): string => String(x).replace('.', ',');
+
 const faixa = (v: number, limites: [number, number[]][], fim: number[]): number[] => {
   for (const [lim, cor] of limites) if (v < lim) return cor;
   return fim;
 };
 
 const COR_NEUTRA = [0.95, 0.92, 0.85];
+
+/** Acima disto a parede afina demais para passar sem aviso. */
+const CORTE_GRANDE_DA_BROCA = 0.3;
+const CHAVE_DA_BROCA = 'passos-cad-diametro-broca';
+
+/** Cada fresadora tem a sua broca: fica lembrada neste navegador, para não digitar em todo caso. */
+function brocaLembrada(padrao: number): number {
+  try {
+    return normalizarBroca(window.localStorage.getItem(CHAVE_DA_BROCA) ?? '') ?? padrao;
+  } catch {
+    return padrao;
+  }
+}
+
+function lembrarBroca(v: number): void {
+  try {
+    window.localStorage.setItem(CHAVE_DA_BROCA, String(v));
+  } catch {
+    // Sem armazenamento, só não fica lembrada.
+  }
+}
 
 /** Cor por vértice da coroa conforme o mapa escolhido. */
 function coresDoMapa(c: CoroaNaTela, mapa: MapaId, min: number): Float32Array | null {
@@ -57,7 +83,10 @@ function coresDoMapa(c: CoroaNaTela, mapa: MapaId, min: number): Float32Array | 
   const cores = new Float32Array(n * 3);
   for (let v = 0; v < n; v++) {
     let cor = COR_NEUTRA;
-    if (v < c.externos) {
+    if (mapa === 'broca') {
+      const q = c.corteFresa[v];
+      if (q >= 0.005) cor = faixa(q, [[0.05, [0.35, 0.75, 0.35]], [0.15, [0.95, 0.85, 0.2]], [CORTE_GRANDE_DA_BROCA, [0.95, 0.45, 0.1]]], [0.85, 0.1, 0.1]);
+    } else if (v < c.externos) {
       if (mapa === 'espessura') {
         const e = c.espessura[v];
         if (!Number.isNaN(e)) cor = faixa(e, [[min - 0.01, [0.85, 0.15, 0.12]], [min + 0.4, [0.95, 0.8, 0.2]], [min + 0.9, [0.3, 0.75, 0.35]]], [0.25, 0.5, 0.9]);
@@ -82,6 +111,36 @@ function baixar(dados: BlobPart, nome: string, tipo: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+
+/**
+ * Diâmetro da broca. Apagar o campo para redigitar não pode virar 0: isso desligaria a compensação
+ * em todos os casos seguintes, sem aviso. Só vale o número completo, e só fica lembrado ao sair.
+ */
+const CampoDeBroca = ({ valor, aoMudar, className, testid, travado }: { valor: number; aoMudar: (v: number) => void; className: string; testid?: string; travado?: boolean }) => {
+  const [texto, setTexto] = useState(String(valor));
+  useEffect(() => setTexto(String(valor)), [valor]);
+  return (
+    <input
+      type="number"
+      data-testid={testid}
+      className={className}
+      min={0}
+      max={MAIOR_BROCA}
+      step={0.05}
+      disabled={travado}
+      value={texto}
+      onChange={(e) => {
+        setTexto(e.target.value);
+        const v = normalizarBroca(e.target.value);
+        if (v !== null) aoMudar(v);
+      }}
+      onBlur={() => {
+        setTexto(String(valor));
+        lembrarBroca(valor);
+      }}
+    />
+  );
+};
 
 const Campo = ({ rotulo, ajuda, children }: { rotulo: string; ajuda?: string; children: ReactNode }) => (
   <label className="block">
@@ -125,7 +184,10 @@ export default function PassosCadApp() {
   const [frenteDoArco, setFrenteDoArco] = useState<V3 | undefined>(undefined);
   const [fdi, setFdi] = useState<number | null>(null);
   const [materialId, setMaterialId] = useState(MATERIAIS[0].id);
-  const [parametros, setParametros] = useState<Parametros>(MATERIAIS[0].parametros);
+  const [parametros, setParametros] = useState<Parametros>(() => ({
+    ...MATERIAIS[0].parametros,
+    diametroBroca: brocaLembrada(MATERIAIS[0].parametros.diametroBroca),
+  }));
 
   const [dente, setDente] = useState<ResumoDente | null>(null);
   const [fixos, setFixos] = useState<V3[]>([]);
@@ -293,6 +355,14 @@ export default function PassosCadApp() {
     if (!v) return;
     if (dente) v.enquadrar(null, dente.O, 11, dente.a, dente.vestibular);
     else v.enquadrar('arco', undefined, undefined, frenteDoArco);
+  };
+
+  /** O corte da broca está no lado de dentro: mostra por baixo, sem a arcada na frente. */
+  const verPorDentro = () => {
+    const v = visor.current;
+    if (!v || !dente) return;
+    setVerArco(false);
+    v.enquadrar(null, dente.O, 7, [-dente.a[0], -dente.a[1], -dente.a[2]], dente.vestibular);
   };
 
   const mostrarAnatomia = (m: MalhaLeve) => {
@@ -624,7 +694,8 @@ export default function PassosCadApp() {
                   onChange={(e) => {
                     setMaterialId(e.target.value);
                     const m = MATERIAIS.find((x) => x.id === e.target.value);
-                    if (m) setParametros(m.parametros);
+                    // A broca é da fresadora, não do material.
+                    if (m) setParametros({ ...m.parametros, diametroBroca: parametros.diametroBroca });
                     descartarCoroa();
                   }}
                 >
@@ -634,6 +705,18 @@ export default function PassosCadApp() {
                     </option>
                   ))}
                 </select>
+              </Campo>
+              <Campo rotulo={T.pBroca} ajuda={T.brocaAjuda}>
+                <CampoDeBroca
+                  testid="diametro-broca"
+                  className={inputCls}
+                  travado={Boolean(ocupado)}
+                  valor={parametros.diametroBroca}
+                  aoMudar={(v) => {
+                    setParametros((p) => ({ ...p, diametroBroca: v }));
+                    descartarCoroa();
+                  }}
+                />
               </Campo>
             </>
           )}
@@ -768,6 +851,11 @@ export default function PassosCadApp() {
                   ))}
                 </select>
               </Campo>
+              {mapa === 'broca' && (
+                <button type="button" data-testid="ver-por-dentro" onClick={verPorDentro} className="w-full inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-border text-xs hover:bg-muted">
+                  <Focus size={14} /> {T.verPorDentro}
+                </button>
+              )}
               <div className="flex gap-3 text-xs">
                 <label className="inline-flex items-center gap-1"><input type="checkbox" checked={verArco} onChange={(e) => setVerArco(e.target.checked)} /> {T.verArco}</label>
                 {nomeAnt && <label className="inline-flex items-center gap-1"><input type="checkbox" checked={verAnt} onChange={(e) => setVerAnt(e.target.checked)} /> {T.verAntagonista}</label>}
@@ -829,6 +917,14 @@ export default function PassosCadApp() {
                     <input type="number" step={0.01} min={0} className="w-20 px-2 py-1 rounded border border-border bg-background text-right" value={parametros[chave]} onChange={(e) => setParametros({ ...parametros, [chave]: +e.target.value })} />
                   </label>
                 ))}
+                <label className="flex items-center justify-between gap-2 text-xs">
+                  <span>{T.pBroca}</span>
+                  <CampoDeBroca
+                    className="w-20 px-2 py-1 rounded border border-border bg-background text-right"
+                    valor={parametros.diametroBroca}
+                    aoMudar={(v) => setParametros((p) => ({ ...p, diametroBroca: v }))}
+                  />
+                </label>
                 <button type="button" disabled={Boolean(ocupado)} onClick={() => void gerarCoroa()} className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40">
                   <RotateCcw size={14} /> {T.recalcular}
                 </button>
@@ -836,16 +932,21 @@ export default function PassosCadApp() {
               </div>
               <dl className="text-xs grid grid-cols-2 gap-x-3 gap-y-1 pt-2 border-t border-border" data-testid="relatorio">
                 <dt className="text-muted-foreground">{T.rTamanho}</dt>
-                <dd className="text-right">{`${r.mdMm} × ${r.vlMm} × ${r.alturaMm} mm`}</dd>
+                <dd className="text-right">{`${nr(r.mdMm)} × ${nr(r.vlMm)} × ${nr(r.alturaMm)} mm`}</dd>
                 <dt className="text-muted-foreground">{T.rEspOclusal}</dt>
-                <dd className="text-right">{r.espessuraOclusal ? `${r.espessuraOclusal.p5} / ${r.espessuraOclusal.mediana} mm` : '—'}</dd>
+                <dd className="text-right">{r.espessuraOclusal ? `${nr(r.espessuraOclusal.p5)} / ${nr(r.espessuraOclusal.mediana)} mm` : '—'}</dd>
                 <dt className="text-muted-foreground">{T.rContatoAnt}</dt>
                 <dd className="text-right">{nomeAnt ? r.regioesContatoAntagonista : '—'}</dd>
                 <dt className="text-muted-foreground">{T.rContatoViz}</dt>
                 <dd className="text-right">{r.regioesContatoVizinho}</dd>
                 <dt className="text-muted-foreground">{T.rMalha}</dt>
                 <dd className="text-right">{r.malha.arestasAbertas === 0 && r.malha.arestasRepetidas === 0 ? T.rMalhaOk : T.rMalhaRuim}</dd>
+                <dt className="text-muted-foreground">{T.rFresa}</dt>
+                <dd className="text-right" data-testid="corte-broca">
+                  {r.fresa.diametro <= 0 ? T.rFresaDesligada : r.fresa.maiorCorte > 0 ? `${T.rFresaAte} ${nr(r.fresa.maiorCorte)} mm` : T.rFresaNada}
+                </dd>
               </dl>
+              {r.fresa.maiorCorte > CORTE_GRANDE_DA_BROCA && <p className="text-xs text-amber-600" data-testid="aviso-broca">{T.avisoBrocaGrande}</p>}
               {nomeAnt && r.espessuraOclusal && r.espessuraOclusal.p5 > 2 && <p className="text-xs text-amber-600" data-testid="aviso-alta">{T.avisoAlta}</p>}
               {r.conflitosEspessura > 0 && <p className="text-xs text-amber-600">{T.avisoConflito}</p>}
               {r.retencoesPreenchidas > 0 && <p className="text-xs text-amber-600">{T.avisoRetencao}</p>}

@@ -21,6 +21,7 @@ import {
 import { chaveDoDente, denteDoFdi, indexarPasta } from '../../../web/src/app/atendimento/passos-cad/motor/biblioteca-indice';
 import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao';
 import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
+import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -302,6 +303,8 @@ describe('Passos CAD — coroa', () => {
 
   it('a margem da coroa é a própria linha, e o cimento começa só longe dela', () => {
     const { e, ambiente } = entrada(16, null);
+    // Aqui se mede o cimento puro: sem a broca cortando as quinas.
+    e.parametros = { ...PARAMETROS_PADRAO, diametroBroca: 0 };
     const r = construirCoroa(e, ambiente, ajuste(e, ambiente), 40);
     const NT = e.margem.length;
     const naMargem = e.margem.map((m, i) => norma(sub(vert(r.malha, r.externos + i), m.ponto)));
@@ -434,6 +437,166 @@ describe('Passos CAD — coroa', () => {
     expect(conf.volume).toBeGreaterThan(0);
     expect(unit([1, 0, 0])[0]).toBe(1);
     expect(juntar(fechar).tri.length).toBe(fechar.tri.length);
+  });
+});
+
+describe('Passos CAD — compensação de fresa', () => {
+  const J = 120;
+  const NT = 120;
+  const prep = { O: [0, 0, 1] as V3, a: [0, 0, 1] as V3, e1: [1, 0, 0] as V3, e2: [0, 1, 0] as V3 };
+
+  /** Lado de dentro em grade, pelos raios saindo de O: `alcance(dir)` diz até onde vai em cada direção. */
+  function grade(phMargem: number, alcance: (d: V3) => number, colunas = NT, linhas = J) {
+    const interna: V3[][] = [];
+    const arco: Float64Array[] = [];
+    const margem: { ph: number }[] = [];
+    for (let i = 0; i < colunas; i++) {
+      const th = (2 * Math.PI * i) / colunas;
+      const col: V3[] = [];
+      for (let j = 0; j <= linhas; j++) {
+        const ph = (phMargem * j) / linhas;
+        const d: V3 = [Math.sin(ph) * Math.cos(th), Math.sin(ph) * Math.sin(th), Math.cos(ph)];
+        const t = alcance(d);
+        col.push([prep.O[0] + d[0] * t, prep.O[1] + d[1] * t, prep.O[2] + d[2] * t]);
+      }
+      const s = new Float64Array(linhas + 1);
+      for (let j = linhas - 1; j >= 0; j--) s[j] = s[j + 1] + norma(sub(col[j], col[j + 1]));
+      interna.push(col);
+      arco.push(s);
+      margem.push({ ph: phMargem });
+    }
+    return { interna, arco, margem };
+  }
+  /** Cilindro de raio 3 e topo plano 5 mm acima de O: quina viva de 90° em toda a volta. */
+  const cilindro = () => grade(1.4, (d) => Math.min(d[2] > 1e-9 ? 5 / d[2] : Infinity, Math.hypot(d[0], d[1]) > 1e-9 ? 3 / Math.hypot(d[0], d[1]) : Infinity));
+  /** Domo de raio 3: bem maior que a broca, sem nenhuma quina. */
+  const domo = () => grade(1.4, () => 3);
+
+  it('valor digitado: campo vazio não vira 0, nem número fora da faixa passa', () => {
+    expect(normalizarBroca('')).toBeNull();
+    expect(normalizarBroca('  ')).toBeNull();
+    expect(normalizarBroca('abc')).toBeNull();
+    expect(normalizarBroca('0')).toBe(0);
+    expect(normalizarBroca('1.2')).toBe(1.2);
+    expect(normalizarBroca('-1')).toBe(0);
+    expect(normalizarBroca('30')).toBe(3);
+  });
+
+  it('preparo mais fino que a broca: a conta termina e corta', () => {
+    const g = grade(1.4, (d) => Math.min(d[2] > 1e-9 ? 4 / d[2] : Infinity, Math.hypot(d[0], d[1]) > 1e-9 ? 0.4 / Math.hypot(d[0], d[1]) : Infinity), 48, 48);
+    const r = compensarFresa({ ...g, prep, J: 48, diametro: 2 });
+    expect(r.pontos).toBeGreaterThan(0);
+    expect(r.maiorCorte).toBeGreaterThan(0.2);
+    for (const col of r.interna) for (const p of col) if (!p.every(Number.isFinite)) throw new Error('coordenada inválida');
+  });
+
+  it('quina abaixo do centro (além de 90° do eixo) também é alcançada', () => {
+    // Esfera de raio 3 até 103° do eixo; depois a superfície fecha, formando uma aresta viva em toda a volta.
+    const aresta = 1.8;
+    const g = grade(2.4, (d) => {
+      const ph = Math.acos(d[2]);
+      return ph < aresta ? 3 : 3 - (ph - aresta) * 3;
+    });
+    const antes = contarSemAlcance(g.interna, g.arco, J, 1);
+    const r = compensarFresa({ ...g, prep, J, diametro: 1 });
+    expect(antes).toBeGreaterThan(NT);
+    expect(r.maiorCorte).toBeGreaterThan(0.02);
+    expect(contarSemAlcance(r.interna, g.arco, J, 1)).toBeLessThanOrEqual(2 * NT);
+    // O corte dá a volta inteira: nenhuma coluna fica sem.
+    for (let i = 0; i < NT; i++) expect(Math.max(...r.corte[i])).toBeGreaterThan(0.01);
+  });
+
+  it('sem broca (0 mm), nada muda', () => {
+    const g = cilindro();
+    const r = compensarFresa({ ...g, prep, J, diametro: 0 });
+    expect(r.interna).toBe(g.interna);
+    expect(r.pontos).toBe(0);
+  });
+
+  it('superfície lisa, com curva maior que a broca, não leva corte nenhum', () => {
+    const g = domo();
+    const r = compensarFresa({ ...g, prep, J, diametro: 1 });
+    expect(r.pontos).toBe(0);
+    expect(r.maiorCorte).toBe(0);
+    expect(r.interna).toBe(g.interna);
+  });
+
+  it('quina viva: corta só em volta dela, na medida da conta, e nunca entra no preparo', () => {
+    const g = cilindro();
+    const r = compensarFresa({ ...g, prep, J, diametro: 1 });
+    expect(r.pontos).toBeGreaterThan(0);
+    // Bola de raio 0,5 passando pela quina de 90°: entra 0,5 × (1 − 1/√2) = 0,146 mm em cada face, medido na normal.
+    let naFace = 0;
+    let longe = 0;
+    for (let i = 0; i < NT; i++) {
+      for (let j = 0; j < J; j++) {
+        const antes = g.interna[i][j];
+        const depois = r.interna[i][j];
+        if (norma(sub(depois, prep.O)) < norma(sub(antes, prep.O)) - 1e-9) throw new Error('entrou no preparo');
+        const raioXY = Math.hypot(antes[0], antes[1]);
+        const distQuina = Math.hypot(raioXY - 3, antes[2] - 6);
+        if (distQuina > 1.2) longe = Math.max(longe, r.corte[i][j]);
+        if (distQuina < 0.4) naFace = Math.max(naFace, Math.max(Math.hypot(depois[0], depois[1]) - 3, depois[2] - 6));
+      }
+    }
+    expect(longe).toBeLessThan(1e-9);
+    expect(naFace).toBeGreaterThan(0.1);
+    expect(naFace).toBeLessThan(0.2);
+    expect(r.maiorCorte).toBeGreaterThan(0.1);
+    expect(r.maiorCorte).toBeLessThan(0.2);
+  });
+
+  it('depois de compensar, a broca alcança o lado de dentro inteiro', () => {
+    const g = cilindro();
+    const antes = contarSemAlcance(g.interna, g.arco, J, 1);
+    const r = compensarFresa({ ...g, prep, J, diametro: 1 });
+    expect(antes).toBeGreaterThan(100);
+    // Sobra no máximo a aresta onde a bola encontra a parede: uma fileira, e é material para fora da broca.
+    expect(contarSemAlcance(r.interna, g.arco, J, 1)).toBeLessThanOrEqual(NT);
+  });
+
+  it('broca maior corta mais; broca menor, menos; broca enorme não quebra', () => {
+    const g = cilindro();
+    const corte = (diametro: number) => compensarFresa({ ...g, prep, J, diametro }).maiorCorte;
+    expect(corte(0.6)).toBeLessThan(corte(1.2));
+    expect(corte(1.2)).toBeLessThan(corte(2));
+    // A maior que o campo aceita, bem maior que a quina: a conta passa por todas as colunas e tem de terminar.
+    expect(corte(3)).toBeGreaterThan(corte(2));
+  });
+
+  it('a linha da margem e a faixa colada nela não mudam, nem com quina em cima', () => {
+    // Quina a 0,1 mm da margem: o raio da coluna manda.
+    const g = grade(1.2, (d) => (Math.acos(d[2]) > 1.1 ? 3.2 : 3));
+    const r = compensarFresa({ ...g, prep, J, diametro: 1 });
+    for (let i = 0; i < NT; i++) {
+      for (let j = 0; j <= J; j++) {
+        if (g.arco[i][j] >= 0.2) continue;
+        expect(r.interna[i][j]).toEqual(g.interna[i][j]);
+      }
+    }
+  });
+
+  it('na coroa: o lado de dentro leva o corte, a espessura é medida depois dele, e a malha continua fechada', () => {
+    const { e, ambiente } = entrada(16, null);
+    const aj = posicionarAutomatico(e, ambiente);
+    e.parametros = { ...PARAMETROS_PADRAO, diametroBroca: 0 };
+    const sem = construirCoroa(e, ambiente, aj, 60);
+    expect(sem.relatorio.fresa).toEqual({ diametro: 0, pontos: 0, maiorCorte: 0 });
+    expect(sem.corteFresa.every((c) => c === 0)).toBe(true);
+    e.parametros = { ...PARAMETROS_PADRAO, diametroBroca: 1.2 };
+    const com = construirCoroa(e, ambiente, aj, 60);
+    expect(com.relatorio.fresa.pontos).toBeGreaterThan(0);
+    expect(com.relatorio.fresa.maiorCorte).toBeGreaterThan(0.02);
+    let corteFora = 0;
+    for (let v = 0; v < com.externos + 60; v++) corteFora = Math.max(corteFora, com.corteFresa[v]);
+    expect(corteFora).toBe(0);
+    // A margem é a mesma com e sem broca.
+    for (let i = com.externos * 3; i < (com.externos + 60) * 3; i++) expect(com.malha.pos[i]).toBe(sem.malha.pos[i]);
+    const c = conferirMalha(com.malha);
+    expect([c.arestasAbertas, c.arestasRepetidas, c.degenerados]).toEqual([0, 0, 0]);
+    expect(c.volume).toBeGreaterThan(0);
+    // Sem antagonista, a parte de fora cede: a espessura real continua dentro do pedido.
+    expect(com.relatorio.espessuraOclusal!.p5).toBeGreaterThanOrEqual(PARAMETROS_PADRAO.espessuraMinima - 0.05);
   });
 });
 

@@ -77,9 +77,10 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
       const e = Float32Array.from(c.espessura);
       const a = Float32Array.from(c.folgaAntagonista);
       const v = Float32Array.from(c.folgaVizinho);
+      const f = Float32Array.from(c.corteFresa);
       return {
-        dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, externos: c.externos, relatorio: c.relatorio },
-        envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer],
+        dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, corteFresa: f, externos: c.externos, relatorio: c.relatorio },
+        envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer, f.buffer],
       };
     }
     case 'mira':

@@ -9,7 +9,8 @@
  * esses eixos para (mesial, vestibular, oclusal) do caso já acerta o lado do arco: nos
  * quadrantes 2 e 4 essa troca espelha o dente, que é o correto.
  */
-import { Bvh, centroide, conferirMalha, cross, dot, filtrarTriangulos, mul, norma, normaisDeVertice, passoSuave, soma, sub, unit, vert, type Conferencia, type Malha, type V3 } from './geo';
+import { compensarFresa } from './fresa';
+import { Bvh, centroide, conferirMalha, cross, dot, filtrarTriangulos, malhaDaGrade, mul, norma, normaisDeVertice, passoSuave, soma, sub, unit, vert, type Conferencia, type Malha, type V3 } from './geo';
 import { direcao, type PontoMargem, type Preparo } from './margem';
 
 const GRAU = Math.PI / 180;
@@ -19,7 +20,7 @@ export interface Parametros {
   cimento: number;
   /** Distância da margem onde o cimento começa (mm). */
   inicioCimento: number;
-  /** Espessura mínima do material até o preparo (mm). */
+  /** Espessura mínima do material até o lado de dentro (mm). */
   espessuraMinima: number;
   /** Folga até o antagonista (mm). */
   folgaAntagonista: number;
@@ -27,6 +28,8 @@ export interface Parametros {
   folgaVizinho: number;
   /** Inclinação da saída da margem, em relação ao eixo (graus). */
   emergencia: number;
+  /** Diâmetro da menor broca que entra no lado de dentro (mm); 0 = sem compensação. */
+  diametroBroca: number;
 }
 
 export const PARAMETROS_PADRAO: Parametros = Object.freeze({
@@ -36,6 +39,7 @@ export const PARAMETROS_PADRAO: Parametros = Object.freeze({
   folgaAntagonista: 0.1,
   folgaVizinho: 0,
   emergencia: 12,
+  diametroBroca: 1.2,
 });
 
 /** Posição da anatomia sobre o preparo. */
@@ -335,7 +339,8 @@ function amostraFolgaDoPreparo(e: EntradaCoroa, aj: Ajuste, amostra: number[]): 
 
 /** O que o pincel precisa para mexer na superfície e medir de novo. */
 export interface DadosDaEscultura {
-  troquel: Bvh;
+  /** O lado de dentro, já com a compensação de fresa: daqui se mede a espessura. */
+  dentro: Bvh;
   /** Vértices da superfície externa mais os da linha de margem, que vêm logo depois. */
   fimDaSuperficie: number;
   /** Por vértice externo: a espessura que o pincel não pode tirar. */
@@ -353,6 +358,8 @@ export interface ResultadoCoroa {
   espessura: Float32Array;
   folgaAntagonista: Float32Array;
   folgaVizinho: Float32Array;
+  /** Por vértice: quanto a broca corta a mais no lado de dentro (0 no resto). */
+  corteFresa: Float32Array;
   /** Quantos vértices são da superfície externa (os primeiros da malha). */
   externos: number;
   relatorio: Relatorio;
@@ -372,6 +379,7 @@ export interface Relatorio {
   conflitosEspessura: number;
   /** Pontos do preparo com retenção, preenchidos pelo lado de dentro. */
   retencoesPreenchidas: number;
+  fresa: { diametro: number; pontos: number; maiorCorte: number };
 }
 
 function resumo(v: number[]): { minimo: number; p5: number; mediana: number } | null {
@@ -397,8 +405,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
 
   // ---------- interna: preparo, sem retenções, com cimento a partir de inicioCimento ----------
   const dirs: V3[][] = [];
-  const dieP: V3[][] = [];
-  const interna: V3[][] = [];
+  const internaSemFresa: V3[][] = [];
   const normalDie: V3[][] = [];
   const arco: Float64Array[] = [];
   let retencoes = 0;
@@ -430,13 +437,14 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       return p;
     });
     dirs.push(dc);
-    dieP.push(qc);
     normalDie.push(nc);
     arco.push(s);
-    interna.push(qc.map((p, j) => soma(p, mul(nc[j], P.cimento * passoSuave(P.inicioCimento, P.inicioCimento + 0.3, s[j])))));
+    internaSemFresa.push(qc.map((p, j) => soma(p, mul(nc[j], P.cimento * passoSuave(P.inicioCimento, P.inicioCimento + 0.3, s[j])))));
   }
-  const die = malhaDaGrade(dieP, J);
-  const dieB = new Bvh(die);
+  // A coroa precisa caber a broca: daqui em diante, o lado de dentro é o que a fresadora faz.
+  const fresa = compensarFresa({ interna: internaSemFresa, arco, margem, prep, J, diametro: P.diametroBroca });
+  const interna = fresa.interna;
+  const dentroB = new Bvh(malhaDaGrade(interna, J));
 
   // ---------- externa: anatomia até a altura de contorno, depois a saída até a margem ----------
   const R: Float64Array[] = [];
@@ -575,13 +583,13 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     }
     if (!mudou) break;
   }
-  // Espessura de verdade (ponto mais próximo do preparo), não só ao longo do raio.
+  // Espessura de verdade (ponto mais próximo do lado de dentro), não só ao longo do raio.
   for (let it = 0; it < 4; it++) {
     let mudou = false;
     for (let i = 0; i < NT; i++) {
       for (let j = 0; j < J - 1; j++) {
         const req = arco[i][j] < 0.2 ? 0 : pedida(arco[i][j]);
-        const c = dieB.proximo(soma(O, mul(dirs[i][j], R[i][j])), 2);
+        const c = dentroB.proximo(soma(O, mul(dirs[i][j], R[i][j])), 2);
         if (c && Math.abs(c.d) < req - 0.005) {
           R[i][j] += (req - Math.abs(c.d)) / Math.max(0.5, Math.abs(dot(dirs[i][j], c.normal))) + 0.01;
           mudou = true;
@@ -616,7 +624,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   const ambienteViz = vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente];
   const medir = (v: number): void => {
     const p = vert(malha, v);
-    const c = dieB.proximo(p, 6);
+    const c = dentroB.proximo(p, 6);
     espessura[v] = c ? Math.abs(c.d) : NaN;
     if (ant) {
       const q = ant.proximo(p, 2);
@@ -669,8 +677,14 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       regioesContatoVizinho: contarRegioes(malha, folgaV, externos, P.folgaVizinho + 0.05),
       conflitosEspessura: conflitos,
       retencoesPreenchidas: retencoes,
+      fresa: { diametro: P.diametroBroca, pontos: fresa.pontos, maiorCorte: arred(fresa.maiorCorte) },
     };
   };
+  const corteFresa = new Float32Array(n);
+  for (let i = 0; i < NT; i++) {
+    corteFresa[externos + NT] = Math.max(corteFresa[externos + NT], fresa.corte[i][0]);
+    for (let j = 1; j < J; j++) corteFresa[externos + NT + 1 + i * (J - 1) + (j - 1)] = fresa.corte[i][j];
+  }
   const pedidaPorVertice = new Float32Array(externos);
   const distanciaDaMargem = new Float32Array(externos);
   for (let i = 0; i < NT; i++) {
@@ -687,10 +701,11 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     espessura,
     folgaAntagonista: folgaA,
     folgaVizinho: folgaV,
+    corteFresa,
     externos,
     relatorio: relatorioAtual(normaisDeVertice(malha)),
     escultura: {
-      troquel: dieB,
+      dentro: dentroB,
       fimDaSuperficie: externos + NT,
       pedida: pedidaPorVertice,
       distanciaDaMargem,
@@ -744,32 +759,6 @@ function fecharContatos(R: Float64Array[], teto: Float64Array[], tetoVizinho: Fl
 }
 
 const arred = (x: number) => Math.round(x * 100) / 100;
-
-/** Grade (colunas × J+1) com polo único na linha 0: superfície aberta na margem. */
-function malhaDaGrade(col: V3[][], J: number): Malha {
-  const NT = col.length;
-  const pos: number[] = [...col[0][0]];
-  const tri: number[] = [];
-  const id = (i: number, j: number) => (j === 0 ? 0 : 1 + i * J + (j - 1));
-  for (let i = 0; i < NT; i++) for (let j = 1; j <= J; j++) pos.push(...col[i][j]);
-  for (let i = 0; i < NT; i++) {
-    const k = (i + 1) % NT;
-    tri.push(0, id(k, 1), id(i, 1));
-    for (let j = 1; j < J; j++) tri.push(id(i, j), id(k, j), id(k, j + 1), id(i, j), id(k, j + 1), id(i, j + 1));
-  }
-  const m = { pos: Float64Array.from(pos), tri: Uint32Array.from(tri) };
-  // Normais para fora do troquel: confere no polo.
-  const n = cross(sub(vert(m, m.tri[1]), vert(m, m.tri[0])), sub(vert(m, m.tri[2]), vert(m, m.tri[0])));
-  const fora = sub(col[0][0], centroide(m.pos));
-  if (dot(n, fora) < 0) {
-    for (let t = 0; t < m.tri.length; t += 3) {
-      const x = m.tri[t + 1];
-      m.tri[t + 1] = m.tri[t + 2];
-      m.tri[t + 2] = x;
-    }
-  }
-  return m;
-}
 
 /** Externa + interna com a linha J compartilhada: fechada por construção. */
 function malhaFechada(externa: V3[][], interna: V3[][], J: number): Malha {

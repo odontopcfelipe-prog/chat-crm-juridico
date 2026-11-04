@@ -337,7 +337,7 @@ export class Escultor {
   private pararNaEspessura(v: number, x0: number, y0: number, z0: number): void {
     if (this.cota[v] >= this.piso[v]) return;
     const q = vert(this.superficie, v);
-    const c = this.dados.troquel.proximo(q, 2);
+    const c = this.dados.dentro.proximo(q, 2);
     if (!c) {
       this.cota[v] = 2;
       return;
@@ -356,7 +356,7 @@ export class Escultor {
     const volta = Math.min(1, (this.piso[v] - c.d) / reta / tamanho);
     for (let e = 0; e < 3; e++) this.pos[3 * v + e] = q[e] - volta * mov[e];
     // Perto de uma quina do preparo a conta acima é só uma estimativa: se ainda passou, nem sai do lugar.
-    const depois = this.dados.troquel.proximo(vert(this.superficie, v), 2);
+    const depois = this.dados.dentro.proximo(vert(this.superficie, v), 2);
     if (depois && depois.d < this.piso[v] - 0.005) {
       this.pos[3 * v] = x0;
       this.pos[3 * v + 1] = y0;

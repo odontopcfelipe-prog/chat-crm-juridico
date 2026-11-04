@@ -33,6 +33,7 @@ export interface ResumoCoroa {
   espessura: Float32Array;
   folgaAntagonista: Float32Array;
   folgaVizinho: Float32Array;
+  corteFresa: Float32Array;
   externos: number;
   relatorio: Relatorio;
 }
@@ -183,7 +184,7 @@ export class Sessao {
     this.coroa = construirCoroa(this.entrada(p), this.ambiente as Bvh, aj, this.grade.linhas);
     this.escultor = null;
     const c = this.coroa;
-    return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, externos: c.externos, relatorio: c.relatorio };
+    return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
   }
 
   private pincel(): Escultor {

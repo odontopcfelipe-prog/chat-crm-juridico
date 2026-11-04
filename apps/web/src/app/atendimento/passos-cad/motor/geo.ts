@@ -433,3 +433,29 @@ function pontoNoTriangulo(p: V3, a: V3, b: V3, c: V3): { p: V3; u: number; v: nu
   const w = vc * den;
   return { p: soma(a, soma(mul(ab, v), mul(ac, w))), u: v, v: w };
 }
+
+/** Grade (colunas × J+1) com polo único na linha 0: superfície aberta na margem. */
+export function malhaDaGrade(col: V3[][], J: number): Malha {
+  const NT = col.length;
+  const pos: number[] = [...col[0][0]];
+  const tri: number[] = [];
+  const id = (i: number, j: number) => (j === 0 ? 0 : 1 + i * J + (j - 1));
+  for (let i = 0; i < NT; i++) for (let j = 1; j <= J; j++) pos.push(...col[i][j]);
+  for (let i = 0; i < NT; i++) {
+    const k = (i + 1) % NT;
+    tri.push(0, id(k, 1), id(i, 1));
+    for (let j = 1; j < J; j++) tri.push(id(i, j), id(k, j), id(k, j + 1), id(i, j), id(k, j + 1), id(i, j + 1));
+  }
+  const m = { pos: Float64Array.from(pos), tri: Uint32Array.from(tri) };
+  // Normais para fora do troquel: confere no polo.
+  const n = cross(sub(vert(m, m.tri[1]), vert(m, m.tri[0])), sub(vert(m, m.tri[2]), vert(m, m.tri[0])));
+  const fora = sub(col[0][0], centroide(m.pos));
+  if (dot(n, fora) < 0) {
+    for (let t = 0; t < m.tri.length; t += 3) {
+      const x = m.tri[t + 1];
+      m.tri[t + 1] = m.tri[t + 2];
+      m.tri[t + 2] = x;
+    }
+  }
+  return m;
+}
