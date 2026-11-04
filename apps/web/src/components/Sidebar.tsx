@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog, Route, Clock, Eye,
+  User, UserCog, Route, Clock, Eye, Crown,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -982,11 +982,20 @@ export function Sidebar() {
       icon: <Settings size={14} strokeWidth={2.5} />,
       items: [
         allItems.billing,        // Assinatura (Onda 17.32.88 — só pra ADMIN)
-        allItems.adminTenants,   // Admin SaaS (Onda 17.32.88 — só SUPER_ADMIN)
-        allItems.verClinicas,    // Entrar em qualquer conta / comparar (só SUPER_ADMIN)
-        allItems.anamneseMaster, // Anamnese master (Onda 17.32.112 — só SUPER_ADMIN)
         allItems.settings,       // Configuracoes
         allItems.manual,         // Manual
+      ].filter(i => i.show && navOk(i.href)),
+    },
+    {
+      // Só o adm master vê: sem nenhum item visível, o grupo some pelo filtro abaixo.
+      id: 'adm-saas',
+      label: 'Adm SaaS',
+      defaultExpanded: true,
+      icon: <Crown size={14} strokeWidth={2.5} />,
+      items: [
+        allItems.adminTenants,   // Admin SaaS (Onda 17.32.88)
+        allItems.verClinicas,    // Entrar em qualquer conta / comparar
+        allItems.anamneseMaster, // Anamnese master (Onda 17.32.112)
       ].filter(i => i.show && navOk(i.href)),
     },
   ].filter(g => g.items.length > 0);
