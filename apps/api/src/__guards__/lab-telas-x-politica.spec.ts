@@ -310,7 +310,6 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'ProceduresController.findAll',
     'InventoryController.previewConsumption',
     'InventoryController.commitConsumption',
-    'PaymentGatewayController.getSettings',
     'UsersController.findLawyers',
     'CommercialController.vendaBalcao',
     'PatientsController.create',

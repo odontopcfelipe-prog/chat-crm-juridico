@@ -3,40 +3,51 @@
 /**
  * Onda 17.32.68 — Venda Rápida (balcão sem avaliação).
  *
- * Estilo "Mercado Livre": grid de procedimentos prontos pra venda na hora,
- * carrinho à direita, selector de paciente + forma de pagamento, botão
- * Finalizar.
+ * Estilo "Mercado Livre", em 2 telas:
+ *  1. VENDA: grid de procedimentos prontos pra venda na hora; paciente, dentista e
+ *     carrinho à direita.
+ *  2. PAGAMENTO: "como o paciente vai pagar?" (PagamentoBalcao.tsx), uma pergunta por
+ *     vez, com o resumo da venda ao lado. É nela que a venda fecha.
  *
- * Fase 0 — dois caminhos ao finalizar:
- *  - RECEBIDO NA CLÍNICA (espécie, PIX da clínica, maquineta, várias formas):
- *    UMA chamada POST /venda-rapida/balcao. O servidor calcula o total, confere
- *    a soma das formas, cria orçamento+plano+cobrança LOCAL e lança no caixa;
- *    se falhar no meio, desfaz. client_request_id evita venda duplicada no retry.
- *  - PIX ONLINE (QR do Asaas): fluxo antigo, POST /patients/:id/quotes +
- *    POST /quotes/:id/approve-and-bill; o webhook confirma o pagamento.
+ * Fase 0 — UMA chamada POST /venda-rapida/balcao. O servidor calcula o total, confere a
+ * soma das formas, cria orçamento+plano+cobrança LOCAL e lança no caixa; se falhar no
+ * meio, desfaz. client_request_id evita venda duplicada no retry. O PIX online (QR do
+ * Asaas) não passa por aqui: é "cobrar depois", com outras regras, e fica em Propostas.
  *
  * Sem passar pelo fluxo de Avaliação/Propostas — pra vendas simples:
  * limpeza, clareamento, raspagem, extração simples, radiografia, etc.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
-  CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown, QrCode, Package,
+  CheckCircle2, AlertCircle, User as UserIcon,
+  ArrowLeft, ArrowRight, UserPlus, Pencil, Check, ChevronDown, Package,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { useSocketEvent } from '@/lib/SocketProvider';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import { OdontogramaPrancha, classificarProcedimento, type MarcaDente } from '@/components/odontograma/DenteReal';
 import NewPatientModal from '../pacientes/components/NewPatientModal';
 // F5 do laboratório — tipo de negócio da sessão (clínica × laboratório) e os textos
 // de laboratório desta tela. Na clínica nada muda.
-import { isLab, labAllowsRoute } from '@crm/shared';
+import { decodeJwtPayload, isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
+import PagamentoBalcao from './PagamentoBalcao';
+import {
+  PAGAMENTO_VAZIO,
+  TEXTO_PENDENCIA,
+  analisar,
+  destinoDaForma,
+  fecharPrimeira,
+  fmtCentavos,
+  paraPayments,
+  rotuloLinha,
+  textoFinalizar,
+  type EstadoPagamento,
+} from './pagamento-balcao';
 // F8 do laboratório — ficha do caso da venda (opcional), gravada depois da venda.
 import {
   FICHA_VAZIA,
@@ -90,48 +101,57 @@ const itemUnits = (it: CartItem) => (it.toothFdis.length > 0 ? it.toothFdis.leng
 const unitPriceOf = (it: CartItem) =>
   it.customPrice != null ? it.customPrice : Number(it.procedure.base_price);
 
-// Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
-// quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
-// Onda 17.32.71 — CASH (especie/dinheiro) separado de PIX.
-// Onda 17.37 — formas "recebido na clínica" (CASH/CLINIC_CARD/CLINIC_PIX) NÃO
-// passam pelo Asaas online e entram no financeiro do paciente pra prestacao de
-// contas. Fase 0 — vão numa chamada só (POST /venda-rapida/balcao), já recebidas
-// e lançadas no caixa. PIX online continua gerando cobranca no Asaas.
-type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX' | 'CLINIC_PIX_MAQ';
-
-// Rotulo do metodo recebido na clinica (dialog de sucesso). As notas do orçamento
-// ("Venda rapida — recebido na clinica: ...") o servidor monta na venda de balcão.
-const CLINIC_METHOD_LABEL: Record<string, string> = {
-  CASH: 'Espécie',
-  CLINIC_CARD: 'Maquineta',
-  CLINIC_PIX: 'PIX da clínica',
-  CLINIC_PIX_MAQ: 'PIX (Maquineta)',
-};
-// Forma REAL -> token do caixa/comprovante (payments[].method da venda de balcão).
-// O comprovante ao paciente e o caixa usam isto — nunca "PIX" pra tudo.
-const CLINIC_RECEIVED_METHOD: Record<string, string> = {
-  CASH: 'DINHEIRO',
-  CLINIC_CARD: 'CARTAO',
-  CLINIC_PIX: 'PIX',
-  CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
-};
-const isClinicReceived = (t: BillingType) =>
-  t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX' || t === 'CLINIC_PIX_MAQ';
-// Mesmos tetos do VendaBalcaoDto (@ArrayMaxSize) — POST /venda-rapida/balcao.
+// Mesmo teto do VendaBalcaoDto (@ArrayMaxSize) — POST /venda-rapida/balcao.
 const MAX_ITENS_BALCAO = 60;
-const MAX_FORMAS_BALCAO = 6;
 
-// Onda 18.x — DIVIDIR EM VÁRIAS FORMAS: quando o paciente paga misturando (ex.: PIX +
-// espécie), cada linha vira uma RECEITA na conta certa do caixa. Formas oferecidas no
-// split usam os MESMOS tokens do caixa que o backend registra (receive-in-cash.payments).
-const SPLIT_FORMS: Array<{ method: string; label: string }> = [
-  { method: 'DINHEIRO', label: 'Espécie' },
-  { method: 'PIX', label: 'PIX da clínica' },
-  { method: 'PIX_MAQUININHA', label: 'PIX (Maquineta)' },
-  { method: 'CARTAO', label: 'Cartão (débito/crédito)' },
-];
-const SPLIT_METHOD_LABEL: Record<string, string> =
-  Object.fromEntries(SPLIT_FORMS.map((f) => [f.method, f.label]));
+type LinhaRecebida = { rotulo: string; centavos: number; destino: string };
+
+// Venda já enviada ao servidor. Fica no sessionStorage ANTES do POST e só sai com a
+// resposta: se a resposta não chegar (ou der F5 no meio), a tela reenvia ESTE corpo, com
+// a mesma chave, em vez de deixar montar de novo e duplicar a receita no caixa.
+interface VendaEnviada {
+  corpo: {
+    patient_id: string;
+    dentist_id: string;
+    items: Array<{ procedure_id: string; quantity: number; tooth_fdi?: string; unit_price?: number }>;
+    payments: ReturnType<typeof paraPayments>;
+    expected_total: number;
+    client_request_id: string;
+  };
+  pacienteNome: string;
+  totalCentavos: number;
+  linhas: LinhaRecebida[];
+  baixarEstoque: boolean;
+  ficha?: FichaDoCaso;
+}
+
+// Por usuário e conta: outra pessoa na mesma aba, ou o dono entrando em outra clínica, não
+// herda a venda (nem o nome do paciente).
+function chavePendente(): string {
+  let dono = '';
+  try {
+    const sessao = decodeJwtPayload(window.localStorage.getItem('token') ?? '');
+    dono = `${sessao?.sub ?? ''}:${sessao?.tenant_id ?? ''}`;
+  } catch { /* sem token legível: chave sem dono */ }
+  return `venda-rapida-pendente:${dono}`;
+}
+
+function lerPendente(): VendaEnviada | null {
+  try {
+    const salvo = window.sessionStorage.getItem(chavePendente());
+    const venda = salvo ? JSON.parse(salvo) : null;
+    return venda?.corpo?.client_request_id ? venda : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarPendente(venda: VendaEnviada | null) {
+  try {
+    if (venda) window.sessionStorage.setItem(chavePendente(), JSON.stringify(venda));
+    else window.sessionStorage.removeItem(chavePendente());
+  } catch { /* navegador sem storage: a trava em memória continua valendo até o F5 */ }
+}
 
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
@@ -175,12 +195,6 @@ const ICON_BY_TAB: Record<string, { Icon: any; bg: string; fg: string }> = {
   TODOS: { Icon: Smile, bg: 'bg-muted', fg: 'text-muted-foreground' },
 };
 
-// Onda 17.65 — cor da barra lateral do item no carrinho (por categoria).
-const BORDER_BY_TAB: Record<string, string> = {
-  PREVENCAO: 'bg-emerald-500', ESTETICA: 'bg-violet-500', CLINICO: 'bg-blue-500',
-  CIRURGIA: 'bg-amber-500', DIAGNOSTICO: 'bg-orange-500', TODOS: 'bg-muted-foreground/40',
-};
-
 function categoryToTab(cat?: string | null): string {
   if (!cat) return 'TODOS';
   return CATEGORY_TO_TAB[cat] || 'TODOS';
@@ -201,6 +215,17 @@ function tabForProcedure(p: { category?: string | null; name?: string | null }):
 
 function fmtBRL(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Preço com os centavos pequenos em cima, pra bater o olho no valor.
+function Preco({ valor, className = 'text-2xl' }: { valor: number; className?: string }) {
+  const [inteiro, centavos] = fmtBRL(valor).split(',');
+  return (
+    <span className={`inline-flex items-start font-semibold tabular-nums leading-none text-foreground ${className}`}>
+      <span>R$ {inteiro}</span>
+      <span className="ml-0.5 text-[0.55em] leading-none">{centavos}</span>
+    </span>
+  );
 }
 
 export default function VendaRapidaPage() {
@@ -259,41 +284,45 @@ export default function VendaRapidaPage() {
   // Onda 17.40 — dentista responsável pela venda (entra na comissão dele).
   const [dentists, setDentists] = useState<DentistOption[]>([]);
   const [dentistId, setDentistId] = useState<string>('');
-  // Onda 17.42 — padrão "Espécie" (online Asaas removido da venda rápida).
-  const [billingType, setBillingType] = useState<BillingType>('CASH');
-  // Onda 18.x — Maquineta em 2 cartões: cada cartão tem tipo (débito/crédito) +
-  // parcelas (se crédito). O cartão 1 tem o valor editável; o cartão 2 pega o
-  // RESTANTE (total − cartão 1), então a soma sempre bate com o total.
-  const [card1, setCard1] = useState<{ kind: 'DEBITO' | 'CREDITO'; value: number; inst: number }>({ kind: 'CREDITO', value: 0, inst: 1 });
-  const [card2, setCard2] = useState<{ kind: 'DEBITO' | 'CREDITO'; inst: number }>({ kind: 'CREDITO', inst: 1 });
-  // Onda 18.x — 2º cartão OPCIONAL na maquineta: começa com 1 cartão (valor cheio);
-  // o botão "adicionar 2º cartão" liga o split (card1 vira editável + card2 = restante).
-  const [split2, setSplit2] = useState(false);
-  // Onda 18.x — DIVIDIR EM VÁRIAS FORMAS: quando ligado, ignora `billingType` e usa
-  // estas linhas (forma + valor). Cada linha vira uma receita na conta certa do caixa.
-  const [mixMode, setMixMode] = useState(false);
-  const [mixLines, setMixLines] = useState<Array<{ method: string; value: number }>>([
-    { method: 'PIX', value: 0 },
-    { method: 'DINHEIRO', value: 0 },
-  ]);
+  // As 2 telas da venda: monta a venda → recebe o pagamento.
+  const [etapa, setEtapa] = useState<'venda' | 'pagamento'>('venda');
+  const [pagamento, setPagamento] = useState<EstadoPagamento>(PAGAMENTO_VAZIO);
+  // Total com que a forma foi escolhida. Se o carrinho mudar depois, a forma é limpa em
+  // vez de o valor mudar sozinho: o cartão pode já ter passado na máquina.
+  const totalDoPagamentoRef = useRef<number | null>(null);
+  const [valorMudou, setValorMudou] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  // Onda 17.32.70 — Dialog de sucesso com QR PIX ou link de cartao
+  // Trava síncrona do envio: `finishing` só vale no próximo render e um duplo clique chega antes.
+  const enviandoRef = useRef(false);
+  // Venda enviada sem resposta do servidor: a tela trava até reenviar ou conferir.
+  const [pendente, setPendente] = useState<VendaEnviada | null>(null);
   const [successDialog, setSuccessDialog] = useState<{
-    billingType: BillingType;
     total: number;
     patientName: string;
     patientId: string;
-    pixQrCode?: string | null;     // base64 da imagem
-    pixCopyPaste?: string | null;  // payload Pix
-    invoiceUrl?: string | null;    // url Asaas (cartao)
-    boletoUrl?: string | null;     // pdf boleto (nao usado mas mantido pra extensao)
-    mixLabel?: string | null;      // split "várias formas": PIX R$ x + Espécie R$ y
-    chargeExternalId?: string | null; // id Asaas — o dialog escuta a confirmação do PIX
+    linhas: LinhaRecebida[];
+    precisaValidar: boolean;
   } | null>(null);
   // Fase 0 — chave da venda de balcão (idempotência): reenviar o MESMO carrinho depois
   // de um timeout não vira 2 vendas. Mudou carrinho/paciente/dentista/pagamento → chave nova.
   const saleKeyRef = useRef<string | null>(null);
-  useEffect(() => { saleKeyRef.current = null; }, [cart, patient, dentistId, billingType, mixMode, mixLines, card1, card2, split2]);
+  useEffect(() => { saleKeyRef.current = null; }, [cart, patient, dentistId, pagamento]);
+
+  // F5 com venda no ar: volta travado nela, em vez de deixar montar de novo às cegas.
+  useEffect(() => { setPendente(lerPendente()); }, []);
+
+  const paginaRef = useRef<HTMLDivElement>(null);
+  const irAoTopo = () => paginaRef.current?.scrollTo({ top: 0 });
+
+  // Item novo rola pra vista: o rodapé fixo do carrinho (Total + botão) cobriria a linha.
+  const ultimoItemRef = useRef<HTMLLIElement>(null);
+  const qtdLinhasRef = useRef(0);
+  useEffect(() => {
+    if (cart.length > qtdLinhasRef.current && window.matchMedia('(min-width: 1024px)').matches) {
+      ultimoItemRef.current?.scrollIntoView({ block: 'nearest' });
+    }
+    qtdLinhasRef.current = cart.length;
+  }, [cart.length]);
 
   // Carrega procedimentos
   useEffect(() => {
@@ -306,25 +335,15 @@ export default function VendaRapidaPage() {
       .finally(() => setLoadingProc(false));
   }, []);
 
-  // Onda 18.x — PIX online (TESTE-SISTEMA) SÓ sai pela conta Asaas da PRÓPRIA
-  // clínica. `own_account` vem do backend (chave cadastrada no gateway ou matriz
-  // dona da global). null = ainda não sei; false = avisa na opção e barra o
-  // Finalizar com instrução. O backend barra também (defesa em 2 camadas).
-  const [asaasOwn, setAsaasOwn] = useState<boolean | null>(null);
-  useEffect(() => {
-    api.get<{ own_account?: boolean; configured?: boolean }>('/payment-gateway/settings')
-      .then(({ data }) => setAsaasOwn(data?.own_account ?? false))
-      .catch(() => setAsaasOwn(null));
-  }, []);
-  const ASAAS_MISSING_MSG =
-    'Esta clínica não tem a conta Asaas cadastrada. Cadastre a chave de API em Configurações → Gateway de pagamento pra gerar PIX online, ou use uma forma "Recebido na clínica".';
-
-  // Onda 17.40 — carrega dentistas pro seletor de responsável (comissão)
+  // Onda 17.40 — carrega dentistas pro seletor de responsável (comissão). Clínica com
+  // um dentista só já vem com ele marcado.
   useEffect(() => {
     api.get<any>('/users/lawyers')
       .then(({ data }) => {
         const list = Array.isArray(data) ? data : (data?.data || []);
-        setDentists(list.map((d: any) => ({ id: d.id, name: d.name })));
+        const opcoes: DentistOption[] = list.map((d: any) => ({ id: d.id, name: d.name }));
+        setDentists(opcoes);
+        if (opcoes.length === 1) setDentistId(opcoes[0].id);
       })
       .catch(() => { /* silencioso — seletor fica vazio */ });
   }, []);
@@ -457,253 +476,211 @@ export default function VendaRapidaPage() {
   // o desconto à vista do PIX. Desconto manual por item (override_price) segue
   // valendo via unitPriceOf; aqui não há mais desconto por forma de pagamento.
   const total = subtotal;
-  // Onda 18.x — split de 2 cartões: cartão 2 = restante; soma sempre = total.
-  const card2Value = Math.round(Math.max(0, total - card1.value) * 100) / 100;
-  // Só valida o split quando é Maquineta COM 2º cartão ativo — e não no modo "várias
-  // formas" (senão um Cartão 1 velho maior que o total travava o Finalizar sem aviso).
-  const isSplit = !mixMode && billingType === 'CLINIC_CARD' && split2;
-  const splitOk = !isSplit || (card1.value > 0 && card1.value < total);
-  // Dividir em várias formas: soma das linhas tem que bater com o total (2+ linhas, valores > 0).
-  const mixSum = Math.round(mixLines.reduce((s, l) => s + (Number(l.value) || 0), 0) * 100) / 100;
-  const mixOk =
-    !mixMode ||
-    (mixLines.length >= 2 &&
-      mixLines.every((l) => Number(l.value) > 0) &&
-      Math.abs(mixSum - total) < 0.01);
+  const totalCentavos = Math.round(total * 100);
+  const analise = analisar(pagamento, totalCentavos);
+  const estoqueTrava = baixarEstoque && !!consumo?.bloqueado;
+  const dentistaDaVenda = dentists.find((d) => d.id === dentistId);
 
-  // Finaliza venda
-  const handleFinish = async () => {
-    if (!patient) {
-      showError(lab ? LAB_VENDA_RAPIDA.erros.semCliente : 'Selecione um paciente antes de finalizar');
-      return;
-    }
-    if (cart.length === 0) {
-      showError(lab ? LAB_VENDA_RAPIDA.erros.semServico : 'Adicione ao menos 1 procedimento');
-      return;
-    }
-    if (!dentistId) {
-      showError(lab ? LAB_VENDA_RAPIDA.erros.semResponsavel : 'Selecione o dentista responsável antes de finalizar');
-      return;
-    }
+  // O que impede a venda, em português (em vez do 400 cru do ValidationPipe).
+  const erroDaVenda = (): string | null => {
+    if (!patient) return lab ? LAB_VENDA_RAPIDA.erros.semCliente : 'Selecione um paciente antes de finalizar';
+    if (cart.length === 0) return lab ? LAB_VENDA_RAPIDA.erros.semServico : 'Adicione ao menos 1 procedimento';
+    if (!dentistId) return lab ? LAB_VENDA_RAPIDA.erros.semResponsavel : 'Selecione o dentista responsável antes de finalizar';
     // F8 do laboratório — ficha do caso inválida (link, datas) trava antes de vender.
     const erroNaFicha = lab ? erroDaFicha(fichaDoCaso) : null;
-    if (erroNaFicha) {
-      showError(erroNaFicha);
-      return;
-    }
-    if (isSplit && !(card1.value > 0 && card1.value < total)) {
-      showError('Pagamento em 2 cartões: o valor do Cartão 1 deve ser maior que zero e menor que o total.');
-      return;
-    }
-    if (mixMode && !mixOk) {
-      showError(`Dividir em várias formas: a soma das formas (R$ ${mixSum.toFixed(2)}) tem que ser igual ao total (R$ ${total.toFixed(2)}).`);
-      return;
-    }
-    // Limites do servidor (VendaBalcaoDto) na venda recebida na clínica: avisa aqui em
-    // português em vez do 400 cru do ValidationPipe. Cada dente conta 1 item.
+    if (erroNaFicha) return erroNaFicha;
+    // Cada dente conta 1 item no limite do servidor (VendaBalcaoDto).
     const qtdItens = cart.reduce((n, it) => n + (it.toothFdis.length > 0 ? it.toothFdis.length : 1), 0);
-    if ((mixMode || isClinicReceived(billingType)) && qtdItens > MAX_ITENS_BALCAO) {
-      showError(lab ? LAB_VENDA_RAPIDA.erros.maxItens(MAX_ITENS_BALCAO, qtdItens) : `A venda rápida aceita até ${MAX_ITENS_BALCAO} itens (cada dente conta 1) — este carrinho tem ${qtdItens}. Divida em duas vendas.`);
+    if (qtdItens > MAX_ITENS_BALCAO) {
+      return lab ? LAB_VENDA_RAPIDA.erros.maxItens(MAX_ITENS_BALCAO, qtdItens) : `A venda rápida aceita até ${MAX_ITENS_BALCAO} itens (cada dente conta 1) — este carrinho tem ${qtdItens}. Divida em duas vendas.`;
+    }
+    if (totalCentavos <= 0) return 'Venda sem valor: confira os itens do carrinho.';
+    return null;
+  };
+
+  const irParaPagamento = () => {
+    const erro = erroDaVenda();
+    if (erro) {
+      showError(erro);
       return;
     }
-    // PIX online sem conta Asaas própria: barra aqui (o backend barra de novo).
-    if (!mixMode && billingType === 'PIX' && asaasOwn === false) {
-      showError(ASAAS_MISSING_MSG);
-      return;
-    }
+    const mudou = pagamento !== PAGAMENTO_VAZIO && totalDoPagamentoRef.current !== totalCentavos;
+    if (mudou) setPagamento(PAGAMENTO_VAZIO);
+    setValorMudou(mudou);
+    totalDoPagamentoRef.current = totalCentavos;
+    setEtapa('pagamento');
+    irAoTopo();
+  };
+
+  const voltarParaVenda = () => {
+    setEtapa('venda');
+    setValorMudou(false);
+    irAoTopo();
+  };
+
+  // Nova venda começa do zero: a próxima não herda paciente nem forma da anterior.
+  const zerarVenda = () => {
+    setCart([]);
+    setPatient(null);
+    setPatientQuery('');
+    setPatientResults([]);
+    setDentistId(dentists.length === 1 ? dentists[0].id : '');
+    setPagamento(PAGAMENTO_VAZIO);
+    totalDoPagamentoRef.current = null;
+    setValorMudou(false);
+    setBaixarEstoque(true);
+    setEtapa('venda');
+    if (lab) setFichaDoCaso(FICHA_VAZIA);
+    irAoTopo();
+  };
+
+  // Envia (ou reenvia) a venda. O servidor recalcula o total, confere a soma das formas,
+  // cria orçamento+plano+cobrança LOCAL e lança no caixa, cada forma na sua conta. Se algo
+  // falhar no meio, ele desfaz: nada fica "recebido" fora do caixa.
+  const enviarVenda = async (envio: VendaEnviada, reenvio = false) => {
+    if (enviandoRef.current) return;
+    enviandoRef.current = true;
     setFinishing(true);
+    const avisarSemConfirmacao = () => showError('Ainda sem confirmação. A venda continua aqui: tente de novo em instantes.');
+    try {
+      // Payload EXATO do VendaBalcaoDto (o servidor recusa campo a mais).
+      const { data: sale } = await api.post<any>('/venda-rapida/balcao', envio.corpo);
+      // Reenvio com a 1ª tentativa ainda rodando no servidor: a cobrança existe, mas a receita
+      // ainda não. Se o caixa dela falhar, a venda é desfeita: ainda não dá pra dizer que vendeu.
+      if (reenvio && sale?.idempotent && !sale?.transaction_id) {
+        setPendente(envio);
+        avisarSemConfirmacao();
+        return;
+      }
+      // Baixa do material no estoque. Idempotente por quote_id no backend, então um retry
+      // desta tela não baixa duas vezes. Best-effort DE PROPÓSITO: a venda já existe e o
+      // paciente já pagou — falhar a baixa aqui não pode desfazer a venda. Se der errado,
+      // avisa pra alguém ajustar na mão.
+      if (sale?.quote_id && envio.baixarEstoque) {
+        try {
+          await api.post('/inventory/consumption/commit', {
+            quote_id: sale.quote_id,
+            items: envio.corpo.items.map((i) => ({ procedure_id: i.procedure_id, quantity: i.quantity })),
+            notes: 'Venda rápida (balcão)',
+          });
+        } catch (e: unknown) {
+          const erroBaixa = e as { response?: { data?: { message?: string } } };
+          showError(
+            'A venda foi registrada, mas a baixa do estoque falhou: ' +
+            (erroBaixa?.response?.data?.message || 'erro desconhecido') +
+            ' — ajuste em Estoque → Movimentações.',
+          );
+        }
+      }
+      // F8 do laboratório — ficha do caso no orçamento que a venda criou (PUT upsert;
+      // falhar não desfaz a venda: só avisa).
+      if (lab && sale?.quote_id) await gravarFichaDaVenda(sale.quote_id, envio.ficha ?? FICHA_VAZIA);
+      // Só sai da pendência aqui: F5 durante a baixa ou a ficha reenvia e completa (tudo idempotente).
+      guardarPendente(null);
+      setPendente(null);
+      setSuccessDialog({
+        total: Number(sale?.total) || envio.totalCentavos / 100,
+        patientName: envio.pacienteNome,
+        patientId: envio.corpo.patient_id,
+        linhas: envio.linhas,
+        precisaValidar: sale?.auto_validated === false,
+      });
+      saleKeyRef.current = null;
+      zerarVenda();
+      showSuccess('Venda finalizada!');
+    } catch (err: any) {
+      const status: number = Number(err?.response?.status) || 0;
+      const semResposta = !err?.response || status >= 500 || status === 409 || status === 408 || status === 429;
+      // No reenvio, só o 400 é recusa de verdade: o serviço confere a chave antes de validar. 401,
+      // 403 e 404 vêm antes disso (API reiniciando, guard) e nada dizem sobre a 1ª tentativa.
+      if (semResposta || (reenvio && status !== 400)) {
+        // Rede/timeout, 5xx/52x (proxy/Cloudflare), 409 (a mesma venda em andamento), 408/429:
+        // a venda PODE ter entrado. Trava a tela nela: o reenvio usa a mesma chave e devolve a
+        // venda existente em vez de lançar outra receita no caixa.
+        setPendente(envio);
+        if (reenvio) avisarSemConfirmacao();
+      } else {
+        // O servidor recusou (4xx de regra/permissão) ou desfez a venda: nada ficou
+        // registrado, a próxima tentativa é uma venda nova.
+        guardarPendente(null);
+        setPendente(null);
+        saleKeyRef.current = null;
+        const msg = err.response.data?.message || 'Erro ao finalizar venda';
+        showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
+      }
+    } finally {
+      enviandoRef.current = false;
+      setFinishing(false);
+    }
+  };
+
+  // O botão do resumo: fecha a primeira forma (quando divide) ou finaliza a venda.
+  const acaoDoPagamento = () => {
+    if (enviandoRef.current) return;
+    if (analise.acao === 'CONTINUAR') {
+      setPagamento(fecharPrimeira(pagamento, totalCentavos));
+      return;
+    }
+    if (analise.acao !== 'FINALIZAR' || estoqueTrava) return;
+    const erro = erroDaVenda();
+    if (erro || !patient) {
+      if (erro) showError(erro);
+      return;
+    }
     // Itens da venda: item com dentes vira 1 item POR dente (tooth_fdi), pra entrar no
     // odontograma/tratamento e a dentista validar dente a dente; sem dentes = por
     // quantidade (limpeza, clareamento). Desconto vai como unit_price (omitido = preço
     // de tabela); o backend bloqueia sem a permissão override_price.
-    const itemsPayload = cart.flatMap((it) => {
+    const items = cart.flatMap((it) => {
       const priceOverride = it.customPrice != null ? { unit_price: it.customPrice } : {};
       return it.toothFdis.length > 0
         ? it.toothFdis.map((fdi) => ({ procedure_id: it.procedure.id, quantity: 1, tooth_fdi: fdi, ...priceOverride }))
         : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride }];
     });
-    // Baixa do material no estoque. Idempotente por quote_id no backend, então um retry
-    // desta tela não baixa duas vezes. Best-effort DE PROPÓSITO: a venda já existe e o
-    // paciente já está pagando — falhar a baixa aqui não pode desfazer a venda. Se der
-    // errado, avisa pra alguém ajustar na mão.
-    const baixarEstoqueDaVenda = async (quoteId: string) => {
-      if (!(baixarEstoque && consumo && consumo.items.length > 0)) return;
-      try {
-        await api.post('/inventory/consumption/commit', {
-          quote_id: quoteId,
-          items: cart.flatMap((it) =>
-            it.toothFdis.length > 0
-              ? it.toothFdis.map(() => ({ procedure_id: it.procedure.id, quantity: 1 }))
-              : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
-          ),
-          notes: 'Venda rápida (balcão)',
-        });
-      } catch (e: unknown) {
-        const err = e as { response?: { data?: { message?: string } } };
-        showError(
-          'A venda foi registrada, mas a baixa do estoque falhou: ' +
-          (err?.response?.data?.message || 'erro desconhecido') +
-          ' — ajuste em Estoque → Movimentações.',
-        );
-      }
+    if (!saleKeyRef.current) saleKeyRef.current = crypto.randomUUID();
+    const envio: VendaEnviada = {
+      corpo: {
+        patient_id: patient.id,
+        dentist_id: dentistId,
+        items,
+        payments: paraPayments(analise.linhas),
+        expected_total: totalCentavos / 100,
+        client_request_id: saleKeyRef.current,
+      },
+      pacienteNome: patient.name,
+      totalCentavos,
+      linhas: analise.linhas.map((l) => ({
+        rotulo: rotuloLinha(l),
+        centavos: l.centavos,
+        destino: destinoDaForma(l.forma),
+      })),
+      baixarEstoque: baixarEstoque && !!consumo && consumo.items.length > 0,
+      ...(lab ? { ficha: fichaDoCaso } : {}),
     };
-    // Dividir em várias formas também é "recebido na clínica" (cai só no caixa).
-    const clinicReceived = mixMode || isClinicReceived(billingType);
-    const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
-    try {
-      if (clinicReceived) {
-        // Fase 0 — RECEBIDO NA CLÍNICA: UMA chamada. O servidor recalcula o total, confere
-        // a soma das formas, cria orçamento+plano+cobrança LOCAL e lança no caixa (cada
-        // forma na sua conta). Se algo falhar no meio, ele desfaz — nada fica "recebido"
-        // fora do caixa. Antes eram 3 chamadas e a 3ª (caixa) podia falhar sozinha.
-        let payments: Array<{ method: string; value: number; installments?: number; debit?: boolean }>;
-        if (mixMode) {
-          // Cada linha vira UMA receita na conta certa do caixa (DINHEIRO→CAIXA, PIX→BANCO, CARTAO→CARTAO).
-          payments = mixLines.map((l) => ({ method: l.method, value: round2(l.value) }));
-        } else if (billingType === 'CLINIC_CARD') {
-          // Maquineta: 1 cartão (valor cheio) ou 2 cartões (split2). method='CARTAO' pros
-          // dois (o caixa tem 1 balde "Maquininha/cartão" p/ débito E crédito); `debit` só
-          // refina a descrição. c2 deriva do c1 arredondado → soma exata.
-          const c1 = split2 ? round2(card1.value) : round2(total);
-          payments = [{
-            method: 'CARTAO',
-            value: c1,
-            installments: card1.kind === 'CREDITO' ? card1.inst : undefined,
-            debit: card1.kind === 'DEBITO',
-          }];
-          if (split2) {
-            payments.push({
-              method: 'CARTAO',
-              value: round2(total - c1),
-              installments: card2.kind === 'CREDITO' ? card2.inst : undefined,
-              debit: card2.kind === 'DEBITO',
-            });
-          }
-        } else {
-          payments = [{ method: CLINIC_RECEIVED_METHOD[billingType], value: round2(total) }];
-        }
-        if (!saleKeyRef.current) saleKeyRef.current = crypto.randomUUID();
-        // Payload EXATO do VendaBalcaoDto (o servidor recusa campo a mais).
-        const { data: sale } = await api.post<any>('/venda-rapida/balcao', {
-          patient_id: patient.id,
-          dentist_id: dentistId,
-          items: itemsPayload,
-          payments,
-          expected_total: Math.round(total * 100) / 100,
-          client_request_id: saleKeyRef.current,
-        });
-        if (sale?.quote_id) await baixarEstoqueDaVenda(sale.quote_id);
-        // F8 do laboratório — ficha do caso no orçamento que a venda criou (PUT upsert;
-        // falhar não desfaz a venda: só avisa).
-        if (lab && sale?.quote_id) await gravarFichaDaVenda(sale.quote_id, fichaDoCaso);
-        setSuccessDialog({
-          billingType,
-          total: Number(sale?.total) || total,
-          patientName: patient.name,
-          patientId: patient.id,
-          pixQrCode: null,
-          pixCopyPaste: null,
-          invoiceUrl: null,
-          boletoUrl: null,
-          chargeExternalId: null,
-          mixLabel: mixMode
-            ? mixLines.map((l) => `${(lab && LAB_VENDA_RAPIDA.formaSplit[l.method]) || SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
-            : null,
-        });
-        saleKeyRef.current = null;
-        setCart([]);
-        if (lab) setFichaDoCaso(FICHA_VAZIA);
-        showSuccess('Venda finalizada!');
-        return;
-      }
-
-      // PIX ONLINE (QR do Asaas): fluxo antigo — orçamento + approve-and-bill. A
-      // cobrança fica em aberto e o webhook confirma quando o paciente pagar.
-      // 1. Cria Quote (com items). Sem desconto por forma de pagamento (preço cheio).
-      const { data: quoteData } = await api.post<any>(
-        `/patients/${patient.id}/quotes`,
-        {
-          title: 'Venda rápida',
-          // Onda 17.40 — dentista responsável em cada item (registro + relatório por dentista).
-          items: itemsPayload.map((i) => ({ ...i, dentist_id: dentistId })),
-          discount_percent: 0,
-          notes: 'Venda rapida (balcao sem avaliacao)',
-        },
-      );
-      const quoteId = quoteData?.id || quoteData?.quote?.id;
-      if (!quoteId) throw new Error('Falha ao criar orcamento');
-
-      // 1.5. Baixa do material no estoque (best-effort).
-      await baixarEstoqueDaVenda(quoteId);
-
-      // 2. approveAndBill — gera o PIX no Asaas. Fase 0: sem auto_execute_items nem
-      // executed_by_dentist_id (o servidor ignora; procedimento é o dentista que conclui).
-      const { data: billData } = await api.post<any>(
-        `/quotes/${quoteId}/approve-and-bill`,
-        {
-          billing_type: billingType,
-          received_in_clinic: false,
-          // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida maxDecimalPlaces: 2).
-          value: Math.round(total * 100) / 100,
-          installment_count: undefined,
-          // Venda RÁPIDA com PIX online: o backend NÃO dispara "negociação aprovada"
-          // (+PDF) antes do pagamento — só o PIX copia-e-cola.
-          quick_sale: true,
-        },
-      );
-
-      // Onda 17.32.70 — Dialog de sucesso (QR do PIX; escuta a confirmação do Asaas)
-      setSuccessDialog({
-        billingType,
-        total,
-        patientName: patient.name,
-        patientId: patient.id,
-        pixQrCode: billData?.pix?.qrCode || null,
-        pixCopyPaste: billData?.pix?.copyPaste || null,
-        invoiceUrl: billData?.invoice_url || null,
-        boletoUrl: billData?.boleto?.url || null,
-        chargeExternalId: billData?.charge?.external_id || null,
-        mixLabel: null,
-      });
-      setCart([]);
-      showSuccess('Venda finalizada!');
-    } catch (err: any) {
-      const status: number = Number(err?.response?.status) || 0;
-      if (err?.response && clinicReceived && (status >= 500 || status === 409 || status === 408 || status === 429)) {
-        // Fase 0 — 5xx/52x (proxy/Cloudflare caiu ou estourou o tempo), 409 (a mesma venda
-        // em andamento), 408/429: a venda PODE ter entrado. Mantém a chave — o retry devolve
-        // a venda existente em vez de lançar outra receita no caixa.
-        const msg = err.response.data?.message;
-        const aviso = lab ? LAB_VENDA_RAPIDA.erros.confira : 'Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.';
-        showError(typeof msg === 'string' && status < 500 ? `${msg}. ${aviso}` : aviso);
-      } else if (err?.response) {
-        // O servidor recusou (4xx de regra/permissão) ou desfez a venda: nada ficou
-        // registrado, a próxima tentativa é uma venda nova.
-        if (clinicReceived) saleKeyRef.current = null;
-        const msg = err.response.data?.message || 'Erro ao finalizar venda';
-        showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
-      } else if (clinicReceived) {
-        // Rede/timeout: a venda PODE ter entrado. Mantém a chave — o retry não duplica.
-        showError(lab ? LAB_VENDA_RAPIDA.erros.semResposta : 'Sem resposta do servidor. Confira no Financeiro do paciente — se tentar de novo, a venda não duplica.');
-      } else {
-        // PIX online não tem chave de idempotência: conferir antes de tentar de novo.
-        showError(err?.message && err.message !== 'Network Error'
-          ? err.message
-          : 'Sem resposta do servidor. Confira no Financeiro do paciente antes de tentar de novo.');
-      }
-    } finally {
-      setFinishing(false);
-    }
+    guardarPendente(envio);
+    void enviarVenda(envio);
   };
+
+  // Conferiu e a venda não entrou: libera a tela pra começar outra. Se entrou, o caminho é o
+  // "Tentar de novo": devolve a mesma venda e completa a baixa do estoque, que depende da resposta.
+  const descartarPendente = () => {
+    guardarPendente(null);
+    setPendente(null);
+    saleKeyRef.current = null;
+    zerarVenda();
+  };
+
+  const podeVerCaixa = hasPermission('operate_cash') && (!lab || labAllowsRoute('/atendimento/caixa'));
+  const podeVerFicha = !lab || labAllowsRoute('/atendimento/pacientes');
 
   return (
     // h-full overflow-y-auto: o <main> do atendimento é overflow-hidden. Sem isso, em
-    // tela pequena/estreita (layout empilhado, carrinho não-sticky) o botão "Finalizar
-    // venda" caía abaixo da dobra e a página não rolava pra alcançá-lo.
-    <div className="h-full overflow-y-auto p-6 max-w-7xl mx-auto">
+    // tela pequena/estreita (layout empilhado, carrinho não-sticky) o botão do carrinho
+    // caía abaixo da dobra e a página não rolava pra alcançá-lo.
+    <div ref={paginaRef} className="h-full overflow-y-auto p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex flex-wrap items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-md">
             <Zap size={20} className="text-white" strokeWidth={2.5} />
           </div>
@@ -711,6 +688,19 @@ export default function VendaRapidaPage() {
           <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-400">
             {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
           </span>
+          <ol aria-label="Etapas da venda" className="flex w-full items-center gap-2 text-xs font-semibold sm:ml-auto sm:w-auto">
+            <li className={`inline-flex items-center gap-1.5 ${etapa === 'venda' ? 'text-foreground' : 'text-emerald-700 dark:text-emerald-400'}`}>
+              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'venda' ? 'bg-foreground text-background' : 'bg-emerald-500/15'}`}>
+                {etapa === 'venda' ? '1' : <Check size={12} strokeWidth={3} />}
+              </span>
+              Venda
+            </li>
+            <li aria-hidden="true" className="h-px w-6 bg-border" />
+            <li className={`inline-flex items-center gap-1.5 ${etapa === 'pagamento' ? 'text-foreground' : 'text-muted-foreground'}`}>
+              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'pagamento' ? 'bg-foreground text-background' : 'bg-muted'}`}>2</span>
+              Pagamento
+            </li>
+          </ol>
         </div>
         {lab ? (
           <p className="text-sm text-muted-foreground">
@@ -724,6 +714,66 @@ export default function VendaRapidaPage() {
         )}
       </div>
 
+      {pendente ? (
+        <div role="alert" className="mx-auto max-w-xl rounded-xl border border-amber-500/40 bg-card p-6 shadow-sm">
+          <div className="mb-3 flex items-center gap-3">
+            <AlertCircle size={22} className="shrink-0 text-amber-600" />
+            <h2 className="text-lg font-bold text-foreground">A venda ficou sem confirmação</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {lab
+              ? LAB_VENDA_RAPIDA.semConfirmacao(fmtCentavos(pendente.totalCentavos), pendente.pacienteNome)
+              : `Não chegou a resposta do servidor: a venda de R$ ${fmtCentavos(pendente.totalCentavos)} para ${pendente.pacienteNome} pode ter entrado.`}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-foreground">Tentar de novo é seguro: a mesma venda não duplica no caixa e a baixa do estoque se completa.</p>
+          <ul className="my-4 divide-y divide-border rounded-lg border border-border">
+            {pendente.linhas.map((l, i) => (
+              <li key={i} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                <span className="text-foreground">{l.rotulo}</span>
+                <span className="font-semibold tabular-nums">R$ {fmtCentavos(l.centavos)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => void enviarVenda(pendente, true)}
+              disabled={finishing}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {finishing && <Loader2 size={14} className="animate-spin" />}
+              Tentar de novo
+            </button>
+            {podeVerCaixa ? (
+              <button
+                type="button"
+                onClick={() => router.push('/atendimento/caixa')}
+                disabled={finishing}
+                className="flex-1 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-accent/40 disabled:opacity-60"
+              >
+                Conferir no Caixa do dia
+              </button>
+            ) : podeVerFicha ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/atendimento/pacientes/${pendente.corpo.patient_id}?tab=financial`)}
+                disabled={finishing}
+                className="flex-1 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-accent/40 disabled:opacity-60"
+              >
+                {lab ? LAB_VENDA_RAPIDA.verFinanceiro : 'Conferir no Financeiro do paciente'}
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={descartarPendente}
+            disabled={finishing}
+            className="mt-3 w-full text-center text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60"
+          >
+            Conferi e não entrou, começar outra venda
+          </button>
+        </div>
+      ) : etapa === 'venda' ? (
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
         {/* COLUNA ESQUERDA — Procedimentos */}
         <div>
@@ -770,42 +820,40 @@ export default function VendaRapidaPage() {
                 : (lab ? LAB_VENDA_RAPIDA.nadaLiberado : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.')}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {filteredProcedures.map((p) => {
                 const tabKey = lab ? 'TODOS' : tabForProcedure(p);
                 const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                 const inCart = cart.find((it) => it.procedure.id === p.id);
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={p.id}
-                    className={`bg-card border rounded-xl p-4 transition-all hover:shadow-md ${
-                      inCart ? 'border-orange-500/40 ring-2 ring-orange-500/20' : 'border-border'
+                    onClick={() => addToCart(p)}
+                    className={`group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                      inCart ? 'border-emerald-500 ring-1 ring-emerald-500/30' : 'border-transparent'
                     }`}
                   >
-                    <div className={`w-10 h-10 rounded-lg ${iconCfg.bg} flex items-center justify-center mb-3`}>
-                      <iconCfg.Icon size={18} className={iconCfg.fg} />
-                    </div>
-                    {!lab && (
-                    <p className={`text-[10px] uppercase tracking-wider font-bold mb-1 ${iconCfg.fg}`}>
-                      {(TABS.find((t) => t.key === tabKey)?.label || p.category || '').toUpperCase()}
-                    </p>
-                    )}
-                    <p className="text-sm font-bold text-foreground mb-1 line-clamp-2">{p.name}</p>
-                    {!lab && p.duration_minutes && (
-                      <p className="text-[11px] text-muted-foreground mb-2">⏱ {p.duration_minutes} min</p>
-                    )}
-                    <p className="text-lg font-extrabold text-foreground tabular-nums mb-3">
-                      R$ {fmtBRL(Number(p.base_price))}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => addToCart(p)}
-                      className="w-full text-xs font-bold px-3 py-2 rounded-md border-2 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10 text-orange-700 dark:text-orange-400 transition-colors inline-flex items-center justify-center gap-1.5"
-                    >
-                      <Plus size={12} strokeWidth={3} />
-                      {inCart ? `Adicionar (${inCart.quantity})` : 'Adicionar'}
-                    </button>
-                  </div>
+                    <span className={`relative flex h-24 w-full items-center justify-center ${iconCfg.bg}`}>
+                      <iconCfg.Icon size={34} className={iconCfg.fg} />
+                      {inCart && (
+                        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white">
+                          <Check size={11} strokeWidth={3} /> {inCart.quantity}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex flex-1 flex-col p-3">
+                      <span className="mb-2 line-clamp-2 min-h-[2.5rem] text-sm text-foreground">{p.name}</span>
+                      <Preco valor={Number(p.base_price)} className="text-xl" />
+                      {!lab && p.duration_minutes && (
+                        <span className="mt-1.5 text-[11px] text-muted-foreground">⏱ {p.duration_minutes} min</span>
+                      )}
+                      <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-700 group-hover:underline dark:text-emerald-400">
+                        <Plus size={12} strokeWidth={3} />
+                        {inCart ? `Adicionar (${inCart.quantity})` : 'Adicionar'}
+                      </span>
+                    </span>
+                  </button>
                 );
               })}
             </div>
@@ -813,7 +861,7 @@ export default function VendaRapidaPage() {
         </div>
 
         {/* COLUNA DIREITA — Sidebar carrinho */}
-        <aside className="bg-card border border-border rounded-xl p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto h-fit">
+        <aside className="bg-card border border-border rounded-xl p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
           {/* Paciente */}
           <div className="mb-4">
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
@@ -953,20 +1001,17 @@ export default function VendaRapidaPage() {
                 {lab ? LAB_VENDA_RAPIDA.carrinhoVazio : 'Clique num procedimento para começar a venda'}
               </div>
             ) : (
-              <ul className="space-y-2">
-                {cart.map((it) => {
+              <ul className="divide-y divide-border">
+                {cart.map((it, idx) => {
                   const hasTeeth = it.toothFdis.length > 0;
                   // Onda 17.65 — visual por categoria (ícone + cor + chip), igual aos cards da esquerda.
                   const tabKey = lab ? 'TODOS' : tabForProcedure(it.procedure);
                   const catMeta = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                   const CatIcon = catMeta.Icon;
                   const catLabel = TABS.find((t) => t.key === tabKey)?.label || '';
-                  const borderCls = BORDER_BY_TAB[tabKey] || 'bg-border';
                   const lineTotal = unitPriceOf(it) * itemUnits(it);
                   return (
-                  <li key={it.procedure.id} className="relative bg-card border border-border rounded-xl pl-4 pr-3 py-3 overflow-hidden shadow-sm">
-                    {/* Barra lateral colorida por categoria */}
-                    <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${borderCls}`} />
+                  <li key={it.procedure.id} ref={idx === cart.length - 1 ? ultimoItemRef : undefined} className="py-3 first:pt-0 scroll-mb-40">
                     <div className="flex items-start gap-2.5">
                       {/* Ícone da categoria */}
                       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${catMeta.bg} ${catMeta.fg}`}>
@@ -1085,245 +1130,115 @@ export default function VendaRapidaPage() {
             />
           )}
 
-          {/* Forma de pagamento */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2 gap-2">
-              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
-                Forma de pagamento
-              </p>
-              <button
-                type="button"
-                onClick={() => setMixMode((v) => !v)}
-                className={`text-[10px] font-bold px-2 py-1 rounded-md border transition-colors shrink-0 ${
-                  mixMode
-                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700'
-                    : 'border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground'
-                }`}
-              >
-                {mixMode ? '✕ Uma forma só' : '➗ Dividir em várias formas'}
-              </button>
-            </div>
-            {!mixMode ? (
-            <>
-            <div className="space-y-1.5">
-              {([
-                // Onda 17.42 — Venda Rápida só recebe NA CLÍNICA (cobrança online
-                // via Asaas foi removida — PIX QR / Cartão link saíram do balcão).
-                { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
-                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta', sub: 'débito ou crédito · 1 ou 2 cartões', Icon: CreditCard },
-                { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
-                { group: 'Recebido na clínica', key: 'CLINIC_PIX_MAQ' as BillingType, label: 'PIX (Maquineta)', sub: 'PIX na máquina de cartão', Icon: CreditCard },
-                // Onda 18.x — TESTE-SISTEMA: reabre o PIX ONLINE do Asaas na venda rápida
-                // (caminho que já existia: billingType='PIX' sem received_in_clinic →
-                // approve-and-bill gera a cobrança PIX no Asaas, o dialog mostra QR +
-                // copia-e-cola e o backend manda o copia-e-cola no WhatsApp do paciente;
-                // a baixa vem pelo webhook). NÃO entra no caixa na hora.
-                { group: 'Cobrança online (Asaas)', key: 'PIX' as BillingType, label: 'TESTE-SISTEMA', sub: 'gera PIX no Asaas · QR code + copia e cola', Icon: QrCode },
-                // F5 do laboratório: sem o PIX online do Asaas (só formas recebidas no balcão).
-              ]).filter((m) => !lab || m.key !== 'PIX').map((m, idx, arr) => {
-                const isActive = billingType === m.key;
-                const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
-                // PIX online sem conta Asaas própria da clínica: mostra o aviso na opção.
-                const asaasMissing = m.key === 'PIX' && asaasOwn === false;
-                return (
-                  <div key={m.key}>
-                    {showHeader && (
-                      <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/70 mb-1 mt-2 first:mt-0">
-                        {lab && isClinicReceived(m.key) ? LAB_VENDA_RAPIDA.grupoRecebido : m.group}
-                      </p>
-                    )}
-                  <button
-                    type="button"
-                    onClick={() => setBillingType(m.key)}
-                    className={`w-full text-left p-2.5 rounded-lg border-2 transition-colors flex items-center gap-2 ${
-                      isActive
-                        ? 'border-emerald-500 bg-emerald-500/10'
-                        : 'border-border bg-card hover:bg-accent/40'
-                    }`}
-                  >
-                    <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
-                      isActive ? 'bg-emerald-500/20 text-emerald-700' : 'bg-muted text-muted-foreground'
-                    }`}>
-                      <m.Icon size={14} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-foreground">{(lab && LAB_VENDA_RAPIDA.formaRotulo[m.key]) || m.label}</p>
-                      <p className="text-[10px] text-muted-foreground">{(lab && LAB_VENDA_RAPIDA.formaSub[m.key]) || m.sub}</p>
-                      {asaasMissing && (
-                        <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold mt-0.5 flex items-center gap-1">
-                          <AlertCircle size={10} className="shrink-0" />
-                          Conta Asaas não cadastrada — Configurações → Gateway de pagamento
-                        </p>
-                      )}
-                    </div>
-                    {isActive && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
-                  </button>
-                  </div>
-                );
-              })}
-            </div>
-            {billingType === 'CLINIC_CARD' && (
-              <div className="mt-2 space-y-2">
-                {/* Cartão 1 (ou único) */}
-                <div className="rounded-lg border border-border p-2.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-foreground">{split2 ? 'Cartão 1' : 'Cartão'}</span>
-                    <div className="flex gap-1">
-                      {(['DEBITO', 'CREDITO'] as const).map((k) => (
-                        <button key={k} type="button" onClick={() => setCard1((c) => ({ ...c, kind: k }))}
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
-                            card1.kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700' : 'border-border text-muted-foreground hover:bg-accent/40'
-                          }`}>
-                          {k === 'DEBITO' ? 'Débito' : 'Crédito'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {split2 ? (
-                      <>
-                        <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
-                        <input type="number" min={0} max={total} step="0.01"
-                          value={card1.value || ''}
-                          onChange={(e) => setCard1((c) => ({ ...c, value: Math.round(Math.max(0, Math.min(total, Number(e.target.value) || 0)) * 100) / 100 }))}
-                          placeholder="0,00"
-                          className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
-                      </>
-                    ) : (
-                      <span className="flex-1 text-[11px] text-muted-foreground">Valor: <span className="font-semibold text-foreground">R$ {fmtBRL(total)}</span></span>
-                    )}
-                    {card1.kind === 'CREDITO' && (
-                      <select value={card1.inst} onChange={(e) => setCard1((c) => ({ ...c, inst: Number(e.target.value) }))}
-                        className="shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
-                        {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}×`}</option>)}
-                      </select>
-                    )}
-                  </div>
-                </div>
-                {/* Cartão 2 — OPCIONAL (restante) */}
-                {split2 && (
-                  <div className="rounded-lg border border-border p-2.5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-foreground">Cartão 2 · restante</span>
-                      <div className="flex items-center gap-1">
-                        {(['DEBITO', 'CREDITO'] as const).map((k) => (
-                          <button key={k} type="button" onClick={() => setCard2((c) => ({ ...c, kind: k }))}
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
-                              card2.kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700' : 'border-border text-muted-foreground hover:bg-accent/40'
-                            }`}>
-                            {k === 'DEBITO' ? 'Débito' : 'Crédito'}
-                          </button>
-                        ))}
-                        <button type="button" onClick={() => setSplit2(false)} title="Remover 2º cartão"
-                          className="ml-1 px-1.5 py-0.5 rounded text-[11px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">✕</button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
-                      <div className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-muted/40 text-foreground font-semibold tabular-nums">{fmtBRL(card2Value)}</div>
-                      {card2.kind === 'CREDITO' && (
-                        <select value={card2.inst} onChange={(e) => setCard2((c) => ({ ...c, inst: Number(e.target.value) }))}
-                          className="shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
-                          {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}×`}</option>)}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {/* Botão "adicionar 2º cartão" (opcional) OU conferência da soma */}
-                {!split2 ? (
-                  <button type="button" onClick={() => { setSplit2(true); setCard1((c) => ({ ...c, value: 0 })); }}
-                    className="w-full py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
-                    + adicionar 2º cartão
-                  </button>
-                ) : (
-                  <div className={`flex items-center justify-between text-[11px] px-1 ${splitOk ? 'text-emerald-600' : 'text-red-600'}`}>
-                    <span className="font-semibold">{splitOk ? '✓ Soma confere' : 'Ajuste o valor do Cartão 1'}</span>
-                    <span className="font-bold tabular-nums">{fmtBRL(card1.value)} + {fmtBRL(card2Value)} = {fmtBRL(total)}</span>
-                  </div>
-                )}
-                <p className="text-[10px] text-muted-foreground">Parcelas são só info pra bater com o extrato da maquininha. O valor entra no caixa de hoje.</p>
-              </div>
-            )}
-            </>
-            ) : (
-            /* Dividir em várias formas — lista de linhas (forma + valor). Cada linha vira
-               uma receita na conta certa do caixa. Soma tem que bater com o total. */
-            <div className="space-y-2">
-              <p className="text-[11px] text-muted-foreground">
-                Pagou misturando formas (ex.: PIX + espécie)? Some cada uma até bater o total. Cada forma entra na conta certa do caixa.
-              </p>
-              {mixLines.map((line, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2">
-                  <select
-                    value={line.method}
-                    onChange={(e) => setMixLines((ls) => ls.map((l, j) => (j === i ? { ...l, method: e.target.value } : l)))}
-                    className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  >
-                    {SPLIT_FORMS.map((f) => <option key={f.method} value={f.method}>{(lab && LAB_VENDA_RAPIDA.formaSplit[f.method]) || f.label}</option>)}
-                  </select>
-                  <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
-                  <input
-                    type="number" min={0} step="0.01"
-                    value={line.value || ''}
-                    onChange={(e) => setMixLines((ls) => ls.map((l, j) => (j === i ? { ...l, value: Math.round(Math.max(0, Number(e.target.value) || 0) * 100) / 100 } : l)))}
-                    placeholder="0,00"
-                    className="w-24 shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground text-right focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  />
-                  {mixLines.length > 2 ? (
-                    <button type="button" onClick={() => setMixLines((ls) => ls.filter((_, j) => j !== i))} title="Remover forma"
-                      className="shrink-0 px-1.5 py-0.5 rounded text-[13px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">✕</button>
-                  ) : (
-                    <span className="w-6 shrink-0" />
-                  )}
-                </div>
-              ))}
-              <div className="flex items-center gap-2">
-                {mixLines.length < MAX_FORMAS_BALCAO ? (
-                  <button type="button" onClick={() => setMixLines((ls) => [...ls, { method: 'DINHEIRO', value: 0 }])}
-                    className="flex-1 py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
-                    + Adicionar forma
-                  </button>
-                ) : (
-                  <span className="flex-1 py-1.5 text-center text-[11px] text-muted-foreground">Máximo de {MAX_FORMAS_BALCAO} formas</span>
-                )}
-                {Math.abs(mixSum - total) >= 0.01 && total > 0 && (
-                  <button type="button"
-                    onClick={() => setMixLines((ls) => {
-                      const others = ls.slice(0, -1).reduce((s, l) => s + (Number(l.value) || 0), 0);
-                      const rest = Math.round((total - others) * 100) / 100;
-                      return ls.map((l, j) => (j === ls.length - 1 ? { ...l, value: Math.max(0, rest) } : l));
-                    })}
-                    className="shrink-0 px-2 py-1.5 rounded-lg border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
-                    Completar resto
-                  </button>
-                )}
-              </div>
-              <div className={`flex items-center justify-between text-[11px] px-1 ${mixOk ? 'text-emerald-600' : 'text-red-600'}`}>
-                <span className="font-semibold">
-                  {mixOk ? '✓ Soma confere' : mixSum > total ? `Passou R$ ${fmtBRL(mixSum - total)}` : `Faltam R$ ${fmtBRL(total - mixSum)}`}
-                </span>
-                <span className="font-bold tabular-nums">R$ {fmtBRL(mixSum)} / {fmtBRL(total)}</span>
-              </div>
-            </div>
-            )}
-          </div>
-
-          {/* Total + CTA fixos no rodapé do painel — sempre visíveis. Antes ficavam no
-              fim do scroll do carrinho e sumiam quando tinha muitos procedimentos. */}
-          <div className="lg:sticky lg:bottom-0 bg-card -mx-4 px-4 -mb-4 pb-4 pt-1">
-          {/* Total */}
-          <div className="border-t border-border pt-3 mb-4 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-semibold tabular-nums">R$ {fmtBRL(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-border">
+          {/* Total + botão fixos no rodapé do painel — sempre visíveis, mesmo com muitos procedimentos. */}
+          <div className="lg:sticky lg:bottom-0 bg-card -mx-4 px-4 -mb-4 pb-4 pt-3 border-t border-border">
+            <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-bold">Total</span>
-              <span className="text-xl font-extrabold tabular-nums">R$ {fmtBRL(total)}</span>
+              <Preco valor={total} />
             </div>
+            <button
+              type="button"
+              onClick={irParaPagamento}
+              disabled={!patient || cart.length === 0 || !dentistId}
+              className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:bg-muted disabled:text-muted-foreground inline-flex items-center justify-center gap-2"
+            >
+              {!patient ? (
+                <>
+                  <AlertCircle size={14} />
+                  {lab ? LAB_VENDA_RAPIDA.cta.cliente : 'Selecione um paciente'}
+                </>
+              ) : cart.length === 0 ? (
+                <>
+                  <ShoppingCart size={14} />
+                  {lab ? LAB_VENDA_RAPIDA.cta.servicos : 'Adicione procedimentos'}
+                </>
+              ) : !dentistId ? (
+                <>
+                  <AlertCircle size={14} />
+                  {lab ? LAB_VENDA_RAPIDA.cta.responsavel : 'Selecione o dentista'}
+                </>
+              ) : (
+                <>
+                  Ir para o pagamento
+                  <ArrowRight size={16} strokeWidth={3} />
+                </>
+              )}
+            </button>
+          </div>
+        </aside>
+      </div>
+      ) : (
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={voltarParaVenda}
+            disabled={finishing}
+            className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+          >
+            <ArrowLeft size={15} /> Voltar para a venda
+          </button>
+          <PagamentoBalcao
+            valor={pagamento}
+            onChange={(p) => { setPagamento(p); setValorMudou(false); }}
+            totalCentavos={totalCentavos}
+            valorMudou={valorMudou}
+            bloqueado={finishing}
+            lab={lab}
+          />
+        </div>
+
+        {/* Resumo da venda: não se edita aqui. Pra mudar o carrinho, "Voltar para a venda". */}
+        <aside className="bg-card border border-border rounded-xl p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
+          <p className="mb-3 text-sm font-bold text-foreground">Resumo da venda</p>
+          <dl className="space-y-1 text-xs">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">{lab ? LAB_VENDA_RAPIDA.pagamento.resumoCliente : 'Paciente'}</dt>
+              <dd className="min-w-0 truncate font-semibold text-foreground">{patient?.name}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">{lab ? LAB_VENDA_RAPIDA.pagamento.resumoResponsavel : 'Dentista'}</dt>
+              <dd className="min-w-0 truncate font-semibold text-foreground">{dentistaDaVenda?.name}</dd>
+            </div>
+          </dl>
+
+          <ul className="my-3 max-h-48 space-y-1.5 overflow-y-auto border-t border-border pt-3">
+            {cart.map((it) => (
+              <li key={it.procedure.id} className="flex items-start justify-between gap-3 text-sm">
+                <span className="min-w-0 text-foreground">
+                  {it.procedure.name}
+                  {itemUnits(it) > 1 && <span className="text-muted-foreground"> × {itemUnits(it)}</span>}
+                </span>
+                <span className="shrink-0 tabular-nums">R$ {fmtBRL(unitPriceOf(it) * itemUnits(it))}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <span className="text-sm font-bold">Total</span>
+            <Preco valor={total} />
           </div>
 
+          <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
+            {analise.linhas.map((l, i) => (
+              <div key={i} className="flex items-center justify-between gap-3">
+                <span className="min-w-0 text-muted-foreground">{rotuloLinha(l)}</span>
+                <span className="shrink-0 font-semibold tabular-nums">R$ {fmtCentavos(l.centavos)}</span>
+              </div>
+            ))}
+            {analise.faltaCentavos > 0 ? (
+              <div className="flex items-center justify-between gap-3 font-semibold">
+                <span>Falta receber</span>
+                <span className="tabular-nums text-amber-700 dark:text-amber-400">R$ {fmtCentavos(analise.faltaCentavos)}</span>
+              </div>
+            ) : (
+              <p className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 size={14} /> Tudo recebido
+              </p>
+            )}
+          </div>
+
+          <fieldset disabled={finishing} className="mt-3 min-w-0 border-0 p-0 m-0">
           {/* Baixa de estoque — só quando o procedimento tem insumo cadastrado */}
           {consumo && (
             <div className={`border rounded-xl px-3 py-2.5 mb-3 ${
@@ -1371,53 +1286,46 @@ export default function VendaRapidaPage() {
               )}
             </div>
           )}
+          </fieldset>
 
-          {/* CTA */}
           <button
             type="button"
-            onClick={handleFinish}
-            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk || !mixOk || (baixarEstoque && !!consumo?.bloqueado)}
-            className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
+            onClick={acaoDoPagamento}
+            disabled={finishing || analise.acao === null || (analise.acao === 'FINALIZAR' && estoqueTrava)}
+            className="mt-3 w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:bg-muted disabled:text-muted-foreground inline-flex items-center justify-center gap-2"
           >
             {finishing ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
                 Finalizando...
               </>
-            ) : !patient ? (
+            ) : analise.pendencia ? (
               <>
                 <AlertCircle size={14} />
-                {lab ? LAB_VENDA_RAPIDA.cta.cliente : 'Selecione um paciente'}
+                {TEXTO_PENDENCIA[analise.pendencia]}
               </>
-            ) : cart.length === 0 ? (
+            ) : analise.acao === 'CONTINUAR' ? (
               <>
-                <ShoppingCart size={14} />
-                {lab ? LAB_VENDA_RAPIDA.cta.servicos : 'Adicione procedimentos'}
+                Continuar
+                <ArrowRight size={16} strokeWidth={3} />
               </>
-            ) : !dentistId ? (
+            ) : estoqueTrava ? (
               <>
                 <AlertCircle size={14} />
-                {lab ? LAB_VENDA_RAPIDA.cta.responsavel : 'Selecione o dentista'}
+                Falta material no estoque
               </>
             ) : (
               <>
                 <Check size={16} strokeWidth={3} />
-                Finalizar venda
+                {textoFinalizar(analise.linhas)}
               </>
             )}
           </button>
 
-          {/* Footnote */}
           <div className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
             <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
             <p className="leading-snug">
-              {!mixMode && billingType === 'PIX' ? (
-                <>
-                  Ao finalizar: gera a cobrança <strong>PIX no Asaas</strong> (QR code na tela e
-                  copia-e-cola no WhatsApp do paciente); o caixa recebe quando o pagamento
-                  confirmar. Os procedimentos entram no tratamento como <strong>pendentes</strong>.
-                </>
-              ) : lab ? (
+              {lab ? (
                 <>
                   {LAB_VENDA_RAPIDA.rodape.antes}<strong>{LAB_VENDA_RAPIDA.pendentes}</strong>{LAB_VENDA_RAPIDA.rodape.depois}
                 </>
@@ -1430,9 +1338,9 @@ export default function VendaRapidaPage() {
               )}
             </p>
           </div>
-          </div>{/* fim do rodapé fixo (Total + Finalizar) */}
         </aside>
       </div>
+      )}
 
       {/* Onda 17.32.70 — Dialog de sucesso (QR PIX ou link cartao) */}
       {successDialog && (
@@ -1464,8 +1372,7 @@ export default function VendaRapidaPage() {
   );
 }
 
-/** Onda 17.32.70 — Dialog de sucesso pos-venda. Mostra QR PIX ou link
- *  do cartao em tela grande pra operador mostrar pro paciente direto. */
+/** Onda 17.32.70 — Dialog de sucesso pos-venda: o que foi recebido e onde caiu cada valor. */
 function SuccessDialog({
   data,
   onClose,
@@ -1473,59 +1380,16 @@ function SuccessDialog({
   lab,
 }: {
   data: {
-    billingType: BillingType;
     total: number;
     patientName: string;
-    pixQrCode?: string | null;
-    pixCopyPaste?: string | null;
-    invoiceUrl?: string | null;
-    mixLabel?: string | null;
-    chargeExternalId?: string | null;
+    linhas: LinhaRecebida[];
+    precisaValidar: boolean;
   };
   onClose: () => void;
   onGoToPatient: () => void;
   /** F5 do laboratório: textos do laboratório e "Ver na ficha" só com a ficha liberada. */
   lab?: boolean;
 }) {
-  const handleCopy = async () => {
-    if (!data.pixCopyPaste) return;
-    try {
-      await navigator.clipboard.writeText(data.pixCopyPaste);
-      showSuccess('Pix Copia e Cola copiado!');
-    } catch {
-      showError('Nao foi possivel copiar');
-    }
-  };
-
-  // Onda 18.x — PIX online: quando o Asaas confirma (webhook), a tela troca NA HORA
-  // pra "Pagamento efetuado com sucesso — obrigado por ser nosso paciente" (o dialog
-  // fica virado pro paciente no balcão). Caminho principal = socket `financial_update`
-  // da sala do tenant (o webhook emite {externalId, newStatus}); rede de segurança =
-  // poll leve do status LOCAL a cada 4s (caso o socket caia). Para ao confirmar/fechar.
-  const PAID = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
-  const watchingPix = data.billingType === 'PIX' && !!data.chargeExternalId && !isClinicReceived(data.billingType);
-  const [paid, setPaid] = useState(false);
-  useSocketEvent<{ type?: string; externalId?: string; newStatus?: string }>('financial_update', (ev) => {
-    if (!watchingPix || paid) return;
-    if (ev?.externalId === data.chargeExternalId && PAID.includes(String(ev?.newStatus))) setPaid(true);
-  });
-  useEffect(() => {
-    if (!watchingPix || paid) return;
-    let alive = true;
-    const tick = async () => {
-      try {
-        const { data: st } = await api.get<{ status: string | null }>(
-          `/payment-gateway/charges/asaas/status/${data.chargeExternalId}`,
-        );
-        if (alive && st?.status && PAID.includes(st.status)) setPaid(true);
-      } catch { /* silencioso — tenta de novo no próximo tick */ }
-    };
-    const id = setInterval(tick, 4000);
-    return () => { alive = false; clearInterval(id); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchingPix, paid, data.chargeExternalId]);
-  useEffect(() => { if (paid) showSuccess('Pagamento PIX confirmado!'); }, [paid]);
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
@@ -1560,123 +1424,36 @@ function SuccessDialog({
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
-          {isClinicReceived(data.billingType) ? (
-            <div className="text-center py-4">
-              <div className="w-20 h-20 rounded-full bg-emerald-500/15 text-emerald-700 flex items-center justify-center mx-auto mb-3">
-                <CheckCircle2 size={48} strokeWidth={2} />
-              </div>
-              <p className="text-lg font-extrabold text-foreground mb-1">
-                {lab ? LAB_VENDA_RAPIDA.sucesso.recebido : 'Recebido na clínica · '}{data.mixLabel ? 'Várias formas' : (lab && LAB_VENDA_RAPIDA.formaRotulo[data.billingType]) || CLINIC_METHOD_LABEL[data.billingType]}
-              </p>
-              {data.mixLabel && (
-                <p className="text-xs text-emerald-700 font-semibold mb-1">{data.mixLabel}</p>
-              )}
-              {lab ? (
-                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                  {LAB_VENDA_RAPIDA.sucesso.texto.antes}<strong>{LAB_VENDA_RAPIDA.pendentes}</strong>{LAB_VENDA_RAPIDA.sucesso.texto.depois}
-                </p>
-              ) : (
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                Pagamento registrado e lançado no financeiro do paciente. Os
-                procedimentos entram no tratamento como <strong>pendentes</strong> —
-                o dentista confirma a conclusão de cada um.
-              </p>
-              )}
-            </div>
-          ) : paid ? (
-            <div className="text-center py-8">
-              <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/40 animate-[pulse_1.2s_ease-in-out_2]">
-                <Check size={56} strokeWidth={3} />
-              </div>
-              <p className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 mb-2">
-                Pagamento efetuado com sucesso!
-              </p>
-              <p className="text-lg font-semibold text-foreground">
-                Obrigado por ser nosso paciente 💚
-              </p>
-              <p className="text-sm text-muted-foreground mt-3">
-                {data.patientName} · R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} via PIX
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-4">
-                Pagamento confirmado pelo Asaas e lançado no financeiro do paciente.
-              </p>
-            </div>
-          ) : data.billingType === 'PIX' && data.pixQrCode ? (
-            <div className="text-center">
-              <p className="text-sm font-bold text-foreground mb-1">
-                Mostre o QR Code abaixo pro paciente
-              </p>
-              <p className="text-xs text-muted-foreground mb-4">
-                Ele abre o app do banco, aponta a câmera e paga.
-              </p>
-              {/* Onda 17.32.74 — Logo PIX oficial (BCB) acima do QR code
-                  pra reforco visual (paciente reconhece o pagamento PIX
-                  imediatamente). SVG inline com cor #32BCAD do BCB. */}
-              <div className="bg-white p-4 rounded-xl inline-block border-4 border-emerald-500">
-                <div className="flex items-center justify-center gap-2 mb-3">
-                  <PixLogo />
-                </div>
-                <img
-                  src={`data:image/png;base64,${data.pixQrCode}`}
-                  alt="QR Code PIX"
-                  className="w-64 h-64 sm:w-80 sm:h-80"
-                />
-              </div>
-              {/* Pix Copia e Cola */}
-              {data.pixCopyPaste && (
-                <div className="mt-4">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-                    Ou use o Pix Copia e Cola
-                  </p>
-                  <div className="bg-muted/30 border border-border rounded-md p-3 flex items-center gap-2">
-                    <code className="text-[11px] text-foreground truncate flex-1 font-mono text-left">
-                      {data.pixCopyPaste}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={handleCopy}
-                      className="text-xs font-bold px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 shrink-0"
-                    >
-                      <Copy size={12} />
-                      Copiar
-                    </button>
-                  </div>
-                </div>
-              )}
-              <p className="text-[11px] text-muted-foreground mt-4 inline-flex items-center gap-1.5">
-                <Loader2 size={11} className="animate-spin" />
-                Aguardando pagamento — esta tela confirma sozinha assim que o PIX cair.
-              </p>
-            </div>
-          ) : data.billingType === 'CREDIT_CARD' && data.invoiceUrl ? (
-            <div className="text-center py-4">
-              <div className="w-16 h-16 rounded-full bg-sky-500/15 text-sky-700 flex items-center justify-center mx-auto mb-3">
-                <CreditCard size={32} />
-              </div>
-              <p className="text-sm font-bold text-foreground mb-1">
-                Link do cartão gerado
-              </p>
-              <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
-                Abra o link abaixo pra paciente pagar com cartão de crédito (até 6× sem juros).
-              </p>
-              <a
-                href={data.invoiceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white"
-              >
-                <ExternalLink size={14} />
-                Abrir link de pagamento
-              </a>
-            </div>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Onde caiu cada valor</p>
+          <ul className="mb-4 divide-y divide-border rounded-lg border border-border">
+            {data.linhas.map((l, i) => (
+              <li key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                <span className="min-w-0">
+                  <span className="font-bold tabular-nums text-foreground">R$ {fmtCentavos(l.centavos)}</span>
+                  <span className="text-muted-foreground"> · {l.rotulo}</span>
+                </span>
+                <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                  <ArrowRight size={13} /> {l.destino}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {lab ? (
+            <p className="text-sm text-muted-foreground">
+              {LAB_VENDA_RAPIDA.sucesso.texto.antes}<strong>{LAB_VENDA_RAPIDA.pendentes}</strong>{LAB_VENDA_RAPIDA.sucesso.texto.depois}
+            </p>
           ) : (
-            <div className="text-center py-6">
-              <CheckCircle2 size={32} className="mx-auto mb-2 text-emerald-600" />
-              <p className="text-sm font-bold text-foreground mb-1">Cobrança gerada</p>
-              <p className="text-xs text-muted-foreground">
-                Veja os detalhes na ficha financeira do paciente.
-              </p>
-            </div>
+          <p className="text-sm text-muted-foreground">
+            Pagamento registrado e lançado no financeiro do paciente. Os
+            procedimentos entram no tratamento como <strong>pendentes</strong> —
+            o dentista confirma a conclusão de cada um.
+          </p>
+          )}
+          {data.precisaValidar && (
+            <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+              <AlertCircle size={14} className="mt-px shrink-0" />
+              {lab ? LAB_VENDA_RAPIDA.sucesso.validar : 'Esta venda passa pelo Validar do Financeiro antes de liberar o tratamento.'}
+            </p>
           )}
         </div>
 
@@ -1701,42 +1478,6 @@ function SuccessDialog({
           </button>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Onda 17.32.74 — Logo PIX oficial do Banco Central (SVG inline).
- *
- * Cor #32BCAD (turquesa do PIX). Reproduz o losango caracteristico
- * com 4 pontos brancos nos vertices + a palavra "pix" em font
- * minuscula. Usado acima do QR code pra que o paciente reconheca
- * instantaneamente que e um pagamento PIX.
- */
-function PixLogo() {
-  return (
-    <div className="inline-flex items-center gap-3">
-      <svg viewBox="0 0 100 100" className="w-9 h-9" aria-label="Logo PIX">
-        {/* Losango central */}
-        <g fill="#32BCAD">
-          {/* Forma do diamante: 4 triangulos ao redor de um quadrado central */}
-          <path d="M50 10 L70 30 L50 50 L30 30 Z" />
-          <path d="M70 30 L90 50 L70 70 L50 50 Z" />
-          <path d="M50 50 L70 70 L50 90 L30 70 Z" />
-          <path d="M30 30 L50 50 L30 70 L10 50 Z" />
-        </g>
-        {/* Pontos brancos nos vertices */}
-        <g fill="white">
-          <circle cx="50" cy="10" r="2.5" />
-          <circle cx="90" cy="50" r="2.5" />
-          <circle cx="50" cy="90" r="2.5" />
-          <circle cx="10" cy="50" r="2.5" />
-        </g>
-      </svg>
-      <div className="flex flex-col leading-none">
-        <span className="text-3xl font-light text-gray-600 lowercase tracking-tight">pix</span>
-        <span className="text-[8px] text-gray-400 mt-0.5">powered by Banco Central</span>
       </div>
     </div>
   );

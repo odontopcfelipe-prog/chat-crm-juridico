@@ -189,9 +189,10 @@ const ROTAS_DE_CLINICA = [
 /**
  * Multiconjunto de textos em 3461015f (antes da F8), gerado de `git show 3461015f:<arquivo>`
  * antes da edição. A F8 só acrescenta import, portão e identificador nesses arquivos.
+ * A venda rápida mudou de propósito depois: pagamento em lista e sem o PIX online (nov/2026).
  */
 const ANTES_DA_F8: Record<string, { total: number; unicos: number; sha256: string }> = {
-  [VENDA]: { total: 692, unicos: 482, sha256: 'c033f90c316ea913df8d9c5642d958f8e0335e364bb16f5b05706978b2f51da4' },
+  [VENDA]: { total: 502, unicos: 360, sha256: '7ef6b1e9b212873fc6c8102fb015cee028c3edb326f6490981fcb442428b7071' },
   [TRATAMENTO]: { total: 171, unicos: 154, sha256: '24ef358cd65d78edb597871149e0b3a2fa7cb432ed092403c790facf5164a443' },
 };
 
@@ -260,7 +261,8 @@ describe('F8 — ficha do caso no web', () => {
       expect(funcaoDe(g)).toBe(funcaoDe(balcao[0]));
       expect(g.getStart(sf)).toBeGreaterThan(balcao[0].getEnd());
       // O id é o orçamento que a venda criou.
-      expect(g.arguments.map((a) => a.getText())).toEqual(['sale.quote_id', 'fichaDoCaso']);
+      // A ficha é a guardada com a venda enviada: no reenvio depois do F5 o estado já foi embora.
+      expect(g.arguments.map((a) => a.getText())).toEqual(['sale.quote_id', 'envio.ficha ?? FICHA_VAZIA']);
     }
     // Limpa a ficha só no laboratório, depois da venda.
     expect(chamadas(sf, 'setFichaDoCaso').every((c) => dentroDeIfLab(c))).toBe(true);
@@ -273,7 +275,7 @@ describe('F8 — ficha do caso no web', () => {
     const deps = efeitos[0].arguments[1];
     expect(deps && ts.isArrayLiteralExpression(deps)).toBe(true);
     const nomes = (deps as ts.ArrayLiteralExpression).elements.map((e) => e.getText());
-    expect(nomes).toEqual(['cart', 'patient', 'dentistId', 'billingType', 'mixMode', 'mixLines', 'card1', 'card2', 'split2']);
+    expect(nomes).toEqual(['cart', 'patient', 'dentistId', 'pagamento']);
   });
 
   it.each(Object.keys(ANTES_DA_F8).map((a) => [a]))('%s: mesmo multiconjunto de textos de 3461015f (só import, portão e identificador)', (arq) => {

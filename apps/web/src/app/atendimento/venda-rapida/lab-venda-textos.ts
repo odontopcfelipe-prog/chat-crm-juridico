@@ -47,11 +47,19 @@ export const LAB_VENDA_RAPIDA = Object.freeze({
   removerElemento: 'Remover elemento',
   porElemento: (n: number) => `× ${n} elemento${n > 1 ? 's' : ''}`,
 
-  // Formas de pagamento recebidas no balcão do laboratório (pela chave da forma).
-  grupoRecebido: 'Recebido no laboratório',
-  formaRotulo: Object.freeze<Record<string, string>>({ CLINIC_PIX: 'PIX do laboratório' }),
-  formaSub: Object.freeze<Record<string, string>>({ CLINIC_PIX: 'chave PIX do laboratório' }),
-  formaSplit: Object.freeze<Record<string, string>>({ PIX: 'PIX do laboratório' }),
+  // Tela de pagamento.
+  pagamento: Object.freeze({
+    titulo: 'Como o cliente vai pagar?',
+    pixSub: 'Na chave do laboratório ou na maquineta',
+    pixChave: 'Chave do laboratório',
+    resumoCliente: 'Cliente',
+    resumoResponsavel: 'Protético',
+  }),
+
+  // Venda enviada sem resposta do servidor.
+  semConfirmacao: (total: string, cliente: string) =>
+    `Não chegou a resposta do servidor: a venda de R$ ${total} para ${cliente} pode ter entrado.`,
+  verFinanceiro: 'Conferir no Financeiro do cliente',
 
   // Baixa de estoque.
   material: 'material consumido por estes serviços',
@@ -77,13 +85,11 @@ export const LAB_VENDA_RAPIDA = Object.freeze({
     semResponsavel: 'Selecione o protético responsável antes de finalizar',
     maxItens: (max: number, n: number) =>
       `A venda rápida aceita até ${max} itens (cada elemento conta 1) — este carrinho tem ${n}. Divida em duas vendas.`,
-    confira: 'Confira no Financeiro do cliente — se tentar de novo, a venda não duplica.',
-    semResposta: 'Sem resposta do servidor. Confira no Financeiro do cliente — se tentar de novo, a venda não duplica.',
   }),
 
-  // Venda finalizada (recebida no balcão). O "recebido" vem antes da forma.
+  // Venda finalizada (recebida no balcão).
   sucesso: Object.freeze({
-    recebido: 'Recebido no laboratório · ',
+    validar: 'Esta venda passa pelo Validar do Financeiro antes de liberar o trabalho.',
     texto: Object.freeze({
       antes: 'Pagamento registrado e lançado no financeiro do cliente. Os serviços entram no trabalho como ',
       depois: ' — o protético confirma a conclusão de cada um.',
