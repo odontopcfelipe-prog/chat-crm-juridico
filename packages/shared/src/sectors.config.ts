@@ -719,6 +719,8 @@ export const ROUTE_ACCESS: RouteAccessRule[] = [
   { path: '/atendimento/validacoes',              anyOf: ['view_agenda'] },
   { path: '/atendimento/nova-consulta',           anyOf: ['create_evaluation'] },
   { path: '/atendimento/pacientes',               anyOf: ['view_patients'] },
+  // Passos CAD (só o laboratório monta a tela): protético e administrador.
+  { path: '/atendimento/passos-cad',              anyOf: ['create_evaluation'] },
 ];
 
 /** Regra que governa a rota (ou null = tela aberta a qualquer logado). */

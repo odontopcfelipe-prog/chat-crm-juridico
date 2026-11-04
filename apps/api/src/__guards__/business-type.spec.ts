@@ -100,6 +100,9 @@ const ROTAS_ESPERADAS: unknown[] = [
   '/atendimento/agenda',
   { path: '/atendimento/settings/disparos', exact: true },
   // [/F7a]
+  // [F9a]
+  '/atendimento/passos-cad',
+  // [/F9a]
 ];
 
 describe('labAllowsRoute — negação por padrão', () => {
