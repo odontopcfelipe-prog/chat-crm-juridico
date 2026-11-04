@@ -272,7 +272,9 @@ export function posicionarAutomatico(e: EntradaCoroa, ambiente: Bvh): Ajuste {
     }
     // Vários contatos espalhados valem mais; afastar muito do centro da margem vale menos.
     const fora = Math.hypot(aj.deslocMesial - inicial.deslocMesial, aj.deslocVestibular - inicial.deslocVestibular);
-    return { nota: perto * (1 + 0.5 * quadrantes.size) - 8 * fora - 0.5 * Math.abs(aj.giro), lift: min };
+    // A parte da oclusal perto do antagonista (0 a 100), para o peso não depender do tamanho da malha.
+    const parte = (100 * perto) / folgas.length;
+    return { nota: parte * (1 + 0.5 * quadrantes.size) - 30 * fora - 1.5 * Math.abs(aj.giro), lift: min };
   };
 
   let melhor = inicial;
