@@ -293,6 +293,24 @@ describe('Passos CAD — coroa', () => {
     expect(r.relatorio.espessuraOclusal!.p5).toBeGreaterThanOrEqual(PARAMETROS_PADRAO.espessuraMinima - 0.05);
   });
 
+  it('fecha o contato com os vizinhos, dos dois lados, sem invadir', () => {
+    const { e, ambiente } = entrada(16, null);
+    const m = e.eixos.mesial;
+    const vizinho = (s: number) => revolucao(denso([[0, 6.5], [2, 6.4], [3.5, 5], [3.8, 3], [3, 0.5]]), 48, 1, 1, [m[0] * s * 9.4, m[1] * s * 9.4, m[2] * s * 9.4]);
+    e.vizinhos = new Bvh(juntar(vizinho(1), vizinho(-1)));
+    const r = construirCoroa(e, ambiente, ajuste(e, ambiente), 40);
+    // Medido em cada lado: na malha grossa do teste a mancha de contato é pequena para contar como região.
+    for (const lado of [1, -1]) {
+      let menor = Infinity;
+      for (let v = 0; v < r.externos; v++) {
+        if (lado * dot(sub(vert(r.malha, v), e.prep.O), m) > 0) menor = Math.min(menor, r.folgaVizinho[v]);
+      }
+      expect(menor).toBeLessThan(0.12);
+      expect(menor).toBeGreaterThan(-0.06);
+    }
+    expect(r.relatorio.malha.arestasAbertas).toBe(0);
+  });
+
   it('sem antagonista também desenha', () => {
     const { e, ambiente } = entrada(16, null);
     const aj = ajuste(e, ambiente);
