@@ -135,6 +135,9 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   '/atendimento/agenda',
   Object.freeze({ path: '/atendimento/settings/disparos', exact: true as const }),
   // [/F7a]
+  // [F9a] Passos CAD: desenho de coroa no navegador do técnico
+  '/atendimento/passos-cad',
+  // [/F9a]
 ]);
 
 /** Caminho sem query/# e sem barra final ('/' continua '/'). */
