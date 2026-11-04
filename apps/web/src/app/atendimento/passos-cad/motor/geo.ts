@@ -315,15 +315,13 @@ export class Bvh {
     let mv = 0;
     while (pilha.length) {
       const n = pilha.pop() as number;
-      const b = 6 * n;
-      let dd = 0;
-      for (let e = 0; e < 3; e++) {
-        const q = Math.max(c[b + e] - p[e], 0, p[e] - c[b + 3 + e]);
-        dd += q * q;
-      }
-      if (dd > melhor2) continue;
+      if (distCaixa2(c, n, p) > melhor2) continue;
       if (this.filhos[4 * n + 3] === 0) {
-        pilha.push(this.filhos[4 * n], this.filhos[4 * n + 1]);
+        // A caixa mais perto primeiro (fica no topo da pilha): acha cedo um ponto bom e corta o resto.
+        const e = this.filhos[4 * n];
+        const d = this.filhos[4 * n + 1];
+        if (distCaixa2(c, e, p) < distCaixa2(c, d, p)) pilha.push(d, e);
+        else pilha.push(e, d);
         continue;
       }
       const ini = this.filhos[4 * n + 2];
@@ -349,6 +347,17 @@ export class Bvh {
     const dist = Math.sqrt(melhor2);
     return { d: dot(sub(p, melhorP), normal) >= 0 ? dist : -dist, tri: melhorT, ponto: melhorP, normal };
   }
+}
+
+/** Distância² de p até a caixa do nó (0 se estiver dentro). */
+function distCaixa2(c: number[], n: number, p: V3): number {
+  const b = 6 * n;
+  let dd = 0;
+  for (let e = 0; e < 3; e++) {
+    const q = Math.max(c[b + e] - p[e], 0, p[e] - c[b + 3 + e]);
+    dd += q * q;
+  }
+  return dd;
 }
 
 /** Ponto do triângulo mais perto de p; u e v são os pesos de b e c. */

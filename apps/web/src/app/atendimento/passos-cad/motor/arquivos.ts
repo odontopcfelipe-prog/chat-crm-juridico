@@ -63,6 +63,7 @@ export function lerObj(buf: ArrayBuffer): Malha {
         const i = parseInt(c, 10);
         return i < 0 ? nv + i : i - 1;
       });
+      if (f.some((i) => !Number.isInteger(i) || i < 0)) throw new ArquivoRecusado('OBJ com índice inválido.');
       for (let i = 1; i + 1 < f.length; i++) tri.push(f[0], f[i], f[i + 1]);
     }
   }
@@ -117,6 +118,10 @@ export function lerPly(buf: ArrayBuffer): Malha {
     }
   }
   if (cifrado) throw new ArquivoRecusado('Este PLY está protegido e só abre no programa que o gerou.');
+  // Cada elemento ocupa pelo menos um byte: contagem maior que o arquivo é cabeçalho corrompido.
+  for (const e of elementos) {
+    if (!Number.isInteger(e.qtd) || e.qtd < 0 || e.qtd > buf.byteLength) throw new ArquivoRecusado('PLY com cabeçalho corrompido.');
+  }
   const ve = elementos.find((e) => e.nome === 'vertex');
   const fa = elementos.find((e) => e.nome === 'face');
   if (!ve) throw new ArquivoRecusado('PLY sem vértices.');
@@ -129,14 +134,17 @@ export function lerPly(buf: ArrayBuffer): Malha {
     let l = 0;
     for (const e of elementos) {
       for (let i = 0; i < e.qtd; i++, l++) {
-        const c = (linhas[l] || '').trim().split(/\s+/).map(Number);
+        if (l >= linhas.length) throw new ArquivoRecusado('PLY cortado: faltam linhas.');
+        const c = linhas[l].trim().split(/\s+/).map(Number);
         if (e === ve) {
+          if (c.length < e.props.length) throw new ArquivoRecusado('PLY cortado: linha de vértice incompleta.');
           e.props.forEach((p, k) => {
             const a = eixos.indexOf(p.nome);
             if (a >= 0) pos[3 * i + a] = c[k];
           });
         } else if (e === fa) {
           const n = c[0];
+          if (!Number.isInteger(n) || n < 0 || c.length < n + 1 || c.slice(1, n + 1).some((id) => !Number.isInteger(id) || id < 0)) throw new ArquivoRecusado('PLY com índice inválido.');
           for (let k = 2; k < n; k++) tri.push(c[1], c[k], c[k + 1]);
         }
       }
@@ -152,10 +160,12 @@ export function lerPly(buf: ArrayBuffer): Malha {
             const ti = TIPOS_PLY[p.tipoItem as string];
             if (!tq || !ti) throw new ArquivoRecusado('PLY com tipo desconhecido.');
             const n = tq.ler(dv, o);
+            if (!Number.isInteger(n) || n < 0) throw new ArquivoRecusado('PLY corrompido.');
             o += tq.tam;
             if (e === fa && /vertex_ind/.test(p.nome)) {
               const ids: number[] = [];
               for (let k = 0; k < n; k++) ids.push(ti.ler(dv, o + k * ti.tam));
+              if (ids.some((id) => !Number.isInteger(id) || id < 0)) throw new ArquivoRecusado('PLY com índice inválido.');
               for (let k = 1; k + 1 < n; k++) tri.push(ids[0], ids[k], ids[k + 1]);
             }
             o += n * ti.tam;
@@ -214,7 +224,20 @@ export function extensao(nome: string): string {
   return i < 0 ? '' : nome.slice(i + 1).toLowerCase();
 }
 
-export function lerMalha(nome: string, buf: ArrayBuffer): Malha {
+/** Índice fora da malha ou coordenada que não é número: arquivo com defeito, não chega ao cálculo. */
+export function conferirArquivo(m: Malha): Malha {
+  const nv = m.pos.length / 3;
+  if (!nv || !m.tri.length) throw new ArquivoRecusado('O arquivo não tem superfície.');
+  for (let i = 0; i < m.pos.length; i++) {
+    if (!Number.isFinite(m.pos[i])) throw new ArquivoRecusado('O arquivo tem coordenada inválida.');
+  }
+  for (let i = 0; i < m.tri.length; i++) {
+    if (m.tri[i] >= nv) throw new ArquivoRecusado('O arquivo tem triângulo com índice inválido.');
+  }
+  return m;
+}
+
+function porExtensao(nome: string, buf: ArrayBuffer): Malha {
   switch (extensao(nome)) {
     case 'stl':
       return lerStl(buf);
@@ -227,6 +250,16 @@ export function lerMalha(nome: string, buf: ArrayBuffer): Malha {
       return lerOffBinario(buf);
     default:
       throw new ArquivoRecusado('Use um arquivo STL, OBJ ou PLY.');
+  }
+}
+
+export function lerMalha(nome: string, buf: ArrayBuffer): Malha {
+  try {
+    return conferirArquivo(porExtensao(nome, buf));
+  } catch (e) {
+    // Leitura além do fim do arquivo ou memória insuficiente.
+    if (e instanceof RangeError) throw new ArquivoRecusado('Arquivo cortado, corrompido ou grande demais.');
+    throw e;
   }
 }
 

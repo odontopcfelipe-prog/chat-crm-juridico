@@ -38,6 +38,7 @@ import {
   horaCurtaNaive,
   isLab,
   resolveHomeActions,
+  resolvePermissions,
   rotuloTipoDoLaboratorio,
   tipoSoDoLaboratorio,
   type HomeAction,
@@ -218,7 +219,10 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
     if (permissaoExtra && !hasPermission(permissaoExtra)) continue;
     atalhos.push({ href, chave, lucide: a.lucide });
   }
-  if (canAccessRouteBt(PASSOS_CAD, hasPermission, BT_LABORATORIO)) {
+  // Vale o setor visto: no "Ver como" do admin, o atalho só aparece nos setores que abrem a tela.
+  const permissoesDoVisto = resolvePermissions(visto);
+  const temNoSetorVisto = (p: Permission) => (proprio ? permissoesProntas && hasPermission(p) : permissoesDoVisto.has(p));
+  if (canAccessRouteBt(PASSOS_CAD, temNoSetorVisto, BT_LABORATORIO)) {
     atalhos.push({ href: PASSOS_CAD, chave: 'passosCad' });
   }
   // Central de Disparos: atalho da pessoa (não do setor visto), só para quem abre a tela.
