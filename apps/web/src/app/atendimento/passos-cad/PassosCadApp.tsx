@@ -5,11 +5,13 @@
  * Etapas: caso → preparo e margem → anatomia → ajustes → exportar. Só o laboratório abre.
  * Os arquivos do caso e as bibliotecas ficam neste computador: nada sobe para o servidor.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Loader2, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { Visor3D, type V3 } from './Visor3D';
 import { ClienteDoMotor } from './motor/cliente';
-import { MAIOR_BROCA, normalizarBroca } from './motor/fresa';
+import { Campo, CampoDeBroca, brocaLembrada } from './campos';
+import { fichaNova, guardarRecentes, lerRecentes, type FichaCaso, type Recentes } from './ficha';
+import { FichaDoCaso } from './FichaDoCaso';
 import type { MalhaLeve } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Ajuste, Parametros, Relatorio } from './motor/coroa';
@@ -24,7 +26,7 @@ import {
   lerDenteGuardado,
 } from './motor/biblioteca';
 import type { BibliotecaDaPasta } from './motor/biblioteca-indice';
-import { AJUSTES_DA_ANATOMIA, DENTES_FDI, ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
+import { AJUSTES_DA_ANATOMIA, ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
 
 interface CoroaNaTela {
   malha: MalhaLeve;
@@ -57,25 +59,6 @@ const COR_NEUTRA = [0.95, 0.92, 0.85];
 
 /** Acima disto a parede afina demais para passar sem aviso. */
 const CORTE_GRANDE_DA_BROCA = 0.3;
-const CHAVE_DA_BROCA = 'passos-cad-diametro-broca';
-
-/** Cada fresadora tem a sua broca: fica lembrada neste navegador, para não digitar em todo caso. */
-function brocaLembrada(padrao: number): number {
-  try {
-    return normalizarBroca(window.localStorage.getItem(CHAVE_DA_BROCA) ?? '') ?? padrao;
-  } catch {
-    return padrao;
-  }
-}
-
-function lembrarBroca(v: number): void {
-  try {
-    window.localStorage.setItem(CHAVE_DA_BROCA, String(v));
-  } catch {
-    // Sem armazenamento, só não fica lembrada.
-  }
-}
-
 /** Cor por vértice da coroa conforme o mapa escolhido. */
 function coresDoMapa(c: CoroaNaTela, mapa: MapaId, min: number): Float32Array | null {
   if (mapa === 'nenhum') return null;
@@ -112,46 +95,8 @@ function baixar(dados: BlobPart, nome: string, tipo: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/**
- * Diâmetro da broca. Apagar o campo para redigitar não pode virar 0: isso desligaria a compensação
- * em todos os casos seguintes, sem aviso. Só vale o número completo, e só fica lembrado ao sair.
- */
-const CampoDeBroca = ({ valor, aoMudar, className, testid, travado }: { valor: number; aoMudar: (v: number) => void; className: string; testid?: string; travado?: boolean }) => {
-  const [texto, setTexto] = useState(String(valor));
-  useEffect(() => setTexto(String(valor)), [valor]);
-  return (
-    <input
-      type="number"
-      data-testid={testid}
-      className={className}
-      min={0}
-      max={MAIOR_BROCA}
-      step={0.05}
-      disabled={travado}
-      value={texto}
-      onChange={(e) => {
-        setTexto(e.target.value);
-        const v = normalizarBroca(e.target.value);
-        if (v !== null) aoMudar(v);
-      }}
-      onBlur={() => {
-        setTexto(String(valor));
-        lembrarBroca(valor);
-      }}
-    />
-  );
-};
-
-const Campo = ({ rotulo, ajuda, children }: { rotulo: string; ajuda?: string; children: ReactNode }) => (
-  <label className="block">
-    <span className="block text-xs font-semibold text-foreground mb-1">{rotulo}</span>
-    {children}
-    {ajuda && <span className="block text-[11px] text-muted-foreground mt-1">{ajuda}</span>}
-  </label>
-);
-
 const BotaoArquivo = ({ rotulo, nome, aceitar, aoEscolher, testid, travado }: { rotulo: string; nome: string | null; aceitar: string; aoEscolher: (f: File) => void; testid: string; travado: boolean }) => (
-  <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm ${travado ? 'opacity-50' : 'hover:bg-muted cursor-pointer'}`}>
+  <label className={`relative flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm focus-within:outline focus-within:outline-2 focus-within:outline-primary ${travado ? 'opacity-50' : 'hover:bg-muted cursor-pointer'}`}>
     <Upload size={16} className="shrink-0" />
     <span className="truncate">{nome ?? rotulo}</span>
     <input
@@ -159,7 +104,7 @@ const BotaoArquivo = ({ rotulo, nome, aceitar, aoEscolher, testid, travado }: { 
       data-testid={testid}
       accept={aceitar}
       disabled={travado}
-      className="hidden"
+      className="sr-only"
       onChange={(e) => {
         const f = e.target.files?.[0];
         if (f) aoEscolher(f);
@@ -178,7 +123,8 @@ export default function PassosCadApp() {
   const [etapa, setEtapa] = useState(0);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [nomeCaso, setNomeCaso] = useState('');
+  const [recentes, setRecentes] = useState<Recentes>(lerRecentes);
+  const [ficha, setFicha] = useState<FichaCaso>(() => fichaNova(lerRecentes().tecnicos[0] ?? ''));
   const [nomeArco, setNomeArco] = useState<string | null>(null);
   const [nomeAnt, setNomeAnt] = useState<string | null>(null);
   const [frenteDoArco, setFrenteDoArco] = useState<V3 | undefined>(undefined);
@@ -455,6 +401,8 @@ export default function PassosCadApp() {
       (motor.current as ClienteDoMotor)
         .pedir<MedidasDaCoroa | null>({ tipo: 'pincelMedir' })
         .then((r) => {
+          // O caso mudou enquanto media: esta resposta é do anterior.
+          if (!faltaMedir.current) return;
           if (!r) {
             passo();
             return;
@@ -465,6 +413,7 @@ export default function PassosCadApp() {
           setMedindo(false);
         })
         .catch((e: unknown) => {
+          if (!faltaMedir.current) return;
           faltaMedir.current = false;
           setMedindo(false);
           setErro(e instanceof Error ? e.message : T.erroGenerico);
@@ -616,7 +565,8 @@ export default function PassosCadApp() {
   const exportar = () =>
     executar(T.exportando, async () => {
       const b = await (motor.current as ClienteDoMotor).pedir<ArrayBuffer>({ tipo: 'stl' });
-      const base = (nomeCaso.trim() || T.nomePadraoCaso).replace(/[^\p{L}\p{N}_-]+/gu, '-');
+      // Só o número do caso: o nome do paciente do caso não vai no nome do arquivo.
+      const base = (ficha.numero.trim() || T.nomePadraoCaso).replace(/[^\p{L}\p{N}_-]+/gu, '-');
       baixar(b, `${base}-coroa-${fdi}.stl`, 'model/stl');
     });
 
@@ -628,7 +578,42 @@ export default function PassosCadApp() {
     return false;
   }, [etapa, nomeArco, fdi, dente, ajuste, coroa]);
 
+  const escolherDente = (n: number) => {
+    if (n === fdi) return;
+    setFdi(n);
+    descartarDente();
+    visor.current?.enquadrar('arco', undefined, undefined, frenteDoArco);
+  };
+
+  const mudarMaterial = (id: string) => {
+    setMaterialId(id);
+    const m = MATERIAIS.find((x) => x.id === id);
+    // A broca é da fresadora, não do material.
+    if (m) setParametros((p) => ({ ...m.parametros, diametroBroca: p.diametroBroca }));
+    descartarCoroa();
+  };
+
+  const comecarCasoNovo = () =>
+    executar(T.limpandoCaso, async () => {
+      await (motor.current as ClienteDoMotor).pedir<null>({ tipo: 'novo' });
+      const v = visor.current as Visor3D;
+      descartarDente();
+      v.definirMalha('arco', null);
+      v.definirMalha('ant', null);
+      setNomeArco(null);
+      setNomeAnt(null);
+      setFrenteDoArco(undefined);
+      setFdi(null);
+      setMapa('nenhum');
+      setVerArco(true);
+      setVerAnt(false);
+      // Ajustes do caso anterior não passam para o novo; o material e a broca, sim.
+      setParametros((p) => ({ ...(MATERIAIS.find((m) => m.id === materialId) ?? MATERIAIS[0]).parametros, diametroBroca: p.diametroBroca }));
+      setFicha((f) => fichaNova(f.tecnico));
+    });
+
   const avancar = () => {
+    if (etapa === 0) setRecentes(guardarRecentes(ficha));
     if (etapa === 2) {
       void gerarCoroa();
       return;
@@ -637,10 +622,45 @@ export default function PassosCadApp() {
   };
 
   const r = coroa?.relatorio;
+  const resumoDoCaso: [string, string][] = (
+    [
+      [T.fichaNumero, ficha.numero],
+      [T.fichaCliente, ficha.cliente],
+      [T.fichaPaciente, ficha.nomeDoCaso],
+      [T.fichaTecnico, ficha.tecnico],
+      [T.fichaDenteSel, fdi ? String(fdi) : ''],
+      [T.material, MATERIAIS.find((m) => m.id === materialId)?.nome ?? ''],
+      [T.fichaCor, ficha.cor],
+      [T.pBroca, nr(parametros.diametroBroca)],
+      [T.fichaNotas, ficha.notas],
+    ] as [string, string][]
+  ).filter(([, valor]) => valor.trim());
   const inputCls = 'w-full px-3 py-2 rounded-lg border border-border bg-background text-sm';
 
   return (
-    <div className="h-full flex flex-col md:flex-row min-h-0" data-testid="passos-cad">
+    <div className="relative h-full flex flex-col md:flex-row min-h-0" data-testid="passos-cad">
+      {etapa === 0 && (
+        <FichaDoCaso
+          ficha={ficha}
+          aoMudarFicha={setFicha}
+          recentes={recentes}
+          fdi={fdi}
+          temCoroa={temCoroa}
+          aoEscolherDente={escolherDente}
+          materialId={materialId}
+          aoMudarMaterial={mudarMaterial}
+          diametroBroca={parametros.diametroBroca}
+          aoMudarBroca={(v) => setParametros((p) => ({ ...p, diametroBroca: v }))}
+          nomeArco={nomeArco}
+          nomeAnt={nomeAnt}
+          aoAbrirArquivo={(qual, f) => void abrirArquivo(qual, f)}
+          aoDesenhar={avancar}
+          aoComecarNovo={() => void comecarCasoNovo()}
+          ocupado={ocupado}
+          erro={erro}
+        />
+      )}
+      {etapa > 0 && (
       <aside className="w-full md:w-[340px] shrink-0 border-r border-border bg-card flex flex-col min-h-0">
         <div className="px-4 pt-4 pb-3 border-b border-border">
           <h1 className="text-lg font-bold text-foreground">{T.titulo}</h1>
@@ -654,73 +674,6 @@ export default function PassosCadApp() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {etapa === 0 && (
-            <>
-              <Campo rotulo={T.nomeCaso}>
-                <input className={inputCls} value={nomeCaso} onChange={(e) => setNomeCaso(e.target.value)} placeholder={T.nomeCasoExemplo} />
-              </Campo>
-              <Campo rotulo={T.arcoPreparo}>
-                <BotaoArquivo testid="arquivo-arco" travado={Boolean(ocupado)} rotulo={T.escolherArquivo} nome={nomeArco} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('arco', f)} />
-              </Campo>
-              <Campo rotulo={T.arcoAntagonista} ajuda={T.antagonistaAjuda}>
-                <BotaoArquivo testid="arquivo-antagonista" travado={Boolean(ocupado)} rotulo={T.escolherArquivo} nome={nomeAnt} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('antagonista', f)} />
-              </Campo>
-              <Campo rotulo={T.dente}>
-                <div className="grid grid-cols-8 gap-1">
-                  {DENTES_FDI.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      data-testid={`dente-${n}`}
-                      disabled={Boolean(ocupado)}
-                      onClick={() => {
-                        if (n === fdi) return;
-                        setFdi(n);
-                        descartarDente();
-                        visor.current?.enquadrar('arco', undefined, undefined, frenteDoArco);
-                      }}
-                      className={`py-1 rounded text-xs font-semibold border ${fdi === n ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'}`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </Campo>
-              <Campo rotulo={T.material}>
-                <select
-                  className={inputCls}
-                  value={materialId}
-                  disabled={Boolean(ocupado)}
-                  onChange={(e) => {
-                    setMaterialId(e.target.value);
-                    const m = MATERIAIS.find((x) => x.id === e.target.value);
-                    // A broca é da fresadora, não do material.
-                    if (m) setParametros({ ...m.parametros, diametroBroca: parametros.diametroBroca });
-                    descartarCoroa();
-                  }}
-                >
-                  {MATERIAIS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome}
-                    </option>
-                  ))}
-                </select>
-              </Campo>
-              <Campo rotulo={T.pBroca} ajuda={T.brocaAjuda}>
-                <CampoDeBroca
-                  testid="diametro-broca"
-                  className={inputCls}
-                  travado={Boolean(ocupado)}
-                  valor={parametros.diametroBroca}
-                  aoMudar={(v) => {
-                    setParametros((p) => ({ ...p, diametroBroca: v }));
-                    descartarCoroa();
-                  }}
-                />
-              </Campo>
-            </>
-          )}
-
           {etapa === 1 && (
             <>
               <p className="text-sm text-foreground">{dente ? T.margemInstrucao : T.clicarPreparo}</p>
@@ -839,6 +792,8 @@ export default function PassosCadApp() {
               )}
             </>
           )}
+
+          {etapa === 2 && tracos > 0 && <p className="text-xs text-amber-600" data-testid="aviso-gerar-apaga">{T.gerarApaga}</p>}
 
           {etapa === 3 && coroa && r && (
             <>
@@ -960,6 +915,17 @@ export default function PassosCadApp() {
                 <Download size={16} /> {T.baixarStl}
               </button>
               <p className="text-xs text-amber-600">{T.avisoRevisao}</p>
+              <div className="pt-2 border-t border-border" data-testid="resumo-do-caso">
+                <p className="text-xs font-semibold text-foreground mb-1">{T.resumoCaso}</p>
+                <dl className="text-xs grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                  {resumoDoCaso.map(([rotulo, valor]) => (
+                    <Fragment key={rotulo}>
+                      <dt className="text-muted-foreground">{rotulo}</dt>
+                      <dd className="text-right break-words">{valor}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </div>
             </>
           )}
 
@@ -977,6 +943,7 @@ export default function PassosCadApp() {
           )}
         </div>
       </aside>
+      )}
 
       <div className="relative flex-1 min-h-[360px]">
         <div ref={caixa} className="absolute inset-0" data-testid="visor" />
@@ -985,7 +952,7 @@ export default function PassosCadApp() {
             <Focus size={14} /> {T.centralizarVista}
           </button>
         )}
-        {ocupado && (
+        {ocupado && etapa > 0 && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs inline-flex items-center gap-2" data-testid="ocupado">
             <Loader2 size={14} className="animate-spin" /> {ocupado}
           </div>

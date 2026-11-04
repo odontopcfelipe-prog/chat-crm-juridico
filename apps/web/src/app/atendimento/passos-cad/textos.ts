@@ -8,15 +8,43 @@ export const TEXTOS = Object.freeze({
   titulo: 'Passos CAD',
   subtitulo: 'Desenho de coroa unitária',
   telaFechada: 'Esta tela é do laboratório.',
-  nomeCaso: 'Nome do caso',
-  nomeCasoExemplo: 'Ex.: OS 1024',
+  nomeCasoExemplo: 'OS 1024',
   nomePadraoCaso: 'caso',
-  arcoPreparo: 'Arcada com o preparo',
-  arcoAntagonista: 'Arcada antagonista',
-  antagonistaAjuda: 'Opcional. Exporte as duas arcadas já em oclusão, nas mesmas coordenadas.',
+  antagonistaAjuda: 'Exporte as duas arcadas já em oclusão, nas mesmas coordenadas.',
   escolherArquivo: 'Escolher STL, OBJ ou PLY',
-  dente: 'Dente',
   material: 'Material',
+  fichaProjeto: 'Projeto',
+  fichaNovo: 'Novo',
+  fichaNovoPergunta: 'Começar um caso novo apaga o que está aberto aqui.',
+  fichaApagar: 'Apagar e começar',
+  fichaCancelar: 'Cancelar',
+  fichaTrocaPergunta: 'Já existe uma coroa desenhada neste caso. Trocar agora apaga a coroa e o que foi esculpido.',
+  fichaTrocaSim: 'Apagar e trocar',
+  gerarApaga: 'Gerar de novo apaga o que foi esculpido.',
+  fichaData: 'Data',
+  fichaNumero: 'Nº do caso',
+  fichaCliente: 'Cliente',
+  fichaClienteEx: 'Dentista que pediu',
+  fichaPaciente: 'Paciente do caso',
+  fichaTecnico: 'Técnico',
+  fichaNotas: 'Observações',
+  fichaNotasEx: 'Escreva as observações aqui...',
+  fichaOpcoes: 'Opções',
+  fichaTrabalho: 'Definição do trabalho',
+  fichaEscolhaDente: 'Clique no dente que vai receber a coroa',
+  fichaDenteSel: 'Dente',
+  fichaCoroa: 'Coroa unitária',
+  fichaCor: 'Cor do dente',
+  fichaAcoes: 'Ações',
+  acaoArco: 'Abrir arcada',
+  acaoArcoAjuda: 'Com o preparo: STL, OBJ ou PLY',
+  acaoAnt: 'Abrir antagonista',
+  acaoAntAjuda: 'Opcional',
+  acaoDesenhar: 'Desenhar coroa',
+  faltaArco: 'Falta abrir a arcada.',
+  faltaDente: 'Falta escolher o dente.',
+  limpandoCaso: 'Limpando o caso…',
+  resumoCaso: 'Resumo do caso',
   clicarPreparo: 'Gire o modelo e clique no topo do dente preparado.',
   margemInstrucao: 'Confira a linha vermelha. Onde ela sair do término, clique no ponto certo: a linha passa a passar por ali.',
   legendaEixos: 'Linha verde: mesial. Linha azul: vestibular.',
@@ -99,10 +127,8 @@ export const PINCEIS: readonly { id: ModoPincel; nome: string }[] = Object.freez
 
 export const ETAPAS = Object.freeze(['Caso', 'Preparo e margem', 'Anatomia', 'Ajustes', 'Exportar']);
 
-export const DENTES_FDI: readonly number[] = Object.freeze([
-  18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28,
-  48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
-]);
+/** Escala de cor mais usada nos laboratórios. */
+export const CORES_DO_DENTE: readonly string[] = Object.freeze(['A1', 'A2', 'A3', 'A3.5', 'A4', 'B1', 'B2', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4', 'D2', 'D3', 'D4']);
 
 export type MapaId = 'nenhum' | 'espessura' | 'antagonista' | 'vizinhos' | 'broca';
 

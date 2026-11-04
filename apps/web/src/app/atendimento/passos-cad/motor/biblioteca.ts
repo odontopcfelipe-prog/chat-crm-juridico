@@ -13,15 +13,20 @@ export { chaveDoDente, denteDoFdi, indexarPasta } from './biblioteca-indice';
 
 const LOJA = 'bibliotecas';
 
-/** Um banco por conta: duas contas no mesmo navegador não enxergam a biblioteca uma da outra. */
-function nomeDoBanco(): string {
+/** A conta aberta neste navegador: o que fica guardado aqui é separado por conta. */
+export function contaDoNavegador(): string {
   let conta: unknown;
   try {
     conta = decodeJwtPayload(window.localStorage.getItem('token'))?.tenant_id;
   } catch {
     conta = undefined;
   }
-  return `passos-cad-${typeof conta === 'string' && conta ? conta : 'sem-conta'}`;
+  return typeof conta === 'string' && conta ? conta : 'sem-conta';
+}
+
+/** Um banco por conta: duas contas no mesmo navegador não enxergam a biblioteca uma da outra. */
+function nomeDoBanco(): string {
+  return `passos-cad-${contaDoNavegador()}`;
 }
 
 interface BibliotecaGuardada {

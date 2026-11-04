@@ -22,6 +22,8 @@ import { chaveDoDente, denteDoFdi, indexarPasta } from '../../../web/src/app/ate
 import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao';
 import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
 import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
+import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
+import { juntarRecente } from '../../../web/src/app/atendimento/passos-cad/ficha';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -437,6 +439,89 @@ describe('Passos CAD — coroa', () => {
     expect(conf.volume).toBeGreaterThan(0);
     expect(unit([1, 0, 0])[0]).toBe(1);
     expect(juntar(fechar).tri.length).toBe(fechar.tri.length);
+  });
+});
+
+describe('Passos CAD — ficha do caso', () => {
+  const dentes = dentesDoArco();
+  const de = (fdi: number) => dentes.find((d) => d.fdi === fdi) as (typeof dentes)[number];
+
+  it('a arcada tem os 32 dentes, uma vez cada', () => {
+    const esperados: number[] = [];
+    for (const q of [1, 2, 3, 4]) for (let n = 1; n <= 8; n++) esperados.push(q * 10 + n);
+    expect(dentes.map((d) => d.fdi).sort((a, b) => a - b)).toEqual(esperados);
+  });
+
+  it('cada quadrante fica no seu lugar: 1 em cima à esquerda, 2 à direita, 3 embaixo à direita, 4 à esquerda', () => {
+    const meioX = LARGURA_DO_ARCO / 2;
+    const meioY = ALTURA_DO_ARCO / 2;
+    for (const d of dentes) {
+      const q = Math.floor(d.fdi / 10);
+      expect([d.fdi, d.x < meioX]).toEqual([d.fdi, q === 1 || q === 4]);
+      expect([d.fdi, d.y < meioY]).toEqual([d.fdi, q === 1 || q === 2]);
+      expect(d.x - d.largura / 2).toBeGreaterThan(-20);
+      expect(d.x + d.largura / 2).toBeLessThan(LARGURA_DO_ARCO + 20);
+    }
+    // Os centrais colados na linha média, em cima e embaixo; os sisos no meio da altura.
+    expect(meioX - de(11).x).toBeLessThan(de(11).largura);
+    expect(de(21).x - meioX).toBeLessThan(de(21).largura);
+    expect(de(11).y).toBeLessThan(de(18).y);
+    expect(de(41).y).toBeGreaterThan(de(48).y);
+    expect(de(48).y).toBeGreaterThan(de(18).y);
+  });
+
+  it('os dois lados são espelho um do outro', () => {
+    for (let n = 1; n <= 8; n++) {
+      for (const [e, d] of [[10, 20], [40, 30]]) {
+        expect(de(e + n).x + de(d + n).x).toBeCloseTo(LARGURA_DO_ARCO, 6);
+        expect(de(e + n).y).toBeCloseTo(de(d + n).y, 6);
+        expect(de(e + n).largura).toBeCloseTo(de(d + n).largura, 6);
+      }
+    }
+  });
+
+  it('um dente não cobre o vizinho na mesma arcada', () => {
+    for (const q of [1, 2, 3, 4]) {
+      for (let n = 1; n < 8; n++) {
+        const a = de(q * 10 + n);
+        const b = de(q * 10 + n + 1);
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(0.85 * (a.largura + b.largura) / 2);
+      }
+    }
+    // Os dois centrais de cada arcada também não se cruzam.
+    expect(de(21).x - de(11).x).toBeGreaterThanOrEqual((de(11).largura + de(21).largura) / 2 * 0.85);
+  });
+
+  it('nomes lembrados: o último vem primeiro, sem repetir e sem nome vazio', () => {
+    expect(juntarRecente(['Dra. Ana', 'Dr. Bruno'], 'dr. bruno')).toEqual(['dr. bruno', 'Dra. Ana']);
+    expect(juntarRecente(['Dra. Ana'], '   ')).toEqual(['Dra. Ana']);
+    expect(juntarRecente([], '  Dra. Ana ')).toEqual(['Dra. Ana']);
+    const muitos = Array.from({ length: 30 }, (_, i) => `Nome ${i}`);
+    expect(juntarRecente(muitos, 'Novo').length).toBe(20);
+    expect(juntarRecente(muitos, 'Novo')[0]).toBe('Novo');
+    expect(juntarRecente([], 'x'.repeat(500))[0].length).toBe(80);
+  });
+
+  it('caso novo não herda nada do anterior, principalmente o antagonista', () => {
+    const s = new Sessao({ meridianos: 60, linhas: 40 });
+    s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
+    s.abrirAntagonista('ant.stl', escreverStl(antagonistaPlano(9), 'ant'));
+    expect(s.temAntagonista()).toBe(true);
+    s.fecharCaso();
+    expect(s.temAntagonista()).toBe(false);
+    expect(s.apontar([0.3, 0.2, 20], [0, 0, -1])).toBeNull();
+    expect(() => s.exportarStl()).toThrow('Gere a coroa primeiro.');
+  });
+
+  it('o nome do paciente do caso não fica guardado nem vai no nome do arquivo', () => {
+    const raiz = path.resolve(__dirname, '..', '..', '..', '..', 'apps/web/src/app/atendimento/passos-cad');
+    const app = fs.readFileSync(path.join(raiz, 'PassosCadApp.tsx'), 'utf8');
+    const ficha = fs.readFileSync(path.join(raiz, 'ficha.ts'), 'utf8');
+    const exportar = app.slice(app.indexOf('const exportar = () =>'), app.indexOf('const podeAvancar'));
+    expect(exportar).toContain('ficha.numero');
+    expect(exportar).not.toContain('ficha.nomeDoCaso');
+    expect(ficha).toMatch(/guardarRecentes\(ficha: Pick<FichaCaso, 'cliente' \| 'tecnico'>\)/);
+    expect(ficha.slice(ficha.indexOf('export function guardarRecentes'))).not.toMatch(/ficha\.paciente/);
   });
 });
 

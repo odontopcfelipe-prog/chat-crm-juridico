@@ -18,6 +18,7 @@ export type Pedido =
   | { tipo: 'reposicionar'; parametros: Parametros }
   | { tipo: 'mover'; ajuste: Ajuste; parametros: Parametros }
   | { tipo: 'coroa'; ajuste: Ajuste; parametros: Parametros }
+  | { tipo: 'novo' }
   | { tipo: 'mira'; o: V3; d: V3 }
   | { tipo: 'pincel'; raios: [V3, V3][]; opcoes: OpcoesPincel; inicio: boolean }
   | { tipo: 'pincelFim' }
@@ -83,6 +84,9 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
         envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer, f.buffer],
       };
     }
+    case 'novo':
+      sessao.fecharCaso();
+      return { dados: null, envio: [] };
     case 'mira':
       return { dados: sessao.mirarPincel(p.o, p.d), envio: [] };
     case 'pincel': {

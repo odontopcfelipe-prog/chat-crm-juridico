@@ -78,6 +78,25 @@ export class Sessao {
   private coroa: ResultadoCoroa | null = null;
   private escultor: Escultor | null = null;
 
+  /** Caso novo: nada do anterior pode ficar, principalmente o antagonista, que é opcional. */
+  fecharCaso(): void {
+    this.arco = null;
+    this.arcoB = null;
+    this.antagonista = null;
+    this.recorte = null;
+    this.recorteB = null;
+    this.antB = null;
+    this.ambiente = null;
+    this.prep = null;
+    this.margem = null;
+    this.eixos = null;
+    this.fdi = 0;
+    this.anatomia = null;
+    this.parametros = null;
+    this.coroa = null;
+    this.escultor = null;
+  }
+
   abrirArco(nome: string, buf: ArrayBuffer): Malha {
     this.arco = lerMalha(nome, buf);
     this.arcoB = new Bvh(this.arco);

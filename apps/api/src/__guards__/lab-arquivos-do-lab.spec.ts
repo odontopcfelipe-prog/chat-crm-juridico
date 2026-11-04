@@ -45,6 +45,9 @@ const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/settings/procedures/lab-servicos-textos.ts',
   // Passos CAD
   'apps/web/src/app/atendimento/passos-cad/PassosCadApp.tsx',
+  'apps/web/src/app/atendimento/passos-cad/FichaDoCaso.tsx',
+  'apps/web/src/app/atendimento/passos-cad/Odontograma.tsx',
+  'apps/web/src/app/atendimento/passos-cad/campos.tsx',
   'apps/web/src/app/atendimento/passos-cad/textos.ts',
 ];
 
