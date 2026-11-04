@@ -592,6 +592,27 @@ export class CommercialController {
     return this.quotesService.vendaBalcao(user.tenant_id, user.id, dto);
   }
 
+  /** Lista de vendas da Venda Rápida: uma linha por venda. Mesma permissão de vender. */
+  @RequiresPermission('manage_proposals')
+  @Get('venda-rapida/vendas')
+  listarVendasRapidas(
+    @Authenticated() user: AuthUser,
+    @Query('page') page?: string,
+    @Query('perPage') perPage?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.listarVendasRapidas(user.tenant_id, {
+      page: Number(page) || 1,
+      perPage: Number(perPage) || 50,
+      search,
+      from,
+      to,
+    });
+  }
+
   /**
    * Onda 12.2 — Aplica financiamento aprovado (chamado pelo botao "Aplicar
    * essa proposta" no modal Banco PASSOS apos credit-check approved).

@@ -29,7 +29,7 @@ import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { negarPermissao } from '../auth/require-any-permission';
 import { erroSomaFormas, round2 } from '../payment-gateway/baixa-regras';
 import { notasVendaBalcao, roteamentoBalcao, type FormaBalcao } from './venda-balcao.util';
-import { isVendaRapidaQuote } from './venda-rapida.util';
+import { estadoDaVenda, formaDaVendaRapida, isVendaRapidaQuote } from './venda-rapida.util';
 import type { VendaBalcaoDto } from './dto/commercial.dto';
 // F6 — orçamento de trabalho do laboratório: envio pelo WhatsApp (função pura) e texto
 // da recusa do elemento fora da numeração FDI.
@@ -3683,6 +3683,105 @@ export class QuotesService {
   }
 
   // ─── Onda 1 — Listagem global + Dashboard funil ────────────────
+
+  /**
+   * Lista de vendas da Venda Rápida: uma linha por venda, da mais nova para a mais velha.
+   * A marca de isVendaRapidaQuote vai no banco, com e sem acento; a forma sai das notas e
+   * o estado, das cobranças. As cobranças vêm pelo plano, que já é da conta (via paciente).
+   */
+  async listarVendasRapidas(
+    tenantId: string,
+    opts: { page?: number; perPage?: number; search?: string; from?: string; to?: string } = {},
+  ) {
+    const perPage = Math.min(100, Math.max(1, opts.perPage || 50));
+    const page = Math.max(1, opts.page || 1);
+    const busca = (opts.search || '').trim();
+    const numero = /^\d{1,9}$/.test(busca) ? Number(busca) : null;
+    const data = (s?: string) => {
+      const d = s ? new Date(s) : null;
+      return d && !Number.isNaN(d.getTime()) ? d : undefined;
+    };
+    const de = data(opts.from);
+    const ate = data(opts.to);
+    const where: Prisma.QuoteWhereInput = {
+      patient: { tenant_id: tenantId },
+      status: 'ACCEPTED',
+      deleted_at: null,
+      ...(de || ate ? { created_at: { ...(de ? { gte: de } : {}), ...(ate ? { lt: ate } : {}) } } : {}),
+      AND: [
+        {
+          OR: ['Venda rapida', 'Venda rápida'].flatMap((marca) => [
+            { title: { startsWith: marca, mode: 'insensitive' as const } },
+            { notes: { startsWith: marca, mode: 'insensitive' as const } },
+          ]),
+        },
+        ...(busca
+          ? [{
+              OR: [
+                ...(numero !== null ? [{ quote_number: numero }] : []),
+                { patient: { name: { contains: busca, mode: 'insensitive' as const } } },
+                { patient: { phone: { contains: busca } } },
+                { patient: { cpf: { contains: busca } } },
+              ],
+            }]
+          : []),
+      ],
+    };
+
+    const [vendas, total, soma] = await Promise.all([
+      this.prisma.quote.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        select: {
+          id: true,
+          quote_number: true,
+          notes: true,
+          total_value: true,
+          created_at: true,
+          patient: { select: { id: true, name: true, phone: true } },
+          items: { take: 2, select: { procedure: { select: { name: true } } } },
+          _count: { select: { items: true } },
+          treatment_plan: { select: { id: true, validated_by_financial_at: true } },
+        },
+      }),
+      this.prisma.quote.count({ where }),
+      this.prisma.quote.aggregate({ where, _sum: { total_value: true } }),
+    ]);
+
+    const planos = vendas.map((v) => v.treatment_plan?.id).filter((id): id is string => !!id);
+    const cobrancas = planos.length
+      ? await this.prisma.paymentGatewayCharge.findMany({
+          where: { treatment_plan_id: { in: planos } },
+          select: { treatment_plan_id: true, status: true, billing_type: true },
+        })
+      : [];
+
+    return {
+      data: vendas.map((v) => {
+        const doPlano = cobrancas.filter((c) => c.treatment_plan_id === v.treatment_plan?.id);
+        const estado = estadoDaVenda(doPlano.map((c) => c.status));
+        return {
+          id: v.id,
+          numero: v.quote_number,
+          data: v.created_at,
+          cliente: v.patient,
+          itens: v.items.map((i) => i.procedure?.name).filter(Boolean),
+          qtd_itens: v._count.items,
+          forma: formaDaVendaRapida(v.notes) ?? (doPlano[0]?.billing_type === 'PIX' ? 'PIX online' : null),
+          total: Number(v.total_value),
+          estado,
+          a_validar: estado === 'RECEBIDA' && !v.treatment_plan?.validated_by_financial_at,
+        };
+      }),
+      total,
+      soma: Number(soma._sum.total_value ?? 0),
+      page,
+      perPage,
+      totalPages: Math.max(1, Math.ceil(total / perPage)),
+    };
+  }
 
   /**
    * Lista TODOS os orcamentos do tenant com filtros (status, dentista, range

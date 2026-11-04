@@ -7,7 +7,7 @@
     "globais": 14,
     "produtores": 24,
     "controllers": 90,
-    "handlers": 963,
+    "handlers": 964,
     "@Public": 31
   },
   "automatismos": [
@@ -469,6 +469,7 @@
         { "metodo": "CommercialController.addBonus", "verbo": "POST", "path": "quotes/:id/bonus", "rota": "POST /quotes/:id/bonus", "acesso": ["@RequiresPermission('manage_proposals')"] },
         { "metodo": "CommercialController.approveAndBill", "verbo": "POST", "path": "quotes/:id/approve-and-bill", "rota": "POST /quotes/:id/approve-and-bill", "acesso": ["@RequiresPermission('manage_proposals')"] },
         { "metodo": "CommercialController.vendaBalcao", "verbo": "POST", "path": "venda-rapida/balcao", "rota": "POST /venda-rapida/balcao", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "CommercialController.listarVendasRapidas", "verbo": "GET", "path": "venda-rapida/vendas", "rota": "GET /venda-rapida/vendas", "acesso": ["@RequiresPermission('manage_proposals')"] },
         { "metodo": "CommercialController.applyFinancing", "verbo": "POST", "path": "quotes/:id/apply-financing", "rota": "POST /quotes/:id/apply-financing", "acesso": ["@RequiresPermission('manage_proposals')"] },
         { "metodo": "CommercialController.rejectQuote", "verbo": "POST", "path": "quotes/:id/reject", "rota": "POST /quotes/:id/reject", "acesso": ["@RequiresPermission('manage_proposals')"] },
         { "metodo": "CommercialController.chooseQuoteAsProposal", "verbo": "POST", "path": "quotes/:id/choose-as-proposal", "rota": "POST /quotes/:id/choose-as-proposal", "acesso": ["@RequiresPermission('manage_proposals')"] },

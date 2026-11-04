@@ -12,3 +12,33 @@ export function isVendaRapidaQuote(q: { title?: string | null; notes?: string | 
     (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
   return norm(q.title).startsWith('venda rapida') || norm(q.notes).startsWith('venda rapida');
 }
+
+/**
+ * Forma de pagamento para a Lista de vendas, lida das notas que a venda grava
+ * ("Venda rapida — recebido na clinica: Espécie") com os nomes da tela de pagamento.
+ * Sem forma nas notas (PIX online antigo) devolve null.
+ */
+export function formaDaVendaRapida(notes: string | null | undefined): string | null {
+  const texto = notes || '';
+  const inicio = texto.indexOf(': ');
+  if (inicio < 0) return null;
+  return texto
+    .slice(inicio + 2)
+    .replace(/PIX \(Maquineta\)/g, 'PIX na maquineta')
+    .replace(/PIX d[ao] (clínica|laboratório)/g, 'PIX na chave')
+    .replace(/Espécie/g, 'Dinheiro')
+    .replace(/Maquineta \((\d+) cartões\)/g, '$1 cartões')
+    .replace(/Maquineta/g, 'Cartão')
+    .replace(/R\$ (\d+)\.(\d{2})/g, 'R$ $1,$2');
+}
+
+export type EstadoDaVenda = 'RECEBIDA' | 'PENDENTE' | 'VENCIDA' | 'CANCELADA' | 'SEM_COBRANCA';
+
+/** Estado da venda pelas cobranças dela. Uma cobrança recebida basta para contar como recebida. */
+export function estadoDaVenda(statusDasCobrancas: string[]): EstadoDaVenda {
+  const tem = (...lista: string[]) => statusDasCobrancas.some((s) => lista.includes(s));
+  if (tem('RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH')) return 'RECEBIDA';
+  if (tem('OVERDUE')) return 'VENCIDA';
+  if (tem('PENDING')) return 'PENDENTE';
+  return statusDasCobrancas.length > 0 ? 'CANCELADA' : 'SEM_COBRANCA';
+}

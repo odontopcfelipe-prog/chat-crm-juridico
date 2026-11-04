@@ -536,6 +536,12 @@ export function Sidebar() {
       badge: 'novo',
       // Onda 17.65 — venda rápida usa manage_proposals: só com permissão.
       show: hasPermission('manage_proposals'),
+      // Tópico, no jeito do admin da Nuvemshop. As mesmas abas ficam na própria tela
+      // (AbasVendaRapida), para quem usa o menu recolhido ou não tem o menu lateral.
+      subItems: [
+        { label: 'Nova venda', href: '/atendimento/venda-rapida' },
+        { label: 'Lista de vendas', href: '/atendimento/venda-rapida/vendas' },
+      ],
     },
     // Onda 18.x — Caixa do dia (recepção opera; admin/financeiro validam).
     caixa: {
@@ -1248,11 +1254,9 @@ export function Sidebar() {
                       )}
                     </button>
 
-                    {/* Sub-itens (Onda 5c — preservados pra compat se algum item ainda usar)
-                        Atualmente nenhum item da nova estrutura usa subItems —
-                        Pacientes virou items separados (Lista + Novo). */}
+                    {/* Sub-itens do tópico (hoje só a Venda rápida). Cores sobre o fundo primário do menu. */}
                     {expanded && isActive && item.subItems && item.subItems.length > 0 && (
-                      <div className="ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-border/60 pl-2">
+                      <div className="ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-primary-foreground/30 pl-2">
                         {item.subItems.map((sub) => {
                           const subPath = sub.href.split('?')[0];
                           const subQuery = sub.href.includes('?');
@@ -1265,8 +1269,8 @@ export function Sidebar() {
                               onClick={() => router.push(sub.href)}
                               className={`text-left text-[12px] py-1 px-2 rounded-md transition-colors ${
                                 currentMatchesSub
-                                  ? 'text-primary font-medium'
-                                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'
+                                  ? 'bg-primary-foreground/15 text-primary-foreground font-semibold'
+                                  : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'
                               }`}
                             >
                               {sub.label}

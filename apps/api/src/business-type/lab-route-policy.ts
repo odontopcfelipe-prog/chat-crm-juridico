@@ -90,6 +90,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'CommercialController.addBonus',
   'CommercialController.approveAndBill',
   'CommercialController.vendaBalcao',
+  'CommercialController.listarVendasRapidas',
   'CommercialController.applyFinancing',
   'CommercialController.rejectQuote',
   'CommercialController.chooseQuoteAsProposal',

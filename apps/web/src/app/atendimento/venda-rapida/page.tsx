@@ -36,6 +36,7 @@ import { decodeJwtPayload, isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
 import './venda-skin.css';
+import AbasVendaRapida from './AbasVendaRapida';
 import PagamentoBalcao from './PagamentoBalcao';
 import {
   MAX_PARCELAS,
@@ -739,15 +740,16 @@ export default function VendaRapidaPage() {
                 </span>
               </span>
             </button>
+            <AbasVendaRapida className="text-sm" />
             <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] font-semibold">
               {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
             </span>
             {lab ? (
-              <p className="hidden min-w-0 flex-1 text-foreground/70 md:block">
+              <p className="hidden min-w-0 flex-1 text-foreground/70 2xl:block">
                 {LAB_VENDA_RAPIDA.subtitulo.antes}<strong>{LAB_VENDA_RAPIDA.subtitulo.destaque}</strong>{LAB_VENDA_RAPIDA.subtitulo.depois}
               </p>
             ) : (
-            <p className="hidden min-w-0 flex-1 text-foreground/70 md:block">
+            <p className="hidden min-w-0 flex-1 text-foreground/70 2xl:block">
               Venda um procedimento na hora: <strong>entra no tratamento do paciente</strong>{' '}
               — gera a cobrança e dispensa a avaliação. O dentista confirma a execução depois.
             </p>
