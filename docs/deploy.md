@@ -72,6 +72,10 @@ do deploy. Quando ela acaba, o deploy para e diz a hora em que ela volta. Com to
 uma IA. Cole o bloco abaixo; se "Cole o token" não aparecer sozinho, aperte Enter. Quando
 aparecer, cole o token e aperte Enter. Nada aparece enquanto você cola, e é assim mesmo.
 
+**Só cole o token depois de ver "Cole o token e aperte Enter:".** Se a última linha termina
+em `:~$`, ainda não é a hora: colado ali, o token vira comando e fica exposto na tela e no
+histórico.
+
 ```bash
 set +H
 mkdir -p ~/.config/chatcrm && chmod 700 ~/.config/chatcrm
@@ -96,8 +100,7 @@ aparecer 60, ou nada, o token não valeu: repita o "Guardar". O próximo deploy 
 **Cuidados:**
 
 - O token nunca vai para o chat de uma IA, para uma mensagem nem para um arquivo do
-  repositório, que é público. Colou no lugar errado? Apague o token na mesma tela do
-  GitHub (**Delete**) e crie outro.
+  repositório, que é público.
 - Token vencido ou recusado não trava o deploy: o script avisa "o GitHub recusou o token"
   e consulta sem ele. Para trocar, crie outro e repita o "Guardar".
 - O arquivo fica fechado, só para o dono (permissão 600). Aberto para outros usuários, o script
@@ -105,6 +108,17 @@ aparecer 60, ou nada, o token não valeu: repita o "Guardar". O próximo deploy 
   `GITHUB_TOKEN`, se existir, vale no lugar do arquivo.
 - O token vai pela entrada padrão do `curl`: não aparece na lista de processos, na saída
   nem em `~/vps-redeploy.log`.
+
+**Colou o token no lugar errado** (prompt do bash, chat, mensagem, print de tela)? Ele ficou
+exposto: apague na mesma tela do GitHub (**Delete**) e crie outro. Se foi no prompt do bash,
+limpe também o histórico, na mesma aba do terminal:
+
+```bash
+set +H
+sed -i '/github_pat_/d' ~/.bash_history 2>/dev/null
+for n in $(history | grep -F 'github_pat_' | awk '{print $1}' | sort -rn); do history -d "$n"; done
+echo 'Histórico limpo.'
+```
 
 **Limite atingido:** espere a hora que o script mostra e rode de novo, sem refazer o backup
 (o `vps-backup.sh` guarda os 5 mais recentes e apagaria o mais antigo). A hora vem da
