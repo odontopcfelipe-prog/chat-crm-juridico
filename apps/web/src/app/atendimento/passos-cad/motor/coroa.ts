@@ -520,6 +520,34 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   }
   let conflitos = 0;
   for (let i = 0; i < NT; i++) for (let j = 0; j < J; j++) if (piso[i][j] > teto[i][j]) conflitos++;
+  // Folgas de verdade (ponto mais próximo), não só ao longo do raio: o vizinho e o antagonista
+  // podem estar mais perto em outra direção. Só olha quem está perto do limite.
+  const vizinhosDoCaso = vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente];
+  for (let it = 0; it < 3; it++) {
+    let mudou = false;
+    for (let i = 0; i < NT; i++) {
+      for (let j = 1; j < J - 2; j++) {
+        if (teto[i][j] === Infinity || teto[i][j] - R[i][j] > 0.5) continue;
+        const d = dirs[i][j];
+        const p = soma(O, mul(d, R[i][j]));
+        const alto = dot(sub(p, O), a) > altMargem[i] + ALTURA_MIN_CONTATO;
+        let recuo = 0;
+        if (alto) {
+          for (const viz of vizinhosDoCaso) {
+            const q = viz.proximo(p, 0.3);
+            if (q && q.d < P.folgaVizinho) recuo = Math.max(recuo, (P.folgaVizinho - q.d) / Math.max(0.4, Math.abs(dot(d, q.normal))));
+          }
+        }
+        const q = ant?.proximo(p, 0.4);
+        if (q && q.d < P.folgaAntagonista) recuo = Math.max(recuo, (P.folgaAntagonista - q.d) / Math.max(0.4, Math.abs(dot(d, q.normal))));
+        if (recuo > 0.003) {
+          R[i][j] = Math.max(piso[i][j], R[i][j] - recuo);
+          mudou = true;
+        }
+      }
+    }
+    if (!mudou) break;
+  }
   // Espessura de verdade (ponto mais próximo do preparo), não só ao longo do raio.
   for (let it = 0; it < 4; it++) {
     let mudou = false;
