@@ -192,7 +192,7 @@ const ROTAS_DE_CLINICA = [
  * A venda rápida mudou de propósito depois: pagamento em lista e sem o PIX online (nov/2026).
  */
 const ANTES_DA_F8: Record<string, { total: number; unicos: number; sha256: string }> = {
-  [VENDA]: { total: 533, unicos: 384, sha256: '935d7c80b747990c67074c532831b4f2a9bcb4f1896fb9d975892824fefa733d' },
+  [VENDA]: { total: 533, unicos: 384, sha256: 'd53514b2ead9224afb3f339acd2117fcb52e46281e9cd02748bfb5cbeb736620' },
   [TRATAMENTO]: { total: 171, unicos: 154, sha256: '24ef358cd65d78edb597871149e0b3a2fa7cb432ed092403c790facf5164a443' },
 };
 

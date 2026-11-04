@@ -993,7 +993,7 @@ export default function VendaRapidaPage() {
                   onClick={() => setShowNewPatient(true)}
                   className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 text-sm font-medium"
                 >
-                  <UserPlus size={15} />{lab ? LAB_VENDA_RAPIDA.cadastrarCliente : ' Cadastrar novo paciente'}
+                  <UserPlus size={15} />{lab ? LAB_VENDA_RAPIDA.cadastrarCliente : ' Cadastrar novo cliente'}
                 </button>
                 <p className="text-[10px] text-muted-foreground mt-1">{lab ? LAB_VENDA_RAPIDA.obrigatorioCliente : 'obrigatório para lançar no tratamento'}</p>
               </div>
