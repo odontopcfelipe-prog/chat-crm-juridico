@@ -11,7 +11,6 @@ import { AlertCircle, ChevronLeft, ChevronRight, Loader2, Plus, Search } from 'l
 import { isLab, labAllowsRoute } from '@crm/shared';
 import api from '@/lib/api';
 import { useBusinessType } from '@/lib/useBusinessType';
-import AbasVendaRapida from '../AbasVendaRapida';
 
 type Estado = 'RECEBIDA' | 'PENDENTE' | 'VENCIDA' | 'CANCELADA' | 'SEM_COBRANCA';
 
@@ -107,8 +106,6 @@ export default function ListaDeVendasPage() {
   return (
     <div className="vr-skin h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl p-6">
-        <AbasVendaRapida className="mb-4 text-sm" />
-
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-foreground">Lista de vendas</h1>
           <Link href="/atendimento/venda-rapida" className="vr-botao inline-flex items-center gap-1.5 px-3 py-2 text-sm">

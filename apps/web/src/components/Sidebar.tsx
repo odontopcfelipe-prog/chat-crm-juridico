@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog, Route, Clock, Eye, Crown, PenTool,
+  User, UserCog, Route, Clock, Eye, Crown, PenTool, ShoppingCart, ClipboardList,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -52,6 +52,8 @@ function stringToColor(str: string): string {
 interface NavSubItem {
   label: string;
   href: string;
+  /** O que aparece com o menu recolhido; o nome vai no balão. */
+  icon: React.ReactNode;
 }
 
 interface NavItem {
@@ -62,9 +64,9 @@ interface NavItem {
   badge?: number | string;
   show: boolean;
   /**
-   * Sub-itens mostrados em indent abaixo do item pai quando ele está ativo
-   * E o sidebar está expandido. Não substitui a navegação do pai — clica no
-   * pai pra ir pra raiz, clica no sub-item pra ir pra rota específica.
+   * Sub-itens mostrados abaixo do item pai quando ele está ativo: com o nome no
+   * menu aberto e só o ícone no recolhido. Não substitui a navegação do pai — clica
+   * no pai pra ir pra raiz, clica no sub-item pra ir pra rota específica.
    */
   subItems?: NavSubItem[];
 }
@@ -536,12 +538,12 @@ export function Sidebar() {
       badge: 'novo',
       // Onda 17.65 — venda rápida usa manage_proposals: só com permissão.
       show: hasPermission('manage_proposals'),
-      // Tópico, no jeito do admin da Nuvemshop. As mesmas abas ficam na própria tela
-      // (AbasVendaRapida), para quem usa o menu recolhido ou não tem o menu lateral.
+      // Tópico, no jeito do admin da Nuvemshop. O menu lateral é o único caminho para
+      // estas telas: a opção não aparece dentro delas (pedido do dono).
       subItems: [
-        { label: 'Nova venda', href: '/atendimento/venda-rapida' },
-        { label: 'Lista de vendas', href: '/atendimento/venda-rapida/vendas' },
-        { label: 'Produtos', href: '/atendimento/venda-rapida/produtos' },
+        { label: 'Nova venda', href: '/atendimento/venda-rapida', icon: <ShoppingCart size={16} strokeWidth={2} /> },
+        { label: 'Lista de vendas', href: '/atendimento/venda-rapida/vendas', icon: <ClipboardList size={16} strokeWidth={2} /> },
+        { label: 'Produtos', href: '/atendimento/venda-rapida/produtos', icon: <Package size={16} strokeWidth={2} /> },
       ],
     },
     // Onda 18.x — Caixa do dia (recepção opera; admin/financeiro validam).
@@ -1273,9 +1275,13 @@ export function Sidebar() {
                       )}
                     </button>
 
-                    {/* Sub-itens do tópico (hoje só a Venda rápida). Cores sobre o fundo primário do menu. */}
-                    {expanded && isActive && item.subItems && item.subItems.length > 0 && (
-                      <div className="ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-primary-foreground/30 pl-2">
+                    {/* Sub-itens do tópico (hoje só a Venda rápida). Cores sobre o fundo primário do menu.
+                        Recolhido, ícone com o nome no balão: o menu começa recolhido e aqui é o único
+                        caminho para essas telas. */}
+                    {isActive && item.subItems && item.subItems.length > 0 && (
+                      <div className={expanded
+                        ? 'ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-primary-foreground/30 pl-2'
+                        : 'mt-1 mb-1 flex flex-col items-center gap-0.5'}>
                         {item.subItems.map((sub) => {
                           const subPath = sub.href.split('?')[0];
                           const subQuery = sub.href.includes('?');
@@ -1286,13 +1292,17 @@ export function Sidebar() {
                             <button
                               key={sub.href}
                               onClick={() => router.push(sub.href)}
-                              className={`text-left text-[12px] py-1 px-2 rounded-md transition-colors ${
+                              onMouseEnter={(e) => showTooltip(e, sub.label)}
+                              onMouseLeave={hideTooltip}
+                              aria-label={sub.label}
+                              aria-current={currentMatchesSub ? 'page' : undefined}
+                              className={`${expanded ? 'text-left text-[12px] py-1 px-2 rounded-md' : 'flex h-8 w-8 items-center justify-center rounded-lg'} transition-colors ${
                                 currentMatchesSub
                                   ? 'bg-primary-foreground/15 text-primary-foreground font-semibold'
                                   : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'
                               }`}
                             >
-                              {sub.label}
+                              {expanded ? sub.label : sub.icon}
                             </button>
                           );
                         })}

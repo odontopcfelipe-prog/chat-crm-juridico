@@ -17,7 +17,6 @@ import { showError, showSuccess } from '@/lib/toast';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { useRole } from '@/lib/useRole';
 import MateriaisProcedimento, { BotaoMateriais } from '../../settings/procedures/MateriaisProcedimento';
-import AbasVendaRapida from '../AbasVendaRapida';
 import FotoProduto from '../FotoProduto';
 import { fmtCentavos, paraCentavos } from '../pagamento-balcao';
 
@@ -374,8 +373,6 @@ export default function ProdutosPage() {
   return (
     <div className="vr-skin h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl p-6">
-        <AbasVendaRapida className="mb-4 text-sm" />
-
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-foreground">Produtos</h1>
           {podeEditar && (

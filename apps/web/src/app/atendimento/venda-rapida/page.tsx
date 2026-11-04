@@ -36,7 +36,6 @@ import { decodeJwtPayload, isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
 import './venda-skin.css';
-import AbasVendaRapida from './AbasVendaRapida';
 import FotoProduto from './FotoProduto';
 import PagamentoBalcao from './PagamentoBalcao';
 import {
@@ -752,7 +751,6 @@ export default function VendaRapidaPage() {
                 </span>
               </span>
             </button>
-            <AbasVendaRapida className="text-sm" />
             <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] font-semibold">
               {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
             </span>
