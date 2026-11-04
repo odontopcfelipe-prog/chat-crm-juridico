@@ -506,6 +506,8 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     for (let i = 0; i < NT; i++) for (let j = 0; j < J; j++) R[i][j] = Math.max(piso[i][j], Math.min(R[i][j], teto[i][j]));
   };
   limitar();
+  fecharContatos(R, teto, dirs, O, e.eixos.mesial, J);
+  limitar();
   for (let it = 0; it < 4; it++) {
     const novo = R.map((r) => Float64Array.from(r));
     for (let i = 0; i < NT; i++) {
@@ -611,6 +613,42 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     retencoesPreenchidas: retencoes,
   };
   return { malha, espessura, folgaAntagonista: folgaA, folgaVizinho: folgaV, externos, relatorio };
+}
+
+const MAIOR_ESPACO_A_FECHAR = 2;
+const RAIO_DO_CONTATO = 1.8;
+
+/**
+ * Fecha o contato com cada vizinho: acha o ponto da superfície mais perto dele e leva a região
+ * em volta até encostar, numa transição suave. Espaço grande demais não é contato: fica como está.
+ */
+function fecharContatos(R: Float64Array[], teto: Float64Array[], dirs: V3[][], O: V3, mesial: V3, J: number): void {
+  const NT = R.length;
+  for (const lado of [1, -1]) {
+    let gi = -1;
+    let gj = -1;
+    let menor = Infinity;
+    for (let i = 0; i < NT; i++) {
+      for (let j = 1; j < J - 2; j++) {
+        if (teto[i][j] === Infinity || lado * dot(dirs[i][j], mesial) < 0.6) continue;
+        const g = teto[i][j] - R[i][j];
+        if (g < menor) {
+          menor = g;
+          gi = i;
+          gj = j;
+        }
+      }
+    }
+    if (gi < 0 || menor <= 0.01 || menor > MAIOR_ESPACO_A_FECHAR) continue;
+    const alvo = soma(O, mul(dirs[gi][gj], R[gi][gj]));
+    for (let i = 0; i < NT; i++) {
+      for (let j = 1; j < J - 2; j++) {
+        if (lado * dot(dirs[i][j], mesial) < 0.2) continue;
+        const d = norma(sub(soma(O, mul(dirs[i][j], R[i][j])), alvo));
+        R[i][j] += menor * Math.exp(-((d / RAIO_DO_CONTATO) ** 2));
+      }
+    }
+  }
 }
 
 const arred = (x: number) => Math.round(x * 100) / 100;
