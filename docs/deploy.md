@@ -46,11 +46,77 @@ cria e apaga um container parado dela; nenhum `service update`, nenhum
 `env-add`. Saída 0 = o deploy real seguiria; 1 = pararia (o motivo aparece no
 fim).
 
+## Token do GitHub (opcional)
+
+Para conferir o CI, o script consulta a API do GitHub. Sem token são **60 consultas
+por hora por IP**, divididas com tudo que sai pelo mesmo IP. Aqui o servidor e os
+computadores do escritório dividem o IP, então sessões acompanhando o CI gastam a cota
+do deploy. Quando ela acaba, o deploy para e diz a hora em que ela volta. Com token são
+5.000 por hora, só dele. Sem token tudo funciona como antes.
+
+**Criar o token**, no site do GitHub, com a conta dona do repositório:
+
+1. Clique na sua foto, no canto superior direito, e depois em **Settings**.
+2. Na barra da esquerda, clique em **Developer settings**.
+3. Clique em **Personal access tokens** e depois em **Fine-grained tokens**.
+4. Clique em **Generate new token**.
+5. Em **Token name**, escreva `deploy-servidor`.
+6. Em **Expiration**, escolha o maior prazo oferecido e anote a data na agenda.
+7. Em **Repository access**, escolha **Public repositories**: o token só lê o que já é
+   público. Se essa opção não aparecer, escolha **Only select repositories** e marque
+   `chat-crm-juridico`.
+8. Em **Permissions**, não marque nada.
+9. Clique em **Generate token** e deixe a página aberta: o GitHub mostra o token uma vez só.
+
+**Guardar no servidor.** Abra o terminal do servidor no MobaXterm: o bash, não o chat de
+uma IA. Cole o bloco abaixo; se "Cole o token" não aparecer sozinho, aperte Enter. Quando
+aparecer, cole o token e aperte Enter. Nada aparece enquanto você cola, e é assim mesmo.
+
+```bash
+set +H
+mkdir -p ~/.config/chatcrm && chmod 700 ~/.config/chatcrm
+read -rs -p 'Cole o token e aperte Enter: ' T; echo; if [ -n "$T" ]; then (umask 077; printf '%s' "$T" > ~/.config/chatcrm/gh-token); chmod 600 ~/.config/chatcrm/gh-token; echo 'Guardado.'; else echo 'Nada colado: cole o bloco de novo.'; fi; unset T
+```
+
+O `read` fica de propósito na última linha, com o resto na mesma linha dele: num bloco
+colado, ele pegaria a linha seguinte do próprio bloco no lugar do token.
+
+**Conferir**, sem mostrar o token e sem gastar cota:
+
+```bash
+set +H
+ls -l ~/.config/chatcrm/gh-token
+printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.config/chatcrm/gh-token)" | curl -sS -m 20 --config - -D - -o /dev/null https://api.github.com/rate_limit | grep -i '^x-ratelimit-limit'
+```
+
+Tem de aparecer `-rw-------` na primeira linha e `x-ratelimit-limit: 5000` na segunda. Se
+aparecer 60, ou nada, o token não valeu: repita o "Guardar". O próximo deploy mostra
+"consulta com token".
+
+**Cuidados:**
+
+- O token nunca vai para o chat de uma IA, para uma mensagem nem para um arquivo do
+  repositório, que é público. Colou no lugar errado? Apague o token na mesma tela do
+  GitHub (**Delete**) e crie outro.
+- Token vencido ou recusado não trava o deploy: o script avisa "o GitHub recusou o token"
+  e consulta sem ele. Para trocar, crie outro e repita o "Guardar".
+- O arquivo fica fechado, só para o dono (permissão 600). Aberto para outros usuários, o script
+  fecha em 600 e avisa; se não conseguir fechar, consulta sem token. A variável de ambiente
+  `GITHUB_TOKEN`, se existir, vale no lugar do arquivo.
+- O token vai pela entrada padrão do `curl`: não aparece na lista de processos, na saída
+  nem em `~/vps-redeploy.log`.
+
+**Limite atingido:** espere a hora que o script mostra e rode de novo, sem refazer o backup
+(o `vps-backup.sh` guarda os 5 mais recentes e apagaria o mais antigo). A hora vem da
+própria resposta do GitHub ou de `GET /rate_limit`, que não gasta cota. Sem hora conhecida,
+o script pede para esperar alguns minutos. O `--sem-ci` não é a saída para isso: ele pularia
+também um CI vermelho que ninguém viu.
+
 ## O que o v2 faz, na ordem
 
 | Passo | O que confere | Se falhar |
 |---|---|---|
-| CI | Runs do workflow **"CI — testes e checagens"** do sha na API pública do GitHub (sem token). Vale a **última tentativa**: o maior `run_attempt` do run (um re-run que passou libera, sem commit vazio); entre runs diferentes do mesmo sha, o que começou por último. Precisa `completed` + `success`. | Recusa. Escape: `--sem-ci` (aviso na tela e no registro). Com `latest` não há sha para conferir: exige `--sem-ci`. |
+| CI | Runs do workflow **"CI — testes e checagens"** do sha na API do GitHub (token opcional, ver [Token do GitHub](#token-do-github-opcional)). Vale a **última tentativa**: o maior `run_attempt` do run (um re-run que passou libera, sem commit vazio); entre runs diferentes do mesmo sha, o que começou por último. Precisa `completed` + `success`. | Recusa. Escape: `--sem-ci` (aviso na tela e no registro). Com `latest` não há sha para conferir: exige `--sem-ci`. |
 | Disco | `df -h` da raiz e do diretório de dados do Docker. | Menos de 10% livre: recusa. Escape: `--forcar-disco`. |
 | Imagens | Digest de cada tag no Docker Hub e `docker pull` **por digest** das 3 antes de mexer (pull por tag trava neste servidor). | Para; nada foi alterado. |
 | Schema | `docker create` da imagem nova (sem rodar) → `docker cp` do `schema.prisma` dela → `docker cp` para o `/tmp` da API que está no ar → `docker exec` com `prisma migrate diff --from-schema-datasource <schema da própria API> --to-schema-datamodel <schema novo> --script`. O prisma lê o `DATABASE_URL` do ambiente da API (como o `db push` do boot): a URL não vira argumento de processo, não passa pelo host e nunca é impressa. | Diff que não dá para calcular (API fora, erro do prisma) conta como **PERIGO** (falha fechada). |
@@ -90,7 +156,7 @@ ainda não subiu.
 
 Variáveis (raramente): `STACK` (padrão `chatcrm`), `ESPERA_API_SEG` (300),
 `ESTAVEL_API_SEG` (30), `POLL_SEG` (5), `DISCO_MIN_LIVRE` (10, em %),
-`REDEPLOY_LOG` (`~/vps-redeploy.log`), `DRIFT_EXTRA` (nomes de índice a mais
+`GH_TOKEN_ARQ` (`~/.config/chatcrm/gh-token`), `REDEPLOY_LOG` (`~/vps-redeploy.log`), `DRIFT_EXTRA` (nomes de índice a mais
 no drift), `PROTEGIDAS_EXTRA` (tabelas a mais na lista protegida; não dá para
 tirar nenhuma). As numéricas são só dígitos (`DISCO_MIN_LIVRE=15`, não `15%`):
 fora disso o script sai com 2 antes de chamar o docker.

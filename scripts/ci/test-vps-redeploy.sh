@@ -3,8 +3,9 @@
 # docker, curl e df num diretório na frente do PATH: nada toca Docker, rede ou
 # banco de verdade.
 #
-# Cobre: CI verde × vermelho × --sem-ci (e a ÚLTIMA tentativa do run),
-# 'latest', disco cheio, diff sem perigo, DROP COLUMN, troca de tipo, SET NOT
+# Cobre: CI verde × vermelho × --sem-ci (e a ÚLTIMA tentativa do run), token do
+# GitHub (com e sem, arquivo aberto, vencido) e limite de consultas (com a hora em
+# que volta, pelos cabeçalhos ou pelo /rate_limit), 'latest', disco cheio, diff sem perigo, DROP COLUMN, troca de tipo, SET NOT
 # NULL, RENAME, enum recriado, DROP INDEX de drift conhecido, diff tocando
 # TeamMessage/ponto, diff que não dá para calcular (falha fechada), segredo que
 # nunca aparece na saída, --dry-run sem nenhum "service update", API que não
@@ -36,6 +37,7 @@ cat > "$T/bin/docker" <<'STUB'
 # stub do docker: registra a chamada e responde como o Swarm do servidor
 S="${STUB_DIR:?}"
 printf '%s\n' "$*" >> "$S/docker.log"
+[ -n "${GITHUB_TOKEN:-}" ] && touch "$S/token-herdado"
 ultimo="${*: -1}"
 case "$1" in
   service)
@@ -117,7 +119,7 @@ cat > "$T/bin/curl" <<'STUB'
 # stub do curl: Docker Hub e API do GitHub
 S="${STUB_DIR:?}"
 url="${*: -1}"
-printf '%s\n' "$url" >> "$S/curl.log"
+printf '%s\n' "$*" >> "$S/curl.log"   # a linha toda: é o que a lista de processos mostraria
 dig64() { local i s=""; for i in $(seq 64); do s="$s$1"; done; echo "$s"; }
 case "$url" in
   https://hub.docker.com/v2/repositories/*/tags/\?*)
@@ -127,8 +129,43 @@ case "$url" in
     case "$repo" in *-api) c=b ;; *-worker) c=c ;; *-web) c=d ;; *) exit 22 ;; esac
     printf '{"name":"x","digest":"sha256:%s"}' "$(dig64 "$c")" ;;
   https://api.github.com/*)
-    [ "${STUB_GH_FALHA:-0}" = 1 ] && exit 22
-    cat "$S/runs.json" ;;
+    if [ "${STUB_GH_FALHA:-0}" = 1 ]; then printf '000'; exit 7; fi
+    corpo=""; cab=""; prev=""; tok=""
+    for a in "$@"; do
+      case "$prev" in
+        -o) corpo="$a" ;;
+        -D) cab="$a" ;;
+        --config) [ "$a" = "-" ] && tok=$(sed -n 's/.*Bearer \([^"]*\)".*/\1/p') ;;
+      esac
+      prev="$a"
+    done
+    if [ -n "$tok" ]; then printf '%s\n' "$tok" > "$S/curl.token"; fi
+    if [[ "$url" == */rate_limit ]]; then
+      # mesmo formato do GitHub; STUB_GH_RL_FALHA = não respondeu
+      if [ "${STUB_GH_RL_FALHA:-0}" = 1 ]; then printf '000'; exit 7; fi
+      printf 'HTTP/2 200\r\n\r\n' > "$cab"
+      r="${STUB_GH_RL_RESTAM:-0}"; v="${STUB_GH_RL_VOLTA:-0}"
+      printf '{"resources":{"core":{"limit":60,"remaining":%s,"reset":%s,"used":60}},"rate":{"limit":60,"remaining":%s,"reset":%s,"used":60}}' "$r" "$v" "$r" "$v" > "$corpo"
+      printf '200'; exit 0
+    fi
+    cabecalhos=""; status=200; msg="recusado"
+    if [ -n "$tok" ] && [ "${STUB_GH_TOKEN_RUIM:-0}" = 1 ]; then status=401
+    elif [ -n "$tok" ] && [ -n "${STUB_GH_LIMITE_TOKEN:-}" ]; then
+      status=403; cabecalhos="x-ratelimit-limit: 5000\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: $STUB_GH_LIMITE_TOKEN\r\n"
+    elif [ -z "$tok" ] && [ -n "${STUB_GH_LIMITE:-}" ]; then
+      status=403; cabecalhos="x-ratelimit-limit: 60\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: $STUB_GH_LIMITE\r\n"
+    elif [ -n "${STUB_GH_RETRY:-}" ]; then
+      status=429; cabecalhos="retry-after: $STUB_GH_RETRY\r\n"
+    elif [ "${STUB_GH_SO_CORPO:-0}" = 1 ]; then
+      status=403; msg="API rate limit exceeded for 203.0.113.9."
+    elif [ "${STUB_GH_429_NU:-0}" = 1 ]; then
+      status=429; msg="You have exceeded a secondary rate limit."
+    elif [ "${STUB_GH_403:-0}" = 1 ]; then
+      status=403; cabecalhos="x-ratelimit-remaining: 40\r\n"
+    fi
+    printf "HTTP/2 %s\r\n$cabecalhos\r\n" "$status" > "$cab"
+    if [ "$status" = 200 ]; then cat "$S/runs.json" > "$corpo"; else printf '{"message":"%s"}\n' "$msg" > "$corpo"; fi
+    printf '%s' "$status" ;;
   *) exit 22 ;;
 esac
 STUB
@@ -147,7 +184,21 @@ else
   for p in "$@"; do case "$p" in -*) ;; *) echo "/dev/stub $total $((total - livre)) $livre ${uso}% $p" ;; esac; done
 fi
 STUB
-chmod +x "$T/bin/docker" "$T/bin/curl" "$T/bin/df"
+cat > "$T/bin/stat" <<'STUB'
+#!/usr/bin/env bash
+# stub do stat: só a permissão do arquivo do token (padrão: fechado)
+cat "${STUB_DIR:?}/perm" 2>/dev/null || echo 600
+STUB
+
+cat > "$T/bin/chmod" <<'STUB'
+#!/usr/bin/env bash
+# stub do chmod: registra e "muda" a permissão que o stub do stat responde
+S="${STUB_DIR:?}"
+printf '%s\n' "$*" >> "$S/chmod.log"
+[ "${STUB_CHMOD_FALHA:-0}" = 1 ] && exit 1
+echo "$1" > "$S/perm"
+STUB
+chmod +x "$T/bin/docker" "$T/bin/curl" "$T/bin/df" "$T/bin/stat" "$T/bin/chmod"
 
 # ── Utilitários do teste ────────────────────────────────────────────────────
 SHA=0123456789abcdef0123456789abcdef01234567
@@ -181,7 +232,7 @@ rodar() {  # rodar <script> [VAR=valor ...] -- <args>
   local alvo="$1" vars=(); shift
   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do vars+=("$1"); shift; done
   [ "$#" -gt 0 ] && shift
-  env -u TAG PATH="$T/bin:$PATH" HOME="$S/home" TMPDIR="$S" STUB_DIR="$S" STUB_SHA="$SHA" \
+  env -u TAG -u GITHUB_TOKEN -u GH_TOKEN -u GH_TOKEN_ARQ PATH="$T/bin:$PATH" HOME="$S/home" TMPDIR="$S" STUB_DIR="$S" STUB_SHA="$SHA" \
     JSON_ENGINE="$ENGINE" POLL_SEG=0 ESPERA_API_SEG=5 ESTAVEL_API_SEG=0 ${vars[@]+"${vars[@]}"} \
     bash -c 'echo $$ > "$STUB_DIR/pid"; exec bash "$@"' rodar "$alvo" "$@" > "$S/saida.txt" 2>&1
   RC=$?
@@ -196,6 +247,14 @@ tem() { if grep -qF -- "$1" "$S/saida.txt"; then passou; else falhou "saída sem
 nao_tem() { if grep -qF -- "$1" "$S/saida.txt"; then falhou "saída não devia ter: $1"; else passou; fi; }
 docker_tem() { if grep -qF -- "$1" "$S/docker.log"; then passou; else falhou "docker não recebeu: $1"; fi; }
 docker_nao_tem() { if grep -qF -- "$1" "$S/docker.log"; then falhou "docker não devia receber: $1"; else passou; fi; }
+curl_tem() { if grep -qF -- "$1" "$S/curl.log"; then passou; else falhou "curl não recebeu: $1"; fi; }
+curl_nao_tem() { if grep -qF -- "$1" "$S/curl.log"; then falhou "curl não devia receber: $1"; else passou; fi; }
+sem_arquivo() { if [ -e "$S/$1" ]; then falhou "$2"; else passou; fi; }
+token_chegou() { if [ "$(cat "$S/curl.token" 2>/dev/null)" = "$1" ]; then passou; else falhou "o token não chegou ao curl"; fi; }
+token_em_arquivo() {
+  mkdir -p "$S/home/.config/chatcrm"
+  printf '%b' "$1" > "$S/home/.config/chatcrm/gh-token"
+}
 ordem() {  # services atualizados, na ordem
   local u
   u=$(grep '^service update' "$S/docker.log" | awk '{ print $NF }' | tr '\n' ' ' | sed 's/ $//')
@@ -255,6 +314,9 @@ suite_redeploy() {
   docker_tem "--from-schema-datasource \"\$1\" --to-schema-datamodel \"\$2\" --script sh /app/packages/shared/prisma/schema.prisma /tmp/"
   docker_nao_tem "--from-url"; docker_nao_tem "DATABASE_URL"
   tem "de pé há 0s"
+  # sem token: nada de Authorization, nada de aviso, igual a antes do token existir
+  nao_tem "consulta com token"; nao_tem "token"; curl_nao_tem "--config"
+  sem_arquivo curl.token "mandou token sem ter token"; sem_arquivo chmod.log "mexeu em permissão sem ter arquivo"
   # as 3 imagens baixadas antes do 1º update
   local ult_pull pri_upd
   ult_pull=$(grep -n '^pull ' "$S/docker.log" | tail -1 | cut -d: -f1)
@@ -301,6 +363,96 @@ EOF
   novo_caso "GitHub fora do ar: recusa (falha fechada)"
   redeploy STUB_GH_FALHA=1 -- "$SHA"
   rc 1; tem "não consegui consultar o GitHub"; docker_nao_tem "service update"
+
+  # O limite de 60 por hora é por IP: tem de dizer quando volta e não pode parecer erro de CI.
+  VOLTA_GH=1793820000
+  VOLTA_MACEIO=$(date -u -d "@$((VOLTA_GH - 10800))" +%H:%M)
+  VOLTA_UTC=$(date -u -d "@$VOLTA_GH" +%H:%M)
+
+  novo_caso "limite do GitHub: recusa e diz quando volta, em hora de Maceió"
+  redeploy STUB_GH_LIMITE=$VOLTA_GH -- "$SHA"
+  rc 1; tem "limitou as consultas deste IP"; tem "$VOLTA_MACEIO de Maceió"; tem "$VOLTA_UTC UTC"; tem "sem refazer o backup"
+  tem "Token do GitHub"; nao_tem "não consegui consultar"; docker_nao_tem "service update"
+  # a saída do limite é esperar: não oferece o --sem-ci
+  nao_tem "--sem-ci"; nao_tem "backup.."
+  # o cabeçalho já traz a hora: o /rate_limit fica para quando ele não traz
+  curl_nao_tem "/rate_limit"
+
+  novo_caso "limite sem a hora na resposta: pega no /rate_limit"
+  redeploy STUB_GH_SO_CORPO=1 STUB_GH_RL_VOLTA=$VOLTA_GH -- "$SHA"
+  rc 1; tem "limitou as consultas"; tem "$VOLTA_MACEIO de Maceió"; curl_tem "/rate_limit"; docker_nao_tem "service update"
+
+  novo_caso "limite secundário, cota sobrando no /rate_limit: não inventa hora"
+  redeploy STUB_GH_429_NU=1 STUB_GH_RL_RESTAM=40 STUB_GH_RL_VOLTA=$VOLTA_GH -- "$SHA"
+  rc 1; tem "limitou as consultas"; tem "não informou a hora"; nao_tem "de Maceió"; docker_nao_tem "service update"
+
+  novo_caso "limite e /rate_limit fora do ar: recusa do mesmo jeito"
+  redeploy STUB_GH_SO_CORPO=1 STUB_GH_RL_FALHA=1 -- "$SHA"
+  rc 1; tem "limitou as consultas"; tem "não informou a hora"; docker_nao_tem "service update"
+
+  novo_caso "limite do próprio token: diz que é do token e não sugere criar outro"
+  redeploy GITHUB_TOKEN=SEGREDO_DO_STUB_gh5 STUB_GH_LIMITE_TOKEN=$VOLTA_GH -- "$SHA"
+  rc 1; tem "limitou as consultas deste token"; tem "$VOLTA_MACEIO de Maceió"; nao_tem "Token do GitHub"; nao_tem "recusou o token"
+  nao_tem "--sem-ci"; nao_tem "backup.."; docker_nao_tem "service update"
+
+  novo_caso "limite do GitHub com --sem-ci: segue e registra"
+  redeploy STUB_GH_LIMITE=$VOLTA_GH -- --sem-ci "$SHA"
+  rc 0; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "limite do GitHub no --dry-run: avisa e não mexe"
+  redeploy STUB_GH_LIMITE=$VOLTA_GH -- --dry-run "$SHA"
+  rc 1; tem "PARARIA"; tem "limitou as consultas"; docker_nao_tem "service update"
+
+  novo_caso "429 com retry-after também é limite"
+  redeploy STUB_GH_RETRY=120 -- "$SHA"
+  rc 1; tem "limitou as consultas"; tem "de Maceió"; docker_nao_tem "service update"
+
+  novo_caso "403 que não é limite: continua erro comum"
+  redeploy STUB_GH_403=1 -- "$SHA"
+  rc 1; tem "não consegui consultar o GitHub"; nao_tem "limitou as consultas"; docker_nao_tem "service update"
+
+  novo_caso "token no arquivo: passa mesmo com o IP limitado, sem aparecer em lugar nenhum"
+  token_em_arquivo 'SEGREDO_DO_STUB_gh1\n'
+  redeploy STUB_GH_LIMITE=$VOLTA_GH -- "$SHA"
+  rc 0; tem "consulta com token"; ordem "chatcrm_api chatcrm_worker chatcrm_web"; token_chegou SEGREDO_DO_STUB_gh1
+  # curl.log tem a linha de comando inteira: é o que a lista de processos mostraria
+  curl_tem "--config -"
+  if grep -rqF SEGREDO_DO_STUB "$S/curl.log" "$S/docker.log" "$S/home/vps-redeploy.log" 2>/dev/null; then falhou "token gravado em log ou na linha de comando"; else passou; fi
+  sem_arquivo chmod.log "mexeu na permissão de um arquivo já fechado"; nao_tem "aberto para outros"
+
+  novo_caso "arquivo do token aberto para outros: fecha em 600, avisa e usa"
+  token_em_arquivo 'SEGREDO_DO_STUB_gh6\n'; echo 644 > "$S/perm"
+  redeploy STUB_GH_LIMITE=$VOLTA_GH -- "$SHA"
+  rc 0; tem "aberto para outros usuários (permissão 644): ajustei para 600"; tem "consulta com token"; token_chegou SEGREDO_DO_STUB_gh6
+  if grep -q '^600 .*gh-token$' "$S/chmod.log" 2>/dev/null; then passou; else falhou "não fechou o arquivo em 600"; fi
+
+  novo_caso "arquivo do token aberto e sem como fechar: não usa o token"
+  token_em_arquivo 'SEGREDO_DO_STUB_gh7\n'; echo 644 > "$S/perm"
+  redeploy STUB_CHMOD_FALHA=1 -- "$SHA"
+  rc 0; tem "não consegui fechar: consultando sem token"; nao_tem "consulta com token"; sem_arquivo curl.token "usou token de arquivo aberto"
+
+  novo_caso "arquivo do token vazio: avisa e consulta sem token"
+  token_em_arquivo ''
+  redeploy -- "$SHA"
+  rc 0; tem "vazio ou sem leitura"; nao_tem "consulta com token"; sem_arquivo curl.token "mandou token vazio"
+
+  novo_caso "token na variável de ambiente"
+  redeploy GITHUB_TOKEN=SEGREDO_DO_STUB_gh2 STUB_GH_LIMITE=$VOLTA_GH -- "$SHA"
+  rc 0; token_chegou SEGREDO_DO_STUB_gh2; sem_arquivo token-herdado "o docker herdou o GITHUB_TOKEN"
+
+  novo_caso "token vencido não trava o deploy: avisa e consulta sem ele"
+  redeploy GITHUB_TOKEN=SEGREDO_DO_STUB_gh3 STUB_GH_TOKEN_RUIM=1 -- "$SHA"
+  rc 0; tem "recusou o token"; nao_tem "consulta com token"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "token vencido e IP limitado: recusa pelo limite"
+  redeploy GITHUB_TOKEN=SEGREDO_DO_STUB_gh4 STUB_GH_TOKEN_RUIM=1 STUB_GH_LIMITE=$VOLTA_GH -- "$SHA"
+  rc 1; tem "recusou o token"; tem "limitou as consultas"; tem "Token do GitHub"; docker_nao_tem "service update"
+
+  novo_caso "arquivo de token com lixo: ignora e avisa"
+  token_em_arquivo 'nao é token; rm -rf\n'
+  redeploy -- "$SHA"
+  rc 0; tem "caracteres inválidos"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+  sem_arquivo curl.token "mandou lixo como token"
 
   novo_caso "'latest' sem --sem-ci: recusa"
   redeploy --

@@ -17,8 +17,9 @@
 #
 # v2 (F0a da rede de proteção) — tudo que o v1 fazia, mais:
 #   - Portão do CI: o sha só sobe com o workflow "CI — testes e checagens"
-#     verde na ÚLTIMA tentativa (API pública do GitHub, sem token). Escape
-#     explícito: --sem-ci (fica registrado).
+#     verde na ÚLTIMA tentativa (API do GitHub; token opcional em
+#     ~/.config/chatcrm/gh-token, ver docs/deploy.md). Escape explícito:
+#     --sem-ci (fica registrado).
 #   - Disco: mostra o df da raiz e do diretório do Docker; com menos de 10%
 #     livre recusa (escape: --forcar-disco).
 #   - Schema: a API aplica o schema no boot com `prisma db push
@@ -57,6 +58,9 @@ Opções:
                            schema novo apagaria algo no banco
   -h, --help               esta ajuda
 
+Token do GitHub (opcional, para não depender das 60 consultas por hora do IP):
+~/.config/chatcrm/gh-token, ou a variável GITHUB_TOKEN. Ver docs/deploy.md.
+
 Saída: 0 = feito (no --dry-run: o deploy real seguiria); 1 = recusado ou falhou
 (nada é alterado antes do primeiro service update); 2 = uso errado.
 EOF
@@ -93,6 +97,11 @@ STACK="${STACK:-chatcrm}"
 GH_REPO="${GH_REPO:-odontopcfelipe-prog/chat-crm-juridico}"
 CI_WORKFLOW="${CI_WORKFLOW:-CI — testes e checagens}"
 CI_WORKFLOW_PATH="${CI_WORKFLOW_PATH:-.github/workflows/ci.yml}"
+GH_TOKEN_ARQ="${GH_TOKEN_ARQ:-$HOME/.config/chatcrm/gh-token}"
+# Sai do ambiente antes do primeiro comando: nenhum filho do script (docker, python) herda.
+GH_TOKEN="${GITHUB_TOKEN:-}"
+unset GITHUB_TOKEN
+export -n GH_TOKEN
 DISCO_MIN_LIVRE="${DISCO_MIN_LIVRE:-10}"        # % livre mínimo
 ESPERA_API_SEG="${ESPERA_API_SEG:-300}"         # limite para a API nova subir
 ESTAVEL_API_SEG="${ESTAVEL_API_SEG:-30}"        # a task nova tem de ficar de pé esse tempo
@@ -150,6 +159,11 @@ elif modo == "gh_runs":
             ini = r.get("run_started_at") or r.get("created_at")
             print("\t".join(limpa(v) for v in (r.get("id"), r.get("run_attempt"), ini, r.get("status"),
                   r.get("conclusion"), r.get("event"), r.get("path"), r.get("html_url"), r.get("name"))))
+elif modo == "gh_volta":
+    r = d.get("resources")
+    c = r.get("core") if isinstance(r, dict) else None
+    if isinstance(c, dict) and c.get("remaining") == 0 and c.get("reset"):
+        print(c.get("reset"))
 PY
 )
 JS_JSON=$(cat <<'JS'
@@ -167,6 +181,9 @@ if (modo === 'hub_digest') {
   for (const r of d.workflow_runs || []) if (r && typeof r === 'object') {
     out.push([r.id, r.run_attempt, r.run_started_at || r.created_at, r.status, r.conclusion, r.event, r.path, r.html_url, r.name].map(limpa).join('\t'));
   }
+} else if (modo === 'gh_volta') {
+  const c = d.resources && d.resources.core;
+  if (c && c.remaining === 0 && c.reset) out.push(String(c.reset));
 }
 if (out.length) process.stdout.write(out.join('\n') + '\n');
 JS
@@ -178,7 +195,7 @@ if [ -z "$JSON_ENGINE" ]; then
   else echo "❌ Precisa de python3 (pra ler as APIs do Docker Hub e do GitHub)."; exit 1
   fi
 fi
-json_tool() {  # $1 = hub_digest | hub_tags | gh_runs ; JSON na entrada padrão
+json_tool() {  # $1 = hub_digest | hub_tags | gh_runs | gh_volta ; JSON na entrada padrão
   if [ "$JSON_ENGINE" = node ]; then
     JSON_MODO="$1" node -e "$JS_JSON"
   else
@@ -375,17 +392,17 @@ if [ "$TAG" != "latest" ] && [ "${#TAG}" -lt 40 ]; then
 fi
 
 # ── 1. Portão do CI ─────────────────────────────────────────────────────────
-# Lê os runs do workflow do CI para o sha na API pública do GitHub (sem token:
-# 60 consultas/hora por IP). Vale a ÚLTIMA tentativa: dentro de um run, o maior
+# Lê os runs do workflow do CI para o sha na API do GitHub (token opcional, ver
+# abaixo). Vale a ÚLTIMA tentativa: dentro de um run, o maior
 # run_attempt (um "re-run" que passou libera sem commit vazio); entre runs
 # diferentes do mesmo sha, o que começou por último.
 CI_STATUS="nao-conferido"
-ci_falhou() {
+ci_falhou() {  # $1 = motivo; $2 = o que fazer (padrão: o escape do hotfix)
   CI_STATUS="sem-ci"
   if [ "$SEM_CI" = 1 ]; then
     avisar "--sem-ci: seguindo sem CI verde ($1)"
   else
-    recusar "$1. Se for hotfix consciente, rode de novo com --sem-ci."
+    recusar "$1. ${2:-Se for hotfix consciente, rode de novo com --sem-ci.}"
   fi
 }
 echo ""
@@ -396,13 +413,97 @@ if [ "$TAG" = "latest" ]; then
 elif [ "${#TAG}" -ne 40 ]; then
   ci_falhou "sha '$TAG' não virou um sha de 40 caracteres: não dá para conferir o CI"
 else
-  RUNS_JSON=""
-  if ! RUNS_JSON=$(curl -fsSL -m 20 -H 'Accept: application/vnd.github+json' \
-      "https://api.github.com/repos/${GH_REPO}/actions/runs?head_sha=${TAG}&per_page=100" 2>/dev/null); then
-    RUNS_JSON=""
+  # Sem token são 60 consultas por hora POR IP, divididas com tudo que sai pelo mesmo
+  # IP (aqui, os computadores do escritório): quando acabam, o deploy para. Com token,
+  # 5.000 por hora, só dele. O repo é público: o token não precisa de permissão nenhuma.
+  # Vai pela entrada padrão do curl (--config -): fora da lista de processos, da saída
+  # e dos arquivos do script.
+  gh_ler_token() {
+    local perm
+    if [ -z "$GH_TOKEN" ] && [ -f "$GH_TOKEN_ARQ" ]; then
+      # Como a chave do ssh: só o dono lê. Aberto para grupo ou outros, fecha antes de usar.
+      perm=$(stat -L -c %a "$GH_TOKEN_ARQ" 2>/dev/null || true)
+      if [ -n "$perm" ] && ! [[ "$perm" =~ 00$ ]]; then
+        if chmod 600 "$GH_TOKEN_ARQ" 2>/dev/null; then
+          avisar "o arquivo do token estava aberto para outros usuários (permissão $perm): ajustei para 600."
+        else
+          avisar "o arquivo do token está aberto para outros usuários (permissão $perm) e não consegui fechar: consultando sem token."
+          return 0
+        fi
+      fi
+      GH_TOKEN=$({ tr -d ' \r\n' < "$GH_TOKEN_ARQ"; } 2>/dev/null || true)
+      if [ -z "$GH_TOKEN" ]; then avisar "$GH_TOKEN_ARQ está vazio ou sem leitura: consultando sem token."; fi
+    fi
+    if [ -n "$GH_TOKEN" ] && ! [[ "$GH_TOKEN" =~ ^[A-Za-z0-9_]+$ ]]; then
+      avisar "o token do GitHub tem caracteres inválidos: consultando sem token."
+      GH_TOKEN=""
+    fi
+  }
+  gh_get() {  # $1 = url; imprime o status HTTP (000 = sem resposta); corpo e cabeçalhos em $WORK
+    : > "$WORK/gh.json"
+    : > "$WORK/gh.cab"
+    if [ -n "$GH_TOKEN" ]; then
+      printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" | curl -sSL -m 20 --config - \
+        -H 'Accept: application/vnd.github+json' -D "$WORK/gh.cab" -o "$WORK/gh.json" -w '%{http_code}' "$1" 2>/dev/null || true
+    else
+      curl -sSL -m 20 \
+        -H 'Accept: application/vnd.github+json' -D "$WORK/gh.cab" -o "$WORK/gh.json" -w '%{http_code}' "$1" 2>/dev/null || true
+    fi
+  }
+  gh_consultar() { gh_get "https://api.github.com/repos/${GH_REPO}/actions/runs?head_sha=${TAG}&per_page=100"; }
+  gh_cabecalho() { grep -i "^$1:" "$WORK/gh.cab" 2>/dev/null | tail -1 | tr -dc '0-9' || true; }
+  gh_ler_limite() {
+    GH_RESTAM=$(gh_cabecalho x-ratelimit-remaining)
+    GH_VOLTA=$(gh_cabecalho x-ratelimit-reset)
+    GH_ESPERA=$(gh_cabecalho retry-after)
+    GH_LIMITADO=0
+    if [ "$GH_STATUS" = 429 ] || { [ "$GH_STATUS" = 403 ] && { [ "$GH_RESTAM" = 0 ] || [ -n "$GH_ESPERA" ] || grep -qi 'rate limit' "$WORK/gh.json"; }; }; then
+      GH_LIMITADO=1
+    fi
+  }
+  # Hora em que a cota volta, na ordem que o GitHub manda seguir: retry-after, depois o
+  # reset com a cota zerada. Sem isso na resposta, GET /rate_limit, que não gasta cota.
+  # Cota sobrando ali = limite secundário: sem hora conhecida, e não se inventa uma.
+  gh_achar_volta() {
+    if [ -n "$GH_ESPERA" ]; then
+      GH_VOLTA=$(( $(date +%s) + GH_ESPERA ))
+    elif [ "$GH_RESTAM" != 0 ] || [ -z "$GH_VOLTA" ]; then
+      GH_VOLTA=""
+      if [ "$(gh_get "https://api.github.com/rate_limit")" = 200 ]; then
+        GH_VOLTA=$(json_tool gh_volta < "$WORK/gh.json" 2>/dev/null | tr -dc '0-9' || true)
+      fi
+    fi
+  }
+  gh_ler_token
+  GH_STATUS=$(gh_consultar)
+  gh_ler_limite
+  # Token vencido ou recusado não pode travar o deploy: tenta sem ele.
+  if [ -n "$GH_TOKEN" ] && [ "$GH_LIMITADO" = 0 ] && { [ "$GH_STATUS" = 401 ] || [ "$GH_STATUS" = 403 ]; }; then
+    avisar "o GitHub recusou o token (status $GH_STATUS; vencido?): consultando sem token."
+    GH_TOKEN=""
+    GH_STATUS=$(gh_consultar)
+    gh_ler_limite
   fi
-  if [ -z "$RUNS_JSON" ]; then
-    ci_falhou "não consegui consultar o GitHub (rede ou limite de consultas sem token)"
+  if [ -n "$GH_TOKEN" ]; then echo "  consulta com token"; fi
+  RUNS_JSON=""
+  if [ "$GH_STATUS" = 200 ]; then RUNS_JSON=$(cat "$WORK/gh.json"); fi
+  if [ "$GH_LIMITADO" = 1 ]; then
+    # Aqui a saída é esperar, não o --sem-ci: o CI pode estar vermelho e ninguém viu.
+    gh_achar_volta
+    if [ -n "$GH_VOLTA" ]; then
+      GH_FAZER="A cota volta às $(date -u -d "@$((GH_VOLTA - 10800))" +%H:%M 2>/dev/null || true) de Maceió ($(date -u -d "@$GH_VOLTA" +%H:%M 2>/dev/null || true) UTC): rode de novo depois disso, sem refazer o backup."
+    else
+      GH_FAZER="O GitHub não informou a hora: espere alguns minutos e rode de novo, sem refazer o backup."
+    fi
+    if [ -n "$GH_TOKEN" ]; then
+      GH_QUEM="deste token"
+    else
+      GH_QUEM="deste IP"
+      GH_FAZER="$GH_FAZER Para não depender disso, configure o token (docs/deploy.md, \"Token do GitHub\")."
+    fi
+    ci_falhou "o GitHub limitou as consultas $GH_QUEM (status $GH_STATUS)" "$GH_FAZER"
+  elif [ -z "$RUNS_JSON" ]; then
+    ci_falhou "não consegui consultar o GitHub (rede ou status ${GH_STATUS:-000})"
   else
     ESC=$(printf '%s' "$RUNS_JSON" | json_tool gh_runs | awk -F'\t' -v wf="$CI_WORKFLOW" -v wfpath="$CI_WORKFLOW_PATH" '
       ($9 == wf || $7 == wfpath) {
