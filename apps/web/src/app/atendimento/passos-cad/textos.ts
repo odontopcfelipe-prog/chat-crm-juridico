@@ -23,7 +23,7 @@ export const TEXTOS = Object.freeze({
   limparPontos: 'Limpar pontos',
   clicarDeNovo: 'Escolher outro ponto no preparo',
   bibliotecaGuardada: 'Biblioteca',
-  bibliotecaAjuda: 'As bibliotecas ficam neste navegador. Não vão para o servidor.',
+  bibliotecaAjuda: 'As bibliotecas ficam neste navegador, só nesta conta. Não vão para o servidor.',
   nenhumaGuardada: 'Nenhuma ainda: escolha a pasta abaixo',
   escolha: 'Escolha',
   tirarBiblioteca: 'Tirar esta biblioteca deste navegador',
@@ -67,6 +67,7 @@ export const TEXTOS = Object.freeze({
   gerandoCoroa: 'Gerando a coroa…',
   exportando: 'Preparando o arquivo…',
   erroGenerico: 'Não foi possível concluir. Tente de novo.',
+  arquivoGrande: 'Arquivo grande demais para abrir aqui (limite de 400 MB).',
 });
 
 export const ETAPAS = Object.freeze(['Caso', 'Preparo e margem', 'Anatomia', 'Ajustes', 'Exportar']);

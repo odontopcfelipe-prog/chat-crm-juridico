@@ -80,12 +80,17 @@ function antagonistaPlano(z: number): Malha {
   return { pos: m.pos, tri };
 }
 
+let casoPronto: { arco: Malha; b: Bvh; prep: ReturnType<typeof acharPreparo>; margem: PontoMargem[] } | null = null;
+
+/** O mesmo preparo para os testes da coroa: nada aqui é alterado depois de pronto. */
 function preparoEMargem() {
-  const arco = arcoSintetico();
-  const b = new Bvh(arco);
-  const prep = acharPreparo(b, [0.3, 0.2, 6], [0, 0, 1]);
-  const margem = proporMargem(b, prep, { meridianos: 60 });
-  return { arco, b, prep, margem };
+  if (!casoPronto) {
+    const arco = arcoSintetico();
+    const b = new Bvh(arco);
+    const prep = acharPreparo(b, [0.3, 0.2, 6], [0, 0, 1]);
+    casoPronto = { arco, b, prep, margem: proporMargem(b, prep, { meridianos: 60 }) };
+  }
+  return casoPronto;
 }
 
 function entrada(fdi: number, antagonista: Malha | null) {
@@ -157,6 +162,32 @@ describe('Passos CAD — arquivos', () => {
     expect(r.pos[3]).toBe(1);
   });
 
+  it('arquivo com defeito é recusado em português, sem travar nem chegar ao cálculo', () => {
+    const b = (t: string) => paraBuffer(Buffer.from(t));
+    const CAB_PLY = 'property float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n';
+    // contagem absurda no cabeçalho
+    expect(() => lerMalha('a.ply', b('ply\nformat binary_little_endian 1.0\nelement vertex 2000000000\n' + CAB_PLY))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex -3\n' + CAB_PLY))).toThrow(ArquivoRecusado);
+    // cortado no meio
+    expect(() => lerMalha('a.ply', b('ply\nformat binary_little_endian 1.0\nelement vertex 3\n' + CAB_PLY + 'abcdefgh'))).toThrow(ArquivoRecusado);
+    // índice fora da malha ou que não é número; coordenada que não é número
+    expect(() => lerMalha('a.obj', b('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 9\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.obj', b('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 x\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.obj', b('v 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.stl', b('solid x\nvertex a 0 0\nvertex 1 0 0\nvertex 0 1 0\nendsolid\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0 0\n0 1 0\n3 0 1 7\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0 0\n0 1 0\n3 0 1 x\n'))).toThrow(ArquivoRecusado);
+    // PLY de texto cortado: falta vértice, vértice pela metade, face com menos índices
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0 0\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0\n0 1 0\n3 0 1 2\n'))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0 0\n0 1 0\n3 0 1\n'))).toThrow(ArquivoRecusado);
+    // vazio
+    expect(() => lerMalha('a.stl', new ArrayBuffer(0))).toThrow(ArquivoRecusado);
+    // e o arquivo bom continua abrindo
+    expect(lerMalha('a.obj', b('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n')).tri.length).toBe(3);
+    expect(lerMalha('a.ply', b('ply\nformat ascii 1.0\nelement vertex 3\n' + CAB_PLY + '0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n')).tri.length).toBe(3);
+  });
+
   it('recusa arquivo protegido, cortado ou de outro tipo, sem tentar abrir', () => {
     expect(() => lerOffBinario(paraBuffer(Buffer.from('drmSDFA10 conteudo cifrado')))).toThrow(ArquivoRecusado);
     expect(() => lerOffBinario(paraBuffer(off().subarray(0, 40)))).toThrow(ArquivoRecusado);
@@ -208,6 +239,16 @@ describe('Passos CAD — preparo e margem', () => {
     const alturas = margem.map((m) => m.ponto[2]);
     expect(Math.max(...raios.map((r) => Math.abs(r - MARGEM_RAIO)))).toBeLessThan(0.45);
     expect(Math.max(...alturas.map((h) => Math.abs(h - MARGEM_ALTURA)))).toBeLessThan(0.5);
+  });
+
+  it('o centro e o eixo não dependem de onde se clica no dente: no topo, fora do centro ou na parede', () => {
+    const b = new Bvh(arcoSintetico());
+    const cliques: V3[] = [[2.2, 0, 6], [0, -3.32, 3]];
+    for (const c of cliques) {
+      const p = acharPreparo(b, c, [0, 0, 1]);
+      expect([c, Math.hypot(p.O[0], p.O[1]) < 0.4]).toEqual([c, true]);
+      expect([c, p.a[2] > Math.cos((4 * Math.PI) / 180)]).toEqual([c, true]);
+    }
   });
 
   it('a linha passa pelo ponto que o técnico marcou', () => {
@@ -311,6 +352,33 @@ describe('Passos CAD — coroa', () => {
     expect(r.relatorio.malha.arestasAbertas).toBe(0);
   });
 
+  it('o antagonista perto da borda não impede de fechar o contato', () => {
+    const { e, ambiente } = entrada(16, antagonistaPlano(7.5));
+    const m = e.eixos.mesial;
+    const vizinho = (s: number) => revolucao(denso([[0, 6.5], [2, 6.4], [3.5, 5], [3.8, 3], [3, 0.5]]), 48, 1, 1, [m[0] * s * 9.4, m[1] * s * 9.4, m[2] * s * 9.4]);
+    e.vizinhos = new Bvh(juntar(vizinho(1), vizinho(-1)));
+    const r = construirCoroa(e, ambiente, ajuste(e, ambiente), 40);
+    for (const lado of [1, -1]) {
+      let menor = Infinity;
+      for (let v = 0; v < r.externos; v++) {
+        if (lado * dot(sub(vert(r.malha, v), e.prep.O), m) > 0) menor = Math.min(menor, r.folgaVizinho[v]);
+      }
+      expect(menor).toBeLessThan(0.12);
+      expect(menor).toBeGreaterThan(-0.02);
+    }
+  });
+
+  it('o vizinho que avança sobre a margem continua na conta; a parede do troquel sai', () => {
+    const { prep, margem } = preparoEMargem();
+    const parede = (tri: number[]): Malha => ({ pos: Float64Array.from([4.2, -1, 3, 4.2, 1, 3, 4.2, 0, 5]), tri: Uint32Array.from(tri) });
+    // Mesmo lugar, dentro do cilindro da margem: só muda para onde a face olha.
+    expect(arcoSemTroquel(parede([0, 2, 1]), prep, margem).tri.length).toBe(3); // olha para o preparo: é o vizinho
+    expect(arcoSemTroquel(parede([0, 1, 2]), prep, margem).tri.length).toBe(0); // olha para fora: é o troquel
+    // No meio do cilindro, olhando para O: é fossa do próprio preparo, não vizinho.
+    const fossa: Malha = { pos: Float64Array.from([2, -1, 3, 2, 1, 3, 2, 0, 5]), tri: Uint32Array.from([0, 2, 1]) };
+    expect(arcoSemTroquel(fossa, prep, margem).tri.length).toBe(0);
+  });
+
   it('sem antagonista também desenha', () => {
     const { e, ambiente } = entrada(16, null);
     const aj = ajuste(e, ambiente);
@@ -389,6 +457,31 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
       return /\.tsx?$/.test(e.name) && /from 'three'/.test(fs.readFileSync(p, 'utf8')) ? [p] : [];
     });
     expect(fora(path.join(RAIZ, 'apps/web/src'))).toEqual([]);
+  });
+
+  it('a biblioteca guardada no navegador é da conta: duas contas não se enxergam', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'motor/biblioteca.ts'), 'utf8');
+    expect(src).toContain('indexedDB.open(nomeDoBanco(), 1)');
+    expect(src).toMatch(/decodeJwtPayload\(.*\)\?\.tenant_id/);
+  });
+
+  it('no Início, o atalho segue o setor visto, não o da pessoa', () => {
+    const src = fs.readFileSync(path.join(RAIZ, 'apps/web/src/components/home/LabInicio.tsx'), 'utf8');
+    expect(src).toContain('canAccessRouteBt(PASSOS_CAD, temNoSetorVisto, BT_LABORATORIO)');
+    expect(src).toContain('permissoesDoVisto.has(p)');
+  });
+
+  it('mudar arcada, antagonista, dente ou margem tira a coroa antiga da tela', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'PassosCadApp.tsx'), 'utf8');
+    expect(src).toMatch(/const abrirArquivo[\s\S]{0,420}descartarDente\(\);/);
+    expect(src).toMatch(/setFdi\(n\);\s*descartarDente\(\);/);
+    expect((src.match(/tipo: 'margem'[^\n]*\n\s*descartarCoroa\(\);/g) ?? []).length).toBe(2);
+  });
+
+  it('cálculo que morre sem avisar não trava a tela', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'motor/cliente.ts'), 'utf8');
+    expect(src).toContain('this.worker.onmessageerror');
+    expect(src).toMatch(/relogio: setTimeout\(\(\) => this\.falharTudo\(\), TEMPO_MAXIMO\)/);
   });
 
   it('a clínica não vê: a tela confere o tipo da conta e o menu só existe no laboratório', () => {

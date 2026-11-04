@@ -149,11 +149,19 @@ export class Sessao {
 
   /** Abre o dente da biblioteca e calcula a posição automática. */
   abrirAnatomia(nome: string, buf: ArrayBuffer, p: Parametros): { ajuste: Ajuste; malha: Malha } {
+    const anterior = this.anatomia;
     this.anatomia = lerMalha(nome, buf);
-    this.parametros = p;
-    const e = this.entrada(p);
-    const ajuste = posicionarAutomatico(e, this.ambiente as Bvh);
-    return { ajuste, malha: anatomiaNoLugar(e, ajuste) };
+    try {
+      const e = this.entrada(p);
+      const ajuste = posicionarAutomatico(e, this.ambiente as Bvh);
+      const malha = anatomiaNoLugar(e, ajuste);
+      this.parametros = p;
+      return { ajuste, malha };
+    } catch (erro) {
+      // A tela continua com o dente anterior: o motor também.
+      this.anatomia = anterior;
+      throw erro;
+    }
   }
 
   reposicionar(p: Parametros): { ajuste: Ajuste; malha: Malha } {

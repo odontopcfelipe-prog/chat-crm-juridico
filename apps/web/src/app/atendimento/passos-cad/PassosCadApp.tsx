@@ -36,6 +36,8 @@ interface CoroaNaTela {
 const COR_ARCO = 0xcfc4ae;
 const COR_ANT = 0x8d98a6;
 const COR_DENTE = 0xf1ece0;
+const COR_PONTO = 0xffd60a;
+const TAMANHO_MAXIMO = 400 * 1024 * 1024;
 
 const faixa = (v: number, limites: [number, number[]][], fim: number[]): number[] => {
   for (const [lim, cor] of limites) if (v < lim) return cor;
@@ -85,14 +87,15 @@ const Campo = ({ rotulo, ajuda, children }: { rotulo: string; ajuda?: string; ch
   </label>
 );
 
-const BotaoArquivo = ({ rotulo, nome, aceitar, aoEscolher, testid }: { rotulo: string; nome: string | null; aceitar: string; aoEscolher: (f: File) => void; testid: string }) => (
-  <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background hover:bg-muted cursor-pointer text-sm">
+const BotaoArquivo = ({ rotulo, nome, aceitar, aoEscolher, testid, travado }: { rotulo: string; nome: string | null; aceitar: string; aoEscolher: (f: File) => void; testid: string; travado: boolean }) => (
+  <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm ${travado ? 'opacity-50' : 'hover:bg-muted cursor-pointer'}`}>
     <Upload size={16} className="shrink-0" />
     <span className="truncate">{nome ?? rotulo}</span>
     <input
       type="file"
       data-testid={testid}
       accept={aceitar}
+      disabled={travado}
       className="hidden"
       onChange={(e) => {
         const f = e.target.files?.[0];
@@ -160,20 +163,37 @@ export default function PassosCadApp() {
     }
   }, []);
 
+  /** A coroa e a posição do dente dependem da margem: mudou a margem, elas saem. */
+  const descartarCoroa = useCallback(() => {
+    setAjuste(null);
+    setCoroa(null);
+    setNomeBib(null);
+    const v = visor.current;
+    v?.definirMalha('anatomia', null);
+    v?.definirMalha('coroa', null);
+  }, []);
+
+  /** Volta ao clique no preparo: arcada, antagonista ou dente mudaram, nada do caso anterior vale. */
+  const descartarDente = useCallback(() => {
+    descartarCoroa();
+    setDente(null);
+    setFixos([]);
+    const v = visor.current;
+    v?.definirLinha('margem', null, 0);
+    v?.definirLinha('mesial', null, 0);
+    v?.definirLinha('vestibular', null, 0);
+    v?.definirPontos('fixos', null, 0);
+  }, [descartarCoroa]);
+
   const abrirArquivo = (qual: 'arco' | 'antagonista', f: File) =>
     executar(T.abrindoArquivo, async () => {
+      if (f.size > TAMANHO_MAXIMO) throw new Error(T.arquivoGrande);
       const buf = await f.arrayBuffer();
       const m = await (motor.current as ClienteDoMotor).pedir<MalhaLeve>({ tipo: qual, nome: f.name, buf }, [buf]);
       const v = visor.current as Visor3D;
+      descartarDente();
       if (qual === 'arco') {
         setNomeArco(f.name);
-        setDente(null);
-        setFixos([]);
-        setAjuste(null);
-        setCoroa(null);
-        v.definirMalha('anatomia', null);
-        v.definirMalha('coroa', null);
-        v.definirLinha('margem', null, 0);
         v.definirMalha('arco', m, { cor: COR_ARCO });
         const frente = v.direcaoMedia(m);
         setFrenteDoArco(frente);
@@ -181,16 +201,25 @@ export default function PassosCadApp() {
       } else {
         setNomeAnt(f.name);
         v.definirMalha('ant', m, { cor: COR_ANT, opacidade: 0.55 });
-        v.definirVisivel('ant', verAnt);
+        v.definirVisivel('ant', false);
       }
     });
 
-  const desenharMargem = (r: ResumoDente) => {
-    const v = visor.current as Visor3D;
-    v.definirLinha('margem', r.margem as V3[], 0xff3b30);
-    v.definirLinha('mesial', [r.O, [r.O[0] + r.mesial[0] * 7, r.O[1] + r.mesial[1] * 7, r.O[2] + r.mesial[2] * 7]], 0x34c759, false);
-    v.definirLinha('vestibular', [r.O, [r.O[0] + r.vestibular[0] * 7, r.O[1] + r.vestibular[1] * 7, r.O[2] + r.vestibular[2] * 7]], 0x0a84ff, false);
-  };
+  // O aviso é da etapa em que aconteceu.
+  useEffect(() => setErro(null), [etapa]);
+
+  // Na etapa da margem: a linha e os pontos à vista, sem o dente na frente do preparo.
+  useEffect(() => {
+    const v = visor.current;
+    if (!v) return;
+    v.definirVisivel('coroa', etapa !== 1);
+    v.definirVisivel('anatomia', etapa !== 1);
+    if (etapa !== 1 || !dente) return;
+    v.definirLinha('margem', dente.margem as V3[], 0xff3b30);
+    v.definirLinha('mesial', [dente.O, [dente.O[0] + dente.mesial[0] * 7, dente.O[1] + dente.mesial[1] * 7, dente.O[2] + dente.mesial[2] * 7]], 0x34c759, false);
+    v.definirLinha('vestibular', [dente.O, [dente.O[0] + dente.vestibular[0] * 7, dente.O[1] + dente.vestibular[1] * 7, dente.O[2] + dente.vestibular[2] * 7]], 0x0a84ff, false);
+    v.definirPontos('fixos', fixos, COR_PONTO);
+  }, [etapa, dente, fixos]);
 
   // Clique na malha: 1ª etapa acha o preparo; depois cada clique é um ponto da margem.
   useEffect(() => {
@@ -210,27 +239,24 @@ export default function PassosCadApp() {
           const r = await m.pedir<ResumoDente>({ tipo: 'dente', fdi, clique: h.ponto, normal: h.normal });
           setDente(r);
           setFixos([]);
-          desenharMargem(r);
           v.enquadrar(null, r.O, 11, r.a, r.vestibular);
         } else {
           const novos = [...fixos, h.ponto];
           const r = await m.pedir<ResumoDente>({ tipo: 'margem', fixos: novos as V3[] });
+          descartarCoroa();
           setFixos(novos);
           setDente(r);
-          desenharMargem(r);
-          v.definirPontos('fixos', novos, 0xffd60a);
         }
       });
     };
-  }, [etapa, fdi, dente, fixos, ocupado, executar]);
+  }, [etapa, fdi, dente, fixos, ocupado, executar, descartarCoroa]);
 
   const refazerMargem = (novos: V3[]) =>
     executar(T.ajustandoMargem, async () => {
       const r = await (motor.current as ClienteDoMotor).pedir<ResumoDente>({ tipo: 'margem', fixos: novos as V3[] });
+      descartarCoroa();
       setFixos(novos);
       setDente(r);
-      desenharMargem(r);
-      (visor.current as Visor3D).definirPontos('fixos', novos, 0xffd60a);
     });
 
   const mostrarAnatomia = (m: MalhaLeve) => {
@@ -280,7 +306,10 @@ export default function PassosCadApp() {
     setAjuste(novo);
     setCoroa(null);
     (visor.current as Visor3D).definirMalha('coroa', null);
-    void (motor.current as ClienteDoMotor).pedir<MalhaLeve>({ tipo: 'mover', ajuste: novo, parametros }).then(mostrarAnatomia).catch(() => undefined);
+    void (motor.current as ClienteDoMotor)
+      .pedir<MalhaLeve>({ tipo: 'mover', ajuste: novo, parametros })
+      .then(mostrarAnatomia)
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : T.erroGenerico));
   };
 
   const gerarCoroa = () =>
@@ -301,8 +330,9 @@ export default function PassosCadApp() {
   useEffect(() => {
     if (coroa) visor.current?.definirCores('coroa', coresDoMapa(coroa, mapa, parametros.espessuraMinima), COR_DENTE);
   }, [coroa, mapa, parametros.espessuraMinima]);
-  useEffect(() => visor.current?.definirVisivel('arco', verArco), [verArco]);
-  useEffect(() => visor.current?.definirVisivel('ant', verAnt), [verAnt]);
+  // Esconder arcada ou mostrar antagonista é da conferência; antes disso atrapalharia o clique.
+  useEffect(() => visor.current?.definirVisivel('arco', verArco || etapa < 3), [verArco, etapa]);
+  useEffect(() => visor.current?.definirVisivel('ant', verAnt && etapa >= 3), [verAnt, etapa]);
 
   const exportar = () =>
     executar(T.exportando, async () => {
@@ -351,10 +381,10 @@ export default function PassosCadApp() {
                 <input className={inputCls} value={nomeCaso} onChange={(e) => setNomeCaso(e.target.value)} placeholder={T.nomeCasoExemplo} />
               </Campo>
               <Campo rotulo={T.arcoPreparo}>
-                <BotaoArquivo testid="arquivo-arco" rotulo={T.escolherArquivo} nome={nomeArco} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('arco', f)} />
+                <BotaoArquivo testid="arquivo-arco" travado={Boolean(ocupado)} rotulo={T.escolherArquivo} nome={nomeArco} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('arco', f)} />
               </Campo>
               <Campo rotulo={T.arcoAntagonista} ajuda={T.antagonistaAjuda}>
-                <BotaoArquivo testid="arquivo-antagonista" rotulo={T.escolherArquivo} nome={nomeAnt} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('antagonista', f)} />
+                <BotaoArquivo testid="arquivo-antagonista" travado={Boolean(ocupado)} rotulo={T.escolherArquivo} nome={nomeAnt} aceitar=".stl,.obj,.ply" aoEscolher={(f) => void abrirArquivo('antagonista', f)} />
               </Campo>
               <Campo rotulo={T.dente}>
                 <div className="grid grid-cols-8 gap-1">
@@ -363,7 +393,13 @@ export default function PassosCadApp() {
                       key={n}
                       type="button"
                       data-testid={`dente-${n}`}
-                      onClick={() => setFdi(n)}
+                      disabled={Boolean(ocupado)}
+                      onClick={() => {
+                        if (n === fdi) return;
+                        setFdi(n);
+                        descartarDente();
+                        visor.current?.enquadrar('arco', undefined, undefined, frenteDoArco);
+                      }}
                       className={`py-1 rounded text-xs font-semibold border ${fdi === n ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'}`}
                     >
                       {n}
@@ -375,10 +411,12 @@ export default function PassosCadApp() {
                 <select
                   className={inputCls}
                   value={materialId}
+                  disabled={Boolean(ocupado)}
                   onChange={(e) => {
                     setMaterialId(e.target.value);
                     const m = MATERIAIS.find((x) => x.id === e.target.value);
                     if (m) setParametros(m.parametros);
+                    descartarCoroa();
                   }}
                 >
                   {MATERIAIS.map((m) => (
@@ -407,16 +445,11 @@ export default function PassosCadApp() {
                   </div>
                   <button
                     type="button"
-                    className="w-full px-2 py-2 rounded-lg border border-border text-xs"
+                    disabled={Boolean(ocupado)}
+                    className="w-full px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40"
                     onClick={() => {
-                      setDente(null);
-                      setFixos([]);
-                      const v = visor.current as Visor3D;
-                      v.definirLinha('margem', null, 0);
-                      v.definirLinha('mesial', null, 0);
-                      v.definirLinha('vestibular', null, 0);
-                      v.definirPontos('fixos', null, 0);
-                      v.enquadrar('arco', undefined, undefined, frenteDoArco);
+                      descartarDente();
+                      (visor.current as Visor3D).enquadrar('arco', undefined, undefined, frenteDoArco);
                     }}
                   >
                     {T.clicarDeNovo}
@@ -429,7 +462,7 @@ export default function PassosCadApp() {
           {etapa === 2 && (
             <>
               <Campo rotulo={T.bibliotecaGuardada} ajuda={T.bibliotecaAjuda}>
-                <select className={inputCls} data-testid="biblioteca-guardada" value={guardadas.includes(nomeBib ?? '') ? (nomeBib as string) : ''} onChange={(e) => e.target.value && void executar(T.posicionandoDente, () => escolherGuardada(e.target.value))}>
+                <select className={inputCls} data-testid="biblioteca-guardada" disabled={Boolean(ocupado)} value={guardadas.includes(nomeBib ?? '') ? (nomeBib as string) : ''} onChange={(e) => e.target.value && void executar(T.posicionandoDente, () => escolherGuardada(e.target.value))}>
                   <option value="">{guardadas.length ? T.escolha : T.nenhumaGuardada}</option>
                   {guardadas.map((n) => (
                     <option key={n} value={n}>
@@ -441,6 +474,7 @@ export default function PassosCadApp() {
               {nomeBib && guardadas.includes(nomeBib) && (
                 <button
                   type="button"
+                  disabled={Boolean(ocupado)}
                   className="text-xs text-muted-foreground underline"
                   onClick={() =>
                     void executar(T.guardandoBiblioteca, async () => {
@@ -452,13 +486,13 @@ export default function PassosCadApp() {
                   {T.tirarBiblioteca}
                 </button>
               )}
-              <button type="button" onClick={() => pastaRef.current?.click()} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted">
+              <button type="button" disabled={Boolean(ocupado)} onClick={() => pastaRef.current?.click()} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted disabled:opacity-40">
                 <FolderOpen size={16} /> {T.escolherPasta}
               </button>
               <input ref={pastaRef} type="file" data-testid="pasta-biblioteca" className="hidden" multiple onChange={aoEscolherPasta} {...({ webkitdirectory: '' } as Record<string, string>)} />
               {pasta.length > 0 && (
                 <Campo rotulo={T.bibliotecasDaPasta}>
-                  <select className={inputCls} data-testid="biblioteca-pasta" value="" onChange={(e) => e.target.value && void escolherDaPasta(e.target.value)}>
+                  <select className={inputCls} data-testid="biblioteca-pasta" disabled={Boolean(ocupado)} value="" onChange={(e) => e.target.value && void escolherDaPasta(e.target.value)}>
                     <option value="">{T.escolha}</option>
                     {pasta.map((b) => (
                       <option key={b.nome} value={b.nome} disabled={!b.dentes.size}>
@@ -471,10 +505,17 @@ export default function PassosCadApp() {
               <Campo rotulo={T.denteSolto} ajuda={T.denteSoltoAjuda}>
                 <BotaoArquivo
                   testid="arquivo-dente"
+                  travado={Boolean(ocupado)}
                   rotulo={T.escolherArquivo}
                   nome={null}
                   aceitar=".stl,.obj,.ply,.eoff"
-                  aoEscolher={(f) => void f.arrayBuffer().then((b) => usarDente(f.name, f.name, b))}
+                  aoEscolher={(f) => {
+                    if (f.size > TAMANHO_MAXIMO) {
+                      setErro(T.arquivoGrande);
+                      return;
+                    }
+                    void f.arrayBuffer().then((b) => usarDente(f.name, f.name, b)).catch(() => setErro(T.erroGenerico));
+                  }}
                 />
               </Campo>
               {ajuste && (
@@ -485,12 +526,13 @@ export default function PassosCadApp() {
                         <span className="font-semibold">{c.rotulo}</span>
                         <span className="text-muted-foreground">{ajuste[c.chave].toFixed(c.casas)}{c.unidade}</span>
                       </span>
-                      <input type="range" className="w-full" min={c.min} max={c.max} step={c.passo} value={ajuste[c.chave]} onChange={(e) => moverAnatomia({ ...ajuste, [c.chave]: +e.target.value })} />
+                      <input type="range" className="w-full" disabled={Boolean(ocupado)} min={c.min} max={c.max} step={c.passo} value={ajuste[c.chave]} onChange={(e) => moverAnatomia({ ...ajuste, [c.chave]: +e.target.value })} />
                     </label>
                   ))}
                   <button
                     type="button"
-                    className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs"
+                    disabled={Boolean(ocupado)}
+                    className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40"
                     onClick={() =>
                       void executar(T.posicionandoDente, async () => {
                         const res = await (motor.current as ClienteDoMotor).pedir<{ ajuste: Ajuste; malha: MalhaLeve }>({ tipo: 'reposicionar', parametros });
@@ -534,7 +576,7 @@ export default function PassosCadApp() {
                     <input type="number" step={0.01} min={0} className="w-20 px-2 py-1 rounded border border-border bg-background text-right" value={parametros[chave]} onChange={(e) => setParametros({ ...parametros, [chave]: +e.target.value })} />
                   </label>
                 ))}
-                <button type="button" onClick={() => void gerarCoroa()} className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs">
+                <button type="button" disabled={Boolean(ocupado)} onClick={() => void gerarCoroa()} className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40">
                   <RotateCcw size={14} /> {T.recalcular}
                 </button>
               </div>
@@ -559,7 +601,7 @@ export default function PassosCadApp() {
           {etapa === 4 && coroa && (
             <>
               <p className="text-sm">{T.exportarTexto}</p>
-              <button type="button" data-testid="baixar-stl" onClick={() => void exportar()} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold">
+              <button type="button" data-testid="baixar-stl" disabled={Boolean(ocupado)} onClick={() => void exportar()} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40">
                 <Download size={16} /> {T.baixarStl}
               </button>
               <p className="text-xs text-amber-600">{T.avisoRevisao}</p>

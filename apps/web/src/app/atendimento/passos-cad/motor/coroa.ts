@@ -98,6 +98,7 @@ export interface EntradaCoroa {
 }
 
 const ALTURA_MIN_CONTATO = 0.8;
+const BORDA_DO_CILINDRO = 1.5;
 
 /** Arco sem o troquel: o que sobra são vizinhos e gengiva. */
 export function arcoSemTroquel(arco: Malha, prep: Preparo, margem: PontoMargem[]): Malha {
@@ -114,7 +115,11 @@ export function arcoSemTroquel(arco: Malha, prep: Preparo, margem: PontoMargem[]
     const lado = sub(v, mul(prep.a, h));
     const th = (Math.atan2(dot(lado, prep.e2), dot(lado, prep.e1)) + 2 * Math.PI) % (2 * Math.PI);
     const i = Math.round((th / (2 * Math.PI)) * NT) % NT;
-    return !(h > alt[i] - 0.2 && norma(lado) < raio[i] + 0.25);
+    if (!(h > alt[i] - 0.2 && norma(lado) < raio[i] + 0.25)) return true;
+    // Dentro do cilindro da margem pode estar o vizinho que avança sobre ela. A parede do troquel
+    // olha para fora de O; a do vizinho olha para O. Sem ela, a coroa entraria no dente ao lado.
+    // Só na borda do cilindro: no meio dele, face que olha para O é fossa do próprio preparo.
+    return h > alt[i] + ALTURA_MIN_CONTATO && norma(lado) > raio[i] - BORDA_DO_CILINDRO && dot(cross(sub(b, a), sub(c, a)), v) < 0;
   });
 }
 
@@ -181,7 +186,8 @@ function espacoEntreVizinhos(e: EntradaCoroa, ambiente: Bvh, base: V3, mdMargem:
   let mais = Infinity;
   let menos = Infinity;
   for (const lateral of [-1.5, 0, 1.5]) {
-    for (let h = 1; h <= topo + 1.5; h += 0.5) {
+    // Na altura do contato: mais baixo, o que está perto é a papila ou o colo do vizinho.
+    for (let h = ALTURA_DO_CONTATO; h <= topo + 1.5; h += 0.5) {
       const o = soma(soma(base, mul(b, lateral)), mul(a, h));
       const f = ambiente.raio(o, m, limite);
       const t = ambiente.raio(o, mul(m, -1), limite);
@@ -482,6 +488,8 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
 
   // ---------- limites: vizinhos e antagonista por cima, espessura por baixo ----------
   const teto = R.map(() => new Float64Array(J + 1).fill(Infinity));
+  // Só os vizinhos: o antagonista perto da borda não pode parecer contato já fechado.
+  const tetoVizinho = R.map(() => new Float64Array(J + 1).fill(Infinity));
   const piso = R.map(() => new Float64Array(J + 1));
   const altMargem = margem.map((m) => dot(sub(m.ponto, O), a));
   const pedida = (s: number) => (s < 0.2 ? 0.02 : 0.2 + (P.espessuraMinima - 0.2) * passoSuave(0.2, 1.5, s));
@@ -493,7 +501,8 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       for (const viz of vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente]) {
         const h = viz.raio(soma(O, mul(d, dentro)), d, 25);
         if (h && dot(sub(h.ponto, O), a) > altMargem[i] + ALTURA_MIN_CONTATO) {
-          teto[i][j] = Math.min(teto[i][j], dentro + h.t - P.folgaVizinho);
+          tetoVizinho[i][j] = Math.min(tetoVizinho[i][j], dentro + h.t - P.folgaVizinho);
+          teto[i][j] = Math.min(teto[i][j], tetoVizinho[i][j]);
         }
       }
       if (ant) {
@@ -506,7 +515,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     for (let i = 0; i < NT; i++) for (let j = 0; j < J; j++) R[i][j] = Math.max(piso[i][j], Math.min(R[i][j], teto[i][j]));
   };
   limitar();
-  fecharContatos(R, teto, dirs, O, e.eixos.mesial, J);
+  fecharContatos(R, teto, tetoVizinho, dirs, O, e.eixos.mesial, a, altMargem, J);
   limitar();
   for (let it = 0; it < 4; it++) {
     const novo = R.map((r) => Float64Array.from(r));
@@ -518,6 +527,9 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     for (let i = 0; i < NT; i++) for (let j = 1; j < J - 2; j++) R[i][j] = novo[i][j];
     limitar();
   }
+  // A suavização afasta um pouco o que encostou: fecha de novo, agora só o que sobrou.
+  fecharContatos(R, teto, tetoVizinho, dirs, O, e.eixos.mesial, a, altMargem, J);
+  limitar();
   let conflitos = 0;
   for (let i = 0; i < NT; i++) for (let j = 0; j < J; j++) if (piso[i][j] > teto[i][j]) conflitos++;
   // Folgas de verdade (ponto mais próximo), não só ao longo do raio: o vizinho e o antagonista
@@ -643,14 +655,16 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   return { malha, espessura, folgaAntagonista: folgaA, folgaVizinho: folgaV, externos, relatorio };
 }
 
-const MAIOR_ESPACO_A_FECHAR = 2;
+const MAIOR_ESPACO_A_FECHAR = 1.2;
 const RAIO_DO_CONTATO = 1.8;
+/** O contato fica no terço alto do dente; perto da margem o que está perto é a gengiva. */
+const ALTURA_DO_CONTATO = 1.5;
 
 /**
  * Fecha o contato com cada vizinho: acha o ponto da superfície mais perto dele e leva a região
  * em volta até encostar, numa transição suave. Espaço grande demais não é contato: fica como está.
  */
-function fecharContatos(R: Float64Array[], teto: Float64Array[], dirs: V3[][], O: V3, mesial: V3, J: number): void {
+function fecharContatos(R: Float64Array[], teto: Float64Array[], tetoVizinho: Float64Array[], dirs: V3[][], O: V3, mesial: V3, a: V3, altMargem: number[], J: number): void {
   const NT = R.length;
   for (const lado of [1, -1]) {
     let gi = -1;
@@ -658,8 +672,11 @@ function fecharContatos(R: Float64Array[], teto: Float64Array[], dirs: V3[][], O
     let menor = Infinity;
     for (let i = 0; i < NT; i++) {
       for (let j = 1; j < J - 2; j++) {
-        if (teto[i][j] === Infinity || lado * dot(dirs[i][j], mesial) < 0.6) continue;
-        const g = teto[i][j] - R[i][j];
+        if (tetoVizinho[i][j] === Infinity || lado * dot(dirs[i][j], mesial) < 0.6) continue;
+        if (R[i][j] * dot(dirs[i][j], a) - altMargem[i] < ALTURA_DO_CONTATO) continue;
+        // Onde o antagonista segura antes de chegar ao vizinho, não há como encostar.
+        if (teto[i][j] < tetoVizinho[i][j] - 0.01) continue;
+        const g = tetoVizinho[i][j] - R[i][j];
         if (g < menor) {
           menor = g;
           gi = i;
@@ -671,9 +688,11 @@ function fecharContatos(R: Float64Array[], teto: Float64Array[], dirs: V3[][], O
     const alvo = soma(O, mul(dirs[gi][gj], R[gi][gj]));
     for (let i = 0; i < NT; i++) {
       for (let j = 1; j < J - 2; j++) {
-        if (lado * dot(dirs[i][j], mesial) < 0.2) continue;
+        const noLado = lado * dot(dirs[i][j], mesial);
+        if (noLado < 0.2) continue;
         const d = norma(sub(soma(O, mul(dirs[i][j], R[i][j])), alvo));
-        R[i][j] += menor * Math.exp(-((d / RAIO_DO_CONTATO) ** 2));
+        // Some aos poucos na saída do lado: cortar de uma vez deixaria um vinco na coroa.
+        R[i][j] += menor * Math.exp(-((d / RAIO_DO_CONTATO) ** 2)) * passoSuave(0.2, 0.5, noLado);
       }
     }
   }
