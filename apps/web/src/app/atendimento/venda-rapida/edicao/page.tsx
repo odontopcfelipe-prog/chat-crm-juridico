@@ -7,12 +7,13 @@
  */
 import '../venda-skin.css';
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import {
   APARENCIA_PADRAO,
+  CORES_FIXAS,
   PARTES,
   TAMANHOS,
   normalizarAparencia,
@@ -143,18 +144,41 @@ export default function EdicaoBasicaPage() {
                 <legend className="float-left mb-2 w-full text-sm font-bold text-foreground">Cor de fundo</legend>
                 <div className="clear-both divide-y divide-border">
                   {PARTES.map((parte) => (
-                    <label key={parte.campo} className="flex items-center gap-3 py-2.5">
-                      <input
-                        type="color"
-                        value={rascunho[parte.campo]}
-                        onChange={(e) => setRascunho((atual) => ({ ...atual, [parte.campo]: e.target.value.toLowerCase() }))}
-                        className="h-9 w-11 shrink-0 cursor-pointer rounded border border-border bg-card p-0.5 disabled:cursor-not-allowed"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-foreground">{parte.rotulo}</span>
-                        <span className="block text-xs text-muted-foreground">{parte.dica}</span>
-                      </span>
-                    </label>
+                    <div key={parte.campo} className="py-2.5">
+                      <label className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          title="Escolher outra cor"
+                          value={rascunho[parte.campo]}
+                          onChange={(e) => setRascunho((atual) => ({ ...atual, [parte.campo]: e.target.value.toLowerCase() }))}
+                          className="h-9 w-11 shrink-0 cursor-pointer rounded border border-border bg-card p-0.5 disabled:cursor-not-allowed"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold text-foreground">{parte.rotulo}</span>
+                          <span className="block text-xs text-muted-foreground">{parte.dica}</span>
+                        </span>
+                      </label>
+                      {/* Fora do label: dentro dele, o clique abriria o seletor de cor. */}
+                      <div role="group" aria-label={`Cores fixas de ${parte.rotulo}`} className="mt-2 flex flex-wrap gap-1.5">
+                        {CORES_FIXAS.map(({ cor, nome }) => {
+                          const marcada = rascunho[parte.campo] === cor;
+                          return (
+                            <button
+                              key={cor}
+                              type="button"
+                              title={nome}
+                              aria-label={nome}
+                              aria-pressed={marcada}
+                              onClick={() => setRascunho((atual) => ({ ...atual, [parte.campo]: cor }))}
+                              style={{ backgroundColor: cor, color: textoSobre(cor) }}
+                              className={`flex h-7 w-7 items-center justify-center rounded-full border border-black/15 transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:hover:scale-100 ${marcada ? 'ring-2 ring-primary ring-offset-1' : ''}`}
+                            >
+                              {marcada && <Check size={13} strokeWidth={3} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </fieldset>

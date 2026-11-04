@@ -90,6 +90,15 @@ describe('partes e tamanhos', () => {
     expect(a.PARTES.map((p: any) => p.campo)).toEqual(['cor_cabecalho', 'cor_produtos', 'cor_destaque', 'cor_rodape']);
   });
 
+  it('as cores fixas passam na validação, não se repetem e incluem as 4 do padrão', () => {
+    const cores = a.CORES_FIXAS.map((c: any) => c.cor);
+    expect(new Set(cores).size).toBe(cores.length);
+    for (const cor of cores) {
+      expect(a.normalizarAparencia({ cor_rodape: cor }).cor_rodape).toBe(cor);
+    }
+    expect(cores).toEqual(expect.arrayContaining(a.PARTES.map((p: any) => a.APARENCIA_PADRAO[p.campo])));
+  });
+
   it('o tamanho padrão é o de antes da edição', () => {
     expect(a.APARENCIA_PADRAO.tamanho_foto).toBe('medio');
     expect(a.TAMANHOS.medio).toMatchObject({ grade: 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4', foto: 'h-28', icone: 44 });

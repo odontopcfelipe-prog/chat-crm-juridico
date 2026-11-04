@@ -32,6 +32,20 @@ export const PARTES: ReadonlyArray<{ campo: CampoDeCor; rotulo: string; dica: st
   { campo: 'cor_rodape', rotulo: 'Rodapé', dica: 'A faixa do fim da tela.' },
 ];
 
+/** Cores prontas de cada parte, para um clique. Inclui as 4 do padrão. Fora delas, vale o seletor livre. */
+export const CORES_FIXAS: ReadonlyArray<{ cor: string; nome: string }> = [
+  { cor: '#ffe600', nome: 'Amarelo' },
+  { cor: '#ffffff', nome: 'Branco' },
+  { cor: '#ebebeb', nome: 'Cinza' },
+  { cor: '#111827', nome: 'Preto' },
+  { cor: '#2d3277', nome: 'Marinho' },
+  { cor: '#3483fa', nome: 'Azul' },
+  { cor: '#00a650', nome: 'Verde' },
+  { cor: '#7c3aed', nome: 'Roxo' },
+  { cor: '#dc2626', nome: 'Vermelho' },
+  { cor: '#ec4899', nome: 'Rosa' },
+];
+
 /**
  * Classes completas, para o Tailwind achar no código. "medio" é o tamanho de sempre.
  * Os outros dois medem o espaço que sobra, não a tela: com o menu aberto e o carrinho ao lado,
