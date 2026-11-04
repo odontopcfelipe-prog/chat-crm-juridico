@@ -22,6 +22,7 @@ export const LAB_VENDA_RAPIDA = Object.freeze({
   }),
 
   // Catálogo de serviços (só os marcados com o ⚡ na tabela de serviços).
+  vitrine: 'Serviços',
   buscarServico: 'Buscar serviço... (coroa, provisório, placa)',
   carregando: 'Carregando serviços...',
   nadaNaBusca: 'Nenhum serviço liberado nessa busca.',
@@ -29,6 +30,7 @@ export const LAB_VENDA_RAPIDA = Object.freeze({
     'Nenhum serviço liberado para a venda rápida ainda. Vá em Configurações → Tabela de serviços e marque o ⚡ nos que devem aparecer aqui.',
 
   // Cliente (dentista ou clínica).
+  informarCliente: 'Informe o cliente',
   trocarCliente: 'Trocar cliente',
   buscarCliente: 'Buscar dentista ou clínica por nome, CPF ou CNPJ...',
   cadastrarCliente: 'Cadastrar dentista ou clínica',

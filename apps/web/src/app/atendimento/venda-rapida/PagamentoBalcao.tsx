@@ -37,7 +37,7 @@ function dadosDaForma(forma: Forma, lab?: boolean) {
 }
 
 const OPCAO = 'rounded-lg border px-2 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40';
-const OPCAO_ON = 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
+const OPCAO_ON = 'border-primary bg-primary/10 text-primary';
 const OPCAO_OFF = 'border-border bg-card text-foreground hover:bg-accent/40';
 
 export default function PagamentoBalcao({
@@ -74,29 +74,29 @@ export default function PagamentoBalcao({
   return (
     <fieldset disabled={bloqueado} className="min-w-0 border-0 p-0 m-0 disabled:opacity-70">
       {valorMudou && (
-        <p className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+        <p className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800">
           <AlertCircle size={14} className="mt-px shrink-0" />
           O valor da venda mudou. Escolha a forma de pagamento de novo.
         </p>
       )}
 
       {valor.primeira && (
-        <div className="mb-3 flex items-center gap-3 rounded-xl bg-card px-4 py-3 shadow-sm">
-          <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+        <div className="mb-3 flex items-center gap-3 vr-card px-4 py-3">
+          <CheckCircle2 size={18} className="vr-verde shrink-0" />
           <span className="min-w-0 flex-1 text-sm font-semibold text-foreground">
             {rotuloLinha(valor.primeira)} · R$ {fmtCentavos(valor.primeira.centavos)}
           </span>
           <button
             type="button"
             onClick={() => onChange(trocarPrimeira(valor))}
-            className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10"
+            className="vr-link shrink-0 rounded-md px-2 py-1 text-xs font-semibold"
           >
             Trocar
           </button>
         </div>
       )}
 
-      <h2 className="mb-3 text-xl font-bold text-foreground">{titulo}</h2>
+      <h2 className="mb-3 text-xl font-semibold text-foreground">{titulo}</h2>
 
       {digitandoPrimeira && (
         <div className="mb-4">
@@ -116,19 +116,19 @@ export default function PagamentoBalcao({
             <span className="text-sm text-muted-foreground">de R$ {fmtCentavos(totalCentavos)}</span>
           </div>
           {valorRuim && (
-            <p role="alert" className="mt-1.5 text-xs font-semibold text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-1.5 text-xs font-semibold text-red-600">
               O valor tem que ser maior que zero e menor que o total.
             </p>
           )}
         </div>
       )}
 
-      <div role="radiogroup" aria-label="Forma de pagamento" className="divide-y divide-border overflow-hidden rounded-xl bg-card shadow-sm">
+      <div role="radiogroup" aria-label="Forma de pagamento" className="vr-card divide-y divide-border overflow-hidden">
         {formas.map((forma) => {
           const { Icon, titulo: nome, sub } = dadosDaForma(forma, lab);
           const ativa = valor.atual.forma === forma;
           return (
-            <div key={forma} className={ativa ? 'bg-emerald-500/5' : ''}>
+            <div key={forma} className={ativa ? 'bg-primary/5' : ''}>
               <button
                 type="button"
                 role="radio"
@@ -136,7 +136,7 @@ export default function PagamentoBalcao({
                 onClick={() => onChange(escolherForma(valor, forma))}
                 className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
               >
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${ativa ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'border-border text-muted-foreground'}`}>
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${ativa ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
                   <Icon size={18} />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -144,7 +144,7 @@ export default function PagamentoBalcao({
                   <span className="block text-xs text-muted-foreground">{sub}</span>
                 </span>
                 {ativa
-                  ? <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
+                  ? <CheckCircle2 size={20} className="shrink-0 text-primary" />
                   : <Circle size={20} className="shrink-0 text-muted-foreground/40" />}
               </button>
 
@@ -202,7 +202,7 @@ export default function PagamentoBalcao({
       <button
         type="button"
         onClick={() => onChange(valor.duasFormas ? PAGAMENTO_VAZIO : ligarDuasFormas())}
-        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent/40"
+        className="vr-card vr-link mt-3 inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold"
       >
         {valor.duasFormas ? <><ArrowLeft size={15} /> Voltar para 1 forma só</> : <><Split size={15} /> Pagar com 2 formas</>}
       </button>

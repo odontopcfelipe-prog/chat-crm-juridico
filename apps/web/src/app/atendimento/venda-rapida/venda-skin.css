@@ -1,0 +1,150 @@
+/**
+ * Pele da Venda Rápida: visual de loja online (faixa amarela, fundo cinza, cartões brancos,
+ * preço grande, ações em azul), pedido pelo dono com o Mercado Livre como referência. Só cor
+ * e layout: nada de logotipo, nome ou ilustração da marca deles.
+ *
+ * É fixa, como a .wa-skin do chat (globals.css): redefine as variáveis do Tailwind e as dos
+ * temas só para os descendentes, então a tela não muda com o tema. Por isso não usar dark: aqui.
+ */
+.vr-skin {
+  --vr-amarelo: #ffe600;
+  --vr-fundo: #ebebeb;
+  --vr-azul: #3483fa;
+  --vr-azul-forte: #2968c8;
+  --vr-azul-claro: rgba(65, 137, 230, 0.15);
+  --vr-azul-claro-forte: rgba(65, 137, 230, 0.25);
+  --vr-verde: #00a650;
+  --vr-marinho: #2d3277;
+  --vr-texto: rgba(0, 0, 0, 0.9);
+  --vr-texto-2: rgba(0, 0, 0, 0.55);
+  --vr-borda: rgba(0, 0, 0, 0.1);
+  --vr-claro: #f5f5f5;
+
+  --color-background: var(--vr-fundo);
+  --color-foreground: var(--vr-texto);
+  --color-card: #ffffff;
+  --color-card-foreground: var(--vr-texto);
+  --color-popover: #ffffff;
+  --color-popover-foreground: var(--vr-texto);
+  --color-primary: var(--vr-azul);
+  --color-primary-foreground: #ffffff;
+  --color-ring: var(--vr-azul);
+  --color-secondary: var(--vr-claro);
+  --color-secondary-foreground: var(--vr-texto);
+  --color-muted: var(--vr-claro);
+  --color-muted-foreground: var(--vr-texto-2);
+  --color-accent: var(--vr-claro);
+  --color-accent-foreground: var(--vr-texto);
+  --color-border: var(--vr-borda);
+  --bg-primary: #ffffff;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: var(--vr-claro);
+  --bg-elevated: #ffffff;
+  --bg-hover: var(--vr-claro);
+  --text-primary: var(--vr-texto);
+  --text-secondary: var(--vr-texto-2);
+  --text-muted: var(--vr-texto-2);
+  --accent-primary: var(--vr-azul);
+  --accent-secondary: var(--vr-azul-forte);
+  --accent-glow: 52, 131, 250;
+  --border-subtle: var(--vr-borda);
+  --border-default: var(--vr-borda);
+  --glass-bg: #ffffff;
+  --glass-border: var(--vr-borda);
+  --gradient-accent: linear-gradient(135deg, var(--vr-azul) 0%, var(--vr-azul) 100%);
+
+  background-color: var(--vr-fundo);
+  color: var(--vr-texto);
+  font-family: "Segoe UI", -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+
+/* Efeitos de tema (neon = vidro/transparência) não entram nesta tela. */
+[data-fx] .vr-skin .bg-background { background-color: var(--color-background) !important; }
+[data-fx] .vr-skin .bg-card { background-color: var(--color-card) !important; }
+[data-fx] .vr-skin .bg-muted { background-color: var(--color-muted) !important; }
+[data-fx] .vr-skin .border-border { border-color: var(--color-border) !important; }
+[data-fx] .vr-skin :is(.bg-background, .bg-card, .bg-muted) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.vr-faixa {
+  background-color: var(--vr-amarelo);
+  color: var(--vr-texto);
+}
+
+.vr-marca {
+  color: var(--vr-marinho);
+}
+
+/* A faixa amarela se desfaz no fundo cinza atrás dos primeiros cartões. */
+.vr-conteudo {
+  background: linear-gradient(180deg, var(--vr-amarelo) 0, var(--vr-fundo) 170px) no-repeat;
+  min-height: calc(100% - 96px);
+}
+
+.vr-card {
+  background-color: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.vr-busca {
+  width: 100%;
+  height: 40px;
+  padding: 0 44px 0 14px;
+  border: 0;
+  border-radius: 2px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  color: var(--vr-texto);
+  font-size: 15px;
+}
+.vr-busca::placeholder {
+  color: rgba(0, 0, 0, 0.45);
+}
+.vr-busca:focus {
+  outline: 2px solid var(--vr-azul);
+  outline-offset: 0;
+}
+
+.vr-botao {
+  background-color: var(--vr-azul);
+  border-radius: 6px;
+  color: #ffffff;
+  font-weight: 600;
+  transition: background-color 120ms ease;
+}
+.vr-botao:hover:not(:disabled) {
+  background-color: var(--vr-azul-forte);
+}
+.vr-botao:disabled {
+  background-color: var(--vr-borda);
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.vr-botao-claro {
+  background-color: var(--vr-azul-claro);
+  border-radius: 6px;
+  color: var(--vr-azul);
+  font-weight: 600;
+  text-align: center;
+  transition: background-color 120ms ease;
+}
+.vr-botao-claro:hover,
+.group:hover .vr-botao-claro {
+  background-color: var(--vr-azul-claro-forte);
+}
+
+.vr-verde {
+  color: var(--vr-verde);
+}
+
+.vr-link {
+  color: var(--vr-azul);
+}
+.vr-link:hover {
+  color: var(--vr-azul-forte);
+  text-decoration: underline;
+}

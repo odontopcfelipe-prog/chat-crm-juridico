@@ -35,8 +35,10 @@ import NewPatientModal from '../pacientes/components/NewPatientModal';
 import { decodeJwtPayload, isLab, labAllowsRoute } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
+import './venda-skin.css';
 import PagamentoBalcao from './PagamentoBalcao';
 import {
+  MAX_PARCELAS,
   PAGAMENTO_VAZIO,
   TEXTO_PENDENCIA,
   analisar,
@@ -217,13 +219,13 @@ function fmtBRL(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Preço com os centavos pequenos em cima, pra bater o olho no valor.
+// Preço no jeito de loja: grande, sem negrito, centavos pequenos em cima.
 function Preco({ valor, className = 'text-2xl' }: { valor: number; className?: string }) {
   const [inteiro, centavos] = fmtBRL(valor).split(',');
   return (
-    <span className={`inline-flex items-start font-semibold tabular-nums leading-none text-foreground ${className}`}>
+    <span className={`inline-flex items-start font-normal tabular-nums leading-none text-foreground ${className}`}>
       <span>R$ {inteiro}</span>
-      <span className="ml-0.5 text-[0.55em] leading-none">{centavos}</span>
+      <span className="ml-0.5 mt-[0.1em] text-[0.5em] leading-none">{centavos}</span>
     </span>
   );
 }
@@ -377,7 +379,7 @@ export default function VendaRapidaPage() {
     // com o raio ⚡ na Tabela de Preços). Catálogo curado, não a lista inteira.
     let arr = procedures.filter((p) => p.quick_sale);
     if (tab !== 'TODOS') {
-      arr = arr.filter((p) => categoryToTab(p.category) === tab);
+      arr = arr.filter((p) => tabForProcedure(p) === tab);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -388,6 +390,18 @@ export default function VendaRapidaPage() {
     }
     return arr.slice(0, 60); // limita render — operador busca pra refinar
   }, [procedures, tab, search]);
+
+  // Quantos procedimentos autorizados em cada categoria (os cartões de atalho).
+  const qtdPorTab = useMemo(() => {
+    const qtd: Record<string, number> = { TODOS: 0 };
+    for (const proc of procedures) {
+      if (!proc.quick_sale) continue;
+      qtd.TODOS += 1;
+      const chave = tabForProcedure(proc);
+      qtd[chave] = (qtd[chave] || 0) + 1;
+    }
+    return qtd;
+  }, [procedures]);
 
   // Carrinho helpers
   const [toothPickerFor, setToothPickerFor] = useState<string | null>(null);
@@ -677,43 +691,86 @@ export default function VendaRapidaPage() {
     // h-full overflow-y-auto: o <main> do atendimento é overflow-hidden. Sem isso, em
     // tela pequena/estreita (layout empilhado, carrinho não-sticky) o botão do carrinho
     // caía abaixo da dobra e a página não rolava pra alcançá-lo.
-    <div ref={paginaRef} className="h-full overflow-y-auto p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex flex-wrap items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-md">
-            <Zap size={20} className="text-white" strokeWidth={2.5} />
+    <div ref={paginaRef} className="vr-skin h-full overflow-y-auto">
+      <header className="vr-faixa">
+        <div className="mx-auto max-w-7xl px-6 pt-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <Zap size={24} className="vr-marca" strokeWidth={2.5} />
+              <h1 className="text-lg font-bold leading-none vr-marca">Venda rápida</h1>
+            </div>
+            {etapa === 'venda' && !pendente && (
+              <div className="relative min-w-[240px] max-w-2xl flex-1">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={lab ? LAB_VENDA_RAPIDA.buscarServico : 'Buscar procedimento... (limpeza, clareamento, flúor)'}
+                  className="vr-busca"
+                />
+                <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            )}
+            <ol aria-label="Etapas da venda" className="flex items-center gap-2 text-xs font-semibold sm:ml-auto">
+              <li className="inline-flex items-center gap-1.5">
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'venda' ? 'bg-foreground text-background' : 'bg-[#00a650] text-white'}`}>
+                  {etapa === 'venda' ? '1' : <Check size={12} strokeWidth={3} />}
+                </span>
+                Venda
+              </li>
+              <li aria-hidden="true" className="h-px w-6 bg-foreground/30" />
+              <li className={`inline-flex items-center gap-1.5 ${etapa === 'pagamento' ? '' : 'text-foreground/60'}`}>
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'pagamento' ? 'bg-foreground text-background' : 'bg-foreground/10'}`}>2</span>
+                Pagamento
+              </li>
+            </ol>
           </div>
-          <h1 className="text-2xl font-extrabold text-foreground">Venda rápida</h1>
-          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 rounded border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-400">
-            {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
-          </span>
-          <ol aria-label="Etapas da venda" className="flex w-full items-center gap-2 text-xs font-semibold sm:ml-auto sm:w-auto">
-            <li className={`inline-flex items-center gap-1.5 ${etapa === 'venda' ? 'text-foreground' : 'text-emerald-700 dark:text-emerald-400'}`}>
-              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'venda' ? 'bg-foreground text-background' : 'bg-emerald-500/15'}`}>
-                {etapa === 'venda' ? '1' : <Check size={12} strokeWidth={3} />}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 pb-2 pt-2 text-xs">
+            <button
+              type="button"
+              onClick={() => document.getElementById('vr-busca-paciente')?.focus()}
+              className="inline-flex shrink-0 items-center gap-1.5 text-left"
+            >
+              <UserIcon size={15} className="text-foreground/60" />
+              <span className="leading-tight">
+                <span className="block text-[10px] text-foreground/60">Vender para</span>
+                <span className="block max-w-[180px] truncate font-semibold">
+                  {patient?.name || (lab ? LAB_VENDA_RAPIDA.informarCliente : 'Informe o paciente')}
+                </span>
               </span>
-              Venda
-            </li>
-            <li aria-hidden="true" className="h-px w-6 bg-border" />
-            <li className={`inline-flex items-center gap-1.5 ${etapa === 'pagamento' ? 'text-foreground' : 'text-muted-foreground'}`}>
-              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${etapa === 'pagamento' ? 'bg-foreground text-background' : 'bg-muted'}`}>2</span>
-              Pagamento
-            </li>
-          </ol>
+            </button>
+            <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] font-semibold">
+              {lab ? LAB_VENDA_RAPIDA.selo : 'Balcão · Sem avaliação'}
+            </span>
+            {lab ? (
+              <p className="hidden min-w-0 flex-1 text-foreground/70 md:block">
+                {LAB_VENDA_RAPIDA.subtitulo.antes}<strong>{LAB_VENDA_RAPIDA.subtitulo.destaque}</strong>{LAB_VENDA_RAPIDA.subtitulo.depois}
+              </p>
+            ) : (
+            <p className="hidden min-w-0 flex-1 text-foreground/70 md:block">
+              Venda um procedimento na hora: <strong>entra no tratamento do paciente</strong>{' '}
+              — gera a cobrança e dispensa a avaliação. O dentista confirma a execução depois.
+            </p>
+            )}
+            <button
+              type="button"
+              onClick={() => document.getElementById('vr-carrinho')?.scrollIntoView({ block: 'nearest' })}
+              aria-label="Carrinho"
+              className="relative ml-auto shrink-0"
+            >
+              <ShoppingCart size={20} />
+              {cart.length > 0 && (
+                <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                  {cart.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
-        {lab ? (
-          <p className="text-sm text-muted-foreground">
-            {LAB_VENDA_RAPIDA.subtitulo.antes}<strong className="text-emerald-700 dark:text-emerald-400">{LAB_VENDA_RAPIDA.subtitulo.destaque}</strong>{LAB_VENDA_RAPIDA.subtitulo.depois}
-          </p>
-        ) : (
-        <p className="text-sm text-muted-foreground">
-          Venda um procedimento na hora: <strong className="text-emerald-700 dark:text-emerald-400">entra no tratamento do paciente</strong>{' '}
-          — gera a cobrança e dispensa a avaliação. O dentista confirma a execução depois.
-        </p>
-        )}
-      </div>
+      </header>
 
+      <div className="vr-conteudo">
+      <div className="mx-auto max-w-7xl px-6 py-4">
       {pendente ? (
         <div role="alert" className="mx-auto max-w-xl rounded-xl border border-amber-500/40 bg-card p-6 shadow-sm">
           <div className="mb-3 flex items-center gap-3">
@@ -739,7 +796,7 @@ export default function VendaRapidaPage() {
               type="button"
               onClick={() => void enviarVenda(pendente, true)}
               disabled={finishing}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex flex-1 items-center justify-center gap-2 vr-botao px-4 py-2.5 text-sm disabled:opacity-60"
             >
               {finishing && <Loader2 size={14} className="animate-spin" />}
               Tentar de novo
@@ -776,100 +833,106 @@ export default function VendaRapidaPage() {
       ) : etapa === 'venda' ? (
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
         {/* COLUNA ESQUERDA — Procedimentos */}
-        <div>
-          {/* Busca */}
-          <div className="relative mb-3">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={lab ? LAB_VENDA_RAPIDA.buscarServico : 'Buscar procedimento... (limpeza, clareamento, flúor)'}
-              className="w-full pl-10 pr-3 py-3 text-sm border border-border rounded-xl bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30"
-            />
-          </div>
-          {/* Tabs */}
+        <div className="min-w-0">
+          {/* Atalhos por categoria */}
           {!lab && (
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`text-xs font-semibold px-4 py-2 rounded-lg border transition-colors ${
-                  tab === t.key
-                    ? 'bg-foreground text-background border-foreground'
-                    : 'border-border bg-card text-foreground hover:bg-accent/40'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(112px,1fr))] gap-3">
+            {TABS.filter((t) => t.key === 'TODOS' || qtdPorTab[t.key]).map((t) => {
+              const cfg = ICON_BY_TAB[t.key] || ICON_BY_TAB.TODOS;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  aria-pressed={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`group vr-card flex flex-col items-center p-3 transition-shadow hover:shadow-md ${tab === t.key ? 'ring-2 ring-primary' : ''}`}
+                >
+                  <span className="w-full text-left text-sm font-semibold text-foreground">{t.label}</span>
+                  <span className={`my-2 flex h-12 w-12 items-center justify-center rounded-full ${cfg.bg}`}>
+                    <cfg.Icon size={24} className={cfg.fg} />
+                  </span>
+                  <span className="vr-botao-claro w-full px-2 py-1 text-[11px]">Mostrar ({qtdPorTab[t.key] || 0})</span>
+                </button>
+              );
+            })}
           </div>
           )}
-          {/* Grid de procedimentos */}
-          {loadingProc ? (
-            <div className="py-16 flex items-center justify-center text-muted-foreground">
-              <Loader2 size={18} className="animate-spin mr-2" />
-              {lab ? LAB_VENDA_RAPIDA.carregando : 'Carregando procedimentos...'}
+
+          {/* Vitrine */}
+          <section className="vr-card p-4">
+            <div className="mb-3 flex items-baseline gap-3">
+              <h2 className="text-lg font-semibold text-foreground">
+                {lab ? LAB_VENDA_RAPIDA.vitrine : tab === 'TODOS' ? 'Procedimentos' : TABS.find((t) => t.key === tab)?.label}
+              </h2>
+              {!lab && tab !== 'TODOS' && (
+                <button type="button" onClick={() => setTab('TODOS')} className="vr-link text-xs">Mostrar todos</button>
+              )}
             </div>
-          ) : filteredProcedures.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted-foreground bg-card border border-dashed border-border rounded-xl px-6">
-              {search.trim() || tab !== 'TODOS'
-                ? (lab ? LAB_VENDA_RAPIDA.nadaNaBusca : 'Nenhum procedimento autorizado nessa busca/categoria.')
-                : (lab ? LAB_VENDA_RAPIDA.nadaLiberado : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.')}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {filteredProcedures.map((p) => {
-                const tabKey = lab ? 'TODOS' : tabForProcedure(p);
-                const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
-                const inCart = cart.find((it) => it.procedure.id === p.id);
-                return (
-                  <button
-                    type="button"
-                    key={p.id}
-                    onClick={() => addToCart(p)}
-                    className={`group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                      inCart ? 'border-emerald-500 ring-1 ring-emerald-500/30' : 'border-transparent'
-                    }`}
-                  >
-                    <span className={`relative flex h-24 w-full items-center justify-center ${iconCfg.bg}`}>
-                      <iconCfg.Icon size={34} className={iconCfg.fg} />
-                      {inCart && (
-                        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white">
-                          <Check size={11} strokeWidth={3} /> {inCart.quantity}
+            {loadingProc ? (
+              <div className="py-16 flex items-center justify-center text-muted-foreground">
+                <Loader2 size={18} className="animate-spin mr-2" />
+                {lab ? LAB_VENDA_RAPIDA.carregando : 'Carregando procedimentos...'}
+              </div>
+            ) : filteredProcedures.length === 0 ? (
+              <div className="py-16 text-center text-sm text-muted-foreground px-6">
+                {search.trim() || tab !== 'TODOS'
+                  ? (lab ? LAB_VENDA_RAPIDA.nadaNaBusca : 'Nenhum procedimento autorizado nessa busca/categoria.')
+                  : (lab ? LAB_VENDA_RAPIDA.nadaLiberado : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.')}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4 md:grid-cols-3 xl:grid-cols-4">
+                {filteredProcedures.map((p) => {
+                  const tabKey = lab ? 'TODOS' : tabForProcedure(p);
+                  const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
+                  const inCart = cart.find((it) => it.procedure.id === p.id);
+                  const preco = Number(p.base_price);
+                  return (
+                    <button
+                      type="button"
+                      key={p.id}
+                      onClick={() => addToCart(p)}
+                      className={`group flex flex-col rounded-md p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${inCart ? 'ring-2 ring-primary' : ''}`}
+                    >
+                      <span className="relative flex h-28 w-full items-center justify-center rounded-md bg-muted">
+                        <iconCfg.Icon size={44} className={iconCfg.fg} strokeWidth={1.5} />
+                        {inCart && (
+                          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-bold text-primary-foreground">
+                            <Check size={11} strokeWidth={3} /> {inCart.quantity}
+                          </span>
+                        )}
+                      </span>
+                      <span className="mb-1 mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-tight text-foreground">{p.name}</span>
+                      <Preco valor={preco} />
+                      {preco > 0 && (
+                        <span className="mt-1 text-xs text-foreground">
+                          {MAX_PARCELAS}x R$ {fmtBRL(preco / MAX_PARCELAS)}
                         </span>
                       )}
-                    </span>
-                    <span className="flex flex-1 flex-col p-3">
-                      <span className="mb-2 line-clamp-2 min-h-[2.5rem] text-sm text-foreground">{p.name}</span>
-                      <Preco valor={Number(p.base_price)} className="text-xl" />
                       {!lab && p.duration_minutes && (
-                        <span className="mt-1.5 text-[11px] text-muted-foreground">⏱ {p.duration_minutes} min</span>
+                        <span className="vr-verde mt-1 text-xs font-semibold">⏱ {p.duration_minutes} min</span>
                       )}
-                      <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-700 group-hover:underline dark:text-emerald-400">
+                      <span className="vr-botao-claro mt-2 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs">
                         <Plus size={12} strokeWidth={3} />
                         {inCart ? `Adicionar (${inCart.quantity})` : 'Adicionar'}
                       </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
 
         {/* COLUNA DIREITA — Sidebar carrinho */}
-        <aside className="bg-card border border-border rounded-xl p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
+        <aside className="vr-card p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
           {/* Paciente */}
           <div className="mb-4">
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
               Vender para
             </p>
             {patient ? (
-              <div className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-3 flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
+              <div className="border border-primary/30 bg-primary/5 rounded-lg p-3 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">
                   {patient.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -894,6 +957,7 @@ export default function VendaRapidaPage() {
                     <UserIcon size={14} />
                   </div>
                   <input
+                    id="vr-busca-paciente"
                     type="text"
                     value={patientQuery}
                     onChange={(e) => setPatientQuery(e.target.value)}
@@ -949,7 +1013,7 @@ export default function VendaRapidaPage() {
               return (
                 <div className="relative">
                   {sel ? (
-                    <div className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300 flex items-center justify-center text-[11px] font-bold pointer-events-none">
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[11px] font-bold pointer-events-none">
                       {initials}
                     </div>
                   ) : lab ? (
@@ -960,8 +1024,8 @@ export default function VendaRapidaPage() {
                   <select
                     value={dentistId}
                     onChange={(e) => setDentistId(e.target.value)}
-                    className={`w-full pr-9 py-2.5 text-sm border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30 appearance-none transition-colors ${
-                      sel ? 'pl-11 font-semibold border-teal-500/40' : 'pl-9 border-border'
+                    className={`w-full pr-9 py-2.5 text-sm border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none transition-colors ${
+                      sel ? 'pl-11 font-semibold border-primary/40' : 'pl-9 border-border'
                     }`}
                   >
                     <option value="" disabled>{lab ? LAB_VENDA_RAPIDA.selecione : 'Selecione o dentista…'}</option>
@@ -981,12 +1045,12 @@ export default function VendaRapidaPage() {
           </div>
 
           {/* Carrinho */}
-          <div className="mb-4">
+          <div id="vr-carrinho" className="mb-4 scroll-mt-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground flex items-center gap-1.5">
                 <ShoppingCart size={13} /> Carrinho
                 {cart.length > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-extrabold leading-none">{cart.length}</span>
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold leading-none">{cart.length}</span>
                 )}
               </p>
               {cart.length > 0 && (
@@ -1038,7 +1102,7 @@ export default function VendaRapidaPage() {
                           {it.toothFdis.map((fdi) => (
                             <span
                               key={fdi}
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300/60"
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300/60"
                             >
                               {fdi}
                               <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title={lab ? LAB_VENDA_RAPIDA.removerElemento : 'Remover dente'}>
@@ -1140,7 +1204,7 @@ export default function VendaRapidaPage() {
               type="button"
               onClick={irParaPagamento}
               disabled={!patient || cart.length === 0 || !dentistId}
-              className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:bg-muted disabled:text-muted-foreground inline-flex items-center justify-center gap-2"
+              className="vr-botao w-full text-sm px-4 py-3.5 inline-flex items-center justify-center gap-2"
             >
               {!patient ? (
                 <>
@@ -1174,7 +1238,7 @@ export default function VendaRapidaPage() {
             type="button"
             onClick={voltarParaVenda}
             disabled={finishing}
-            className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+            className="vr-link mb-3 inline-flex items-center gap-1.5 text-sm font-semibold disabled:opacity-50"
           >
             <ArrowLeft size={15} /> Voltar para a venda
           </button>
@@ -1189,7 +1253,7 @@ export default function VendaRapidaPage() {
         </div>
 
         {/* Resumo da venda: não se edita aqui. Pra mudar o carrinho, "Voltar para a venda". */}
-        <aside className="bg-card border border-border rounded-xl p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
+        <aside className="vr-card p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto h-fit">
           <p className="mb-3 text-sm font-bold text-foreground">Resumo da venda</p>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between gap-3">
@@ -1229,10 +1293,10 @@ export default function VendaRapidaPage() {
             {analise.faltaCentavos > 0 ? (
               <div className="flex items-center justify-between gap-3 font-semibold">
                 <span>Falta receber</span>
-                <span className="tabular-nums text-amber-700 dark:text-amber-400">R$ {fmtCentavos(analise.faltaCentavos)}</span>
+                <span className="tabular-nums text-amber-700">R$ {fmtCentavos(analise.faltaCentavos)}</span>
               </div>
             ) : (
-              <p className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
+              <p className="flex items-center gap-1.5 font-semibold vr-verde">
                 <CheckCircle2 size={14} /> Tudo recebido
               </p>
             )}
@@ -1272,7 +1336,7 @@ export default function VendaRapidaPage() {
                       <span className="truncate text-foreground">
                         {i.needed}{i.unit} · {i.name}
                       </span>
-                      <span className={`shrink-0 tabular-nums ${i.falta > 0 ? 'text-amber-700 dark:text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+                      <span className={`shrink-0 tabular-nums ${i.falta > 0 ? 'text-amber-700 font-semibold' : 'text-muted-foreground'}`}>
                         {i.falta > 0 ? `faltam ${i.falta}${i.unit}` : `saldo ${i.current_stock}${i.unit}`}
                       </span>
                     </li>
@@ -1280,7 +1344,7 @@ export default function VendaRapidaPage() {
                 </ul>
               )}
               {baixarEstoque && consumo.bloqueado && (
-                <p className="mt-2 text-[10px] text-red-600 dark:text-red-400 font-semibold pl-6">
+                <p className="mt-2 text-[10px] text-red-600 font-semibold pl-6">
                   {lab ? LAB_VENDA_RAPIDA.bloqueiaSemSaldo : 'Esta clínica bloqueia saída sem saldo — dê entrada no produto, ou desmarque a baixa pra fechar a venda mesmo assim.'}
                 </p>
               )}
@@ -1292,7 +1356,7 @@ export default function VendaRapidaPage() {
             type="button"
             onClick={acaoDoPagamento}
             disabled={finishing || analise.acao === null || (analise.acao === 'FINALIZAR' && estoqueTrava)}
-            className="mt-3 w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:bg-muted disabled:text-muted-foreground inline-flex items-center justify-center gap-2"
+            className="mt-3 vr-botao w-full text-sm px-4 py-3.5 inline-flex items-center justify-center gap-2"
           >
             {finishing ? (
               <>
@@ -1322,7 +1386,7 @@ export default function VendaRapidaPage() {
             )}
           </button>
 
-          <div className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
+          <div className="mt-3 text-[10px] text-muted-foreground flex items-start gap-1.5">
             <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
             <p className="leading-snug">
               {lab ? (
@@ -1341,8 +1405,10 @@ export default function VendaRapidaPage() {
         </aside>
       </div>
       )}
+      </div>
+      </div>
 
-      {/* Onda 17.32.70 — Dialog de sucesso (QR PIX ou link cartao) */}
+      {/* Onda 17.32.70 — Dialog de sucesso */}
       {successDialog && (
         <SuccessDialog
           data={successDialog}
@@ -1400,7 +1466,7 @@ function SuccessDialog({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-4 flex items-center justify-between gap-3 shrink-0">
+        <div className="bg-[#00a650] text-white px-6 py-4 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
               <CheckCircle2 size={20} strokeWidth={2.5} />
@@ -1432,7 +1498,7 @@ function SuccessDialog({
                   <span className="font-bold tabular-nums text-foreground">R$ {fmtCentavos(l.centavos)}</span>
                   <span className="text-muted-foreground"> · {l.rotulo}</span>
                 </span>
-                <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                <span className="inline-flex shrink-0 items-center gap-1 font-semibold vr-verde">
                   <ArrowRight size={13} /> {l.destino}
                 </span>
               </li>
@@ -1450,7 +1516,7 @@ function SuccessDialog({
           </p>
           )}
           {data.precisaValidar && (
-            <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+            <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800">
               <AlertCircle size={14} className="mt-px shrink-0" />
               {lab ? LAB_VENDA_RAPIDA.sucesso.validar : 'Esta venda passa pelo Validar do Financeiro antes de liberar o tratamento.'}
             </p>
@@ -1462,7 +1528,7 @@ function SuccessDialog({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors inline-flex items-center justify-center gap-1.5"
+            className="vr-botao-claro flex-1 text-sm px-3 py-2 inline-flex items-center justify-center gap-1.5"
           >
             <Zap size={14} />
             Nova venda
@@ -1471,7 +1537,7 @@ function SuccessDialog({
           <button
             type="button"
             onClick={onGoToPatient}
-            className="flex-1 text-sm font-bold px-3 py-2 rounded-md bg-foreground text-background hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-1.5"
+            className="vr-botao flex-1 text-sm px-3 py-2 inline-flex items-center justify-center gap-1.5"
           >
             Ver na ficha
             <ArrowRight size={14} />
@@ -1678,8 +1744,8 @@ function PriceTag({
       {changed && <span className="line-through text-muted-foreground/50">R$ {fmtBRL(base)}</span>}
       <span
         className={`border-b border-dashed border-muted-foreground/40 ${
-          discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400'
-            : raised ? 'font-semibold text-amber-700 dark:text-amber-400' : ''
+          discounted ? 'font-semibold text-emerald-700'
+            : raised ? 'font-semibold text-amber-700' : ''
         }`}
       >
         R$ {fmtBRL(value)}
