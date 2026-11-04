@@ -151,6 +151,9 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       '/atendimento/agenda?tab=tasks',
       '/atendimento/settings/disparos',
       // [/F7a]
+      // [F9a]
+      '/atendimento/passos-cad',
+      // [/F9a]
     ]) {
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(true);
     }

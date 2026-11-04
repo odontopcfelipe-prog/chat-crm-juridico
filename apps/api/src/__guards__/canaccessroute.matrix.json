@@ -41,6 +41,7 @@
     "/atendimento/ortodontia": {"recepcao":true,"dentista":false,"acd_asb":false,"crc":true,"financeiro":true,"admin":true},
     "/atendimento/pacientes": {"recepcao":true,"dentista":true,"acd_asb":true,"crc":true,"financeiro":true,"admin":true},
     "/atendimento/pacientes/[id]": {"recepcao":true,"dentista":true,"acd_asb":true,"crc":true,"financeiro":true,"admin":true},
+    "/atendimento/passos-cad": {"recepcao":false,"dentista":true,"acd_asb":false,"crc":false,"financeiro":false,"admin":true},
     "/atendimento/peticoes": {"recepcao":true,"dentista":true,"acd_asb":true,"crc":true,"financeiro":true,"admin":true},
     "/atendimento/ponto": {"recepcao":true,"dentista":true,"acd_asb":true,"crc":true,"financeiro":true,"admin":true},
     "/atendimento/ponto/equipe": {"recepcao":false,"dentista":false,"acd_asb":false,"crc":false,"financeiro":false,"admin":true},

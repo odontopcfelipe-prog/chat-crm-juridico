@@ -47,6 +47,7 @@ export const LAB_BALOES = Object.freeze({
   propostas: Object.freeze({ label: 'Propostas', desc: 'Orçamentos enviados aguardando o cliente.' }),
   agenda: Object.freeze({ label: 'Agenda', desc: 'Coletas, provas e entregas nos consultórios.' }),
   avisos: Object.freeze({ label: 'Central de Disparos', desc: 'Avisos automáticos para os clientes e a equipe.' }),
+  passosCad: Object.freeze({ label: 'Passos CAD', desc: 'Desenhe coroas unitárias sobre o escaneamento.' }),
 });
 
 /** Nomes do menu: item da lista na barra lateral, nome do grupo dela e aba do celular. */
@@ -55,6 +56,8 @@ export const LAB_MENU = Object.freeze({
   grupoClientes: 'Clientes',
   abaDentistas: 'Dentistas',
   orcamentos: 'Orçamentos de trabalho',
+  passosCad: 'Passos CAD',
+  grupoProducao: 'Produção',
 });
 
 /** "Localizar" do topo, pelo tipo de busca da seção (o mesmo de resolveSearchContext). */
