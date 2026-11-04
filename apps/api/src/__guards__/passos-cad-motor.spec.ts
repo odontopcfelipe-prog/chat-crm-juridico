@@ -306,7 +306,7 @@ describe('Passos CAD — coroa', () => {
         if (lado * dot(sub(vert(r.malha, v), e.prep.O), m) > 0) menor = Math.min(menor, r.folgaVizinho[v]);
       }
       expect(menor).toBeLessThan(0.12);
-      expect(menor).toBeGreaterThan(-0.06);
+      expect(menor).toBeGreaterThan(-0.02);
     }
     expect(r.relatorio.malha.arestasAbertas).toBe(0);
   });
