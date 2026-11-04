@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog, Route, Clock, Eye, Crown,
+  User, UserCog, Route, Clock, Eye, Crown, PenTool,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -655,6 +655,14 @@ export function Sidebar() {
       badge: overdueCount,
       show: true,
     },
+    passosCad: {
+      label: LAB_MENU.passosCad,
+      href: '/atendimento/passos-cad',
+      icon: <PenTool size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/passos-cad'),
+      // Só o laboratório: na clínica o item não existe.
+      show: lab && hasPermission('create_evaluation'),
+    },
     waitlist: {
       label: 'Lista de espera',
       href: '/atendimento/waitlist',
@@ -913,6 +921,16 @@ export function Sidebar() {
         // Orcamentos continua duplicado no CRM como atalho.
       ].filter(i => i.show && navOk(i.href)),
     },
+    // Laboratório: grupo da produção (Passos CAD). Na clínica o grupo não existe.
+    ...(lab
+      ? [{
+          id: 'producao',
+          label: LAB_MENU.grupoProducao,
+          defaultExpanded: true,
+          icon: <PenTool size={14} strokeWidth={2.5} />,
+          items: [allItems.passosCad].filter(i => i.show && navOk(i.href)),
+        }]
+      : []),
     {
       id: 'crm',
       label: 'CRC',

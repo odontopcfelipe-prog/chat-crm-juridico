@@ -23,7 +23,7 @@
 import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Calendar, Clock, FileText, Layers, LayoutGrid, MessageSquare, Receipt, ReceiptText, Send, Settings, UserCog, Users,
+  ArrowRight, Calendar, Clock, FileText, Layers, LayoutGrid, MessageSquare, PenTool, Receipt, ReceiptText, Send, Settings, UserCog, Users,
   Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -92,6 +92,8 @@ const BALAO_DA_ROTA: Readonly<Record<string, ChaveBalao>> = Object.freeze({
 /** Agenda e Central de Disparos (F7). */
 const AGENDA = '/atendimento/agenda';
 const CENTRAL = '/atendimento/settings/disparos';
+/** Passos CAD: para o setor visto que abre a tela (protético e administrador). */
+const PASSOS_CAD = '/atendimento/passos-cad';
 
 /**
  * Atalho que pede uma permissão a mais que a da rota. O painel de orçamentos abre
@@ -113,7 +115,7 @@ const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({
  * dentistas é sempre Users: no setor Comercial o balão que leva à lista é o dos
  * aniversariantes (Cake).
  */
-const ICONE_DA_CHAVE: Readonly<Partial<Record<ChaveBalao, LucideIcon>>> = Object.freeze({ dentistas: Users });
+const ICONE_DA_CHAVE: Readonly<Partial<Record<ChaveBalao, LucideIcon>>> = Object.freeze({ dentistas: Users, passosCad: PenTool });
 
 /** Ilustração de cada atalho (as mesmas do painel, sem as de clínica). */
 const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
@@ -131,6 +133,7 @@ const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
   propostas: DocArt,
   agenda: CalendarArt,
   avisos: GearArt,
+  passosCad: DocArt,
 });
 
 function saudacao(hora: number): string {
@@ -214,6 +217,9 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
     const permissaoExtra = PERMISSAO_DO_ATALHO[chave];
     if (permissaoExtra && !hasPermission(permissaoExtra)) continue;
     atalhos.push({ href, chave, lucide: a.lucide });
+  }
+  if (canAccessRouteBt(PASSOS_CAD, hasPermission, BT_LABORATORIO)) {
+    atalhos.push({ href: PASSOS_CAD, chave: 'passosCad' });
   }
   // Central de Disparos: atalho da pessoa (não do setor visto), só para quem abre a tela.
   if (proprio && !atalhos.some((x) => x.href === CENTRAL) && canAccessRouteBt(CENTRAL, hasPermission, BT_LABORATORIO)) {

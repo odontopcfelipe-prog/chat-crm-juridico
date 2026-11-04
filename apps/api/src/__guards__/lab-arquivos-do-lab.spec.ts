@@ -38,6 +38,9 @@ const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/pacientes/components/LabFichaDoCaso.tsx',
   'apps/web/src/app/atendimento/settings/procedures/LabFichaServico.tsx',
   'apps/web/src/app/atendimento/settings/procedures/lab-servicos-textos.ts',
+  // Passos CAD
+  'apps/web/src/app/atendimento/passos-cad/PassosCadApp.tsx',
+  'apps/web/src/app/atendimento/passos-cad/textos.ts',
 ];
 
 /** Trechos de rota que são só de clínica (negados ao laboratório na API). */
