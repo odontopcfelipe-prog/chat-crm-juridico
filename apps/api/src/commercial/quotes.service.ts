@@ -52,6 +52,9 @@ type ItemInput = {
   // Onda 4.2 (Fase 25) — pagamento por procedimento
   payment_method?: string;
   installments_count?: number;
+  // Só a venda de balcão liga: o preço promocional vira o preço de referência do item.
+  // Interno: nenhum DTO aceita este campo, então não vem da tela.
+  usar_promocao?: boolean;
 };
 
 // Validade padrao quando operador nao informa — alinhada com norma de
@@ -1153,6 +1156,7 @@ export class QuotesService {
       tooth_fdi: i.tooth_fdi,
       unit_price: i.unit_price,
       dentist_id: d.dentist_id,
+      usar_promocao: true,
     }));
     const resolvidos = await this.resolveItems(items, tenantId, userId);
     const total = round2(this.computeTotals(resolvidos, 0).total);
@@ -1161,6 +1165,7 @@ export class QuotesService {
     // Financeiro e o plano NÃO se auto-libera — passa pelo Validar, que vê o desconto.
     const tabela = round2(resolvidos.reduce((s, i) => s + i.quantity * i.base_price, 0));
     const abaixoTabela = resolvidos.filter((i) => i.unit_price < i.base_price - 0.001);
+    const tabelaSemPromocao = round2(resolvidos.reduce((s, i) => s + i.quantity * i.preco_tabela, 0));
     const registrarAbaixoTabela = async (quoteId: string, planId: string | null, chargeId: string | null) => {
       if (!abaixoTabela.length) return;
       await registrarAuditoria(this.prisma, {
@@ -1170,7 +1175,9 @@ export class QuotesService {
         entityId: quoteId,
         action: 'VENDA_VALOR_ABAIXO_ESPERADO',
         meta: {
-          descricao: `Venda de balcão abaixo da tabela (tabela R$ ${tabela.toFixed(2)} → vendido R$ ${total.toFixed(2)})`,
+          descricao: tabelaSemPromocao > tabela
+            ? `Venda de balcão abaixo da promoção (promoção R$ ${tabela.toFixed(2)}, tabela R$ ${tabelaSemPromocao.toFixed(2)} → vendido R$ ${total.toFixed(2)})`
+            : `Venda de balcão abaixo da tabela (tabela R$ ${tabela.toFixed(2)} → vendido R$ ${total.toFixed(2)})`,
           valor: total,
           esperado_min: tabela,
           base: tabela,
@@ -1181,7 +1188,8 @@ export class QuotesService {
             procedure_id: i.procedure_id,
             tooth_fdi: i.tooth_fdi ?? null,
             quantity: i.quantity,
-            tabela: i.base_price,
+            tabela: i.preco_tabela,
+            ...(i.base_price !== i.preco_tabela ? { promocao: i.base_price } : {}),
             vendido: i.unit_price,
           })),
         },
@@ -3581,7 +3589,7 @@ export class QuotesService {
     const procs = await this.prisma.procedure.findMany({
       where: { id: { in: procIds }, tenant_id: tenantId },
       select: {
-        id: true, base_price: true, tenant_id: true,
+        id: true, base_price: true, promo_price: true, tenant_id: true,
         name: true, category: true, specialty: { select: { name: true } },
       },
     });
@@ -3597,7 +3605,11 @@ export class QuotesService {
       const proc = byId.get(i.procedure_id);
       if (!proc) throw new BadRequestException(`Procedimento ${i.procedure_id} nao encontrado`);
       const quantity = i.quantity ?? 1;
-      const base_price = Number(proc.base_price);
+      // Na venda de balcão, o preço promocional é o preço de referência: quem definiu foi o
+      // administrador. Só desconto abaixo DELE exige override_price e passa pelo Validar.
+      const tabela = Number(proc.base_price);
+      const promocao = i.usar_promocao && proc.promo_price != null ? Number(proc.promo_price) : null;
+      const base_price = promocao !== null && promocao < tabela ? promocao : tabela;
       const unit_price = i.unit_price ?? base_price;
       const total_price = quantity * unit_price;
       const dentist_id = i.dentist_id ?? (pickDentistForProcedure(
@@ -3605,7 +3617,7 @@ export class QuotesService {
         dentists,
         { preferUserId: actorUserId },
       ) ?? undefined);
-      return { ...i, quantity, base_price, unit_price, total_price, dentist_id };
+      return { ...i, quantity, base_price, preco_tabela: tabela, unit_price, total_price, dentist_id };
     });
   }
 

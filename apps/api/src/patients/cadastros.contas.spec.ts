@@ -324,7 +324,7 @@ function montarProcedimentos() {
       update: jest.fn(async (args: any) => { escritas.push(['procedure.update', args]); return {}; }),
     },
   };
-  return { svc: new ProceduresService(prisma), prisma, escritas };
+  return { svc: new ProceduresService(prisma, {} as any), prisma, escritas };
 }
 
 describe('Procedimentos — grupo só da própria conta', () => {

@@ -2740,6 +2740,13 @@ model Procedure {
   /// na Tabela de Precos). Default false: a Venda Rapida mostra SO os autorizados.
   quick_sale Boolean @default(false)
 
+  /// Foto do item na Venda Rápida: caminho relativo no filesystem (procedures/{id}.ext),
+  /// servida por GET /procedures/:id/photo.
+  photo_url   String?
+  /// Preço promocional da Venda Rápida. Só vale ali (os orçamentos seguem base_price) e só
+  /// quando menor que base_price. null = sem promoção.
+  promo_price Decimal? @db.Decimal(10, 2)
+
   active     Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

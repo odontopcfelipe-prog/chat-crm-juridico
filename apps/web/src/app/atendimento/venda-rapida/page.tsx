@@ -37,6 +37,7 @@ import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
 import './venda-skin.css';
 import AbasVendaRapida from './AbasVendaRapida';
+import FotoProduto from './FotoProduto';
 import PagamentoBalcao from './PagamentoBalcao';
 import {
   MAX_PARCELAS,
@@ -68,6 +69,9 @@ interface Procedure {
   category: string | null;
   description: string | null;
   quick_sale?: boolean;
+  photo_url?: string | null;
+  promo_price?: number | string | null;
+  updated_at?: string;
 }
 
 interface PatientOption {
@@ -100,9 +104,17 @@ interface CartItem {
 // Quantas unidades um item vale: nº de dentes se houver, senão a quantidade.
 const itemUnits = (it: CartItem) => (it.toothFdis.length > 0 ? it.toothFdis.length : it.quantity);
 
-// Preço unitário efetivo: customizado (desconto) ou o de tabela.
+// Preço que vale agora: o promocional, se for menor que o de tabela. Mesma regra do servidor
+// (resolveItems com usar_promocao); se divergir, o expected_total da venda barra.
+const precoVigente = (p: Procedure) => {
+  const tabela = Number(p.base_price);
+  const promocao = p.promo_price === null || p.promo_price === undefined ? null : Number(p.promo_price);
+  return promocao !== null && promocao < tabela ? promocao : tabela;
+};
+
+// Preço unitário efetivo: customizado (desconto) ou o vigente.
 const unitPriceOf = (it: CartItem) =>
-  it.customPrice != null ? it.customPrice : Number(it.procedure.base_price);
+  it.customPrice != null ? it.customPrice : precoVigente(it.procedure);
 
 // Mesmo teto do VendaBalcaoDto (@ArrayMaxSize) — POST /venda-rapida/balcao.
 const MAX_ITENS_BALCAO = 60;
@@ -887,7 +899,8 @@ export default function VendaRapidaPage() {
                   const tabKey = lab ? 'TODOS' : tabForProcedure(p);
                   const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                   const inCart = cart.find((it) => it.procedure.id === p.id);
-                  const preco = Number(p.base_price);
+                  const tabela = Number(p.base_price);
+                  const preco = precoVigente(p);
                   return (
                     <button
                       type="button"
@@ -895,8 +908,10 @@ export default function VendaRapidaPage() {
                       onClick={() => addToCart(p)}
                       className={`group flex flex-col rounded-md p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${inCart ? 'ring-2 ring-primary' : ''}`}
                     >
-                      <span className="relative flex h-28 w-full items-center justify-center rounded-md bg-muted">
-                        <iconCfg.Icon size={44} className={iconCfg.fg} strokeWidth={1.5} />
+                      <span className="relative flex h-28 w-full items-center justify-center overflow-hidden rounded-md bg-muted">
+                        <FotoProduto id={p.id} temFoto={!!p.photo_url} versao={p.updated_at}>
+                          <iconCfg.Icon size={44} className={iconCfg.fg} strokeWidth={1.5} />
+                        </FotoProduto>
                         {inCart && (
                           <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-bold text-primary-foreground">
                             <Check size={11} strokeWidth={3} /> {inCart.quantity}
@@ -904,6 +919,12 @@ export default function VendaRapidaPage() {
                         )}
                       </span>
                       <span className="mb-1 mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-tight text-foreground">{p.name}</span>
+                      {preco < tabela && (
+                        <span className="mb-0.5 flex items-center gap-1.5 text-xs">
+                          <span className="text-muted-foreground line-through">R$ {fmtBRL(tabela)}</span>
+                          <span className="rounded-sm bg-[#00a650] px-1 text-[10px] font-semibold text-white">{Math.round((1 - preco / tabela) * 100)}% OFF</span>
+                        </span>
+                      )}
                       <Preco valor={preco} />
                       {preco > 0 && (
                         <span className="mt-1 text-xs text-foreground">
@@ -1128,7 +1149,7 @@ export default function VendaRapidaPage() {
                             <span className="shrink-0">unitário</span>
                             {canOverridePrice ? (
                               <PriceTag
-                                base={Number(it.procedure.base_price)}
+                                base={precoVigente(it.procedure)}
                                 value={unitPriceOf(it)}
                                 onChange={(v) => setItemPrice(it.procedure.id, v)}
                               />
@@ -1727,9 +1748,9 @@ function PriceTag({
             onMouseDown={(e) => e.preventDefault()}
             onClick={resetTable}
             className="text-[9px] underline text-muted-foreground hover:text-foreground"
-            title="Voltar ao preço de tabela"
+            title="Voltar ao preço sem alteração"
           >
-            tabela
+            voltar
           </button>
         )}
       </span>

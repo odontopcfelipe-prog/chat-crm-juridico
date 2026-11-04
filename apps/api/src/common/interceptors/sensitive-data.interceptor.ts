@@ -33,7 +33,7 @@ export const CONTACT_KEYS = new Set([
 ]);
 
 export const VALUE_KEYS = new Set([
-  'unit_price', 'total_price', 'base_price', 'price', 'original_price', 'final_price',
+  'unit_price', 'total_price', 'base_price', 'promo_price', 'price', 'original_price', 'final_price',
   'subtotal', 'discount_percent', 'discount_value', 'total_value',
   'avista_discount_pct', 'chosen_down_payment', 'chosen_signal_value',
   'installment_value', 'amount', 'amount_paid', 'net_value', 'fee_value', 'paid_value',

@@ -10,6 +10,7 @@ import { usePathname } from 'next/navigation';
 const ABAS = [
   { href: '/atendimento/venda-rapida', label: 'Nova venda' },
   { href: '/atendimento/venda-rapida/vendas', label: 'Lista de vendas' },
+  { href: '/atendimento/venda-rapida/produtos', label: 'Produtos' },
 ];
 
 export default function AbasVendaRapida({ className = '' }: { className?: string }) {

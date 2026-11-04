@@ -42,6 +42,8 @@ export class UpdateProcedureDto {
   @IsOptional() @IsBoolean() commissionable?: boolean;
   @IsOptional() @IsBoolean() quick_sale?: boolean;
   @IsOptional() @IsBoolean() active?: boolean;
+  // Preço promocional da Venda Rápida. null tira a promoção.
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) promo_price?: number | null;
 
   // Fase 6 — Estetica facial / agendamento de revisita
   @IsOptional() @IsString() category?: string | null;

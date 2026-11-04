@@ -240,7 +240,6 @@ export class ProcedureConsumablesService {
             brand: true,
             unit: true,
             current_stock: true,
-            cost_price: true,
             // Tela "Materiais" da Tabela de Preços: foto (miniatura) e produto arquivado.
             photo_url: true,
             updated_at: true,

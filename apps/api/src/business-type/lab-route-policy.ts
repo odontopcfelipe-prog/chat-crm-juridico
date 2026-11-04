@@ -380,6 +380,10 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'ProceduresController.findOne',
   'ProceduresController.update',
   'ProceduresController.remove',
+  'ProceduresController.catalogo',
+  'ProceduresController.uploadPhoto',
+  'ProceduresController.getPhoto',
+  'ProceduresController.removePhoto',
   // PushController — notificações do usuário
   'PushController.getVapidKey',
   'PushController.subscribe',

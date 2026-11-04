@@ -541,6 +541,7 @@ export function Sidebar() {
       subItems: [
         { label: 'Nova venda', href: '/atendimento/venda-rapida' },
         { label: 'Lista de vendas', href: '/atendimento/venda-rapida/vendas' },
+        { label: 'Produtos', href: '/atendimento/venda-rapida/produtos' },
       ],
     },
     // Onda 18.x — Caixa do dia (recepção opera; admin/financeiro validam).

@@ -313,6 +313,13 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'UsersController.findLawyers',
     'CommercialController.vendaBalcao',
     'CommercialController.listarVendasRapidas',
+    // Aba Produtos do tópico
+    'ProceduresController.catalogo',
+    'ProceduresController.create',
+    'ProceduresController.update',
+    'ProceduresController.uploadPhoto',
+    'ProceduresController.getPhoto',
+    'ProceduresController.removePhoto',
     'PatientsController.create',
     'PatientsController.uploadAvatar',
     'PatientTagsController.list',

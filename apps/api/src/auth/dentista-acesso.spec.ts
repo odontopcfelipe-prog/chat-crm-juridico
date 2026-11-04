@@ -108,6 +108,11 @@ describe('acesso por tela (ROUTE_ACCESS)', () => {
 describe('maskKeys (SensitiveDataInterceptor)', () => {
   const keys = new Set([...CONTACT_KEYS, ...VALUE_KEYS]);
 
+  it('o preço promocional some junto com o preço (GET /procedures e catálogo)', () => {
+    const out: any = maskKeys([{ id: 'p1', name: 'Limpeza', base_price: 150, promo_price: 120 }], keys);
+    expect(out[0]).toEqual({ id: 'p1', name: 'Limpeza', base_price: null, promo_price: null });
+  });
+
   it('apaga contato e valores em qualquer nível, sem mexer no resto', () => {
     const src = {
       data: [{
