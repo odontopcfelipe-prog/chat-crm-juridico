@@ -7,14 +7,16 @@
  * Se nao for, redireciona pro /atendimento ou login.
  */
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ShieldCheck, Building2, ArrowLeft, FlaskConical, Eye } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { AcessoClinicaFaixa } from '@/components/AcessoClinicaFaixa';
+import { telaAnteriorDoAdmin } from '@/lib/tela-ao-vivo';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const role = useRole();
   const isSuperAdmin = !!role?.isSuperAdmin;
 
@@ -49,7 +51,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <AcessoClinicaFaixa />
       <header className="border-b border-border bg-card px-6 py-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <Link href="/atendimento" className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs">
+          <Link href={telaAnteriorDoAdmin(pathname)} className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs">
             <ArrowLeft size={14} />
             Voltar
           </Link>

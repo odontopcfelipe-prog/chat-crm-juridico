@@ -123,6 +123,7 @@ export const TERMOS_DE_USO: DocumentoLegal = Object.freeze({
       blocos: [
         'Trabalhamos para manter a plataforma disponível todos os dias, a qualquer hora, e fazemos cópias de segurança do banco de dados. Ainda assim, podem ocorrer interrupções por manutenção, atualização ou falhas de internet, de energia ou de fornecedores. Sempre que possível, as manutenções programadas são feitas fora do horário comercial.',
         'O suporte é prestado pelos canais informados na plataforma.',
+        'Para dar suporte e manter a segurança, a nossa equipe pode entrar na conta do Cliente e acompanhar em tempo real a tela do sistema de um Usuário conectado. Enquanto a tela é acompanhada, o Usuário vê um aviso. A tela não é gravada, e cada acompanhamento fica registrado.',
       ],
     },
     {

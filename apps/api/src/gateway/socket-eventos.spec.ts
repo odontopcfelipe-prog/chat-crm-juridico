@@ -249,7 +249,7 @@ describe('trava: todo evento do cliente no main.ts passa pelo eventosDoSocket', 
   /** 'disconnect' é do próprio socket.io (sem dado do cliente) e só mexe em memória. */
   const acusar = (codigo: string) =>
     eventosDoMain(codigo)
-      .filter(([evento, handler]) => evento !== 'disconnect' && !/^eventos\.\w+$/.test(handler))
+      .filter(([evento, handler]) => evento !== 'disconnect' && !/^(eventos|tela)\.\w+$/.test(handler))
       .map(([evento, handler]) => `${evento}: ${handler.slice(0, 60)}`);
 
   it('a própria trava acusa handler direto e deixa passar o eventosDoSocket', () => {
@@ -262,10 +262,13 @@ describe('trava: todo evento do cliente no main.ts passa pelo eventosDoSocket', 
     expect(acusar(ruim)).toEqual(['novo: async (x) => { await gw.algo(x); }', '(onAny): (ev) => gw.outro(ev)']);
   });
 
-  it('no main.ts de verdade: os quatro eventos do cliente passam pelo eventosDoSocket', () => {
+  it('no main.ts de verdade: os eventos do cliente passam pelo eventosDoSocket ou pelo eventosDaTela', () => {
     const codigo = fs.readFileSync(path.resolve(__dirname, '..', 'main.ts'), 'utf8');
     const eventos = eventosDoMain(codigo).map(([e]) => e).sort();
-    expect(eventos).toEqual(['disconnect', 'join_conversation', 'join_user', 'leave_conversation', 'typing']);
+    expect(eventos).toEqual([
+      'disconnect', 'join_conversation', 'join_user', 'leave_conversation',
+      'tela_assistir', 'tela_deixar', 'tela_desistir', 'tela_escondida', 'tela_quadro', 'typing',
+    ]);
     expect(acusar(codigo)).toEqual([]);
   });
 });

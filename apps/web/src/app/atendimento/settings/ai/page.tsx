@@ -881,6 +881,7 @@ export default function AiSettingsPage() {
                       <div className="relative">
                         <input
                           type={showKey ? 'text' : 'password'}
+                          data-rr-is-password
                           value={apiKey}
                           onChange={(e) => setApiKey(e.target.value)}
                           placeholder="sk-proj-..."
@@ -924,6 +925,7 @@ export default function AiSettingsPage() {
                       <div className="relative">
                         <input
                           type={showAdminKey ? 'text' : 'password'}
+                          data-rr-is-password
                           value={adminKey}
                           onChange={(e) => setAdminKey(e.target.value)}
                           placeholder="sk-admin-..."
@@ -969,6 +971,7 @@ export default function AiSettingsPage() {
                       <div className="relative">
                         <input
                           type={showAnthropicKey ? 'text' : 'password'}
+                          data-rr-is-password
                           value={anthropicKey}
                           onChange={(e) => setAnthropicKey(e.target.value)}
                           placeholder="sk-ant-..."
@@ -1286,6 +1289,7 @@ export default function AiSettingsPage() {
                     <div className="relative">
                       <input
                         type={showTtsKey ? 'text' : 'password'}
+                        data-rr-is-password
                         value={ttsGoogleApiKey}
                         onChange={(e) => setTtsGoogleApiKey(e.target.value)}
                         placeholder="AIza..."

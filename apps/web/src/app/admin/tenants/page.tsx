@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Search, Plus, Building2, Users, HeartPulse, Briefcase, Receipt,
   Pause, Play, Pencil, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
-  ExternalLink, Sparkles, FlaskConical,
+  Sparkles, FlaskConical,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
@@ -389,13 +389,14 @@ export default function AdminTenantsPage() {
                   </div>
                   {/* Acoes */}
                   <div className="flex items-center gap-1 shrink-0">
-                    {/* Onda 17.32.81 — Link pra pagina de detalhe (integracoes etc) */}
+                    {/* Abre a conta: usuários, tela ao vivo, dados e integrações */}
                     <Link
                       href={`/admin/tenants/${t.id}`}
-                      className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center justify-center"
-                      title="Ver detalhe + integracoes"
+                      className="text-xs font-bold px-3 py-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 text-violet-700 hover:bg-violet-500/20 transition-colors inline-flex items-center gap-1.5"
+                      title="Ver os usuários, a tela ao vivo, os dados e as integrações"
                     >
-                      <ExternalLink size={12} />
+                      <Users size={12} />
+                      Ver conta
                     </Link>
                     <button
                       type="button"

@@ -54,7 +54,8 @@ export class ChatGateway {
       this.logger.log(`[SOCKET] Transport upgrade: ${client.id} → ${t?.name ?? 'unknown'}`);
     });
     const socketUser = client.data.user;
-    if (socketUser?.sub) {
+    // Conexão só da tela ao vivo: não conta como online nem recebe conversas pendentes.
+    if (socketUser?.sub && !client.data.soTela) {
       this.trackUserOnline(socketUser.sub, client.id, socketUser.tenant_id);
     }
   }
@@ -63,7 +64,7 @@ export class ChatGateway {
     const transport = client.conn?.transport?.name ?? 'unknown';
     this.logger.log(`[SOCKET] Client disconnected: ${client.id} reason="${reason ?? 'unknown'}" transport=${transport}`);
     const socketUser = client.data.user;
-    if (socketUser?.sub) {
+    if (socketUser?.sub && !client.data.soTela) {
       this.trackUserOffline(socketUser.sub, client.id, socketUser.tenant_id);
     }
   }
@@ -174,6 +175,11 @@ export class ChatGateway {
   /** Verifica se um usuário específico está online */
   isUserOnline(userId: string): boolean {
     return (this.onlineUsers.get(userId)?.size ?? 0) > 0;
+  }
+
+  /** Conexões abertas de uma pessoa (uma por aba). */
+  socketsDoUsuario(userId: string): string[] {
+    return Array.from(this.onlineUsers.get(userId) ?? []);
   }
 
   /** Conversa da equipe: canal → a clínica toda; conversa direta → só os dois. */

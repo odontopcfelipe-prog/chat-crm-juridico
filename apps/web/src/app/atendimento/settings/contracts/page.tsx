@@ -258,6 +258,7 @@ export default function ContractsSettingsPage() {
                     <div className="relative">
                       <input
                         type={showToken ? 'text' : 'password'}
+                        data-rr-is-password
                         value={csToken}
                         onChange={(e) => setCsToken(e.target.value)}
                         placeholder="Token da API Clicksign..."
@@ -312,6 +313,7 @@ export default function ContractsSettingsPage() {
                     <div className="relative">
                       <input
                         type={showWebhook ? 'text' : 'password'}
+                        data-rr-is-password
                         value={csWebhook}
                         onChange={(e) => setCsWebhook(e.target.value)}
                         placeholder="Token HMAC do webhook Clicksign..."

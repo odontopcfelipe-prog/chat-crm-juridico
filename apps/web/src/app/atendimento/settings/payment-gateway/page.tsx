@@ -155,6 +155,7 @@ export default function PaymentGatewaySettingsPage() {
           <label className="text-sm font-medium text-foreground block mb-1.5">Token do Webhook (Asaas)</label>
           <input
             type="text"
+            data-rr-is-password
             value={webhookToken}
             onChange={e => setWebhookToken(e.target.value)}
             placeholder={status?.configured ? '••••••••••• (já configurado)' : 'Cole o token do webhook do Asaas (whsec_...)'}

@@ -3,11 +3,11 @@
   "app": "api",
   "resumo": {
     "automatismos": { "@Cron": 29, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
-    "socket": 7,
+    "socket": 12,
     "globais": 14,
     "produtores": 24,
-    "controllers": 90,
-    "handlers": 968,
+    "controllers": 91,
+    "handlers": 969,
     "@Public": 31
   },
   "automatismos": [
@@ -75,6 +75,11 @@
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_conversation" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "join_user" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "leave_conversation" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "tela_assistir" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "tela_deixar" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "tela_desistir" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "tela_escondida" },
+    { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "tela_quadro" },
     { "tipo": "socket.on", "arquivo": "main.ts", "alvo": "bootstrap()", "detalhe": "typing" }
   ],
   "globais": [
@@ -1713,6 +1718,15 @@
         { "metodo": "TenantsMeController.completeMyOnboarding", "verbo": "POST", "path": "me/onboarding/complete", "rota": "POST /tenants/me/onboarding/complete", "acesso": [] },
         { "metodo": "TenantsMeController.dismissMyOnboarding", "verbo": "POST", "path": "me/onboarding/dismiss", "rota": "POST /tenants/me/onboarding/dismiss", "acesso": [] },
         { "metodo": "TenantsMeController.seedMyDefaults", "verbo": "POST", "path": "me/seed-defaults", "rota": "POST /tenants/me/seed-defaults", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "tenants/usuarios-da-conta.controller.ts",
+      "classe": "UsuariosDaContaController",
+      "path": "admin/contas",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "UsuariosDaContaController.listar", "verbo": "GET", "path": ":id/usuarios", "rota": "GET /admin/contas/:id/usuarios", "acesso": ["@SuperAdmin()"] }
       ]
     },
     {

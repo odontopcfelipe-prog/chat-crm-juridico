@@ -88,7 +88,7 @@ export default function McpSettingsPage() {
                 Seu token
               </label>
               <div className="mt-1.5 flex items-center gap-2">
-                <code className="flex-1 bg-muted/50 border border-border rounded-lg px-3 py-2 text-xs font-mono break-all select-all">
+                <code className="rr-block flex-1 bg-muted/50 border border-border rounded-lg px-3 py-2 text-xs font-mono break-all select-all">
                   {token}
                 </code>
                 <button
@@ -145,7 +145,7 @@ export default function McpSettingsPage() {
                   )}
                 </button>
               </div>
-              <pre className="bg-muted/50 border border-border rounded-lg p-4 text-xs font-mono overflow-x-auto whitespace-pre text-foreground/80">
+              <pre className="rr-block bg-muted/50 border border-border rounded-lg p-4 text-xs font-mono overflow-x-auto whitespace-pre text-foreground/80">
                 {configJson}
               </pre>
             </div>

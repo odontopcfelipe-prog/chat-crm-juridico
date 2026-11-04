@@ -503,6 +503,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CadastroLaboratorioController', // cadastro público de laboratório do /cadastrar (plataforma; rotas públicas)
   'CadastroLaboratorioPlataformaController', // convites e chave do cadastro de laboratório (plataforma)
   'ComparativoContasController', // comparativo das contas no Admin SaaS (plataforma)
+  'UsuariosDaContaController', // usuários de uma conta no Admin SaaS (plataforma)
   'WaitlistController', // lista de espera da agenda de consulta
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);

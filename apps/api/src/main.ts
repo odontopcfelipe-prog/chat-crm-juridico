@@ -7,6 +7,8 @@ import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { ChatGateway } from './gateway/chat.gateway';
 import { eventosDoSocket } from './gateway/socket-eventos';
+import { TelaAoVivoService } from './gateway/tela-ao-vivo.service';
+import { eventosDaTela } from './gateway/tela-ao-vivo.eventos';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { eSessaoDaEquipe } from './auth/sessao-da-equipe';
 import * as dotenv from 'dotenv';
@@ -93,6 +95,7 @@ async function bootstrap() {
   // (NestJS IoAdapter was not properly attaching it)
   const httpServer = app.getHttpServer();
   const chatGateway = app.get(ChatGateway);
+  const telaAoVivo = app.get(TelaAoVivoService);
 
   const io = new SocketIOServer(httpServer, {
     cors: { origin: allowedOrigins || (isProduction ? false : '*') },
@@ -167,6 +170,8 @@ async function bootstrap() {
       // propriedades soltas no socket (ex.: (socket as any).user) seriam
       // perdidas em conexoes recuperadas. socket.data persiste.
       socket.data.user = payload;
+      // Conexão só da tela ao vivo (Admin SaaS): não conta como online nem entra no chat.
+      socket.data.soTela = socket.handshake.auth?.soTela === true;
       next();
     } catch {
       logger.warn(`[SOCKET] Conexao rejeitada — token JWT invalido`);
@@ -218,19 +223,23 @@ async function bootstrap() {
     // Auto-join tenant room for scoped broadcasts
     // (recovered sockets ja tem a room restaurada — join e idempotente)
     const socketUser = socket.data.user;
-    if (socketUser?.tenant_id) {
+    if (socketUser?.tenant_id && !socket.data.soTela) {
       socket.join(`tenant:${socketUser.tenant_id}`);
     }
     // Auto-join rooms de notificacao (inbox:{id} e operators:{tenantId}).
     // Broadcasts de pool (conversa/lead sem operador) so chegam aos operadores
     // do setor correto; ADVOGADO puro nao entra no pool de leads.
-    if (socketUser?.sub) {
+    if (socketUser?.sub && !socket.data.soTela) {
       chatGateway.autoJoinRooms(socketUser.sub, socketUser.tenant_id, socket).catch(() => {});
     }
+
+    const tela = eventosDaTela(socket, telaAoVivo, checkSocketRateLimit, logger);
+    tela.conectou();
 
     socket.on('disconnect', (reason) => {
       socketRateLimits.delete(socket.id);
       chatGateway.handleDisconnect(socket, reason);
+      tela.desconectou(); // depois do handleDisconnect: a presença já está atualizada
     });
     // Entrada checada e nenhum erro escapa (gateway/socket-eventos.ts).
     const eventos = eventosDoSocket(socket, chatGateway, checkSocketRateLimit, logger);
@@ -238,6 +247,11 @@ async function bootstrap() {
     socket.on('leave_conversation', eventos.leaveConversation);
     socket.on('join_user', eventos.joinUser);
     socket.on('typing', eventos.typing);
+    socket.on('tela_assistir', tela.assistir);
+    socket.on('tela_deixar', tela.deixar);
+    socket.on('tela_quadro', tela.quadro);
+    socket.on('tela_escondida', tela.escondida);
+    socket.on('tela_desistir', tela.desistir);
   });
 
   logger.log(`[SOCKET] Socket.IO attached to HTTP server on port ${port}, path /socket.io`);

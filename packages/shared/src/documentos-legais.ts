@@ -4,8 +4,8 @@
  * mostram esta data, e o aceite do cadastro grava estas versões. Ao mudar um dos
  * textos (apps/web/src/components/legal), mude a data dele aqui.
  */
-export const VERSAO_TERMOS_DE_USO = '2026-11-02';
-export const VERSAO_POLITICA_DE_PRIVACIDADE = '2026-11-02';
+export const VERSAO_TERMOS_DE_USO = '2026-11-04';
+export const VERSAO_POLITICA_DE_PRIVACIDADE = '2026-11-04';
 
 const MESES = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',

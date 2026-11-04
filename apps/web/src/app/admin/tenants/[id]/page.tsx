@@ -3,7 +3,8 @@
 /**
  * Onda 17.32.81 — Detalhe do tenant + edicao de integracoes (SUPER_ADMIN).
  *
- * 3 abas:
+ * 4 abas:
+ *  - Usuarios: quem usa a conta, quem esta online e a tela ao vivo
  *  - Geral: contadores, status, dados, branding
  *  - Integracoes: Asaas, Evolution (WhatsApp), ClickSign per-tenant
  *  - Uso: barras de plano + reset de senha do admin
@@ -22,6 +23,7 @@ import {
 import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { UsuariosDaConta } from './UsuariosDaConta';
 
 interface Tenant {
   id: string;
@@ -49,14 +51,14 @@ interface TenantSetting {
   updated_at: string;
 }
 
-type Tab = 'geral' | 'integracoes' | 'uso';
+type Tab = 'usuarios' | 'geral' | 'integracoes' | 'uso';
 
 export default function TenantDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('geral');
+  const [tab, setTab] = useState<Tab>('usuarios');
 
   const load = useCallback(async () => {
     if (!params?.id) return;
@@ -89,7 +91,7 @@ export default function TenantDetailPage() {
       <div className="mb-6">
         <Link href="/admin/tenants" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-3">
           <ArrowLeft size={12} />
-          Voltar pra lista
+          Voltar para a lista
         </Link>
         <div className="flex items-start gap-4 flex-wrap">
           <div className="w-14 h-14 rounded-xl bg-violet-500/10 text-violet-700 flex items-center justify-center shrink-0 overflow-hidden">
@@ -113,6 +115,7 @@ export default function TenantDetailPage() {
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-border mb-6 overflow-x-auto">
         {[
+          { key: 'usuarios' as const, label: `Usuários (${tenant._count?.users ?? 0})`, Icon: Users },
           { key: 'geral' as const, label: 'Geral', Icon: Building2 },
           { key: 'integracoes' as const, label: 'Integrações', Icon: SettingsIcon },
           { key: 'uso' as const, label: 'Uso & limites', Icon: Banknote },
@@ -133,6 +136,7 @@ export default function TenantDetailPage() {
         ))}
       </div>
 
+      {tab === 'usuarios' && <UsuariosDaConta contaId={tenant.id} />}
       {tab === 'geral' && <GeralTab tenant={tenant} onReload={load} />}
       {tab === 'integracoes' && <IntegracoesTab tenantId={tenant.id} />}
       {tab === 'uso' && <UsoTab tenant={tenant} onUpdated={load} />}

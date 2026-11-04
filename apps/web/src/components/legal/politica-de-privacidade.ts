@@ -46,6 +46,7 @@ export const POLITICA_DE_PRIVACIDADE: DocumentoLegal = Object.freeze({
             `Assinatura: plano, histórico de cobranças e os dados necessários para cobrar. O pagamento com cartão é feito na página do provedor de pagamentos, e o número do cartão não passa pelo ${EMPRESA.marca} nem fica guardado conosco.`,
             'Registros de uso: data e hora de acesso, ações feitas no sistema e, quando disponíveis, endereço IP e navegador, para segurança, suporte e cumprimento do Marco Civil da Internet (Lei nº 12.965/2014).',
             'Atendimento: mensagens trocadas com o nosso suporte.',
+            'Acompanhamento de tela: para dar suporte e manter a segurança, a nossa equipe pode acompanhar em tempo real a tela do sistema de um Usuário conectado, inclusive os dados que aparecem nela. Enquanto isso acontece, o Usuário vê um aviso na tela. A tela não é gravada; ficam registrados só quem acompanhou, quem foi acompanhado, quando e por quanto tempo.',
           ],
         },
       ],

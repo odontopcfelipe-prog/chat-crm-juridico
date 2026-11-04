@@ -10,19 +10,17 @@ export function idDeConversa(valor: unknown): string | null {
   return typeof valor === 'string' && valor.length > 0 && valor.length <= 100 && !valor.includes(':') ? valor : null;
 }
 
-type LimiteDeEventos = (socketId: string, evento: string, maxPorMinuto: number) => boolean;
+export type LimiteDeEventos = (socketId: string, evento: string, maxPorMinuto: number) => boolean;
 
 /**
- * O que roda em cada evento que o cliente manda pelo socket (o main.ts liga cada
- * um com socket.on). Nenhum erro daqui pode escapar: no Node 20, uma promise
- * rejeitada sem tratamento — ou um erro lançado dentro do evento, que o socket.io
- * roda fora de qualquer try — encerra o processo. Por isso todo evento passa por
- * `seguro`, e nenhum valor do cliente vai para o log sem antes ser checado como texto.
+ * Nenhum erro de evento do socket pode escapar: no Node 20, uma promise rejeitada
+ * sem tratamento — ou um erro lançado dentro do evento, que o socket.io roda fora
+ * de qualquer try — encerra o processo. Por isso todo evento passa por `seguro`.
  */
-export function eventosDoSocket(socket: Socket, gateway: ChatGateway, limite: LimiteDeEventos, logger: Logger) {
+export function eventoSeguro(socket: Socket, logger: Logger) {
   const falhou = (evento: string, e: any) =>
     logger.warn(`[SOCKET] ${evento} falhou (${socket.id}): ${typeof e?.message === 'string' ? e.message : 'erro'}`);
-  const seguro = (evento: string, tratar: (valor: unknown) => unknown) => (valor: unknown) => {
+  return (evento: string, tratar: (valor: unknown) => unknown) => (valor?: unknown) => {
     try {
       const r = tratar(valor) as PromiseLike<unknown> | undefined;
       if (r && typeof r.then === 'function') r.then(undefined, (e) => falhou(evento, e));
@@ -30,6 +28,15 @@ export function eventosDoSocket(socket: Socket, gateway: ChatGateway, limite: Li
       falhou(evento, e);
     }
   };
+}
+
+/**
+ * O que roda em cada evento que o cliente manda pelo socket (o main.ts liga cada
+ * um com socket.on). Nenhum valor do cliente vai para o log sem antes ser checado
+ * como texto.
+ */
+export function eventosDoSocket(socket: Socket, gateway: ChatGateway, limite: LimiteDeEventos, logger: Logger) {
+  const seguro = eventoSeguro(socket, logger);
 
   return {
     joinConversation: seguro('join_conversation', (valor) => {

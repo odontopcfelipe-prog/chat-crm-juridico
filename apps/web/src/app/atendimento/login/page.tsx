@@ -294,6 +294,7 @@ export default function LoginPage() {
                     <input
                       autoComplete="current-password"
                       type={showPassword ? 'text' : 'password'}
+                      data-rr-is-password
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}

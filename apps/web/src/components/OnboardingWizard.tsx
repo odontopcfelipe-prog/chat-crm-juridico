@@ -1000,6 +1000,7 @@ function TeamQuickInvite({
           <label className="mb-1 block text-[12px] font-medium text-zinc-600">Senha temporária</label>
           <input
             type="text"
+            data-rr-is-password
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Mínimo 6 caracteres"

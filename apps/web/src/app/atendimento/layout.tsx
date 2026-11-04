@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { AcessoClinicaFaixa } from '@/components/AcessoClinicaFaixa';
+import { TelaAoVivoEmissor } from '@/components/TelaAoVivoEmissor';
 // Onda 17.32.86 — Banner global de trial/inadimplencia
 import { TrialBanner } from '@/components/TrialBanner';
 // Onda 17.32.102 — Modal de boas-vindas 1x/dia pra tenant em TRIAL (legacy)
@@ -402,6 +403,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   return (
     <SocketProvider pathname={pathname} chatNotifications={hasPermission('view_chat')}>
+    <TelaAoVivoEmissor />
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — desktop only. Escondida em modo chatonly (?chatonly=1) usado
           pelos iframes do Split View pra mostrar so a aba de conversa. */}

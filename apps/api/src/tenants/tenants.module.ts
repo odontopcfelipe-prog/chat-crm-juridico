@@ -12,6 +12,7 @@ import { ConvitesLaboratorioService } from './convites-laboratorio.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ComparativoContasController } from './comparativo-contas.controller';
 import { ComparativoContasService } from './comparativo-contas.service';
+import { UsuariosDaContaController } from './usuarios-da-conta.controller';
 // Só depende do Prisma: instância própria aqui, sem importar o FinanceiroModule.
 import { FinanceiroChargesService } from '../financeiro/financeiro-charges.service';
 
@@ -24,7 +25,7 @@ import { FinanceiroChargesService } from '../financeiro/financeiro-charges.servi
 // estaticas (/me, /me/usage) corretamente.
 @Module({
   imports: [PrismaModule],
-  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController, CadastroLaboratorioController, CadastroLaboratorioPlataformaController, ComparativoContasController],
+  controllers: [TenantsMeController, TenantsController, SignupController, LabWaitlistController, CriacaoLaboratorioController, CadastroLaboratorioController, CadastroLaboratorioPlataformaController, ComparativoContasController, UsuariosDaContaController],
   providers: [TenantsService, LabWaitlistService, CriacaoLaboratorioService, PadroesLaboratorioService, CadastroLaboratorioService, ConvitesLaboratorioService, ComparativoContasService, FinanceiroChargesService],
   exports: [TenantsService],
 })
