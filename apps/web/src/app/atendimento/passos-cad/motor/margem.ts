@@ -70,30 +70,14 @@ export function acharPreparo(arco: Bvh, clique: V3, ladoOclusal: V3): Preparo {
   // Direção inicial: a superfície em volta do clique, do lado do antagonista.
   const a0 = normalMediaEmVolta(arco.m, clique, 4, unit(ladoOclusal));
   let a = a0;
-  // O clique pode ter caído no topo, na parede ou um pouco no ar.
-  const subir = arco.raio(soma(perto.ponto, mul(a, -0.3)), a);
-  let topo = subir ? subir.ponto : perto.ponto;
-  let O = centralizar(arco, sub(topo, mul(a, 2.5)), a);
+  // Para dentro do dente a partir do ponto clicado: serve para o topo e para a parede.
+  const paraFora = normalMediaEmVolta(arco.m, perto.ponto, 1, perto.normal);
+  let O = centralizar(arco, sub(perto.ponto, mul(paraFora, 2.5)), a);
+  let topo = arco.raio(soma(O, mul(a, 0.01)), a, 9)?.ponto ?? perto.ponto;
   // Eixo de inserção: a direção mais perpendicular às paredes axiais do troquel.
   for (let it = 0; it < 3; it++) {
-    const b = baseDoEixo(a);
-    const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    let paredes = 0;
-    for (let i = 0; i < 72; i++) {
-      for (let ph = 70; ph <= 105; ph += 5) {
-        const d = direcao({ a, ...b }, (2 * Math.PI * i) / 72, ph * GRAU);
-        // Longe demais = o raio saiu por um furo da valeta e pegou outra superfície.
-        const h = arco.raio(O, d, 7.5);
-        if (!h || Math.abs(dot(h.normal, a)) > 0.6 || dot(h.normal, d) < 0.4) continue;
-        paredes++;
-        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += h.normal[r] * h.normal[c];
-      }
-    }
-    if (paredes < 120) break;
-    let novo = menorAutovetor(S);
-    if (dot(novo, a0) < 0) novo = mul(novo, -1);
-    // Preparo curto dá paredes demais de um lado só: o eixo não pode fugir da superfície do dente.
-    if (anguloEntre(novo, a0) > DESVIO_MAXIMO) break;
+    const novo = eixoDasParedes(arco, O, a, a0);
+    if (!novo) break;
     a = novo;
     const t2 = arco.raio(soma(O, mul(a, 0.01)), a, 9);
     if (t2) topo = t2.ponto;
@@ -104,9 +88,102 @@ export function acharPreparo(arco: Bvh, clique: V3, ladoOclusal: V3): Preparo {
   const noTopo = arco.raio(soma(O, mul(a, 0.01)), a, 9);
   if (noTopo) topo = noTopo.ponto;
   // Mais baixo: de perto do nível da margem o chanfro é visto de frente, não de raspão.
-  O = centralizar(arco, sub(topo, mul(a, 3.8)), a);
-  const base = baseDoEixo(a);
-  return { a, O, topo, ...base };
+  O = centralizar(arco, sub(topo, mul(a, ALTURA_DE_O)), a);
+  return centrarPelaMargem(arco, { a, O, topo, ...baseDoEixo(a) });
+}
+
+/**
+ * O clique pode cair em qualquer lugar do dente. A referência certa é a própria linha de margem,
+ * que é a mesma para qualquer clique: o centro dela e o plano dela. Com isso, centro e eixo
+ * deixam de depender de onde o técnico clicou.
+ */
+function centrarPelaMargem(arco: Bvh, inicial: Preparo): Preparo {
+  let prep = inicial;
+  let ultimoPlano = inicial.a;
+  // O preparo do clique só fica se nenhuma volta fechar a linha: ele é o que depende do clique.
+  let melhor = inicial;
+  let menorDesvio = Infinity;
+  for (let it = 0; it <= VOLTAS_PELO_CENTRO; it++) {
+    let margem: PontoMargem[];
+    try {
+      margem = proporMargem(arco, prep, { meridianos: 120 });
+    } catch {
+      break;
+    }
+    const centro = centroDaMargem(margem, prep);
+    const plano = normalDaMargem(margem, prep.a);
+    const desvio = norma(sub(centro, prep.O));
+    if (it > 0 && desvio < menorDesvio) {
+      melhor = prep;
+      menorDesvio = desvio;
+    }
+    if (it === VOLTAS_PELO_CENTRO) break;
+    if (it > 0 && desvio < CENTRO_ACEITO && anguloEntre(plano, ultimoPlano) < PLANO_ACEITO) break;
+    ultimoPlano = plano;
+    // Tudo a partir da linha, nada herdado da volta anterior: o eixo não fica oscilando.
+    const alvo = arco.raio(soma(centro, mul(plano, 0.01)), plano, 9);
+    if (!alvo) break;
+    const O = sub(alvo.ponto, mul(plano, ALTURA_DE_O));
+    let a = eixoDasParedes(arco, O, plano, plano) ?? plano;
+    const semRetencao = eixoComMenosRetencao(arco, O, a);
+    if (anguloEntre(semRetencao, plano) <= DESVIO_MAXIMO) a = semRetencao;
+    const topo = arco.raio(soma(O, mul(a, 0.01)), a, 9)?.ponto ?? alvo.ponto;
+    prep = { a, O, topo, ...baseDoEixo(a) };
+  }
+  return melhor;
+}
+
+/** Normal do plano que melhor passa pela linha, do lado oclusal. */
+function normalDaMargem(margem: PontoMargem[], lado: V3): V3 {
+  const c = [0, 0, 0];
+  for (const m of margem) for (let k = 0; k < 3; k++) c[k] += m.ponto[k] / margem.length;
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const m of margem) {
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) S[r][k] += (m.ponto[r] - c[r]) * (m.ponto[k] - c[k]);
+  }
+  const n = menorAutovetor(S);
+  return dot(n, lado) < 0 ? mul(n, -1) : n;
+}
+
+/** Centro da área dentro da linha, na altura de O (os meridianos não têm espaçamento igual). */
+function centroDaMargem(margem: PontoMargem[], p: Preparo): V3 {
+  let area = 0;
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < margem.length; i++) {
+    const u = sub(margem[i].ponto, p.O);
+    const w = sub(margem[(i + 1) % margem.length].ponto, p.O);
+    const [x0, y0] = [dot(u, p.e1), dot(u, p.e2)];
+    const [x1, y1] = [dot(w, p.e1), dot(w, p.e2)];
+    const c = x0 * y1 - x1 * y0;
+    area += c;
+    x += (x0 + x1) * c;
+    y += (y0 + y1) * c;
+  }
+  if (Math.abs(area) < 1e-6) return p.O;
+  return soma(p.O, soma(mul(p.e1, x / (3 * area)), mul(p.e2, y / (3 * area))));
+}
+
+/** Uma passada do autovetor das paredes visto de O. Null se não há parede ou se fugiu demais de a0. */
+function eixoDasParedes(arco: Bvh, O: V3, a: V3, a0: V3): V3 | null {
+  const b = baseDoEixo(a);
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  let paredes = 0;
+  for (let i = 0; i < 72; i++) {
+    for (let ph = 70; ph <= 105; ph += 5) {
+      const d = direcao({ a, ...b }, (2 * Math.PI * i) / 72, ph * GRAU);
+      // Longe demais = o raio saiu por um furo da valeta e pegou outra superfície.
+      const h = arco.raio(O, d, 7.5);
+      if (!h || Math.abs(dot(h.normal, a)) > 0.6 || dot(h.normal, d) < 0.4) continue;
+      paredes++;
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += h.normal[r] * h.normal[c];
+    }
+  }
+  if (paredes < 120) return null;
+  let novo = menorAutovetor(S);
+  if (dot(novo, a0) < 0) novo = mul(novo, -1);
+  // Preparo curto dá paredes demais de um lado só: o eixo não pode fugir da superfície do dente.
+  return anguloEntre(novo, a0) > DESVIO_MAXIMO ? null : novo;
 }
 
 const anguloEntre = (x: V3, y: V3): number => Math.acos(Math.min(1, Math.max(-1, dot(x, y))));
@@ -226,17 +303,33 @@ export interface OpcoesMargem {
 }
 
 const DESVIO_MAXIMO = 20 * GRAU;
+const VOLTAS_PELO_CENTRO = 3;
+const CENTRO_ACEITO = 0.2;
+const PLANO_ACEITO = 2 * GRAU;
+const ALTURA_DE_O = 3.8;
 const RAIO_MAXIMO_MARGEM = 8.5;
 const DESNIVEL_MAXIMO_MARGEM = 7;
 const PASSO_PHI = 0.5;
 const PHI_MIN = 40;
 const PHI_MAX = 150;
 
+const CURVATURAS = new WeakMap<Bvh, Float64Array>();
+
+/** A curvatura é da superfície, não da linha: refazer a linha não precisa recalcular. */
+function curvaturaDe(arco: Bvh): Float64Array {
+  let c = CURVATURAS.get(arco);
+  if (!c) {
+    c = convexidade(arco.m, arco.normais);
+    CURVATURAS.set(arco, c);
+  }
+  return c;
+}
+
 /** Linha de margem por Viterbi sobre a grade (meridiano × φ). */
 export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}): PontoMargem[] {
   const NT = opcoes.meridianos ?? 360;
   const K = Math.round((PHI_MAX - PHI_MIN) / PASSO_PHI) + 1;
-  const curva = convexidade(arco.m, arco.normais);
+  const curva = curvaturaDe(arco);
   const nota = new Float32Array(NT * K);
   const pts = new Float64Array(NT * K * 3);
   const vale = new Uint8Array(NT * K);

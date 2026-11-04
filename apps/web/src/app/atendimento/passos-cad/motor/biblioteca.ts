@@ -4,14 +4,25 @@
  * A biblioteca é do laboratório que a comprou: fica na pasta dele e, depois de escolhida, no
  * armazenamento deste navegador. Nunca vai para o servidor nem para o código do sistema.
  */
+import { decodeJwtPayload } from '@crm/shared';
 import type { BibliotecaDaPasta } from './biblioteca-indice';
 
 export { chaveDoDente, denteDoFdi, indexarPasta } from './biblioteca-indice';
 
 // ---------- armazenamento neste navegador ----------
 
-const BANCO = 'passos-cad';
 const LOJA = 'bibliotecas';
+
+/** Um banco por conta: duas contas no mesmo navegador não enxergam a biblioteca uma da outra. */
+function nomeDoBanco(): string {
+  let conta: unknown;
+  try {
+    conta = decodeJwtPayload(window.localStorage.getItem('token'))?.tenant_id;
+  } catch {
+    conta = undefined;
+  }
+  return `passos-cad-${typeof conta === 'string' && conta ? conta : 'sem-conta'}`;
+}
 
 interface BibliotecaGuardada {
   nome: string;
@@ -20,7 +31,7 @@ interface BibliotecaGuardada {
 
 function abrirBanco(): Promise<IDBDatabase> {
   return new Promise((ok, falha) => {
-    const r = indexedDB.open(BANCO, 1);
+    const r = indexedDB.open(nomeDoBanco(), 1);
     r.onupgradeneeded = () => r.result.createObjectStore(LOJA, { keyPath: 'nome' });
     r.onsuccess = () => ok(r.result);
     r.onerror = () => falha(r.error ?? new Error('Armazenamento indisponível.'));

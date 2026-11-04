@@ -32,7 +32,7 @@ export class Visor3D {
 
   constructor(private readonly caixa: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.5, 2000);
-    this.render = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    this.render = new THREE.WebGLRenderer({ antialias: true });
     this.render.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.render.setClearColor(0x20252b);
     caixa.appendChild(this.render.domElement);
@@ -228,6 +228,8 @@ export class Visor3D {
     this.obs.disconnect();
     for (const nome of [...this.objetos.keys()]) this.trocar(nome, null);
     this.controle.dispose();
+    // Sem isto o navegador só libera o contexto bem depois: entrar e sair da tela acumula.
+    this.render.forceContextLoss();
     this.render.dispose();
     this.render.domElement.remove();
   }

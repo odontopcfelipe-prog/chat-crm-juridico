@@ -80,12 +80,17 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
   }
 }
 
+function mensagemDoErro(erro: unknown): string {
+  if (erro instanceof RangeError) return 'O cálculo passou do limite deste computador. Feche outras abas e tente de novo.';
+  return erro instanceof Error ? erro.message : 'Erro no cálculo.';
+}
+
 escopo.onmessage = (ev: MessageEvent<{ id: number; pedido: Pedido }>) => {
   const { id, pedido } = ev.data;
   try {
     const { dados, envio } = atender(pedido);
     escopo.postMessage({ id, ok: true, dados }, envio);
   } catch (erro) {
-    escopo.postMessage({ id, ok: false, erro: erro instanceof Error ? erro.message : 'Erro no cálculo.' });
+    escopo.postMessage({ id, ok: false, erro: mensagemDoErro(erro) });
   }
 };
