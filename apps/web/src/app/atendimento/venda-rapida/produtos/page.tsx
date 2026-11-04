@@ -10,7 +10,7 @@
  */
 import '../venda-skin.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Camera, Infinity as InfinityIcon, Loader2, Plus, Search, X, Zap, ZapOff } from 'lucide-react';
+import { AlertCircle, Camera, Infinity as InfinityIcon, Loader2, Plus, Search, Star, X, Zap, ZapOff } from 'lucide-react';
 import { isLab } from '@crm/shared';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -30,6 +30,7 @@ interface Produto {
   photo_url: string | null;
   updated_at: string;
   quick_sale: boolean;
+  featured: boolean;
   qtd_materiais: number;
   estoque: Estoque;
 }
@@ -127,6 +128,7 @@ function LinhaProduto({
   const arquivoRef = useRef<HTMLInputElement>(null);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
   const [mudandoVenda, setMudandoVenda] = useState(false);
+  const [mudandoDestaque, setMudandoDestaque] = useState(false);
   const emPromocao = item.promo_price !== null && item.promo_price < item.base_price;
 
   const salvarPreco = (campo: 'base_price' | 'promo_price') => async (novo: number | null) => {
@@ -180,6 +182,19 @@ function LinhaProduto({
       showError(erroDaApi(e, 'Não foi possível mudar.'));
     } finally {
       setMudandoVenda(false);
+    }
+  };
+
+  const mudarDestaque = async () => {
+    setMudandoDestaque(true);
+    try {
+      await api.patch(`/procedures/${item.id}`, { featured: !item.featured });
+      onMudou(item.id, { featured: !item.featured });
+      showSuccess(item.featured ? 'Saiu dos destaques' : 'Entrou nos destaques');
+    } catch (e) {
+      showError(erroDaApi(e, 'Não foi possível mudar.'));
+    } finally {
+      setMudandoDestaque(false);
     }
   };
 
@@ -255,6 +270,19 @@ function LinhaProduto({
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-right">
         {mostrarMateriais && <BotaoMateriais quantidade={item.qtd_materiais} onClick={onMateriais} />}
+        {podeEditar && item.quick_sale && (
+          <button
+            type="button"
+            disabled={mudandoDestaque}
+            onClick={() => void mudarDestaque()}
+            aria-pressed={item.featured}
+            aria-label={item.featured ? `Tirar ${item.name} dos destaques` : `Colocar ${item.name} em destaque`}
+            title={item.featured ? 'Tirar dos destaques' : 'Colocar em destaque na Nova venda'}
+            className={`rounded p-1 transition-colors disabled:opacity-50 ${item.featured ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground/50 hover:text-foreground'}`}
+          >
+            <Star size={16} fill={item.featured ? 'currentColor' : 'none'} />
+          </button>
+        )}
         {podeEditar && (
           <button
             type="button"

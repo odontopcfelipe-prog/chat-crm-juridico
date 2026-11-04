@@ -315,6 +315,9 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
     'CommercialController.listarVendasRapidas',
     // Aba Produtos do tópico
     'ProceduresController.catalogo',
+    // Edição básica do tópico
+    'ProceduresController.aparenciaVenda',
+    'ProceduresController.salvarAparenciaVenda',
     'ProceduresController.create',
     'ProceduresController.update',
     'ProceduresController.uploadPhoto',

@@ -3,10 +3,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
 import { FileStorageService } from '../media/filesystem.service';
 import { registrarAuditoria } from '../common/utils/audit-log.util';
+import type { AparenciaVendaDto } from './dto/procedure.dto';
 
 // Mesmas regras da foto de produto do estoque.
 const FOTO_MIMES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 const FOTO_MAX_BYTES = 2 * 1024 * 1024;
+
+const CHAVE_APARENCIA_VENDA = 'VENDA_RAPIDA_APARENCIA';
 
 export type EstoqueDoItem = { infinito: true } | { infinito: false; quantidade: number; limitado_por: string };
 
@@ -84,6 +87,7 @@ export class ProceduresService {
         photo_url: true,
         updated_at: true,
         quick_sale: true,
+        featured: true,
         consumables: { select: { quantity: true, product: { select: { name: true, current_stock: true } } } },
       },
     });
@@ -94,6 +98,36 @@ export class ProceduresService {
       qtd_materiais: consumables.length,
       estoque: estoqueDoItem(consumables),
     }));
+  }
+
+  /** Edição básica da Venda Rápida, desta conta. Sem nada salvo volta vazio e a tela usa o padrão. */
+  async aparenciaVenda(tenantId: string): Promise<Partial<AparenciaVendaDto>> {
+    const linha = await this.prisma.tenantSetting.findUnique({
+      where: { tenant_id_key: { tenant_id: tenantId, key: CHAVE_APARENCIA_VENDA } },
+    });
+    if (!linha) return {};
+    try {
+      return JSON.parse(linha.value);
+    } catch {
+      return {};
+    }
+  }
+
+  async salvarAparenciaVenda(tenantId: string, dto: AparenciaVendaDto): Promise<AparenciaVendaDto> {
+    const valor: AparenciaVendaDto = {
+      cor_cabecalho: dto.cor_cabecalho,
+      cor_produtos: dto.cor_produtos,
+      cor_destaque: dto.cor_destaque,
+      cor_rodape: dto.cor_rodape,
+      tamanho_foto: dto.tamanho_foto,
+    };
+    const texto = JSON.stringify(valor);
+    await this.prisma.tenantSetting.upsert({
+      where: { tenant_id_key: { tenant_id: tenantId, key: CHAVE_APARENCIA_VENDA } },
+      create: { tenant_id: tenantId, key: CHAVE_APARENCIA_VENDA, value: texto },
+      update: { value: texto },
+    });
+    return valor;
   }
 
   async findOne(id: string, tenantId: string) {

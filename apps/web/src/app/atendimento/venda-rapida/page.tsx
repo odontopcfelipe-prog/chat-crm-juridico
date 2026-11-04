@@ -37,6 +37,9 @@ import { useBusinessType } from '@/lib/useBusinessType';
 import { LAB_VENDA_RAPIDA } from './lab-venda-textos';
 import './venda-skin.css';
 import FotoProduto from './FotoProduto';
+import { TAMANHOS, varsDaAparencia } from './aparencia';
+import { useAparenciaVenda } from './useAparenciaVenda';
+import { useTenant } from '@/lib/useTenant';
 import PagamentoBalcao from './PagamentoBalcao';
 import {
   MAX_PARCELAS,
@@ -70,6 +73,7 @@ interface Procedure {
   quick_sale?: boolean;
   photo_url?: string | null;
   promo_price?: number | string | null;
+  featured?: boolean;
   updated_at?: string;
 }
 
@@ -403,6 +407,14 @@ export default function VendaRapidaPage() {
     return arr.slice(0, 60); // limita render — operador busca pra refinar
   }, [procedures, tab, search]);
 
+  // Faixa do meio da tela: autorizados com a estrela marcada na aba Produtos.
+  const destaques = useMemo(() => procedures.filter((p) => p.quick_sale && p.featured), [procedures]);
+
+  // Edição básica: cor das 4 partes e tamanho das fotos.
+  const aparencia = useAparenciaVenda();
+  const tamanhoFoto = TAMANHOS[aparencia.tamanho_foto];
+  const tenant = useTenant();
+
   // Quantos procedimentos autorizados em cada categoria (os cartões de atalho).
   const qtdPorTab = useMemo(() => {
     const qtd: Record<string, number> = { TODOS: 0 };
@@ -699,12 +711,60 @@ export default function VendaRapidaPage() {
   const podeVerCaixa = hasPermission('operate_cash') && (!lab || labAllowsRoute('/atendimento/caixa'));
   const podeVerFicha = !lab || labAllowsRoute('/atendimento/pacientes');
 
+  // Cartão do produto. Na faixa de destaque ganha fundo próprio: a faixa pode ter qualquer cor.
+  const cartaoDoProduto = (p: Procedure, naFaixa = false) => {
+    const tabKey = lab ? 'TODOS' : tabForProcedure(p);
+    const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
+    const inCart = cart.find((it) => it.procedure.id === p.id);
+    const tabela = Number(p.base_price);
+    const preco = precoVigente(p);
+    return (
+      <button
+        type="button"
+        key={p.id}
+        onClick={() => addToCart(p)}
+        className={`group flex flex-col rounded-md p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${naFaixa ? 'vr-card' : ''} ${inCart ? 'ring-2 ring-primary' : ''}`}
+      >
+        <span className={`relative flex w-full items-center justify-center overflow-hidden rounded-md bg-muted ${tamanhoFoto.foto}`}>
+          <FotoProduto id={p.id} temFoto={!!p.photo_url} versao={p.updated_at}>
+            <iconCfg.Icon size={tamanhoFoto.icone} className={iconCfg.fg} strokeWidth={1.5} />
+          </FotoProduto>
+          {inCart && (
+            <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-bold text-primary-foreground">
+              <Check size={11} strokeWidth={3} /> {inCart.quantity}
+            </span>
+          )}
+        </span>
+        <span className="mb-1 mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-tight text-foreground">{p.name}</span>
+        {preco < tabela && (
+          <span className="mb-0.5 flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground line-through">R$ {fmtBRL(tabela)}</span>
+            <span className="rounded-sm bg-[#00a650] px-1 text-[10px] font-semibold text-white">{Math.round((1 - preco / tabela) * 100)}% OFF</span>
+          </span>
+        )}
+        <Preco valor={preco} />
+        {preco > 0 && (
+          <span className="mt-1 text-xs text-foreground">
+            {MAX_PARCELAS}x R$ {fmtBRL(preco / MAX_PARCELAS)}
+          </span>
+        )}
+        {!lab && p.duration_minutes && (
+          <span className="vr-verde mt-1 text-xs font-semibold">⏱ {p.duration_minutes} min</span>
+        )}
+        <span className="vr-botao-claro mt-2 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs">
+          <Plus size={12} strokeWidth={3} />
+          {inCart ? `Adicionar (${inCart.quantity})` : 'Adicionar'}
+        </span>
+      </button>
+    );
+  };
+
   return (
     // h-full overflow-y-auto: o <main> do atendimento é overflow-hidden. Sem isso, em
     // tela pequena/estreita (layout empilhado, carrinho não-sticky) o botão do carrinho
     // caía abaixo da dobra e a página não rolava pra alcançá-lo.
-    <div ref={paginaRef} className="vr-skin h-full overflow-y-auto">
-      <header className="vr-faixa">
+    <div ref={paginaRef} className="vr-skin flex h-full flex-col overflow-y-auto pb-20 md:pb-0" style={varsDaAparencia(aparencia) as React.CSSProperties}>
+      <header className="vr-faixa shrink-0">
         <div className="mx-auto max-w-7xl px-6 pt-3">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <div className="flex shrink-0 items-center gap-2">
@@ -781,7 +841,7 @@ export default function VendaRapidaPage() {
         </div>
       </header>
 
-      <div className="vr-conteudo">
+      <div className="vr-conteudo flex-1">
       <div className="mx-auto max-w-7xl px-6 py-4">
       {pendente ? (
         <div role="alert" className="mx-auto max-w-xl rounded-xl border border-amber-500/40 bg-card p-6 shadow-sm">
@@ -892,56 +952,21 @@ export default function VendaRapidaPage() {
                   : (lab ? LAB_VENDA_RAPIDA.nadaLiberado : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.')}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-x-3 gap-y-4 md:grid-cols-3 xl:grid-cols-4">
-                {filteredProcedures.map((p) => {
-                  const tabKey = lab ? 'TODOS' : tabForProcedure(p);
-                  const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
-                  const inCart = cart.find((it) => it.procedure.id === p.id);
-                  const tabela = Number(p.base_price);
-                  const preco = precoVigente(p);
-                  return (
-                    <button
-                      type="button"
-                      key={p.id}
-                      onClick={() => addToCart(p)}
-                      className={`group flex flex-col rounded-md p-2 text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${inCart ? 'ring-2 ring-primary' : ''}`}
-                    >
-                      <span className="relative flex h-28 w-full items-center justify-center overflow-hidden rounded-md bg-muted">
-                        <FotoProduto id={p.id} temFoto={!!p.photo_url} versao={p.updated_at}>
-                          <iconCfg.Icon size={44} className={iconCfg.fg} strokeWidth={1.5} />
-                        </FotoProduto>
-                        {inCart && (
-                          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-bold text-primary-foreground">
-                            <Check size={11} strokeWidth={3} /> {inCart.quantity}
-                          </span>
-                        )}
-                      </span>
-                      <span className="mb-1 mt-2 line-clamp-2 min-h-[2.5rem] text-sm leading-tight text-foreground">{p.name}</span>
-                      {preco < tabela && (
-                        <span className="mb-0.5 flex items-center gap-1.5 text-xs">
-                          <span className="text-muted-foreground line-through">R$ {fmtBRL(tabela)}</span>
-                          <span className="rounded-sm bg-[#00a650] px-1 text-[10px] font-semibold text-white">{Math.round((1 - preco / tabela) * 100)}% OFF</span>
-                        </span>
-                      )}
-                      <Preco valor={preco} />
-                      {preco > 0 && (
-                        <span className="mt-1 text-xs text-foreground">
-                          {MAX_PARCELAS}x R$ {fmtBRL(preco / MAX_PARCELAS)}
-                        </span>
-                      )}
-                      {!lab && p.duration_minutes && (
-                        <span className="vr-verde mt-1 text-xs font-semibold">⏱ {p.duration_minutes} min</span>
-                      )}
-                      <span className="vr-botao-claro mt-2 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs">
-                        <Plus size={12} strokeWidth={3} />
-                        {inCart ? `Adicionar (${inCart.quantity})` : 'Adicionar'}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className={`grid gap-x-3 gap-y-4 ${tamanhoFoto.grade}`}>
+                {filteredProcedures.map((p) => cartaoDoProduto(p))}
               </div>
             )}
           </section>
+
+          {/* Produtos em destaque: some na busca, para não misturar com o resultado. */}
+          {destaques.length > 0 && !search.trim() && (
+            <section className="vr-destaque">
+              <h2 className="mb-3 text-lg font-semibold">Produtos em destaque</h2>
+              <div className={`grid gap-3 ${tamanhoFoto.grade}`}>
+                {destaques.map((p) => cartaoDoProduto(p, true))}
+              </div>
+            </section>
+          )}
         </div>
 
         {/* COLUNA DIREITA — Sidebar carrinho */}
@@ -1254,7 +1279,8 @@ export default function VendaRapidaPage() {
       </div>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
-        <div className="min-w-0">
+        {/* Em cartão: o fundo da tela pode ter qualquer cor (Edição básica). */}
+        <div className="vr-card min-w-0 p-4">
           <button
             type="button"
             onClick={voltarParaVenda}
@@ -1428,6 +1454,12 @@ export default function VendaRapidaPage() {
       )}
       </div>
       </div>
+
+      <footer className="vr-rodape shrink-0">
+        <p className="mx-auto max-w-7xl px-6 py-3 text-xs font-semibold">
+          {tenant?.name ? `${tenant.name} · Venda rápida` : 'Venda rápida'}
+        </p>
+      </footer>
 
       {/* Onda 17.32.70 — Dialog de sucesso */}
       {successDialog && (

@@ -544,6 +544,7 @@ export function Sidebar() {
         { label: 'Nova venda', href: '/atendimento/venda-rapida', icon: <ShoppingCart size={16} strokeWidth={2} /> },
         { label: 'Lista de vendas', href: '/atendimento/venda-rapida/vendas', icon: <ClipboardList size={16} strokeWidth={2} /> },
         { label: 'Produtos', href: '/atendimento/venda-rapida/produtos', icon: <Package size={16} strokeWidth={2} /> },
+        { label: 'Edição básica', href: '/atendimento/venda-rapida/edicao', icon: <Palette size={16} strokeWidth={2} /> },
       ],
     },
     // Onda 18.x — Caixa do dia (recepção opera; admin/financeiro validam).

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsInt, IsUUID, IsNumber, Min, ValidateIf } from 'class-validator';
+import { IsIn, IsString, IsOptional, IsBoolean, IsInt, IsUUID, IsNumber, Matches, Min, ValidateIf } from 'class-validator';
 
 // IsOptional() ignora null E undefined em class-validator, mas o decorator
 // @IsUUID nao casa com string vazia. Helper pra aceitar null/empty/UUID valido.
@@ -44,10 +44,24 @@ export class UpdateProcedureDto {
   @IsOptional() @IsBoolean() active?: boolean;
   // Preço promocional da Venda Rápida. null tira a promoção.
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) promo_price?: number | null;
+  // Faixa "Produtos em destaque" da Nova venda.
+  @IsOptional() @IsBoolean() featured?: boolean;
 
   // Fase 6 — Estetica facial / agendamento de revisita
   @IsOptional() @IsString() category?: string | null;
   @IsOptional() @IsBoolean() is_facial_application?: boolean;
   @IsOptional() @IsInt() @Min(0) default_revisit_months?: number | null; // >=1 = gera retorno em N meses (opt-in); null/0 = sem retorno
   @IsOptional() @IsString() post_procedure_instructions?: string | null;
+}
+
+const COR = /^#[0-9a-fA-F]{6}$/;
+const MSG_COR = 'Cor inválida: use o formato #rrggbb.';
+
+/** Edição básica da Venda Rápida: a cor das 4 partes da tela e o tamanho das fotos. */
+export class AparenciaVendaDto {
+  @Matches(COR, { message: MSG_COR }) cor_cabecalho: string;
+  @Matches(COR, { message: MSG_COR }) cor_produtos: string;
+  @Matches(COR, { message: MSG_COR }) cor_destaque: string;
+  @Matches(COR, { message: MSG_COR }) cor_rodape: string;
+  @IsIn(['pequeno', 'medio', 'grande']) tamanho_foto: 'pequeno' | 'medio' | 'grande';
 }

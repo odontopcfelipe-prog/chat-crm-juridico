@@ -189,10 +189,10 @@ const ROTAS_DE_CLINICA = [
 /**
  * Multiconjunto de textos em 3461015f (antes da F8), gerado de `git show 3461015f:<arquivo>`
  * antes da edição. A F8 só acrescenta import, portão e identificador nesses arquivos.
- * A venda rápida mudou de propósito depois: pagamento em lista, sem o PIX online e sem as abas na tela (nov/2026).
+ * A venda rápida mudou de propósito depois: pagamento em lista, sem o PIX online, sem as abas na tela e com a Edição básica (nov/2026).
  */
 const ANTES_DA_F8: Record<string, { total: number; unicos: number; sha256: string }> = {
-  [VENDA]: { total: 538, unicos: 388, sha256: '94020a128b23d71d5b90d439f75abcb59922813bff97ace887aba1c83b6b9abb' },
+  [VENDA]: { total: 547, unicos: 397, sha256: '3421a2bb55840474c728dc204e01f56536132d299bfdd9a981c1cfc608031c00' },
   [TRATAMENTO]: { total: 171, unicos: 154, sha256: '24ef358cd65d78edb597871149e0b3a2fa7cb432ed092403c790facf5164a443' },
 };
 

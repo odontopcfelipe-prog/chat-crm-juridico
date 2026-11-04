@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Body, Patch, Delete, Param, Query, UseGuards, Request, BadRequestException,
+  Controller, Get, Post, Put, Body, Patch, Delete, Param, Query, UseGuards, Request, BadRequestException,
   NotFoundException, Res, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -10,7 +10,7 @@ import { ProceduresService } from './procedures.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
-import { CreateProcedureDto, UpdateProcedureDto } from './dto/procedure.dto';
+import { AparenciaVendaDto, CreateProcedureDto, UpdateProcedureDto } from './dto/procedure.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('procedures')
@@ -48,6 +48,23 @@ export class ProceduresController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.proceduresService.catalogo(tenantId);
+  }
+
+  /** Edição básica: quem vende lê para montar a tela; só o ADMIN muda. Literal: antes de @Get(':id'). */
+  @RequiresPermission('manage_proposals')
+  @Get('aparencia-venda')
+  aparenciaVenda(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.proceduresService.aparenciaVenda(tenantId);
+  }
+
+  @Put('aparencia-venda')
+  @Roles('ADMIN')
+  salvarAparenciaVenda(@Body() dto: AparenciaVendaDto, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.proceduresService.salvarAparenciaVenda(tenantId, dto);
   }
 
   @Get(':id')

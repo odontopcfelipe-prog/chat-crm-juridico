@@ -7,14 +7,12 @@
  * temas só para os descendentes, então a tela não muda com o tema. Por isso não usar dark: aqui.
  */
 .vr-skin {
-  --vr-amarelo: #ffe600;
   --vr-fundo: #ebebeb;
   --vr-azul: #3483fa;
   --vr-azul-forte: #2968c8;
   --vr-azul-claro: rgba(65, 137, 230, 0.15);
   --vr-azul-claro-forte: rgba(65, 137, 230, 0.25);
   --vr-verde: #00a650;
-  --vr-marinho: #2d3277;
   --vr-texto: rgba(0, 0, 0, 0.9);
   --vr-texto-2: rgba(0, 0, 0, 0.55);
   --vr-borda: rgba(0, 0, 0, 0.1);
@@ -69,19 +67,52 @@
   -webkit-backdrop-filter: none !important;
 }
 
+/*
+ * As 4 partes da Nova venda: as cores vêm da Edição básica (varsDaAparencia em aparencia.ts).
+ * O texto das faixas acompanha o fundo, mas as variáveis trocadas ficam presas à faixa do
+ * cabeçalho: os cartões brancos seguem com texto escuro em qualquer cor.
+ */
 .vr-faixa {
-  background-color: var(--vr-amarelo);
-  color: var(--vr-texto);
+  --color-foreground: var(--vr-texto-cabecalho);
+  --color-background: var(--vr-contra-cabecalho);
+  background-color: var(--vr-cor-cabecalho);
+  color: var(--vr-texto-cabecalho);
 }
 
 .vr-marca {
-  color: var(--vr-marinho);
+  color: var(--vr-marca-cabecalho);
 }
 
-/* A faixa amarela se desfaz no fundo cinza atrás dos primeiros cartões. */
+/*
+ * Sem z-index nem position aqui: os modais do carrinho (seletor de dentes) moram dentro desta
+ * área e precisam continuar por cima do menu e da barra de baixo do celular.
+ */
 .vr-conteudo {
-  background: linear-gradient(180deg, var(--vr-amarelo) 0, var(--vr-fundo) 170px) no-repeat;
-  min-height: calc(100% - 96px);
+  background: var(--vr-fundo-conteudo);
+}
+
+/*
+ * A faixa vai de ponta a ponta, por trás do carrinho, mas o conteúdo fica na coluna: a sombra
+ * pinta para os lados e o clip-path corta em cima e embaixo. Sombra não gera rolagem lateral.
+ */
+.vr-destaque {
+  margin-top: 16px;
+  padding: 20px 0;
+  background-color: var(--vr-cor-destaque);
+  box-shadow: 0 0 0 100vmax var(--vr-cor-destaque);
+  clip-path: inset(0 -100vmax);
+  color: var(--vr-texto-destaque);
+}
+@media (min-width: 1024px) {
+  /* Encosta no rodapé: desconta o espaço de baixo do miolo. */
+  .vr-destaque {
+    margin-bottom: -16px;
+  }
+}
+
+.vr-rodape {
+  background-color: var(--vr-cor-rodape);
+  color: var(--vr-texto-rodape);
 }
 
 .vr-card {

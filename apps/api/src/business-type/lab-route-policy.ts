@@ -381,6 +381,8 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'ProceduresController.update',
   'ProceduresController.remove',
   'ProceduresController.catalogo',
+  'ProceduresController.aparenciaVenda',
+  'ProceduresController.salvarAparenciaVenda',
   'ProceduresController.uploadPhoto',
   'ProceduresController.getPhoto',
   'ProceduresController.removePhoto',

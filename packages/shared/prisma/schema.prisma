@@ -2746,6 +2746,8 @@ model Procedure {
   /// Preço promocional da Venda Rápida. Só vale ali (os orçamentos seguem base_price) e só
   /// quando menor que base_price. null = sem promoção.
   promo_price Decimal? @db.Decimal(10, 2)
+  /// Vai para a faixa "Produtos em destaque" da Nova venda (só se também tiver quick_sale).
+  featured    Boolean  @default(false)
 
   active     Boolean  @default(true)
   created_at DateTime @default(now())

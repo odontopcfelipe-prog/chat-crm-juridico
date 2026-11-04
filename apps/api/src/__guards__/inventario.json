@@ -7,7 +7,7 @@
     "globais": 14,
     "produtores": 24,
     "controllers": 91,
-    "handlers": 969,
+    "handlers": 971,
     "@Public": 31
   },
   "automatismos": [
@@ -1413,6 +1413,8 @@
         { "metodo": "ProceduresController.create", "verbo": "POST", "path": "", "rota": "POST /procedures", "acesso": ["@Roles('ADMIN')"] },
         { "metodo": "ProceduresController.findAll", "verbo": "GET", "path": "", "rota": "GET /procedures", "acesso": [] },
         { "metodo": "ProceduresController.catalogo", "verbo": "GET", "path": "catalogo", "rota": "GET /procedures/catalogo", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "ProceduresController.aparenciaVenda", "verbo": "GET", "path": "aparencia-venda", "rota": "GET /procedures/aparencia-venda", "acesso": ["@RequiresPermission('manage_proposals')"] },
+        { "metodo": "ProceduresController.salvarAparenciaVenda", "verbo": "PUT", "path": "aparencia-venda", "rota": "PUT /procedures/aparencia-venda", "acesso": ["@Roles('ADMIN')"] },
         { "metodo": "ProceduresController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /procedures/:id", "acesso": [] },
         { "metodo": "ProceduresController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /procedures/:id", "acesso": ["@Roles('ADMIN')"] },
         { "metodo": "ProceduresController.remove", "verbo": "DELETE", "path": ":id", "rota": "DELETE /procedures/:id", "acesso": ["@Roles('ADMIN')"] },
