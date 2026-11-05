@@ -6,6 +6,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { Check, FilePlus2, Layers, Loader2, PenTool, Upload, type LucideIcon } from 'lucide-react';
+import { CampoCliente } from './CampoCliente';
 import { CampoDeBroca, Campo } from './campos';
 import type { FichaCaso, Recentes } from './ficha';
 import { Odontograma } from './Odontograma';
@@ -134,18 +135,17 @@ export function FichaDoCaso(p: Props) {
               </label>
             </div>
           </div>
-          <Linha rotulo={T.fichaCliente}>
-            <input data-testid="caso-cliente" list="passos-cad-clientes" className={estiloCampo} value={ficha.cliente} onChange={muda('cliente')} placeholder={T.fichaClienteEx} />
-          </Linha>
+          {/* Fora do <label>: clicar numa opção da lista não pode voltar a clicar no campo. */}
+          <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-2">
+            <label htmlFor="passos-cad-cliente" className="text-sm text-muted-foreground">{T.fichaCliente}</label>
+            <CampoCliente id="passos-cad-cliente" className={estiloCampo} valor={ficha.cliente} recentes={p.recentes.clientes} aoMudar={(cliente) => p.aoMudarFicha({ ...ficha, cliente })} />
+          </div>
           <Linha rotulo={T.fichaPaciente}>
             <input data-testid="caso-nome" className={estiloCampo} value={ficha.nomeDoCaso} onChange={muda('nomeDoCaso')} autoComplete="off" />
           </Linha>
           <Linha rotulo={T.fichaTecnico}>
             <input data-testid="caso-tecnico" list="passos-cad-tecnicos" className={estiloCampo} value={ficha.tecnico} onChange={muda('tecnico')} />
           </Linha>
-          <datalist id="passos-cad-clientes">
-            {p.recentes.clientes.map((n) => <option key={n} value={n} />)}
-          </datalist>
           <datalist id="passos-cad-tecnicos">
             {p.recentes.tecnicos.map((n) => <option key={n} value={n} />)}
           </datalist>

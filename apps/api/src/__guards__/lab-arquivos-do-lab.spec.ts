@@ -41,6 +41,7 @@ const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/pacientes/components/LabPerfilNaFicha.tsx',
   'apps/web/src/app/atendimento/pacientes/lab-caso-textos.ts',
   'apps/web/src/app/atendimento/pacientes/components/LabFichaDoCaso.tsx',
+  'apps/web/src/app/atendimento/passos-cad/CampoCliente.tsx',
   'apps/web/src/app/atendimento/settings/procedures/LabFichaServico.tsx',
   'apps/web/src/app/atendimento/settings/procedures/lab-servicos-textos.ts',
   // Passos CAD

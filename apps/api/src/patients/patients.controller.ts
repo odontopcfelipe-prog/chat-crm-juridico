@@ -201,6 +201,18 @@ export class PatientsController {
     return this.patientsService.backfillVisitDates(tenantId);
   }
 
+  /**
+   * Passos CAD: só os nomes, para a lista da ficha do caso. Documento e contato não saem
+   * por aqui. Vale a mesma carteira da lista completa. ANTES de @Get(':id').
+   */
+  @RequiresPermission('view_patients')
+  @Get('nomes')
+  async nomes(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.nomes(tenantId, await this.ownerFor(req));
+  }
+
   /** Aniversariantes do periodo (today | week | month). */
   @RequiresPermission('view_patients')
   @Get('birthdays')

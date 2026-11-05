@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (582). */
+/** Handlers que a conta de laboratório alcança (583). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // AuthController — dono do sistema volta de dentro do laboratório para a conta dele
   // (devolve só o login dele; quem não é o dono no banco leva 403)
@@ -292,6 +292,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'PatientsController.create',
   'PatientsController.backfillAvatars',
   'PatientsController.findAll',
+  'PatientsController.nomes', // Passos CAD: lista de clientes da ficha do caso
   'PatientsController.getStats',
   'PatientsController.findByLead',
   'PatientsController.findOne',

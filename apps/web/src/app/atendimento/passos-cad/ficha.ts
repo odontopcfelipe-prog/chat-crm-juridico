@@ -58,6 +58,34 @@ export function guardarRecentes(ficha: Pick<FichaCaso, 'cliente' | 'tecnico'>): 
   return novos;
 }
 
+/** Da resposta do cadastro vale só lista de textos, sem vazios nem repetidos. */
+export function nomesDoCadastro(resposta: unknown): string[] {
+  const vistos = new Set<string>();
+  const nomes: string[] = [];
+  for (const bruto of soTextos(resposta)) {
+    const nome = bruto.trim();
+    const chave = nome.toLocaleLowerCase('pt-BR');
+    if (!nome || vistos.has(chave)) continue;
+    vistos.add(chave);
+    nomes.push(nome);
+  }
+  return nomes;
+}
+
+/** "joao" acha "João": a busca ignora maiúsculas e acentos. */
+const paraBuscar = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR');
+
+/** A lista do campo Cliente: o cadastro primeiro; dos recentes, só o que não está nele. */
+export function opcoesDeCliente(cadastro: readonly string[], recentes: readonly string[], busca: string): { cadastro: string[]; outros: string[] } {
+  const termo = paraBuscar(busca.trim());
+  const combina = (nome: string) => paraBuscar(nome).includes(termo);
+  const jaNoCadastro = new Set(cadastro.map(paraBuscar));
+  return {
+    cadastro: cadastro.filter(combina),
+    outros: recentes.filter((n) => !jaNoCadastro.has(paraBuscar(n)) && combina(n)),
+  };
+}
+
 /** Ficha em branco; o técnico costuma ser o mesmo do caso anterior. */
 export function fichaNova(tecnico: string): FichaCaso {
   return {

@@ -23,7 +23,7 @@ import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao
 import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
 import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
 import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
-import { juntarRecente } from '../../../web/src/app/atendimento/passos-cad/ficha';
+import { juntarRecente, nomesDoCadastro, opcoesDeCliente } from '../../../web/src/app/atendimento/passos-cad/ficha';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -502,6 +502,24 @@ describe('Passos CAD — ficha do caso', () => {
     expect(juntarRecente([], 'x'.repeat(500))[0].length).toBe(80);
   });
 
+  it('da resposta do cadastro vale só lista de nomes', () => {
+    expect(nomesDoCadastro([' Dra. Ana ', 'dra. ana', '', '  ', 7, null, 'Dr. Bruno'])).toEqual(['Dra. Ana', 'Dr. Bruno']);
+    expect(nomesDoCadastro({ erro: 'x' })).toEqual([]);
+    expect(nomesDoCadastro(null)).toEqual([]);
+  });
+
+  it('a lista do Cliente: cadastro primeiro, recente repetido não aparece duas vezes', () => {
+    const cadastro = ['Clínica Sorriso', 'Dr. João', 'Dra. Ana'];
+    const recentes = ['dr. joao', 'Dr. Fora do Cadastro'];
+    expect(opcoesDeCliente(cadastro, recentes, '')).toEqual({ cadastro, outros: ['Dr. Fora do Cadastro'] });
+    // Sem acento e em minúsculas acha o nome escrito com acento.
+    expect(opcoesDeCliente(cadastro, recentes, 'joao').cadastro).toEqual(['Dr. João']);
+    expect(opcoesDeCliente(cadastro, recentes, 'CLINICA').cadastro).toEqual(['Clínica Sorriso']);
+    expect(opcoesDeCliente(cadastro, recentes, 'fora')).toEqual({ cadastro: [], outros: ['Dr. Fora do Cadastro'] });
+    expect(opcoesDeCliente(cadastro, recentes, 'zzz')).toEqual({ cadastro: [], outros: [] });
+    expect(opcoesDeCliente([], [], '')).toEqual({ cadastro: [], outros: [] });
+  });
+
   it('caso novo não herda nada do anterior, principalmente o antagonista', () => {
     const s = new Sessao({ meridianos: 60, linhas: 40 });
     s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
@@ -855,11 +873,31 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
   const PASTA = path.join(RAIZ, 'apps/web/src/app/atendimento/passos-cad');
   const arquivos = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? arquivos(path.join(d, e.name)) : [path.join(d, e.name)]));
 
+  // Pelo caminho inteiro: outro arquivo com o mesmo nome, em subpasta, não pode herdar a exceção.
+  const EXCECAO_DE_REDE = path.join(PASTA, 'clientes-do-cadastro.ts');
+
   it('não manda arquivo para fora do computador: nenhuma chamada de rede', () => {
     for (const f of arquivos(PASTA)) {
+      if (f === EXCECAO_DE_REDE) continue;
       const src = fs.readFileSync(f, 'utf8');
-      expect([path.basename(f), /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|axios|from '@\/lib\/api'/.test(src)]).toEqual([path.basename(f), false]);
+      expect([path.basename(f), /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|axios|lib\/api\b/.test(src)]).toEqual([path.basename(f), false]);
     }
+  });
+
+  it('a única exceção de rede só lê a lista de nomes e não recebe nada do caso', () => {
+    const src = fs.readFileSync(EXCECAO_DE_REDE, 'utf8');
+    expect(src.match(/^import .*$/gm)).toEqual(["import api from '@/lib/api';"]);
+    expect(src.match(/\bapi\.\w+/g)).toEqual(['api.get']);
+    // A linha inteira: nem corpo, nem cabeçalho, nem parâmetro a mais.
+    expect(src).toContain("api.get<unknown>('/patients/nomes', { signal: sinal, ...EM_SEGUNDO_PLANO })");
+    expect(src).toContain('const EM_SEGUNDO_PLANO = { _silent401: true } as object;');
+    expect(src).toContain('buscarClientesDoCadastro(sinal: AbortSignal)');
+    expect(src.match(/\bexport\b/g)).toHaveLength(1);
+    expect(src).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|axios|params|FormData|`/);
+    const quemUsa = arquivos(PASTA)
+      .filter((f) => f !== EXCECAO_DE_REDE && /clientes-do-cadastro/.test(fs.readFileSync(f, 'utf8')))
+      .map((f) => path.basename(f));
+    expect(quemUsa).toEqual(['CampoCliente.tsx']);
   });
 
   it('o visor 3D carrega só nesta tela', () => {

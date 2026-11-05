@@ -37,6 +37,8 @@ import {
 // Nada disso escreve no banco — e tudo derivado em tempo de leitura.
 // ============================================================================
 const INACTIVE_AFTER_MONTHS = 12;
+/** Teto de GET /patients/nomes: laboratório nenhum tem tanto cliente, e a resposta fica limitada. */
+const MAIOR_LISTA_DE_NOMES = 5000;
 
 /** Data de corte: pacientes com referencia anterior a ela sao Inativos. */
 function inactiveCutoff(now: Date = new Date()): Date {
@@ -620,6 +622,20 @@ export class PatientsService {
     }));
 
     return { data: dataWithActivity, total, page, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** Só os nomes, sem arquivados e sem repetir, em ordem. Ver PatientsController.nomes. */
+  async nomes(tenantId: string, ownerUserId?: string | null): Promise<string[]> {
+    const linhas = await this.prisma.patient.findMany({
+      where: {
+        AND: [{ tenant_id: tenantId }, { status: { not: 'ARCHIVED' } }, ...(ownerUserId ? [ownPatientsWhere(ownerUserId)] : [])],
+      },
+      select: { name: true },
+      distinct: ['name'],
+      orderBy: { name: 'asc' },
+      take: MAIOR_LISTA_DE_NOMES,
+    });
+    return linhas.map((l) => l.name);
   }
 
   /**
