@@ -182,14 +182,23 @@ export function TelaAoVivoEmissor() {
 
   if (!ativa) return null;
 
-  // `visible`: o aviso aparece mesmo enquanto o laboratório mantém o body oculto ao carregar.
+  // Aviso DISCRETO e SEMPRE visível: um selo pequeno no canto, com um ponto que
+  // pisca para a pessoa perceber. Não tapa a tela, mas deixa claro que o suporte
+  // está acompanhando. O aviso nunca é removido enquanto a sessão durar (a pessoa
+  // acompanhada tem de saber — ver o comentário da classe). `visible` garante o
+  // selo mesmo enquanto o laboratório mantém o body oculto ao carregar.
   return (
     <div
       role="status"
-      className="visible fixed top-2 left-1/2 -translate-x-1/2 z-[2147483647] max-w-[calc(100vw-16px)] pointer-events-none flex items-center gap-2 rounded-full bg-amber-500 text-black text-xs font-bold px-4 py-1.5 shadow-lg"
+      className="visible fixed top-2 right-2 z-[2147483647] max-w-[calc(100vw-16px)] pointer-events-none flex items-center gap-1.5 rounded-full bg-amber-500 text-black text-[11px] font-bold pl-2 pr-2.5 py-1 shadow-md"
+      title="O suporte do sistema está acompanhando esta tela em tempo real. Nada é gravado."
     >
-      <Eye size={14} className="shrink-0" />
-      <span>O suporte do sistema está vendo esta tela agora. Nada é gravado.</span>
+      <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+        <span className="absolute inline-flex h-full w-full rounded-full bg-black/40 animate-ping" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-black" />
+      </span>
+      <Eye size={12} className="shrink-0" />
+      <span>Suporte acompanhando</span>
     </div>
   );
 }
