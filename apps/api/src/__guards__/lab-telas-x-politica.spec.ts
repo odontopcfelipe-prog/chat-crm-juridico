@@ -548,7 +548,7 @@ const TELAS: Readonly<Record<string, readonly string[]>> = {
   // [/F7a]
   // [F9a]
   // Passos CAD: roda no navegador e não chama a API além da casca
-  '/atendimento/passos-cad': [...CASCA, 'PatientsController.nomes'],
+  '/atendimento/passos-cad': [...CASCA, 'PatientsController.nomes', 'PassosCadController.desenhar'],
   // [/F9a]
   // [F12a]
   '/atendimento/crm': [

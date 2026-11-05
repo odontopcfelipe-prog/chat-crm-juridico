@@ -6,7 +6,8 @@
 import type { Malha, V3 } from './geo';
 import type { Ajuste, Parametros } from './coroa';
 import type { MedidasDaCoroa, MudancaDaMalha, OpcoesPincel } from './escultura';
-import { Sessao } from './sessao';
+import type { PlanoDoDente } from './plano-do-dente';
+import { Sessao, type ResumoCoroa } from './sessao';
 
 export type Pedido =
   | { tipo: 'arco'; nome: string; buf: ArrayBuffer }
@@ -18,6 +19,8 @@ export type Pedido =
   | { tipo: 'reposicionar'; parametros: Parametros }
   | { tipo: 'mover'; ajuste: Ajuste; parametros: Parametros }
   | { tipo: 'coroa'; ajuste: Ajuste; parametros: Parametros }
+  | { tipo: 'quadroIa'; parametros: Parametros }
+  | { tipo: 'coroaDoPlano'; plano: PlanoDoDente; parametros: Parametros }
   | { tipo: 'novo' }
   | { tipo: 'mira'; o: V3; d: V3 }
   | { tipo: 'pincel'; raios: [V3, V3][]; opcoes: OpcoesPincel; inicio: boolean }
@@ -40,6 +43,19 @@ const buffersDasMedidas = (r: MedidasDaCoroa | null): Transferable[] => (r ? [r.
 /** Cópia em float32 para a tela: a original fica no worker. */
 function leve(m: Malha): MalhaLeve {
   return { pos: Float32Array.from(m.pos), tri: Uint32Array.from(m.tri) };
+}
+
+/** A coroa pronta, nos dois jeitos de modelar. */
+function coroaNaResposta(c: ResumoCoroa): { dados: unknown; envio: Transferable[] } {
+  const m = leve(c.malha);
+  const e = Float32Array.from(c.espessura);
+  const a = Float32Array.from(c.folgaAntagonista);
+  const v = Float32Array.from(c.folgaVizinho);
+  const f = Float32Array.from(c.corteFresa);
+  return {
+    dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, corteFresa: f, externos: c.externos, relatorio: c.relatorio },
+    envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer, f.buffer],
+  };
 }
 
 function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
@@ -72,18 +88,12 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
       const m = leve(sessao.moverAnatomia(p.ajuste, p.parametros));
       return { dados: m, envio: [m.pos.buffer, m.tri.buffer] };
     }
-    case 'coroa': {
-      const c = sessao.construir(p.ajuste, p.parametros);
-      const m = leve(c.malha);
-      const e = Float32Array.from(c.espessura);
-      const a = Float32Array.from(c.folgaAntagonista);
-      const v = Float32Array.from(c.folgaVizinho);
-      const f = Float32Array.from(c.corteFresa);
-      return {
-        dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, corteFresa: f, externos: c.externos, relatorio: c.relatorio },
-        envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer, f.buffer],
-      };
-    }
+    case 'coroa':
+      return coroaNaResposta(sessao.construir(p.ajuste, p.parametros));
+    case 'quadroIa':
+      return { dados: sessao.quadroParaIa(p.parametros), envio: [] };
+    case 'coroaDoPlano':
+      return coroaNaResposta(sessao.construirComPlano(p.plano, p.parametros));
     case 'novo':
       sessao.fecharCaso();
       return { dados: null, envio: [] };

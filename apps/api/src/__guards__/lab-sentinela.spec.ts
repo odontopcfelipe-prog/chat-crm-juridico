@@ -190,6 +190,13 @@ describe('contarForaDoLugar — cada contagem olha só a conta do laboratório',
     }
   });
 
+  it('o Desenhar com IA do Passos CAD não conta como vazamento de IA; qualquer outro uso, sim', async () => {
+    const prisma = prismaFalso();
+    await contarForaDoLugar(prisma, LAB);
+    // O CAD grava call_type 'cad' sem skill_id: fica fora das duas condições da vigia.
+    expect(prisma.aiUsage.count).toHaveBeenCalledWith({ where: { tenant_id: LAB, OR: [{ call_type: 'memory' }, { skill_id: { not: null } }] } });
+  });
+
   it('agenda: conta todo tipo fora de TAREFA / OUTRO / BLOQUEIO / COLETA / PROVA / ENTREGA', async () => {
     const prisma = prismaFalso();
     await contarForaDoLugar(prisma, LAB);

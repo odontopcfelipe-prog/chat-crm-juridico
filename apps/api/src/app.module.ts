@@ -80,6 +80,7 @@ import { PortalModule } from './portal/portal.module';
 import { ReportsModule } from './reports/reports.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { SmileDesignModule } from './smile-design/smile-design.module';
+import { PassosCadModule } from './passos-cad/passos-cad.module';
 import { RadiographyModule } from './radiography/radiography.module';
 import { PatientTagsModule } from './patient-tags/patient-tags.module';
 import { ReferralsModule } from './referrals/referrals.module';
@@ -211,6 +212,7 @@ import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
     ClinicsModule,
     // Fase 16 — Smile/Face Design Studio
     SmileDesignModule,
+    PassosCadModule,
     // Fase 17 — Integracao radiologia
     RadiographyModule,
     // Fase 20 — Tags / segmentacao de pacientes

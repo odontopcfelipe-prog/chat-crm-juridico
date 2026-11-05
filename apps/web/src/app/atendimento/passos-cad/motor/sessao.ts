@@ -5,6 +5,8 @@
 import { lerMalha, escreverStl } from './arquivos';
 import { Bvh, centroide, cross, dot, norma, recortarCaixa, sub, unit, vert, type Malha, type V3 } from './geo';
 import { acharPreparo, proporMargem, type PontoMargem, type Preparo } from './margem';
+import { quadroDoCaso } from './forma-do-plano';
+import { planoPadrao, type PedidoDesenhoIa, type PlanoDoDente } from './plano-do-dente';
 import { Escultor, type FimDoTraco, type MedidasDaCoroa, type MudancaDaMalha, type OpcoesPincel, type RespostaDoPincel } from './escultura';
 import {
   anatomiaNoLugar,
@@ -201,6 +203,39 @@ export class Sessao {
   construir(aj: Ajuste, p: Parametros): ResumoCoroa {
     this.parametros = p;
     this.coroa = construirCoroa(this.entrada(p), this.ambiente as Bvh, aj, this.grade.linhas);
+    this.escultor = null;
+    const c = this.coroa;
+    return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
+  }
+
+  /** O que a IA recebe: número do dente e medidas em mm, nada do arquivo. */
+  quadroParaIa(p: Parametros): PedidoDesenhoIa {
+    if (!this.recorteB || !this.prep || !this.margem || !this.eixos || !this.ambiente) throw new Error('Faltam o preparo ou a margem.');
+    return quadroDoCaso(
+      { prep: this.prep, margem: this.margem, eixos: this.eixos, antagonista: this.antB, ambiente: this.ambiente, folgaAntagonista: p.folgaAntagonista, espessuraMinima: p.espessuraMinima, emergencia: p.emergencia },
+      this.recorteB,
+      planoPadrao(this.fdi),
+      this.fdi,
+    );
+  }
+
+  /** Modelagem pelo plano do dente: não usa a biblioteca. */
+  construirComPlano(plano: PlanoDoDente, p: Parametros): ResumoCoroa {
+    if (!this.recorteB || !this.prep || !this.margem || !this.eixos) throw new Error('Faltam o preparo ou a margem.');
+    this.parametros = p;
+    const e: EntradaCoroa = {
+      arco: this.recorteB,
+      antagonista: this.antB,
+      vizinhos: null,
+      prep: this.prep,
+      margem: this.margem,
+      eixos: this.eixos,
+      anatomia: { pos: new Float64Array(0), tri: new Uint32Array(0) },
+      parametros: p,
+      plano,
+    };
+    const semAjuste: Ajuste = { escalaMD: 1, escalaVL: 1, escalaAltura: 1, deslocMesial: 0, deslocVestibular: 0, deslocOclusal: 0, giro: 0 };
+    this.coroa = construirCoroa(e, this.ambiente as Bvh, semAjuste, this.grade.linhas);
     this.escultor = null;
     const c = this.coroa;
     return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };

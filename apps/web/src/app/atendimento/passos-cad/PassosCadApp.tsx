@@ -6,16 +6,18 @@
  * Os arquivos do caso e as bibliotecas ficam neste computador: nada sobe para o servidor.
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Loader2, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Library, Loader2, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Visor3D, type V3 } from './Visor3D';
 import { ClienteDoMotor } from './motor/cliente';
 import { Campo, CampoDeBroca, brocaLembrada } from './campos';
+import { pedirDesenhoIa } from './desenho-com-ia';
 import { fichaNova, guardarRecentes, lerRecentes, type FichaCaso, type Recentes } from './ficha';
 import { FichaDoCaso } from './FichaDoCaso';
 import type { MalhaLeve } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Ajuste, Parametros, Relatorio } from './motor/coroa';
 import type { ResumoDente } from './motor/sessao';
+import { planoPadrao, validarPlano, type PedidoDesenhoIa, type PlanoDoDente } from './motor/plano-do-dente';
 import {
   apagarBiblioteca,
   bibliotecasGuardadas,
@@ -142,6 +144,9 @@ export default function PassosCadApp() {
   const [guardadas, setGuardadas] = useState<string[]>([]);
   const [nomeBib, setNomeBib] = useState<string | null>(null);
   const [ajuste, setAjuste] = useState<Ajuste | null>(null);
+  const [modelagem, setModelagem] = useState<'biblioteca' | 'ia'>('biblioteca');
+  // Plano da coroa na tela: quem muda os ajustes gera de novo pelo mesmo plano, sem gastar crédito.
+  const [plano, setPlano] = useState<{ desenho: PlanoDoDente; origem: 'ia' | 'base' } | null>(null);
 
   const [coroa, setCoroa] = useState<CoroaNaTela | null>(null);
   const [mapa, setMapa] = useState<MapaId>('nenhum');
@@ -201,6 +206,7 @@ export default function PassosCadApp() {
 
   const descartarCoroa = useCallback(() => {
     setAjuste(null);
+    setPlano(null);
     setCoroa(null);
     setNomeBib(null);
     zerarEscultura();
@@ -323,6 +329,7 @@ export default function PassosCadApp() {
         [buf],
       );
       setNomeBib(nomeBiblioteca);
+      setPlano(null);
       setAjuste(r.ajuste);
       setCoroa(null);
       zerarEscultura();
@@ -366,10 +373,7 @@ export default function PassosCadApp() {
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : T.erroGenerico));
   };
 
-  const gerarCoroa = () =>
-    executar(T.gerandoCoroa, async () => {
-      if (!ajuste) return;
-      const c = await (motor.current as ClienteDoMotor).pedir<CoroaNaTela>({ tipo: 'coroa', ajuste, parametros });
+  const mostrarCoroa = (c: CoroaNaTela) => {
       zerarEscultura();
       setCoroa(c);
       const v = visor.current as Visor3D;
@@ -380,6 +384,36 @@ export default function PassosCadApp() {
       v.definirLinha('vestibular', null, 0);
       v.definirPontos('fixos', null, 0);
       setEtapa(3);
+  };
+
+  const gerarCoroa = () =>
+    executar(T.gerandoCoroa, async () => {
+      const m = motor.current as ClienteDoMotor;
+      if (plano) mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroaDoPlano', plano: plano.desenho, parametros }));
+      else if (ajuste) mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroa', ajuste, parametros }));
+    });
+
+  /** Sem IA, o plano é o desenho de partida do dente: não sai nada do computador. */
+  const desenharPeloPlano = (usarIa: boolean) =>
+    executar(usarIa ? T.iaMedindo : T.gerandoCoroa, async () => {
+      if (!fdi) return;
+      const m = motor.current as ClienteDoMotor;
+      let desenho = planoPadrao(fdi);
+      if (usarIa) {
+        const quadro = await m.pedir<PedidoDesenhoIa>({ tipo: 'quadroIa', parametros });
+        setOcupado(T.iaPensando);
+        try {
+          desenho = validarPlano(await pedirDesenhoIa(quadro), fdi);
+        } catch (e) {
+          throw new Error((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? T.iaErro);
+        }
+        setOcupado(T.gerandoCoroa);
+      }
+      // Guarda antes de construir: se o motor falhar, gerar de novo não gasta outra chamada à IA.
+      setPlano({ desenho, origem: usarIa ? 'ia' : 'base' });
+      setAjuste(null);
+      setNomeBib(null);
+      mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroaDoPlano', plano: desenho, parametros }));
     });
 
   useEffect(() => {
@@ -573,10 +607,10 @@ export default function PassosCadApp() {
   const podeAvancar = useMemo(() => {
     if (etapa === 0) return Boolean(nomeArco && fdi);
     if (etapa === 1) return Boolean(dente);
-    if (etapa === 2) return Boolean(ajuste);
+    if (etapa === 2) return modelagem === 'ia' ? Boolean(plano) : Boolean(ajuste);
     if (etapa === 3) return Boolean(coroa);
     return false;
-  }, [etapa, nomeArco, fdi, dente, ajuste, coroa]);
+  }, [etapa, nomeArco, fdi, dente, ajuste, coroa, modelagem, plano]);
 
   const escolherDente = (n: number) => {
     if (n === fdi) return;
@@ -705,6 +739,42 @@ export default function PassosCadApp() {
           )}
 
           {etapa === 2 && (
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-muted" role="group" aria-label={T.modelagemTitulo} data-testid="modelagem">
+              {(
+                [
+                  ['biblioteca', T.modelagemBiblioteca, Library],
+                  ['ia', T.modelagemIa, Sparkles],
+                ] as const
+              ).map(([id, rotulo, Icone]) => (
+                <button
+                  key={id}
+                  type="button"
+                  data-testid={`modelagem-${id}`}
+                  aria-pressed={modelagem === id}
+                  disabled={Boolean(ocupado)}
+                  onClick={() => setModelagem(id)}
+                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold disabled:opacity-40 ${modelagem === id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
+                >
+                  <Icone size={14} /> {rotulo}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {etapa === 2 && modelagem === 'ia' && (
+            <div className="space-y-3" data-testid="painel-ia">
+              <p className="text-xs text-muted-foreground">{T.iaExplica}</p>
+              <p className="text-[11px] text-muted-foreground">{T.iaPrivacidade}</p>
+              <button type="button" data-testid="desenhar-ia" disabled={Boolean(ocupado)} onClick={() => void desenharPeloPlano(true)} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40">
+                <Sparkles size={16} /> {T.iaDesenhar}
+              </button>
+              <button type="button" data-testid="desenhar-sem-ia" disabled={Boolean(ocupado)} onClick={() => void desenharPeloPlano(false)} className="w-full px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted disabled:opacity-40">
+                {T.iaSemIa}
+              </button>
+            </div>
+          )}
+
+          {etapa === 2 && modelagem === 'biblioteca' && (
             <>
               <Campo rotulo={T.bibliotecaGuardada} ajuda={T.bibliotecaAjuda}>
                 <select className={inputCls} data-testid="biblioteca-guardada" disabled={Boolean(ocupado)} value={guardadas.includes(nomeBib ?? '') ? (nomeBib as string) : ''} onChange={(e) => e.target.value && void executar(T.posicionandoDente, () => escolherGuardada(e.target.value))}>
@@ -797,6 +867,7 @@ export default function PassosCadApp() {
 
           {etapa === 3 && coroa && r && (
             <>
+              {plano && <p className="text-[11px] text-muted-foreground" data-testid="origem-do-desenho">{plano.origem === 'ia' ? T.iaOrigemIa : T.iaOrigemBase}</p>}
               <Campo rotulo={T.mapa}>
                 <select className={inputCls} data-testid="mapa" value={mapa} onChange={(e) => setMapa(e.target.value as MapaId)}>
                   {MAPAS.map((m) => (

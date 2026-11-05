@@ -24,6 +24,7 @@ import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/pass
 import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
 import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
 import { juntarRecente, nomesDoCadastro, opcoesDeCliente } from '../../../web/src/app/atendimento/passos-cad/ficha';
+import { planoPadrao, validarPlano } from '../../../web/src/app/atendimento/passos-cad/motor/plano-do-dente';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -868,6 +869,337 @@ describe('Passos CAD — escultura à mão', () => {
   });
 });
 
+describe('Passos CAD — modelagem pelo plano do dente', () => {
+  const casoPronto = (antagonista: Malha | null, fdi = 16) => {
+    const s = new Sessao({ meridianos: 60, linhas: 40 });
+    s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
+    if (antagonista) s.abrirAntagonista('ant.stl', escreverStl(antagonista, 'ant'));
+    const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+    s.abrirDente(fdi, h!.ponto, h!.normal);
+    return s;
+  };
+  const PARAMETROS = { ...PARAMETROS_PADRAO };
+  const TODOS = [11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48];
+
+  it.each(TODOS)('o dente %i tem um desenho de partida que o motor aceita sem mudar', (fdi) => {
+    const p = planoPadrao(fdi);
+    expect(p.cuspides.length).toBeGreaterThan(0);
+    for (const c of p.cuspides) {
+      expect(Math.abs(c.u)).toBeLessThanOrEqual(0.95);
+      expect(Math.abs(c.w)).toBeLessThanOrEqual(0.95);
+    }
+    // O próprio desenho passa pela conferência da resposta da IA sem perder nada.
+    expect(validarPlano(p, fdi)).toEqual(expect.objectContaining({ cuspides: p.cuspides, alturaMm: p.alturaMm }));
+  });
+
+  // Os quadrantes 2 e 4 espelham o dente, e os anteriores têm outra forma: todos têm de fechar.
+  it.each([11, 23, 26, 31, 35, 42, 46, 48])('o dente %i fecha e não entra no antagonista', (fdi) => {
+    const c = casoPronto(antagonistaPlano(10), fdi).construirComPlano(planoPadrao(fdi), PARAMETROS);
+    expect(c.relatorio.malha.arestasAbertas).toBe(0);
+    expect(c.relatorio.malha.arestasRepetidas).toBe(0);
+    expect(c.relatorio.malha.volume).toBeGreaterThan(0);
+    const folgas = Array.from(c.folgaAntagonista.subarray(0, c.externos)).filter(Number.isFinite);
+    expect(Math.min(...folgas)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('o molar inferior tem mais cúspides que o pré-molar, e o superior e o inferior são diferentes', () => {
+    expect(planoPadrao(36).cuspides.length).toBe(5);
+    expect(planoPadrao(46).cuspides.length).toBe(5);
+    expect(planoPadrao(14).cuspides.length).toBe(2);
+    expect(planoPadrao(16).cuspides.map((c) => c.nome)).toContain('mesio-palatina');
+  });
+
+  it('fecha a coroa sem biblioteca nenhuma', () => {
+    const s = casoPronto(antagonistaPlano(9));
+    const c = s.construirComPlano(planoPadrao(16), PARAMETROS);
+    expect(c.relatorio.malha.arestasAbertas).toBe(0);
+    expect(c.relatorio.malha.arestasRepetidas).toBe(0);
+    expect(c.relatorio.malha.volume).toBeGreaterThan(0);
+    expect(conferirMalha(lerStl(s.exportarStl())).arestasAbertas).toBe(0);
+  });
+
+  it('funciona sem antagonista', () => {
+    const c = casoPronto(null).construirComPlano(planoPadrao(16), PARAMETROS);
+    expect(c.relatorio.malha.arestasAbertas).toBe(0);
+    expect(c.relatorio.alturaMm).toBeGreaterThan(4);
+  });
+
+  it('não entra no antagonista e mantém a espessura mínima', () => {
+    const c = casoPronto(antagonistaPlano(9)).construirComPlano(planoPadrao(16), PARAMETROS);
+    const folgas = Array.from(c.folgaAntagonista.subarray(0, c.externos)).filter(Number.isFinite);
+    expect(Math.min(...folgas)).toBeGreaterThanOrEqual(0);
+    expect(c.relatorio.espessuraOclusal!.p5).toBeGreaterThanOrEqual(PARAMETROS.espessuraMinima - 0.05);
+    expect(c.relatorio.conflitosEspessura).toBe(0);
+  });
+
+  it('parede sem pregas: em volta do dente, o raio muda aos poucos', () => {
+    const c = casoPronto(antagonistaPlano(9)).construirComPlano(planoPadrao(16), PARAMETROS);
+    const NT = 60;
+    const J = 40;
+    // Linha no meio da parede, longe da margem e da oclusal.
+    const j = 30;
+    const raio = (i: number) => {
+      const v = 1 + i * (J - 1) + (j - 1);
+      return Math.hypot(c.malha.pos[3 * v], c.malha.pos[3 * v + 1]);
+    };
+    let maiorDobra = 0;
+    for (let i = 0; i < NT; i++) maiorDobra = Math.max(maiorDobra, Math.abs(raio((i + 1) % NT) - 2 * raio(i) + raio((i + NT - 1) % NT)));
+    expect(maiorDobra).toBeLessThan(0.12);
+  });
+
+  it('antagonista alto não carimba: a descida se espalha, sem paredão em volta da marca', () => {
+    // Uma cúspide do antagonista descendo sobre a coroa, deixando espaço para a espessura. A face fica
+    // virada para baixo, como num escaneamento de verdade.
+    const cone = revolucao(denso([[0, 7.2], [4, 11], [8, 14]]));
+    const tri = Uint32Array.from(cone.tri);
+    for (let k = 0; k < tri.length; k += 3) {
+      const x = tri[k + 1];
+      tri[k + 1] = tri[k + 2];
+      tri[k + 2] = x;
+    }
+    const c = casoPronto({ pos: cone.pos, tri }).construirComPlano(planoPadrao(16), PARAMETROS);
+    const folgas = Array.from(c.folgaAntagonista.subarray(0, c.externos)).filter(Number.isFinite);
+    expect(Math.min(...folgas)).toBeGreaterThanOrEqual(0);
+    // Tudo na mesma folga seria a impressão do cone: a parte encostada tem de ser pequena.
+    const encostados = folgas.filter((f) => f < PARAMETROS.folgaAntagonista + 0.02).length;
+    expect(encostados / folgas.length).toBeLessThan(0.1);
+    expect(c.relatorio.malha.arestasAbertas).toBe(0);
+  });
+
+  it('o pincel funciona na coroa do plano, e o STL sai fechado com a escultura', () => {
+    const s = casoPronto(antagonistaPlano(9));
+    s.construirComPlano(planoPadrao(16), PARAMETROS);
+    const volume = conferirMalha(lerStl(s.exportarStl())).volume;
+    const raios: [V3, V3][] = [[-1, 0], [0, 0], [1, 0]].map(([x, y]) => [[x, y, 20] as V3, [0, 0, -1] as V3]);
+    s.pincelar(raios, { modo: 'adicionar', raio: 2, forca: 1 }, true);
+    expect(s.terminarTraco()?.tracos).toBe(1);
+    const conf = conferirMalha(lerStl(s.exportarStl()));
+    expect(conf.arestasAbertas).toBe(0);
+    expect(conf.volume).toBeGreaterThan(volume);
+  });
+
+  it('preparo com degrau: a parede desce até a margem, sem saia, nos dois jeitos de modelar', () => {
+    // Ombro largo: o lado de dentro dá a volta no degrau, e a distância por ali é maior que a real.
+    const comDegrau = revolucao(denso([[0, 6], [2.4, 6], [2.7, 5.7], [2.9, 2], [4.1, 1.6], [4.3, 1.5], [4.5, -1], [5.2, -1.5], [6, 0], [13, 0]]));
+    const montar = () => {
+      const s = new Sessao({ meridianos: 60, linhas: 80 });
+      s.abrirArco('arco.stl', escreverStl(comDegrau, 'arco'));
+      const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+      s.abrirDente(16, h!.ponto, h!.normal);
+      return s;
+    };
+    const maiorSaia = (c: { malha: Malha }, margem: V3[]) => {
+      const J = 80;
+      let maior = -Infinity;
+      for (let i = 0; i < margem.length; i++) {
+        const rm = Math.hypot(margem[i][0], margem[i][1]);
+        for (let j = J - 4; j < J; j++) {
+          const v = 1 + i * (J - 1) + (j - 1);
+          maior = Math.max(maior, Math.hypot(c.malha.pos[3 * v], c.malha.pos[3 * v + 1]) - rm);
+        }
+      }
+      return maior;
+    };
+    const s = montar();
+    const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+    const dente = s.abrirDente(16, h!.ponto, h!.normal);
+    expect(maiorSaia(s.construirComPlano(planoPadrao(16), PARAMETROS), dente.margem)).toBeLessThan(0.5);
+    const a = s.abrirAnatomia('dente.stl', escreverStl(denteSintetico(), 'dente'), PARAMETROS);
+    expect(maiorSaia(s.construir(a.ajuste, PARAMETROS), dente.margem)).toBeLessThan(0.5);
+  });
+
+  it('a parede do próprio preparo não é tomada por vizinho', () => {
+    // Preparo mais largo em cima que na margem deixa a parede dele entre os "vizinhos". Aqui ela entra
+    // de propósito, com a arcada inteira no lugar dos vizinhos: sem a regra, o contorno encolhe até ela.
+    const { e } = entrada(11, null);
+    const J = 40;
+    const aj: Ajuste = { escalaMD: 1, escalaVL: 1, escalaAltura: 1, deslocMesial: 0, deslocVestibular: 0, deslocOclusal: 0, giro: 0 };
+    const c = construirCoroa({ ...e, plano: planoPadrao(11) }, new Bvh(arcoSintetico()), aj, J);
+    let menor = Infinity;
+    for (let i = 0; i < e.margem.length; i++) {
+      let maior = 0;
+      for (let j = 1; j < J; j++) {
+        const v = 1 + i * (J - 1) + (j - 1);
+        // Só no meio da parede: perto da margem a coroa é sempre larga e esconderia o encolhimento.
+        if (c.malha.pos[3 * v + 2] > 3) maior = Math.max(maior, Math.hypot(c.malha.pos[3 * v], c.malha.pos[3 * v + 1]));
+      }
+      menor = Math.min(menor, maior);
+    }
+    // Medido em 04/11/2026: 4,95 mm com a regra e 4,05 mm sem ela, colada no preparo.
+    expect(menor).toBeGreaterThan(4.5);
+    expect(c.relatorio.malha.arestasAbertas).toBe(0);
+  });
+
+  it('vizinho longe não estica o dente: o espaço fica aberto', () => {
+    // Dois dentes vizinhos, longe do preparo: alcançar os dois faria o incisivo lateral largo demais.
+    const vizinho = (x: number) => revolucao(denso([[0, 9], [3, 8.5], [3.4, 3], [3.8, 0]]), 36, 1, 1, [x, 0, 0]);
+    const s = new Sessao({ meridianos: 60, linhas: 40 });
+    s.abrirArco('arco.stl', escreverStl(juntar(arcoSintetico(), vizinho(9.6), vizinho(-9.6)), 'arco'));
+    const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+    s.abrirDente(12, h!.ponto, h!.normal);
+    const estreito = s.construirComPlano(planoPadrao(12), PARAMETROS);
+    const largo = s.construirComPlano({ ...planoPadrao(12), larguraMm: 12 }, PARAMETROS);
+    // Com largura natural de 12 mm ele alcança os dois vizinhos; com a de um incisivo lateral, não.
+    expect(largo.relatorio.mdMm).toBeGreaterThan(estreito.relatorio.mdMm + 1);
+    expect(estreito.relatorio.mdMm).toBeLessThan(10.5);
+  });
+
+  it('o mesmo plano gera sempre a mesma coroa', () => {
+    const a = casoPronto(antagonistaPlano(9)).construirComPlano(planoPadrao(16), PARAMETROS);
+    const b = casoPronto(antagonistaPlano(9)).construirComPlano(planoPadrao(16), PARAMETROS);
+    expect(Array.from(a.malha.pos)).toEqual(Array.from(b.malha.pos));
+  });
+
+  it('o plano muda a coroa: a altura pedida aparece no dente', () => {
+    const base = planoPadrao(16);
+    const baixo = { ...base, cuspides: base.cuspides.map((k) => ({ ...k, h: k.h * 0.82 })), cristas: base.cristas.map((k) => ({ ...k, hDe: k.hDe * 0.82, hMeio: k.hMeio * 0.82, hAte: k.hAte * 0.82 })) };
+    const alto = casoPronto(null).construirComPlano(base, PARAMETROS).relatorio.alturaMm;
+    const menor = casoPronto(null).construirComPlano(baixo, PARAMETROS).relatorio.alturaMm;
+    expect(menor).toBeLessThan(alto - 0.3);
+  });
+
+  describe('resposta da IA', () => {
+    it('aceita pontos como objeto, que é o formato da resposta', () => {
+      const p = validarPlano(
+        {
+          cuspides: [{ nome: 'a', u: 0.5, w: 0.5, h: 1 }],
+          cristas: [{ de: { u: 0, w: 0 }, ate: { u: 0.5, w: 0.5 }, hDe: 0.8, hMeio: 0.7, hAte: 0.9, largura: 1 }],
+          sulcos: [{ pontos: [{ u: 0, w: 0, prof: 0.3 }, { u: 0.4, w: 0, prof: 0.2 }] }],
+          centro: { u: 0.1, w: 0.1 },
+        },
+        16,
+      );
+      expect(p.cristas[0].de).toEqual([0, 0]);
+      expect(p.sulcos[0].pontos[1]).toEqual([0.4, 0, 0.2]);
+      expect(p.centro).toEqual([0.1, 0.1]);
+    });
+
+    it.each([[null], ['texto'], [42], [{}], [{ cuspides: [] }], [{ cuspides: 'nada' }], [{ cuspides: [{ u: 'x' }] }]])('resposta sem cúspide válida (%j) fica com o desenho de partida', (bruto) => {
+      expect(validarPlano(bruto, 16).cuspides).toEqual(planoPadrao(16).cuspides);
+    });
+
+    it('número absurdo é trazido para dentro do limite', () => {
+      const p = validarPlano(
+        {
+          cuspides: [{ nome: 'a', u: 99, w: -99, h: 50 }],
+          cristas: [{ de: [50, 50], ate: [-50, -50], hDe: 9, hMeio: -9, hAte: 1, largura: 100 }],
+          sulcos: [{ pontos: [[0, 0, 99], [1, 1, -5]] }],
+          centro: [9, -9],
+          alturaMm: 999,
+          bojoVestibular: 99,
+          bojoLingual: -1,
+          contornoVestibular: 99,
+          contornoLingual: -1,
+          mesa: 7,
+        },
+        16,
+      );
+      expect(p.cuspides[0]).toEqual({ nome: 'a', u: 0.95, w: -0.95, h: 1.05 });
+      expect(p.cristas[0].largura).toBe(1.3);
+      expect(p.sulcos[0].pontos[0][2]).toBe(0.8);
+      expect(p.sulcos[0].pontos[1][2]).toBe(0);
+      expect(p.centro).toEqual([0.5, -0.5]);
+      expect(p.alturaMm).toBeCloseTo(planoPadrao(16).alturaMm * 1.2);
+      expect(p.bojoVestibular).toBe(1.2);
+      expect(p.bojoLingual).toBe(0.1);
+      expect(p.mesa).toBe(0.95);
+    });
+
+    it('crista não sobe além das cúspides: viraria uma torre no meio do dente', () => {
+      const p = validarPlano(
+        { cuspides: [{ nome: 'a', u: 0, w: 0.4, h: 0.6 }, { nome: 'b', u: 0, w: -0.4, h: 0.5 }], cristas: [{ de: [0, 0], ate: [0.5, 0.5], hDe: 1.05, hMeio: 1.05, hAte: 1.05, largura: 1 }] },
+        16,
+      );
+      expect(p.cristas[0].hMeio).toBeCloseTo(0.63);
+    });
+
+    it('cúspides todas achatadas não formam dente: fica a forma de partida', () => {
+      const p = validarPlano({ cuspides: [{ nome: 'a', u: 0, w: 0, h: 0.2 }], cristas: [{ de: [0, 0], ate: [1, 1], hDe: 1, hMeio: 1, hAte: 1, largura: 1 }] }, 16);
+      expect(p.cuspides).toEqual(planoPadrao(16).cuspides);
+      expect(p.cristas).toEqual(planoPadrao(16).cristas);
+    });
+
+    it('a altura de um plano baixo não é esticada até a altura natural', () => {
+      const base = planoPadrao(16);
+      const baixo = validarPlano({ ...base, cuspides: base.cuspides.map((k) => ({ ...k, h: k.h * 0.6 })) }, 16);
+      const c = casoPronto(null).construirComPlano(baixo, PARAMETROS);
+      expect(c.relatorio.alturaMm).toBeLessThan(base.alturaMm * 0.85);
+      expect(c.relatorio.malha.arestasAbertas).toBe(0);
+    });
+
+    it('NaN e infinito não entram', () => {
+      const p = validarPlano({ cuspides: [{ nome: 'a', u: NaN, w: 0, h: 1 }, { nome: 'b', u: 0, w: Infinity, h: 1 }, { nome: 'c', u: 0, w: 0, h: 1 }], alturaMm: NaN }, 16);
+      expect(p.cuspides.map((c) => c.nome)).toEqual(['c']);
+      expect(p.alturaMm).toBe(planoPadrao(16).alturaMm);
+    });
+
+    it('lista enorme é cortada', () => {
+      const muitas = Array.from({ length: 500 }, (_, i) => ({ nome: 'x', u: 0, w: i / 1000, h: 1 }));
+      const p = validarPlano({ cuspides: muitas, cristas: Array.from({ length: 500 }, () => ({ de: [0, 0], ate: [1, 1] })), sulcos: Array.from({ length: 500 }, () => ({ pontos: Array.from({ length: 500 }, () => [0, 0, 0.1]) })) }, 16);
+      expect(p.cuspides.length).toBeLessThanOrEqual(6);
+      expect(p.cristas.length).toBeLessThanOrEqual(16);
+      expect(p.sulcos.length).toBeLessThanOrEqual(8);
+      expect(p.sulcos[0].pontos.length).toBeLessThanOrEqual(12);
+    });
+
+    it('nome com texto enorme é cortado', () => {
+      const p = validarPlano({ cuspides: [{ nome: 'x'.repeat(500), u: 0, w: 0, h: 1 }] }, 16);
+      expect(p.cuspides[0].nome.length).toBe(40);
+    });
+
+    it('mesmo com o pior plano aceito, a coroa sai fechada e sem entrar no antagonista', () => {
+      const pior = validarPlano(
+        {
+          cuspides: [{ nome: 'a', u: 0.95, w: 0.95, h: 1.05 }, { nome: 'b', u: -0.95, w: -0.95, h: 0.2 }],
+          cristas: [{ de: [1, 1], ate: [-1, -1], hDe: 1.05, hMeio: 0.2, hAte: 1.05, largura: 0.4 }],
+          sulcos: [{ pontos: [[-1, 0, 0.8], [1, 0, 0.8]] }, { pontos: [[0, -1, 0.8], [0, 1, 0.8]] }],
+          bojoVestibular: 1.2,
+          bojoLingual: 0.1,
+          mesa: 0.5,
+        },
+        16,
+      );
+      const c = casoPronto(antagonistaPlano(9)).construirComPlano(pior, PARAMETROS);
+      expect(c.relatorio.malha.arestasAbertas).toBe(0);
+      expect(c.relatorio.malha.arestasRepetidas).toBe(0);
+      const folgas = Array.from(c.folgaAntagonista.subarray(0, c.externos)).filter(Number.isFinite);
+      expect(Math.min(...folgas)).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('o que vai para a IA', () => {
+    it('só o número do dente e medidas: mapas 11 × 11, sem nenhum dado da malha', () => {
+      const q = casoPronto(antagonistaPlano(9)).quadroParaIa(PARAMETROS);
+      expect(q.fdi).toBe(16);
+      expect(Object.keys(q).sort()).toEqual(['fdi', 'mapaAntagonista', 'mapaPreparo', 'medidas', 'planoInicial']);
+      expect(q.mapaAntagonista).toHaveLength(11);
+      expect(q.mapaPreparo).toHaveLength(11);
+      for (const linha of [...q.mapaAntagonista, ...q.mapaPreparo]) {
+        expect(linha).toHaveLength(11);
+        for (const v of linha) expect(v === null || typeof v === 'number').toBe(true);
+      }
+      // O texto todo cabe numa mensagem pequena: não há como carregar um escaneamento aqui.
+      expect(JSON.stringify(q).length).toBeLessThan(8000);
+    });
+
+    it('sem antagonista, o mapa dele vem vazio', () => {
+      const q = casoPronto(null).quadroParaIa(PARAMETROS);
+      expect(q.mapaAntagonista.flat().every((v) => v === null)).toBe(true);
+      expect(q.mapaPreparo.flat().some((v) => v !== null)).toBe(true);
+    });
+
+    it('fora da margem o mapa do preparo fica vazio: lá o raio pegaria o vizinho', () => {
+      const q = casoPronto(null).quadroParaIa(PARAMETROS);
+      expect(q.mapaPreparo[0][0]).toBeNull();
+      expect(q.mapaPreparo[10][10]).toBeNull();
+    });
+
+    it('pedir o quadro antes do preparo dá erro claro', () => {
+      expect(() => new Sessao().quadroParaIa(PARAMETROS)).toThrow(/Faltam/);
+    });
+  });
+});
+
 describe('Passos CAD — o que a tela não pode fazer', () => {
   const RAIZ = path.resolve(__dirname, '..', '..', '..', '..');
   const PASTA = path.join(RAIZ, 'apps/web/src/app/atendimento/passos-cad');
@@ -875,10 +1207,11 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
 
   // Pelo caminho inteiro: outro arquivo com o mesmo nome, em subpasta, não pode herdar a exceção.
   const EXCECAO_DE_REDE = path.join(PASTA, 'clientes-do-cadastro.ts');
+  const EXCECAO_DA_IA = path.join(PASTA, 'desenho-com-ia.ts');
 
   it('não manda arquivo para fora do computador: nenhuma chamada de rede', () => {
     for (const f of arquivos(PASTA)) {
-      if (f === EXCECAO_DE_REDE) continue;
+      if (f === EXCECAO_DE_REDE || f === EXCECAO_DA_IA) continue;
       const src = fs.readFileSync(f, 'utf8');
       expect([path.basename(f), /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|axios|lib\/api\b/.test(src)]).toEqual([path.basename(f), false]);
     }
@@ -898,6 +1231,32 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
       .filter((f) => f !== EXCECAO_DE_REDE && /clientes-do-cadastro/.test(fs.readFileSync(f, 'utf8')))
       .map((f) => path.basename(f));
     expect(quemUsa).toEqual(['CampoCliente.tsx']);
+  });
+
+  it('a exceção da IA manda só o pedido de medidas, para a rota certa', () => {
+    const src = fs.readFileSync(EXCECAO_DA_IA, 'utf8');
+    expect(src.match(/^import .*$/gm)).toEqual(["import api from '@/lib/api';", "import type { PedidoDesenhoIa } from './motor/plano-do-dente';"]);
+    expect(src.match(/\bapi\.\w+/g)).toEqual(['api.post']);
+    expect(src).toContain("api.post<{ plano: unknown }>('/passos-cad/desenho-ia', pedido, SEM_DERRUBAR_O_CASO)");
+    expect(src).toContain('pedirDesenhoIa(pedido: PedidoDesenhoIa)');
+    expect(src).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|axios|FormData|`/);
+    const quemUsa = arquivos(PASTA)
+      .filter((f) => f !== EXCECAO_DA_IA && /desenho-com-ia/.test(fs.readFileSync(f, 'utf8')))
+      .map((f) => path.basename(f));
+    expect(quemUsa).toEqual(['PassosCadApp.tsx']);
+  });
+
+  it('o pedido à IA só tem número do dente e medidas: nenhum campo de arquivo ou da ficha', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'motor/plano-do-dente.ts'), 'utf8');
+    const tipo = src.slice(src.indexOf('export interface PedidoDesenhoIa'), src.indexOf('export interface Cuspide'));
+    for (const proibido of ['pos', 'tri', 'malha', 'Malha', 'buf', 'cliente', 'numero', 'nomeDoCaso', 'tecnico', 'notas', 'string']) {
+      expect([proibido, new RegExp(`\\b${proibido}\\b`).test(tipo)]).toEqual([proibido, false]);
+    }
+  });
+
+  it('o worker segue sem rede: quem chama a IA é a tela, com o que o motor mediu', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'motor/worker.ts'), 'utf8');
+    expect(src).not.toMatch(/desenho-com-ia|@\/lib\/api|\bfetch\s*\(/);
   });
 
   it('o visor 3D carrega só nesta tela', () => {
