@@ -108,6 +108,8 @@ export class Escultor {
   private pendentes: number[] = [];
   private ultimo: V3 | null = null;
   private bateuNoLimite = false;
+  private readonly limiteDoVizinho: number;
+
   private readonly baseVizinho: number;
   private readonly baseAntagonista: number;
 
@@ -168,13 +170,14 @@ export class Escultor {
     this.parado = new Uint8Array(externos);
     this.aMedir = new Uint8Array(externos);
     this.antes = new Float64Array(externos * 3);
-    this.baseVizinho = this.contarAbaixo(coroa.folgaVizinho);
-    this.baseAntagonista = this.contarAbaixo(coroa.folgaAntagonista);
+    this.limiteDoVizinho = Math.min(ENTROU, escultura.folgaVizinho - 0.02);
+    this.baseVizinho = this.contarAbaixo(coroa.folgaVizinho, this.limiteDoVizinho);
+    this.baseAntagonista = this.contarAbaixo(coroa.folgaAntagonista, ENTROU);
   }
 
-  private contarAbaixo(campo: Float32Array): number {
+  private contarAbaixo(campo: Float32Array, limite: number): number {
     let q = 0;
-    for (let v = 0; v < this.externos; v++) if (campo[v] < ENTROU) q++;
+    for (let v = 0; v < this.externos; v++) if (campo[v] < limite) q++;
     return q;
   }
 
@@ -484,8 +487,8 @@ export class Escultor {
       folgaAntagonista: coroa.folgaAntagonista.slice(),
       folgaVizinho: coroa.folgaVizinho.slice(),
       relatorio: this.dados.relatorio(this.bvh.normais),
-      entrouNoVizinho: this.contarAbaixo(coroa.folgaVizinho) >= this.baseVizinho + PONTOS_PARA_AVISAR,
-      entrouNoAntagonista: this.contarAbaixo(coroa.folgaAntagonista) >= this.baseAntagonista + PONTOS_PARA_AVISAR,
+      entrouNoVizinho: this.contarAbaixo(coroa.folgaVizinho, this.limiteDoVizinho) >= this.baseVizinho + PONTOS_PARA_AVISAR,
+      entrouNoAntagonista: this.contarAbaixo(coroa.folgaAntagonista, ENTROU) >= this.baseAntagonista + PONTOS_PARA_AVISAR,
     };
   }
 

@@ -33,11 +33,14 @@ import { AJUSTES_DA_ANATOMIA, ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, ty
 interface CoroaNaTela {
   malha: MalhaLeve;
   espessura: Float32Array;
+  espessuraPedida: Float32Array;
   folgaAntagonista: Float32Array;
   folgaVizinho: Float32Array;
   corteFresa: Float32Array;
   externos: number;
   relatorio: Relatorio;
+  /** A folga do vizinho com que esta coroa foi gerada; o campo na tela pode já ter mudado. */
+  folgaVizinhoUsada?: number;
 }
 
 const COR_ARCO = 0xcfc4ae;
@@ -62,7 +65,7 @@ const COR_NEUTRA = [0.95, 0.92, 0.85];
 /** Acima disto a parede afina demais para passar sem aviso. */
 const CORTE_GRANDE_DA_BROCA = 0.3;
 /** Cor por vértice da coroa conforme o mapa escolhido. */
-function coresDoMapa(c: CoroaNaTela, mapa: MapaId, min: number): Float32Array | null {
+function coresDoMapa(c: CoroaNaTela, mapa: MapaId): Float32Array | null {
   if (mapa === 'nenhum') return null;
   const n = c.malha.pos.length / 3;
   const cores = new Float32Array(n * 3);
@@ -74,13 +77,17 @@ function coresDoMapa(c: CoroaNaTela, mapa: MapaId, min: number): Float32Array | 
     } else if (v < c.externos) {
       if (mapa === 'espessura') {
         const e = c.espessura[v];
+        // O mínimo muda de um ponto para outro: mais na oclusal, menos na parede e quase nada na margem.
+        const min = c.espessuraPedida[v];
         if (!Number.isNaN(e)) cor = faixa(e, [[min - 0.01, [0.85, 0.15, 0.12]], [min + 0.4, [0.95, 0.8, 0.2]], [min + 0.9, [0.3, 0.75, 0.35]]], [0.25, 0.5, 0.9]);
       } else if (mapa === 'antagonista') {
         const d = c.folgaAntagonista[v];
-        if (!Number.isNaN(d)) cor = faixa(d, [[0, [0.85, 0.1, 0.1]], [0.15, [0.95, 0.45, 0.1]], [0.3, [0.95, 0.85, 0.2]], [0.5, [0.35, 0.75, 0.35]], [0.9, [0.3, 0.5, 0.9]]], COR_NEUTRA);
+        // Vermelho é interferência; laranja, contato; verde e azul, o que está perto de encostar.
+        if (!Number.isNaN(d)) cor = faixa(d, [[0, [0.85, 0.1, 0.1]], [0.05, [0.95, 0.45, 0.1]], [0.15, [0.35, 0.75, 0.35]], [0.3, [0.3, 0.5, 0.9]]], COR_NEUTRA);
       } else {
         const d = c.folgaVizinho[v];
-        if (!Number.isNaN(d)) cor = faixa(d, [[0, [0.85, 0.1, 0.1]], [0.06, [0.95, 0.45, 0.1]], [0.15, [0.95, 0.85, 0.2]], [0.4, [0.35, 0.75, 0.35]]], COR_NEUTRA);
+        // A sobreposição pedida não é erro: vermelho só quando entra além dela.
+        if (!Number.isNaN(d)) cor = faixa(d, [[Math.min(0, c.folgaVizinhoUsada ?? 0) - 0.02, [0.85, 0.1, 0.1]], [0.05, [0.95, 0.45, 0.1]], [0.15, [0.95, 0.85, 0.2]], [0.4, [0.35, 0.75, 0.35]]], COR_NEUTRA);
       }
     }
     cores.set(cor, 3 * v);
@@ -373,12 +380,13 @@ export default function PassosCadApp() {
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : T.erroGenerico));
   };
 
-  const mostrarCoroa = (c: CoroaNaTela) => {
+  const mostrarCoroa = (recebida: CoroaNaTela) => {
+      const c = { ...recebida, folgaVizinhoUsada: parametros.folgaVizinho };
       zerarEscultura();
       setCoroa(c);
       const v = visor.current as Visor3D;
       v.definirMalha('anatomia', null);
-      v.definirMalha('coroa', { pos: c.malha.pos, tri: c.malha.tri, cores: coresDoMapa(c, mapa, parametros.espessuraMinima) ?? undefined }, { cor: COR_DENTE });
+      v.definirMalha('coroa', { pos: c.malha.pos, tri: c.malha.tri, cores: coresDoMapa(c, mapa) ?? undefined }, { cor: COR_DENTE });
       v.definirLinha('margem', null, 0);
       v.definirLinha('mesial', null, 0);
       v.definirLinha('vestibular', null, 0);
@@ -417,8 +425,8 @@ export default function PassosCadApp() {
     });
 
   useEffect(() => {
-    if (coroa) visor.current?.definirCores('coroa', coresDoMapa(coroa, mapa, parametros.espessuraMinima), COR_DENTE);
-  }, [coroa, mapa, parametros.espessuraMinima]);
+    if (coroa) visor.current?.definirCores('coroa', coresDoMapa(coroa, mapa), COR_DENTE);
+  }, [coroa, mapa]);
   // Esconder arcada ou mostrar antagonista é da conferência; antes disso atrapalharia o clique.
   useEffect(() => visor.current?.definirVisivel('arco', verArco || etapa < 3), [verArco, etapa]);
   useEffect(() => visor.current?.definirVisivel('ant', verAnt && etapa >= 3), [verAnt, etapa]);
@@ -934,13 +942,15 @@ export default function PassosCadApp() {
                 {([
                   ['cimento', T.pCimento],
                   ['inicioCimento', T.pInicioCimento],
+                  ['espessuraOclusal', T.pEspessuraOclusal],
                   ['espessuraMinima', T.pEspessura],
                   ['folgaAntagonista', T.pAntagonista],
                   ['folgaVizinho', T.pVizinho],
                 ] as const).map(([chave, rotulo]) => (
                   <label key={chave} className="flex items-center justify-between gap-2 text-xs">
                     <span>{rotulo}</span>
-                    <input type="number" step={0.01} min={0} className="w-20 px-2 py-1 rounded border border-border bg-background text-right" value={parametros[chave]} onChange={(e) => setParametros({ ...parametros, [chave]: +e.target.value })} />
+                    {/* Só a folga do vizinho aceita negativo: é a leve sobreposição que a fresagem consome. */}
+                    <input type="number" step={0.01} min={chave === 'folgaVizinho' ? -0.1 : 0} className="w-20 px-2 py-1 rounded border border-border bg-background text-right" value={parametros[chave]} onChange={(e) => setParametros({ ...parametros, [chave]: +e.target.value })} />
                   </label>
                 ))}
                 <label className="flex items-center justify-between gap-2 text-xs">
@@ -973,7 +983,7 @@ export default function PassosCadApp() {
                 </dd>
               </dl>
               {r.fresa.maiorCorte > CORTE_GRANDE_DA_BROCA && <p className="text-xs text-amber-600" data-testid="aviso-broca">{T.avisoBrocaGrande}</p>}
-              {nomeAnt && r.espessuraOclusal && r.espessuraOclusal.p5 > 2 && <p className="text-xs text-amber-600" data-testid="aviso-alta">{T.avisoAlta}</p>}
+              {nomeAnt && r.espessuraOclusal && r.espessuraOclusal.p5 > parametros.espessuraOclusal + 1 && <p className="text-xs text-amber-600" data-testid="aviso-alta">{T.avisoAlta}</p>}
               {r.conflitosEspessura > 0 && <p className="text-xs text-amber-600">{T.avisoConflito}</p>}
               {r.retencoesPreenchidas > 0 && <p className="text-xs text-amber-600">{T.avisoRetencao}</p>}
             </>

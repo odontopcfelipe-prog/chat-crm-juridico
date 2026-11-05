@@ -22,11 +22,13 @@ export interface Parametros {
   cimento: number;
   /** Distância da margem onde o cimento começa (mm). */
   inicioCimento: number;
-  /** Espessura mínima do material até o lado de dentro (mm). */
+  /** Espessura mínima nas paredes, até o lado de dentro (mm). */
   espessuraMinima: number;
+  /** Espessura mínima na face oclusal (mm): pede mais que a parede, porque é onde a coroa recebe a força. */
+  espessuraOclusal: number;
   /** Folga até o antagonista (mm). */
   folgaAntagonista: number;
-  /** Folga até o vizinho (mm); 0 = contato justo. */
+  /** Folga até o vizinho (mm); negativo = leve sobreposição, que a fresagem e o polimento consomem. */
   folgaVizinho: number;
   /** Inclinação da saída da margem, em relação ao eixo (graus). */
   emergencia: number;
@@ -38,11 +40,31 @@ export const PARAMETROS_PADRAO: Parametros = Object.freeze({
   cimento: 0.08,
   inicioCimento: 1,
   espessuraMinima: 0.6,
-  folgaAntagonista: 0.1,
-  folgaVizinho: 0,
+  espessuraOclusal: 0.8,
+  folgaAntagonista: 0.03,
+  folgaVizinho: -0.03,
   emergencia: 12,
   diametroBroca: 1.2,
 });
+
+const noIntervalo = (v: number, padrao: number, a: number, b: number) => (Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : padrao);
+
+/**
+ * O que o técnico digita não chega cru ao motor. Sem isto, -1 na folga do vizinho faria a coroa entrar
+ * 1 mm no dente ao lado, e espessura negativa a faria entrar no preparo.
+ */
+export function normalizarParametros(p: Parametros): Parametros {
+  const d = PARAMETROS_PADRAO;
+  return {
+    ...p,
+    cimento: noIntervalo(p.cimento, d.cimento, 0, 0.3),
+    inicioCimento: noIntervalo(p.inicioCimento, d.inicioCimento, 0, 3),
+    espessuraMinima: noIntervalo(p.espessuraMinima, d.espessuraMinima, 0.2, 3),
+    espessuraOclusal: noIntervalo(p.espessuraOclusal, d.espessuraOclusal, 0.2, 4),
+    folgaAntagonista: noIntervalo(p.folgaAntagonista, d.folgaAntagonista, 0, 1),
+    folgaVizinho: noIntervalo(p.folgaVizinho, d.folgaVizinho, -0.1, 1),
+  };
+}
 
 /** Posição da anatomia sobre o preparo. */
 export interface Ajuste {
@@ -256,7 +278,7 @@ export function posicionarAutomatico(e: EntradaCoroa, ambiente: Bvh): Ajuste {
   // Percentil, porque o fundo dos sulcos e as paredes são corrigidos ponto a ponto depois.
   const pisoEspessura = (aj: Ajuste): number => {
     const alturas = amostraFolgaDoPreparo(e, aj, amostra);
-    return alturas.length ? e.parametros.espessuraMinima - percentil(alturas, 0.1) : -Infinity;
+    return alturas.length ? e.parametros.espessuraOclusal - percentil(alturas, 0.1) : -Infinity;
   };
   if (!e.antagonista) {
     // Sem antagonista: a oclusal 2 mm acima do topo do preparo, ou o que a espessura pedir.
@@ -353,12 +375,16 @@ export interface DadosDaEscultura {
   pedida: Float32Array;
   /** Por vértice externo: quanto falta até a margem, descendo pela superfície. */
   distanciaDaMargem: Float32Array;
+  /** Folga pedida até o vizinho: pode ser negativa, e isso não é o pincel entrando nele. */
+  folgaVizinho: number;
   /** Mede de novo espessura e folgas de um vértice. */
   medir: (v: number) => void;
   relatorio: (normais: Float64Array) => Relatorio;
 }
 
 export interface ResultadoCoroa {
+  /** O mínimo pedido em cada ponto da superfície externa: varia entre oclusal, parede e margem. */
+  espessuraPedida: Float32Array;
   malha: Malha;
   /** Por vértice: até o preparo, até o antagonista, até o vizinho (NaN = sem dado). */
   espessura: Float32Array;
@@ -455,7 +481,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   // ---------- externa: anatomia até a altura de contorno, depois a saída até a margem ----------
   const R: Float64Array[] = e.plano
     ? construirForma(
-        { prep, margem, eixos: e.eixos, antagonista: ant, ambiente, folgaAntagonista: P.folgaAntagonista, espessuraMinima: P.espessuraMinima, emergencia: P.emergencia },
+        { prep, margem, eixos: e.eixos, antagonista: ant, ambiente, folgaAntagonista: P.folgaAntagonista, espessuraMinima: P.espessuraMinima, espessuraOclusal: P.espessuraOclusal, emergencia: P.emergencia },
         e.plano,
         dirs,
         interna,
@@ -529,7 +555,11 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
   const tetoVizinho = R.map(() => new Float64Array(J + 1).fill(Infinity));
   const piso = R.map(() => new Float64Array(J + 1));
   const altMargem = margem.map((m) => dot(sub(m.ponto, O), a));
-  const pedida = (s: number) => (s < 0.2 ? 0.02 : 0.2 + (P.espessuraMinima - 0.2) * passoSuave(0.2, 1.5, s));
+  const parteOclusal = quantoEOclusal(normalDie, interna, margem, prep, J);
+  const pedida = (s: number, i: number, j: number) => {
+    const alvo = P.espessuraMinima + (P.espessuraOclusal - P.espessuraMinima) * parteOclusal[i][j];
+    return s < 0.2 ? 0.02 : Math.min(alvo, 0.2) + Math.max(0, alvo - 0.2) * passoSuave(0.2, 1.5, s);
+  };
   // Preparo mais largo em cima que na margem: a parte larga fica fora do cilindro da margem e parece
   // vizinho. Na forma do plano, isso cortaria a superfície ponto a ponto e deixaria um rasgo serrilhado.
   const raioDoPreparo = interna.map((col) => Math.max(...col.map((p) => relevo(sub(p, O))[0])));
@@ -539,7 +569,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       const d = dirs[i][j];
       const dentro = norma(sub(interna[i][j], O));
       // A forma do plano já traz a camada de espessura: o limite pelo ângulo só copiaria o relevo do preparo.
-      piso[i][j] = dentro + (e.plano ? pedida(arco[i][j]) : pedida(arco[i][j]) / Math.max(0.5, Math.abs(dot(d, normalDie[i][j]))));
+      piso[i][j] = dentro + (e.plano ? pedida(arco[i][j], i, j) : pedida(arco[i][j], i, j) / Math.max(0.5, Math.abs(dot(d, normalDie[i][j]))));
       for (const viz of vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente]) {
         const h = viz.raio(soma(O, mul(d, dentro)), d, 25);
         if (h && !propriaParede(i, h.ponto) && dot(sub(h.ponto, O), a) > altMargem[i] + ALTURA_MIN_CONTATO) {
@@ -613,7 +643,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
         // A distância de verdade até a margem. Medida pelo lado de dentro, ela dá a volta no degrau do
         // preparo e pede espessura demais perto da margem, o que empurra a parede e forma uma saia.
         const ate = Math.min(arco[i][j], norma(sub(ponto, margem[i].ponto)));
-        const req = ate < 0.2 ? 0 : pedida(ate);
+        const req = ate < 0.2 ? 0 : pedida(ate, i, j);
         const c = dentroB.proximo(ponto, 2);
         if (c && Math.abs(c.d) < req - 0.005) {
           R[i][j] += (req - Math.abs(c.d)) / Math.max(0.5, Math.abs(dot(dirs[i][j], c.normal))) + 0.01;
@@ -687,7 +717,8 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       alt = Math.max(alt, dot(sub(vert(malha, v), base), a));
       if (espessura[v] > 0.05) {
         const nz = normais[3 * v] * a[0] + normais[3 * v + 1] * a[1] + normais[3 * v + 2] * a[2];
-        if (nz > 0.6) ocl.push(espessura[v]);
+        // Só onde o motor pede a espessura oclusal: cúspide sobre parede alta pede a da parede, e entraria aqui como falta.
+        if (nz > 0.6 && pedidaPorVertice[v] >= P.espessuraOclusal - 0.02) ocl.push(espessura[v]);
         else if (Math.abs(nz) < 0.45) axi.push(espessura[v]);
       }
     }
@@ -719,13 +750,14 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       const v = j === 0 ? 0 : 1 + i * (J - 1) + (j - 1);
       // A mesma distância do laço de espessura: com outra, o pincel e o mapa discordariam do motor.
       const ate = Math.min(arco[i][j], norma(sub(externa[i][j], margem[i].ponto)));
-      pedidaPorVertice[v] = ate < 0.2 ? 0 : pedida(ate);
+      pedidaPorVertice[v] = ate < 0.2 ? 0 : pedida(ate, i, j);
       distanciaDaMargem[v] = Math.max(distanciaDaMargem[v], falta);
     }
   }
   return {
     malha,
     espessura,
+    espessuraPedida: pedidaPorVertice,
     folgaAntagonista: folgaA,
     folgaVizinho: folgaV,
     corteFresa,
@@ -736,6 +768,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       fimDaSuperficie: externos + NT,
       pedida: pedidaPorVertice,
       distanciaDaMargem,
+      folgaVizinho: P.folgaVizinho,
       medir,
       relatorio: relatorioAtual,
     },
@@ -743,11 +776,41 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
 }
 
 /**
+ * De 0 (parede) a 1 (face oclusal) em cada ponto do lado de dentro. Olha a normal do preparo e a altura
+ * acima da margem: a parede alta pede a espessura da parede, e o ombro perto da margem, embora plano,
+ * também. Alisado, para o limite não herdar o ruído do escaneamento.
+ */
+function quantoEOclusal(normais: V3[][], interna: V3[][], margem: PontoMargem[], prep: Preparo, J: number): Float64Array[] {
+  const NT = normais.length;
+  const topo = dot(sub(prep.topo, prep.O), prep.a);
+  let campo = normais.map((col, i) => {
+    const zm = dot(sub(margem[i].ponto, prep.O), prep.a);
+    const altura = Math.max(0.5, topo - zm);
+    return Float64Array.from(col, (n, j) => passoSuave(0.35, 0.75, dot(n, prep.a)) * passoSuave(0.45, 0.7, (dot(sub(interna[i][j], prep.O), prep.a) - zm) / altura));
+  });
+  const RI = Math.max(2, Math.round(NT / 40));
+  const RJ = Math.max(2, Math.round(J / 25));
+  for (let passada = 0; passada < 2; passada++) {
+    const novo = campo.map((c) => Float64Array.from(c));
+    for (let i = 0; i < NT; i++) {
+      for (let j = 0; j <= J; j++) {
+        let total = 0;
+        for (let di = -RI; di <= RI; di++) total += campo[(i + di + NT) % NT][j];
+        for (let dj = -RJ; dj <= RJ; dj++) total += campo[i][Math.min(J, Math.max(0, j + dj))];
+        novo[i][j] = total / (2 * RI + 2 * RJ + 2);
+      }
+    }
+    campo = novo;
+  }
+  return campo;
+}
+
+/**
  * Troca o limite de espessura por uma versão lisa e um pouco maior. Colar a superfície no limite cru
  * copia cada irregularidade do escaneamento, que é o relevo que aparece onde o espaço é pequeno.
  * Perto da margem o limite fica como está: lá a coroa precisa afinar até a lâmina.
  */
-function alisarLimite(piso: Float64Array[], teto: Float64Array[], arco: Float64Array[], NT: number, J: number): void {
+export function alisarLimite(piso: Float64Array[], teto: Float64Array[], arco: Float64Array[], NT: number, J: number): void {
   const RI = Math.max(2, Math.round(NT / 70));
   const RJ = Math.max(2, Math.round(J / 45));
   const dilatado = piso.map((p) => Float64Array.from(p));
@@ -775,10 +838,12 @@ function alisarLimite(piso: Float64Array[], teto: Float64Array[], arco: Float64A
   }
   for (let i = 0; i < NT; i++) {
     for (let j = 0; j < J; j++) {
-      const peso = passoSuave(0.8, 1.6, arco[i][j]);
-      // O antagonista ainda manda mais: a versão lisa não pode passar do teto.
-      const alvo = Math.min(Math.max(piso[i][j], liso[i][j]), Math.max(piso[i][j], teto[i][j]));
-      piso[i][j] += (alvo - piso[i][j]) * peso;
+      // Perto do antagonista o limite não sobe: subir até o teto dele copiaria a textura do escaneamento.
+      // Mas se a espessura já passa dele, não há o que preservar: o contato é ajustado de qualquer jeito, e
+      // o limite cru deixaria a oclusal com a textura do preparo. Aí ele continua liso.
+      const cabe = Math.max(passoSuave(0, 0.4, teto[i][j] - liso[i][j]), 1 - passoSuave(-0.1, 0.02, teto[i][j] - piso[i][j]));
+      const peso = passoSuave(0.8, 1.6, arco[i][j]) * cabe;
+      piso[i][j] += Math.max(0, liso[i][j] - piso[i][j]) * peso;
     }
   }
 }

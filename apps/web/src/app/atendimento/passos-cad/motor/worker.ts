@@ -49,12 +49,13 @@ function leve(m: Malha): MalhaLeve {
 function coroaNaResposta(c: ResumoCoroa): { dados: unknown; envio: Transferable[] } {
   const m = leve(c.malha);
   const e = Float32Array.from(c.espessura);
+  const pedida = Float32Array.from(c.espessuraPedida);
   const a = Float32Array.from(c.folgaAntagonista);
   const v = Float32Array.from(c.folgaVizinho);
   const f = Float32Array.from(c.corteFresa);
   return {
-    dados: { malha: m, espessura: e, folgaAntagonista: a, folgaVizinho: v, corteFresa: f, externos: c.externos, relatorio: c.relatorio },
-    envio: [m.pos.buffer, m.tri.buffer, e.buffer, a.buffer, v.buffer, f.buffer],
+    dados: { malha: m, espessura: e, espessuraPedida: pedida, folgaAntagonista: a, folgaVizinho: v, corteFresa: f, externos: c.externos, relatorio: c.relatorio },
+    envio: [m.pos.buffer, m.tri.buffer, e.buffer, pedida.buffer, a.buffer, v.buffer, f.buffer],
   };
 }
 

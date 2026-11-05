@@ -25,6 +25,9 @@ import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/
 import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
 import { juntarRecente, nomesDoCadastro, opcoesDeCliente } from '../../../web/src/app/atendimento/passos-cad/ficha';
 import { planoPadrao, validarPlano } from '../../../web/src/app/atendimento/passos-cad/motor/plano-do-dente';
+import { alisarLimite, normalizarParametros } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
+import { camadaSobOAntagonista, pisoDosSulcos } from '../../../web/src/app/atendimento/passos-cad/motor/forma-do-plano';
+import { MATERIAIS } from '../../../web/src/app/atendimento/passos-cad/textos';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -354,7 +357,8 @@ describe('Passos CAD — coroa', () => {
         if (lado * dot(sub(vert(r.malha, v), e.prep.O), m) > 0) menor = Math.min(menor, r.folgaVizinho[v]);
       }
       expect(menor).toBeLessThan(0.12);
-      expect(menor).toBeGreaterThan(-0.02);
+      // O contato entra de propósito até a sobreposição pedida, e não além dela.
+      expect(menor).toBeGreaterThan(PARAMETROS_PADRAO.folgaVizinho - 0.02);
     }
     expect(r.relatorio.malha.arestasAbertas).toBe(0);
   });
@@ -371,7 +375,8 @@ describe('Passos CAD — coroa', () => {
         if (lado * dot(sub(vert(r.malha, v), e.prep.O), m) > 0) menor = Math.min(menor, r.folgaVizinho[v]);
       }
       expect(menor).toBeLessThan(0.12);
-      expect(menor).toBeGreaterThan(-0.02);
+      // O contato entra de propósito até a sobreposição pedida, e não além dela.
+      expect(menor).toBeGreaterThan(PARAMETROS_PADRAO.folgaVizinho - 0.02);
     }
   });
 
@@ -1058,6 +1063,294 @@ describe('Passos CAD — modelagem pelo plano do dente', () => {
     expect(menor).toBeLessThan(alto - 0.3);
   });
 
+  describe('anatomia', () => {
+    const POSTERIORES = [14, 15, 16, 17, 24, 25, 26, 27, 34, 35, 36, 37, 44, 45, 46, 47];
+    const materialDe = (id: string) => MATERIAIS.find((m) => m.id === id)!.parametros;
+
+    it('as medidas de cada dente vêm da tabela de anatomia', () => {
+      expect([planoPadrao(11).alturaMm, planoPadrao(11).larguraMm, planoPadrao(11).vlMm]).toEqual([10.5, 8.5, 7]);
+      expect([planoPadrao(25).alturaMm, planoPadrao(25).larguraMm, planoPadrao(25).vlMm]).toEqual([8.5, 6.5, 9]);
+      expect([planoPadrao(16).alturaMm, planoPadrao(16).larguraMm, planoPadrao(16).vlMm]).toEqual([7.5, 10, 11]);
+      expect([planoPadrao(41).alturaMm, planoPadrao(41).larguraMm, planoPadrao(41).vlMm]).toEqual([9, 5, 6]);
+      expect([planoPadrao(47).alturaMm, planoPadrao(47).larguraMm, planoPadrao(47).vlMm]).toEqual([7, 10.5, 10]);
+    });
+
+    it.each(POSTERIORES)('dente %i: mesa oclusal entre 55%% e 65%% da largura VL', (fdi) => {
+      const cuspides = planoPadrao(fdi).cuspides;
+      const vest = Math.max(...cuspides.map((c) => c.w));
+      const ling = Math.min(...cuspides.map((c) => c.w));
+      const mesa = (vest - ling) / 2;
+      expect(mesa).toBeGreaterThanOrEqual(0.55);
+      expect(mesa).toBeLessThanOrEqual(0.65);
+    });
+
+    it.each(POSTERIORES)('dente %i: sulco principal de 0,5 a 1 mm e sulcos secundários rasos', (fdi) => {
+      const sulcos = planoPadrao(fdi).sulcos;
+      const principais = sulcos.filter((s) => s.largura! >= 0.5);
+      const secundarios = sulcos.filter((s) => s.largura! < 0.5);
+      const fundo = Math.max(...principais.flatMap((s) => s.pontos.map((p) => p[2])));
+      expect(fundo).toBeGreaterThanOrEqual(0.5);
+      expect(fundo).toBeLessThanOrEqual(1);
+      expect(secundarios.length).toBeGreaterThanOrEqual(4);
+      for (const s of secundarios) expect(Math.max(...s.pontos.map((p) => p[2]))).toBeLessThanOrEqual(0.35);
+    });
+
+    it('cada molar inferior tem o seu padrão: Y com cinco cúspides no 36, cruz com quatro no 37', () => {
+      expect(planoPadrao(36).cuspides).toHaveLength(5);
+      expect(planoPadrao(37).cuspides).toHaveLength(4);
+      // No 37 os sulcos vestibular e lingual saem alinhados; no 36, o vestibular vai para a mesial.
+      const fimVestibular = (fdi: number) => planoPadrao(fdi).sulcos[1].pontos.at(-1)!;
+      expect(Math.abs(fimVestibular(37)[0])).toBeLessThan(0.1);
+      expect(fimVestibular(36)[0]).toBeGreaterThan(0.2);
+    });
+
+    it('a morfologia que identifica cada dente', () => {
+      const alturas = (fdi: number) => Object.fromEntries(planoPadrao(fdi).cuspides.map((c) => [c.nome, c.h]));
+      // 14: vestibular cerca de 1 mm mais alta. 15: quase iguais.
+      expect((alturas(14).vestibular - alturas(14).palatina) * planoPadrao(14).alturaMm).toBeCloseTo(1, 0);
+      expect(alturas(15).vestibular - alturas(15).palatina).toBeLessThan(0.06);
+      // 16: a mesio-palatina é a maior e a disto-palatina, a menor.
+      expect(alturas(16)['mesio-palatina']).toBe(Math.max(...Object.values(alturas(16))));
+      expect(alturas(16)['disto-palatina']).toBe(Math.min(...Object.values(alturas(16))));
+      // 36: as linguais são mais altas que as vestibulares.
+      expect(alturas(36)['mesio-lingual']).toBeGreaterThan(alturas(36)['mesio-vestibular']);
+      // Canino: a ponta fica para a mesial.
+      expect(planoPadrao(13).cuspides[0].u).toBeGreaterThan(0);
+      expect(planoPadrao(33).cuspides[0].u).toBeGreaterThan(planoPadrao(13).cuspides[0].u);
+      // Crista marginal só nos posteriores: nos anteriores, ela desalinharia a borda incisal.
+      expect(planoPadrao(11).cristas.some((c) => c.lado)).toBe(false);
+      expect(planoPadrao(13).cristas.some((c) => c.lado)).toBe(false);
+      expect(planoPadrao(16).cristas.filter((c) => c.lado).map((c) => c.lado).sort()).toEqual(['distal', 'mesial']);
+    });
+
+    it('contato com o antagonista e com o vizinho nas faixas certas', () => {
+      for (const m of MATERIAIS) {
+        expect(m.parametros.folgaAntagonista).toBeGreaterThanOrEqual(0);
+        expect(m.parametros.folgaAntagonista).toBeLessThanOrEqual(0.05);
+        expect(m.parametros.folgaVizinho).toBeGreaterThanOrEqual(-0.05);
+        expect(m.parametros.folgaVizinho).toBeLessThanOrEqual(-0.02);
+      }
+    });
+
+    it('cada material tem a sua espessura, e a oclusal nunca é menor que a parede', () => {
+      const pares = (id: string) => [materialDe(id).espessuraOclusal, materialDe(id).espessuraMinima];
+      expect(pares('zirconia')).toEqual([0.8, 0.6]);
+      expect(pares('dissilicato')).toEqual([1.5, 1]);
+      expect(pares('pmma')).toEqual([1.2, 1]);
+      for (const m of MATERIAIS) expect(m.parametros.espessuraOclusal).toBeGreaterThanOrEqual(m.parametros.espessuraMinima);
+    });
+
+    it('a espessura oclusal do material vale na coroa pelo plano', () => {
+      const medir = (id: string) => casoPronto(null).construirComPlano(planoPadrao(16), materialDe(id)).relatorio.espessuraOclusal!.p5;
+      expect(medir('dissilicato')).toBeGreaterThanOrEqual(1.45);
+      expect(medir('zirconia')).toBeGreaterThanOrEqual(0.75);
+      expect(medir('dissilicato')).toBeGreaterThan(medir('zirconia') + 0.3);
+    });
+
+    it('a espessura oclusal do material vale também na coroa pela biblioteca', () => {
+      const pedidaNoTopo = (id: string) => {
+        const s = casoPronto(null);
+        const a = s.abrirAnatomia('dente.stl', escreverStl(denteSintetico(), 'dente'), materialDe(id));
+        const c = s.construir(a.ajuste, materialDe(id));
+        expect(c.relatorio.espessuraOclusal!.p5).toBeGreaterThanOrEqual(materialDe(id).espessuraOclusal - 0.05);
+        return c.espessuraPedida[0];
+      };
+      expect(pedidaNoTopo('dissilicato')).toBeCloseTo(1.5, 1);
+      expect(pedidaNoTopo('zirconia')).toBeCloseTo(0.8, 1);
+    });
+
+    it('a oclusal pede a espessura dela, e toda a parede, inclusive a alta, a da parede', () => {
+      const c = casoPronto(null).construirComPlano(planoPadrao(16), materialDe('dissilicato'));
+      let maiorNaParede = 0;
+      let paredes = 0;
+      for (let v = 0; v < c.externos; v++) {
+        const x = c.malha.pos[3 * v];
+        const y = c.malha.pos[3 * v + 1];
+        const z = c.malha.pos[3 * v + 2];
+        // Preparo sintético: parede de z = 1,5 a 5,7 e topo em z = 6. O raio passa de 4 mm só na parede.
+        if (z > 2 && z < 5.5 && Math.hypot(x, y) > 4) {
+          maiorNaParede = Math.max(maiorNaParede, c.espessuraPedida[v]);
+          paredes++;
+        }
+      }
+      expect(paredes).toBeGreaterThan(50);
+      expect(maiorNaParede).toBeLessThanOrEqual(1.05);
+      expect(c.espessuraPedida[0]).toBeCloseTo(1.5, 1);
+    });
+
+    it('valor digitado errado não chega cru ao motor', () => {
+      const p = normalizarParametros({ ...PARAMETROS, folgaVizinho: -1, espessuraMinima: -2, espessuraOclusal: Number.NaN, folgaAntagonista: -0.5, cimento: 9 });
+      expect(p.folgaVizinho).toBe(-0.1);
+      expect(p.espessuraMinima).toBe(0.2);
+      expect(p.espessuraOclusal).toBe(PARAMETROS_PADRAO.espessuraOclusal);
+      expect(p.folgaAntagonista).toBe(0);
+      expect(p.cimento).toBe(0.3);
+      // A coroa sai fechada e sem entrar 1 mm em nada.
+      const c = casoPronto(antagonistaPlano(9)).construirComPlano(planoPadrao(16), { ...PARAMETROS, folgaVizinho: -1, espessuraMinima: -2, folgaAntagonista: -0.5 });
+      expect(c.relatorio.malha.arestasAbertas).toBe(0);
+      expect(Math.min(...Array.from(c.folgaAntagonista.subarray(0, c.externos)).filter(Number.isFinite))).toBeGreaterThanOrEqual(-0.01);
+    });
+
+    it('o piso dos sulcos não passa da cúspide do antagonista, nem depois de alisado', () => {
+      const n = 41;
+      const camada = new Float64Array(n * n).fill(5);
+      // Antagonista 0,3 mm acima da camada, com uma cúspide estreita descendo até 0,05 mm dela.
+      const teto = new Float64Array(n * n).fill(5.3);
+      teto[20 * n + 20] = 5.05;
+      const piso = pisoDosSulcos(teto, camada, n, n);
+      for (let k = 0; k < piso.length; k++) expect(piso[k]).toBeLessThanOrEqual(teto[k] + 1e-9);
+      // Sem antagonista, a folga inteira fica disponível para o sulco.
+      const semTeto = pisoDosSulcos(new Float64Array(n * n).fill(Infinity), camada, n, n);
+      expect(semTeto[20 * n + 20]).toBeCloseTo(5.35, 5);
+      // Sem espaço, o piso fica na camada: a espessura manda mais que o contato.
+      const semEspaco = pisoDosSulcos(new Float64Array(n * n).fill(4.9), camada, n, n);
+      expect(semEspaco[20 * n + 20]).toBeCloseTo(5, 5);
+    });
+
+    it('a camada cede ao antagonista até a espessura de verdade, sem borda', () => {
+      const n = 41;
+      const k = 20 * n + 20;
+      const ceder = (zAnt: Float64Array, nivelPiso = 4.2) => {
+        const camada = new Float64Array(n * n).fill(5);
+        camadaSobOAntagonista(camada, new Float64Array(n * n).fill(nivelPiso), zAnt, 0.05, n, n);
+        return camada;
+      };
+      // Cúspide estreita do antagonista descendo até 4,6, abaixo da camada de 5.
+      const comCuspide = new Float64Array(n * n).fill(6);
+      comCuspide[k] = 4.6;
+      const camada = ceder(comCuspide);
+      expect(camada[k]).toBeLessThanOrEqual(4.55 + 1e-9);
+      expect(camada[k]).toBeGreaterThanOrEqual(4.2);
+      // Sem degrau, que é o anel em volta da cúspide: de uma célula para a outra muda pouco.
+      let maiorDegrau = 0;
+      for (let x = 0; x + 1 < n; x++) maiorDegrau = Math.max(maiorDegrau, Math.abs(camada[x + 1 + 20 * n] - camada[x + 20 * n]));
+      expect(maiorDegrau).toBeLessThan(0.15);
+      // Longe do antagonista não muda nada.
+      expect(camada[0]).toBeCloseTo(5, 6);
+      expect(ceder(new Float64Array(n * n).fill(Infinity))[k]).toBeCloseTo(5, 6);
+      // Sem espaço para os dois, a espessura manda.
+      expect(ceder(new Float64Array(n * n).fill(3), 4.2)[k]).toBeCloseTo(4.2, 6);
+    });
+
+    it('antagonista áspero não deixa a oclusal áspera', () => {
+      // Desce sobre o ombro da coroa: é onde a camada é mais grossa que o mínimo e sobra espaço entre as duas.
+      const aspero = (amplitude: number): Malha => {
+        const lado = 97;
+        const pos = new Float64Array(3 * lado * lado);
+        for (let y = 0; y < lado; y++) {
+          for (let x = 0; x < lado; x++) {
+            const v = 3 * (x + y * lado);
+            pos[v] = -9 + x * 0.1875;
+            pos[v + 1] = -9 + y * 0.1875;
+            const r = Math.hypot(pos[v], pos[v + 1]);
+            pos[v + 2] = 7.3 - 0.6 * Math.max(0, r - 3) + (amplitude * ((x * 7 + y * 13) % 5)) / 4;
+          }
+        }
+        const tri: number[] = [];
+        for (let y = 0; y + 1 < lado; y++) {
+          for (let x = 0; x + 1 < lado; x++) {
+            const a = x + y * lado;
+            tri.push(a, a + lado, a + 1, a + 1, a + lado, a + lado + 1);
+          }
+        }
+        return { pos, tri: Uint32Array.from(tri) };
+      };
+      // Pontos colados nele: é a superfície copiando o antagonista, em vez de só encostar.
+      const coladosNele = (antagonista: Malha) => {
+        const c = casoPronto(antagonista).construirComPlano(planoPadrao(16), PARAMETROS);
+        expect(c.relatorio.malha.arestasAbertas).toBe(0);
+        let colados = 0;
+        for (let v = 0; v < c.externos; v++) if (c.folgaAntagonista[v] < PARAMETROS.folgaAntagonista + 0.03) colados++;
+        return { colados, total: c.externos };
+      };
+      // Sem a camada ceder, ficam 28 pontos colados aqui.
+      expect(coladosNele(aspero(0.16)).colados).toBeLessThan(10);
+    });
+
+    it('o limite de espessura fica liso, e não sobe até o antagonista', () => {
+      const NT = 60;
+      const J = 40;
+      const arco = Array.from({ length: NT }, () => new Float64Array(J + 1).fill(5));
+      const pisoRuidoso = () => Array.from({ length: NT }, () => Float64Array.from({ length: J + 1 }, (_, j) => 6 + (j % 2) * 0.1));
+      // Longe do antagonista: fica liso.
+      const longe = pisoRuidoso();
+      alisarLimite(longe, Array.from({ length: NT }, () => new Float64Array(J + 1).fill(Infinity)), arco, NT, J);
+      const naLinha = Array.from(longe[0].subarray(5, J - 5));
+      expect(Math.max(...naLinha) - Math.min(...naLinha)).toBeLessThan(0.03);
+      // Com o antagonista áspero logo acima: fica como está, porque subir copiaria a textura dele.
+      const perto = pisoRuidoso();
+      const teto = Array.from({ length: NT }, (_, i) => Float64Array.from({ length: J + 1 }, (_, j) => 6.02 + (((i * 7 + j * 13) % 5) * 0.02)));
+      alisarLimite(perto, teto, arco, NT, J);
+      const antes = pisoRuidoso();
+      for (let i = 0; i < NT; i++) for (let j = 2; j < J - 2; j++) expect(Math.abs(perto[i][j] - antes[i][j])).toBeLessThan(0.01);
+      // Com a espessura passando do antagonista: fica liso, porque não há contato a preservar.
+      const semEspaco = pisoRuidoso();
+      alisarLimite(semEspaco, Array.from({ length: NT }, () => new Float64Array(J + 1).fill(5.5)), arco, NT, J);
+      const emConflito = Array.from(semEspaco[0].subarray(5, J - 5));
+      expect(Math.max(...emConflito) - Math.min(...emConflito)).toBeLessThan(0.03);
+    });
+
+    it('crista marginal da IA só vale em dente posterior', () => {
+      const resposta = { cuspides: [{ nome: 'a', u: 0, w: 0, h: 1 }], cristas: [{ de: [0, 0], ate: [1, 1], lado: 'mesial' }, { de: [0, 0], ate: [1, 1], lado: 'nenhum' }] };
+      expect(validarPlano(resposta, 16).cristas.map((c) => c.lado)).toEqual(['mesial', undefined]);
+      expect(validarPlano(resposta, 11).cristas.map((c) => c.lado)).toEqual([undefined, undefined]);
+    });
+
+    it('a largura VL se aproxima da natural, sem passar do bojo de um dente natural', () => {
+      const base = planoPadrao(16);
+      const vl = (vlMm: number) => casoPronto(null).construirComPlano({ ...base, vlMm }, PARAMETROS).relatorio.vlMm;
+      const natural = vl(base.vlMm);
+      const pedeMais = vl(13);
+      const pedeMenos = vl(6);
+      expect(pedeMais).toBeGreaterThan(natural + 0.3);
+      expect(pedeMenos).toBeLessThan(natural - 0.3);
+      // O bojo vai de 0,5 mm a 1,7 mm somando os dois lados: não adianta pedir além disso.
+      expect(pedeMais - pedeMenos).toBeLessThanOrEqual(1.3);
+    });
+
+    it('os sulcos entram mesmo na coroa, sem quebrar a espessura', () => {
+      const comSulcos = casoPronto(null).construirComPlano(planoPadrao(16), PARAMETROS);
+      const semSulcos = casoPronto(null).construirComPlano({ ...planoPadrao(16), sulcos: [] }, PARAMETROS);
+      expect(comSulcos.relatorio.malha.volume).toBeLessThan(semSulcos.relatorio.malha.volume - 0.5);
+      expect(comSulcos.relatorio.espessuraOclusal!.p5).toBeGreaterThanOrEqual(PARAMETROS.espessuraOclusal - 0.05);
+      expect(comSulcos.relatorio.malha.arestasAbertas).toBe(0);
+    });
+
+    it('a crista marginal acompanha a altura do vizinho', () => {
+      const vizinho = (x: number, topo: number) => revolucao(denso([[0, topo], [3, topo - 0.4], [3.4, 3], [3.8, 0]]), 36, 1, 1, [x, 0, 0]);
+      const alturaNaBorda = (topo: number) => {
+        const s = new Sessao({ meridianos: 60, linhas: 40 });
+        s.abrirArco('arco.stl', escreverStl(juntar(arcoSintetico(), vizinho(8.6, topo), vizinho(-8.6, topo)), 'arco'));
+        const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+        s.abrirDente(16, h!.ponto, h!.normal);
+        const c = s.construirComPlano(planoPadrao(16), PARAMETROS);
+        let maior = -Infinity;
+        for (let v = 0; v < c.externos; v++) {
+          if (Math.abs(c.malha.pos[3 * v]) > 3.6 && Math.abs(c.malha.pos[3 * v + 1]) < 0.8) maior = Math.max(maior, c.malha.pos[3 * v + 2]);
+        }
+        return maior;
+      };
+      // Vizinho baixo pede pouca correção; o alto, a maior que o motor faz. Sem o alinhamento, seriam iguais.
+      expect(alturaNaBorda(8.6)).toBeGreaterThan(alturaNaBorda(6.4) + 0.25);
+    });
+
+    it('o contato com o vizinho entra só a sobreposição pedida, pelo plano também', () => {
+      const vizinho = (x: number) => revolucao(denso([[0, 8], [3, 7.6], [3.4, 3], [3.8, 0]]), 36, 1, 1, [x, 0, 0]);
+      const menorFolga = (folgaVizinho: number) => {
+        const s = new Sessao({ meridianos: 60, linhas: 40 });
+        s.abrirArco('arco.stl', escreverStl(juntar(arcoSintetico(), vizinho(8.6), vizinho(-8.6)), 'arco'));
+        const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+        s.abrirDente(16, h!.ponto, h!.normal);
+        const c = s.construirComPlano(planoPadrao(16), { ...PARAMETROS, folgaVizinho });
+        return Math.min(...Array.from(c.folgaVizinho.subarray(0, c.externos)).filter(Number.isFinite));
+      };
+      const comSobreposicao = menorFolga(-0.03);
+      expect(comSobreposicao).toBeGreaterThan(-0.06);
+      expect(comSobreposicao).toBeLessThan(0.1);
+      expect(menorFolga(0.1)).toBeGreaterThan(0.07);
+    });
+  });
+
   describe('resposta da IA', () => {
     it('aceita pontos como objeto, que é o formato da resposta', () => {
       const p = validarPlano(
@@ -1096,12 +1389,12 @@ describe('Passos CAD — modelagem pelo plano do dente', () => {
       );
       expect(p.cuspides[0]).toEqual({ nome: 'a', u: 0.95, w: -0.95, h: 1.05 });
       expect(p.cristas[0].largura).toBe(1.3);
-      expect(p.sulcos[0].pontos[0][2]).toBe(0.8);
+      expect(p.sulcos[0].pontos[0][2]).toBe(1);
       expect(p.sulcos[0].pontos[1][2]).toBe(0);
       expect(p.centro).toEqual([0.5, -0.5]);
       expect(p.alturaMm).toBeCloseTo(planoPadrao(16).alturaMm * 1.2);
-      expect(p.bojoVestibular).toBe(1.2);
-      expect(p.bojoLingual).toBe(0.1);
+      expect(p.bojoVestibular).toBe(0.7);
+      expect(p.bojoLingual).toBe(0.3);
       expect(p.mesa).toBe(0.95);
     });
 
@@ -1123,7 +1416,8 @@ describe('Passos CAD — modelagem pelo plano do dente', () => {
       const base = planoPadrao(16);
       const baixo = validarPlano({ ...base, cuspides: base.cuspides.map((k) => ({ ...k, h: k.h * 0.6 })) }, 16);
       const c = casoPronto(null).construirComPlano(baixo, PARAMETROS);
-      expect(c.relatorio.alturaMm).toBeLessThan(base.alturaMm * 0.85);
+      // Até onde o preparo deixa: abaixo disso quem manda é a espessura sobre ele.
+      expect(c.relatorio.alturaMm).toBeLessThan(casoPronto(null).construirComPlano(base, PARAMETROS).relatorio.alturaMm - 0.3);
       expect(c.relatorio.malha.arestasAbertas).toBe(0);
     });
 
@@ -1138,7 +1432,7 @@ describe('Passos CAD — modelagem pelo plano do dente', () => {
       const p = validarPlano({ cuspides: muitas, cristas: Array.from({ length: 500 }, () => ({ de: [0, 0], ate: [1, 1] })), sulcos: Array.from({ length: 500 }, () => ({ pontos: Array.from({ length: 500 }, () => [0, 0, 0.1]) })) }, 16);
       expect(p.cuspides.length).toBeLessThanOrEqual(6);
       expect(p.cristas.length).toBeLessThanOrEqual(16);
-      expect(p.sulcos.length).toBeLessThanOrEqual(8);
+      expect(p.sulcos.length).toBeLessThanOrEqual(16);
       expect(p.sulcos[0].pontos.length).toBeLessThanOrEqual(12);
     });
 

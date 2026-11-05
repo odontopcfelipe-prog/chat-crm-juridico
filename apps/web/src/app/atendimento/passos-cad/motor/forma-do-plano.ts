@@ -24,7 +24,10 @@ export interface EntradaDaForma {
   /** Vizinhos e gengiva, sem o troquel. */
   ambiente: Bvh;
   folgaAntagonista: number;
+  /** Espessura mínima na parede. */
   espessuraMinima: number;
+  /** Espessura mínima na face oclusal. */
+  espessuraOclusal: number;
   emergencia: number;
 }
 
@@ -36,6 +39,13 @@ const smin = (a: number, b: number, k: number) => {
 };
 const smax = (a: number, b: number, k: number) => -smin(-a, -b, k);
 
+/** Vizinho mais baixo que isso, em relação ao topo do dente, é preparo ou falha do escaneamento (mm). */
+const ALTURA_MINIMA_DA_CRISTA_VIZINHA = 3;
+/** Até onde a crista marginal sobe ou desce para ficar na altura da do vizinho (mm). */
+const MAIOR_ACERTO_DA_CRISTA = 0.8;
+const RAIO_DO_ACERTO_DA_CRISTA = 1.4;
+/** Onde fica a crista marginal, em relação ao contorno (u). */
+const PONTO_DA_CRISTA = 0.82;
 /** Até onde o contato vai buscar o vizinho; além disso é espaço aberto, não contato. */
 const MAIOR_ALCANCE_DE_CONTATO = 3;
 /** Quanto o contato pode alargar o dente além da largura natural. Espaço maior que isso fica aberto. */
@@ -57,12 +67,21 @@ const SUAVIZA_CAMADA = 0.6;
 /** Largura da descida por causa do antagonista (mm). */
 const LARGURA_DA_DESCIDA = 1.5;
 /** Fica um pouco abaixo do antagonista: assim o corte seco no fim quase não trabalha (mm). */
-const RESERVA_DO_CORTE = 0.03;
+const RESERVA_DO_CORTE = 0.02;
 /** Até onde o desenho anda e gira para as fossas caírem sob as cúspides do antagonista. */
 const DESLOCA_NO_ENCAIXE = [-0.8, -0.4, 0, 0.4, 0.8];
 const GIROS_NO_ENCAIXE = [-14, -7, 0, 7, 14];
 /** Espaço guardado acima da camada para o sulco ter onde entrar (mm). */
-const FOLGA_DOS_SULCOS = 0.22;
+const FOLGA_DOS_SULCOS = 0.35;
+/** Largura da transição onde a camada cede ao antagonista (mm). */
+const SUAVIZA_CEDER = 0.4;
+/** Quanto o piso dos sulcos se afasta de uma cúspide do antagonista (mm). */
+const ALCANCE_DO_PISO = 1;
+/** Onde não há antagonista, o teto fica este tanto acima da camada: longe o bastante para não contar (mm). */
+const SEM_TETO = 5;
+const LARGURA_PADRAO_DO_SULCO = 0.5;
+/** Raio mínimo no fundo do sulco (mm): abaixo disso a fresa não entra. */
+const RAIO_MINIMO_DO_SULCO = 0.15;
 
 export interface FormaDoPlano {
   /** Raio de cada linha da grade de cada meridiano. */
@@ -188,11 +207,12 @@ function alturaProvavel(e: EntradaDaForma, l: Local, natural: number, minima: nu
  * Do centro até o vizinho, nos dois sentidos, só na altura em que os dentes se tocam. O vizinho pode
  * estar inclinado por cima do preparo: o que importa é onde ele está nessa altura, não mais acima.
  */
-function medirVizinhos(e: EntradaDaForma, l: Local, topo: number): { mesial: number | null; distal: number | null } {
+function medirVizinhos(e: EntradaDaForma, l: Local, topo: number, plano: PlanoDoDente): { mesial: number | null; distal: number | null } {
   const medir = (lado: number): number | null => {
+    const fracao = lado > 0 ? plano.contatoMesial : plano.contatoDistal;
     let menor = Infinity;
     for (const lateral of [-1.5, 0, 1.5]) {
-      for (let h = Math.max(1.5, topo * 0.45); h <= Math.max(2, topo * 0.72); h += 0.25) {
+      for (let h = Math.max(1.5, topo * (fracao - 0.15)); h <= Math.max(2, topo * (fracao + 0.08)); h += 0.25) {
         const o = soma(soma(l.base, mul(l.v, lateral)), mul(l.a, h));
         const t = e.ambiente.raio(o, mul(l.m, lado), 14);
         if (t) menor = Math.min(menor, t.t);
@@ -201,6 +221,33 @@ function medirVizinhos(e: EntradaDaForma, l: Local, topo: number): { mesial: num
     return menor === Infinity ? null : menor;
   };
   return { mesial: medir(1), distal: medir(-1) };
+}
+
+/** Bojo natural de cada lado (mm): passar disso é sobrecontorno, e a largura VL se ajusta dentro dele. */
+const BOJO_VESTIBULAR = { menor: 0.2, maior: 0.7 };
+const BOJO_LINGUAL = { menor: 0.3, maior: 1 };
+const TOLERANCIA_NA_VL = 0.1;
+
+/** Bojo que deixa a largura VL perto da natural, começando do que o plano pediu. */
+function bojosDoCaso(plano: PlanoDoDente, vlDaMargem: number): { vestibular: number; lingual: number } {
+  const v = plano.bojoVestibular;
+  const l = plano.bojoLingual;
+  const total = vlDaMargem + v + l;
+  const maior = plano.vlMm * (1 + TOLERANCIA_NA_VL);
+  const menor = plano.vlMm * (1 - TOLERANCIA_NA_VL);
+  if (total > maior) {
+    const sobraV = Math.max(0, v - BOJO_VESTIBULAR.menor);
+    const sobraL = Math.max(0, l - BOJO_LINGUAL.menor);
+    const parte = Math.min(1, (total - maior) / (sobraV + sobraL || 1));
+    return { vestibular: v - sobraV * parte, lingual: l - sobraL * parte };
+  }
+  if (total < menor) {
+    const cabeV = Math.max(0, BOJO_VESTIBULAR.maior - v);
+    const cabeL = Math.max(0, BOJO_LINGUAL.maior - l);
+    const parte = Math.min(1, (menor - total) / (cabeV + cabeL || 1));
+    return { vestibular: v + cabeV * parte, lingual: l + cabeL * parte };
+  }
+  return { vestibular: v, lingual: l };
 }
 
 const LADO_DO_MAPA = 11;
@@ -215,7 +262,7 @@ export function quadroDoCaso(e: EntradaDaForma, arco: Bvh, plano: PlanoDoDente, 
   const pontos = margem.map((p) => local(l, p.ponto));
   const ms = pontos.map((p) => p[0]);
   const vs = pontos.map((p) => p[1]);
-  const viz = medirVizinhos(e, l, alturaProvavel(e, l, Math.max(plano.alturaMm, topo + e.espessuraMinima + 0.9), topo + e.espessuraMinima + 0.3));
+  const viz = medirVizinhos(e, l, alturaProvavel(e, l, Math.max(plano.alturaMm, topo + e.espessuraOclusal + 0.9), topo + e.espessuraOclusal + 0.3), plano);
   // O mesmo tamanho do contorno: até o vizinho, quando ele está perto; senão, a margem com o bojo.
   let aindaCabe = Math.max(0, plano.larguraMm * FOLGA_NA_LARGURA - (Math.max(...ms) - Math.min(...ms) + 1));
   const alcance = (lado: number, margemNoLado: number, dist: number | null) => {
@@ -229,8 +276,9 @@ export function quadroDoCaso(e: EntradaDaForma, arco: Bvh, plano: PlanoDoDente, 
   const mais = alcance(1, Math.max(...ms), viz.mesial);
   const menos = alcance(-1, -Math.min(...ms), viz.distal);
   const md = mais - menos;
-  const vMais = Math.max(...vs) + plano.bojoVestibular;
-  const vMenos = Math.min(...vs) - plano.bojoLingual;
+  const bojos = bojosDoCaso(plano, Math.max(...vs) - Math.min(...vs));
+  const vMais = Math.max(...vs) + bojos.vestibular;
+  const vMenos = Math.min(...vs) - bojos.lingual;
   const vl = vMais - vMenos;
   const cm = (mais + menos) / 2;
   const cv = (vMais + vMenos) / 2;
@@ -278,7 +326,8 @@ export function quadroDoCaso(e: EntradaDaForma, arco: Bvh, plano: PlanoDoDente, 
       vlMm: duasCasas(vl),
       topoDoPreparoMm: duasCasas(topo),
       folgaAntagonistaMm: e.folgaAntagonista,
-      espessuraMinimaMm: e.espessuraMinima,
+      espessuraOclusalMm: e.espessuraOclusal,
+      espessuraAxialMm: e.espessuraMinima,
       vizinhoMesialMm: viz.mesial === null ? null : duasCasas(viz.mesial),
       vizinhoDistalMm: viz.distal === null ? null : duasCasas(viz.distal),
     },
@@ -307,20 +356,6 @@ function interpolar(g: Float64Array, nx: number, ny: number, fx: number, fy: num
     v += wy[b] * (wx[0] * g[k] + wx[1] * g[k + 1] + wx[2] * g[k + 2] + wx[3] * g[k + 3]);
   }
   return v;
-}
-
-/** Teto em um ponto: onde não há antagonista em volta, não há teto. Sem curva: infinito estragaria a conta. */
-function tetoNoPonto(g: Float64Array, nx: number, ny: number, fx: number, fy: number): number {
-  const x = limita(Math.floor(fx), 0, nx - 2);
-  const y = limita(Math.floor(fy), 0, ny - 2);
-  const tx = fx - x;
-  const ty = fy - y;
-  const a = g[x + y * nx];
-  const b = g[x + 1 + y * nx];
-  const c = g[x + (y + 1) * nx];
-  const d = g[x + 1 + (y + 1) * nx];
-  if (a === Infinity || b === Infinity || c === Infinity || d === Infinity) return Math.min(a, b, c, d);
-  return a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + d * tx * ty;
 }
 
 /** Borra em duas direções: o mesmo que uma gaussiana, em bem menos contas. */
@@ -352,6 +387,43 @@ function borrar(g: Float64Array, nx: number, ny: number, sigma: number): Float64
   return out;
 }
 
+/**
+ * Até onde o relevo pode descer ao abrir um sulco: a camada de espessura mais uma folga, sem passar do
+ * antagonista. Liso, porque seguir o teto cru copiaria a cúspide dele, que é a marca de mordida.
+ */
+export function pisoDosSulcos(teto: Float64Array, camada: Float64Array, nx: number, ny: number): Float64Array {
+  const liso = tetoLiso(teto, camada, nx, ny);
+  const piso = new Float64Array(nx * ny);
+  for (let k = 0; k < piso.length; k++) piso[k] = Math.max(camada[k], Math.min(camada[k] + FOLGA_DOS_SULCOS, liso[k]));
+  return piso;
+}
+
+/**
+ * Versão lisa de um teto, sempre abaixo dele. Pega o menor valor em volta e borra só até esse alcance: é
+ * uma média de valores já abaixo do teto do ponto. Prender depois de borrar também garantiria isso, mas
+ * devolve a borda seca, que na coroa vira um anel.
+ */
+function tetoLiso(teto: Float64Array, referencia: Float64Array, nx: number, ny: number): Float64Array {
+  const negativo = new Float64Array(nx * ny);
+  for (let k = 0; k < negativo.length; k++) negativo[k] = -(teto[k] === Infinity ? referencia[k] + SEM_TETO : teto[k]);
+  const raio = Math.ceil(ALCANCE_DO_PISO / PASSO_DOS_LIMITES);
+  const liso = borrar(dilatar(negativo, nx, ny, raio), nx, ny, raio / 2.5);
+  for (let k = 0; k < liso.length; k++) liso[k] = -liso[k];
+  return liso;
+}
+
+/**
+ * A camada é mais grossa que o mínimo, porque foi dilatada e alisada. Onde o antagonista chega abaixo
+ * dela, ela cede até a espessura de verdade. Sem isso, quem resolve é o corte no fim, ponto a ponto, e a
+ * oclusal copia o escaneamento dele: fica áspera, ou com um anel em volta de cada cúspide.
+ */
+export function camadaSobOAntagonista(camada: Float64Array, piso: Float64Array, zAnt: Float64Array, folga: number, nx: number, ny: number): void {
+  const teto = new Float64Array(nx * ny);
+  for (let k = 0; k < teto.length; k++) teto[k] = zAnt[k] === Infinity ? Infinity : zAnt[k] - folga;
+  const liso = tetoLiso(teto, camada, nx, ny);
+  for (let k = 0; k < camada.length; k++) camada[k] = Math.max(piso[k], -smax(-camada[k], -liso[k], SUAVIZA_CEDER));
+}
+
 function dilatar(g: Float64Array, nx: number, ny: number, r: number): Float64Array {
   const tmp = new Float64Array(nx * ny);
   for (let y = 0; y < ny; y++) {
@@ -373,7 +445,7 @@ function dilatar(g: Float64Array, nx: number, ny: number, r: number): Float64Arr
 }
 
 /** Cúspides e cristas do plano, em mm no caso. */
-function relevoDoPlano(plano: PlanoDoDente, cm: number, cv: number, md: number, vl: number, alturaDeCada: (c: Cuspide) => number, alturaH: number) {
+function relevoDoPlano(plano: PlanoDoDente, cm: number, cv: number, md: number, vl: number, alturaDeCada: (c: Cuspide) => number, alturaH: number, cristaDoVizinho: { mesial: number | null; distal: number | null }) {
   const emMm = (u: number, w: number): [number, number] => [cm + (u * md) / 2, cv + (w * vl) / 2];
   const escala = (md + vl) / 21;
   const [fm, fv] = emMm(plano.centro[0], plano.centro[1]);
@@ -410,6 +482,7 @@ function relevoDoPlano(plano: PlanoDoDente, cm: number, cv: number, md: number, 
     }
     return pesos ? total / pesos : 0;
   };
+  const pontaMaisAlta = Math.max(...cones.map((c) => c.t));
   const cristas = plano.cristas.map((c: Crista) => {
     const p0 = emMm(c.de[0], c.de[1]);
     const p1 = emMm(c.ate[0], c.ate[1]);
@@ -433,22 +506,41 @@ function relevoDoPlano(plano: PlanoDoDente, cm: number, cv: number, md: number, 
     const hc = (1 - t) * (1 - 2 * t) * c.h0 + 4 * t * (1 - t) * c.hm + t * (2 * t - 1) * c.h1;
     return hc - (1.05 * d * d) / (d + c.w);
   };
-  return (m: number, v: number) => {
+  const semAcerto = (m: number, v: number) => {
     let H = -Infinity;
     for (const c of cones) H = H === -Infinity ? cone(c, m, v) : smax(H, cone(c, m, v), 0.4);
     for (const c of cristas) H = smax(H, crista(c, m, v), 0.32);
     return H;
   };
+  // Crista marginal desnivelada em relação ao vizinho prende comida. Sobe ou desce só a borda do dente
+  // desse lado, numa curva suave. Só nos posteriores: quem tem crista marginal marcada no plano.
+  const acertos = (['mesial', 'distal'] as const).flatMap((lado) => {
+    const alvo = cristaDoVizinho[lado];
+    if (alvo === null || !plano.cristas.some((c) => c.lado === lado)) return [];
+    const [m, v] = emMm(lado === 'mesial' ? PONTO_DA_CRISTA : -PONTO_DA_CRISTA, 0);
+    const agora = semAcerto(m, v);
+    const passo = limita(Math.min(alvo, pontaMaisAlta - 0.15) - agora, -MAIOR_ACERTO_DA_CRISTA, MAIOR_ACERTO_DA_CRISTA);
+    return Math.abs(passo) < 0.05 ? [] : [{ m, v, passo }];
+  });
+  const raioM = RAIO_DO_ACERTO_DA_CRISTA * escala;
+  const raioV = 0.5 * vl;
+  const acertoEm = (m: number, v: number) => {
+    let total = 0;
+    for (const a of acertos) total += a.passo * Math.exp(-(((m - a.m) / raioM) ** 2 + ((v - a.v) / raioV) ** 2));
+    return total;
+  };
+  return (m: number, v: number) => semAcerto(m, v) + acertoEm(m, v);
 }
 
 /** Quanto cada sulco desce em cada ponto: entra por último, sempre acima da camada de espessura. */
 function profundidadeDosSulcos(plano: PlanoDoDente, cm: number, cv: number, md: number, vl: number) {
   const emMm = (u: number, w: number): [number, number] => [cm + (u * md) / 2, cv + (w * vl) / 2];
-  const largura = 0.042 * (md + vl);
   const trechos = plano.sulcos.flatMap((s) =>
     s.pontos.slice(0, -1).map((a, i) => {
       const b = s.pontos[i + 1];
-      return { a: emMm(a[0], a[1]), b: emMm(b[0], b[1]), pa: a[2], pb: b[2] };
+      // Fundo fechado demais não dá para fresar e lasca: a largura cresce com a profundidade.
+      const w = Math.max(s.largura ?? LARGURA_PADRAO_DO_SULCO, Math.sqrt(2 * Math.max(a[2], b[2]) * RAIO_MINIMO_DO_SULCO));
+      return { a: emMm(a[0], a[1]), b: emMm(b[0], b[1]), pa: a[2], pb: b[2], w };
     }),
   );
   return (m: number, v: number) => {
@@ -460,7 +552,7 @@ function profundidadeDosSulcos(plano: PlanoDoDente, cm: number, cv: number, md: 
       const d = Math.hypot(m - (s.a[0] + t * dx), v - (s.a[1] + t * dy));
       const p = s.pa + t * (s.pb - s.pa);
       // Curva de sino: sem borda dura e com o fundo aberto, que é o que uma broca consegue fresar.
-      const q = p * Math.exp(-((d / largura) ** 2));
+      const q = p * Math.exp(-((d / s.w) ** 2));
       if (q > maior) maior = q;
     }
     return maior;
@@ -510,6 +602,7 @@ function moverPlano(p: PlanoDoDente, du: number, dw: number, grau: number, razao
     }),
     cristas: p.cristas.map((k) => ({ ...k, de: mover(k.de[0], k.de[1]), ate: mover(k.ate[0], k.ate[1]) })),
     sulcos: p.sulcos.map((k) => ({
+      ...k,
       pontos: k.pontos.map(([u, w, f]) => {
         const [a, b] = mover(u, w);
         return [a, b, f] as [number, number, number];
@@ -527,8 +620,8 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
   const topoPrep = local(l, prep.topo)[2];
   const maisAltaDoPlano = Math.max(...plano.cuspides.map((c) => c.h));
   // h × altura é a conta que a IA recebe. O preparo alto pede dente mais alto, sem mudar a proporção.
-  const alturaH = Math.max(plano.alturaMm, topoPrep + e.espessuraMinima + 0.9);
-  const topoEstimado = alturaProvavel(e, l, alturaH * maisAltaDoPlano, topoPrep + e.espessuraMinima + 0.3);
+  const alturaH = Math.max(plano.alturaMm, topoPrep + e.espessuraOclusal + 0.9);
+  const topoEstimado = alturaProvavel(e, l, alturaH * maisAltaDoPlano, topoPrep + e.espessuraOclusal + 0.3);
 
   // ---------- margem em volta do eixo ----------
   const rm = new Float64Array(NT);
@@ -554,15 +647,25 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
   const fracaoDoContorno = (i: number) => {
     const vest = Math.max(0, senT[i]);
     const ling = Math.max(0, -senT[i]);
-    return plano.contornoVestibular * vest * vest + plano.contornoLingual * ling * ling + 0.62 * cosT[i] * cosT[i];
+    return plano.contornoVestibular * vest * vest + plano.contornoLingual * ling * ling + (cosT[i] > 0 ? plano.contatoMesial : plano.contatoDistal) * cosT[i] * cosT[i];
   };
   const tanEmergencia = Math.tan(e.emergencia * GRAU);
   let topoDoPerfil = topoEstimado;
   let contorno: Float64Array = new Float64Array(NT);
-  for (let i = 0; i < NT; i++) {
-    const vest = Math.max(0, senT[i]);
-    const ling = Math.max(0, -senT[i]);
-    contorno[i] = rms[i] + plano.bojoVestibular * vest * vest + plano.bojoLingual * ling * ling + 0.5 * cosT[i] * cosT[i];
+  {
+    let mn = Infinity;
+    let mx = -Infinity;
+    for (let i = 0; i < NT; i++) {
+      const v = rms[i] * senT[i];
+      mn = Math.min(mn, v);
+      mx = Math.max(mx, v);
+    }
+    const bojos = bojosDoCaso(plano, mx - mn);
+    for (let i = 0; i < NT; i++) {
+      const vest = Math.max(0, senT[i]);
+      const ling = Math.max(0, -senT[i]);
+      contorno[i] = rms[i] + bojos.vestibular * vest * vest + bojos.lingual * ling * ling + 0.5 * cosT[i] * cosT[i];
+    }
   }
   const alturaZc = (i: number, topo: number) => Math.max(zms[i] + 0.6, zms[i] + Math.max(0.8, topo - zms[i]) * fracaoDoContorno(i));
   /** Quanto o contorno vale em cada altura: 0 na margem, 1 no ponto mais largo. */
@@ -613,7 +716,8 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
         const dz = pz - zms[i];
         if (dz < 0.5) continue;
         // Perto da margem a espessura vai diminuindo até a lâmina, como no limite do motor.
-        const pedida = dz < 0.2 ? 0.05 : 0.23 + (e.espessuraMinima - 0.2) * passoSuave(0.2, 1.5, dz);
+        // Na parede vale a espessura axial; o topo é da camada oclusal.
+        const pedida = dz < 0.2 ? 0.05 : 0.23 + Math.max(0, e.espessuraMinima - 0.2) * passoSuave(0.2, 1.5, dz);
         const precisa = Math.hypot(pm - O[0], pv - O[1]) + pedida;
         const tem = perfilCom(contorno, i, pz, topoEstimado);
         if (precisa <= tem) continue;
@@ -632,7 +736,7 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
   contorno = raioConvexo(contorno, cosT, senT);
 
   // Mesial e distal vão até o vizinho, numa curva larga: sem isso o contato vira um bico.
-  const viz = medirVizinhos(e, l, topoEstimado);
+  const viz = medirVizinhos(e, l, topoEstimado, plano);
   const larguraAgora = () => {
     let mn = Infinity;
     let mx = -Infinity;
@@ -733,12 +837,13 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
       const x = Math.round((pm - m0) / PASSO_DOS_LIMITES);
       const y = Math.round((pv - v0) / PASSO_DOS_LIMITES);
       if (x >= 0 && y >= 0 && x < lx && y < ly) {
-        piso[x + y * lx] = Math.max(piso[x + y * lx], pz + e.espessuraMinima);
+        piso[x + y * lx] = Math.max(piso[x + y * lx], pz + e.espessuraOclusal);
         zPrepExiste[x + y * lx] = 1;
       }
     }
   }
   const camada = borrar(dilatar(piso, lx, ly, Math.ceil(ALCANCE_DA_CAMADA / PASSO_DOS_LIMITES)), lx, ly, SUAVIZA_CAMADA / PASSO_DOS_LIMITES);
+  if (e.antagonista) camadaSobOAntagonista(camada, piso, zAnt, e.folgaAntagonista + RESERVA_DO_CORTE, lx, ly);
 
   // ---------- cada cúspide assenta: encosta no antagonista, sem passar da altura de um dente ----------
   const camadaEm = (m: number, v: number) => interpolar(camada, lx, ly, (m - m0) / PASSO_DOS_LIMITES, (v - v0) / PASSO_DOS_LIMITES);
@@ -762,6 +867,24 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
     const alvo = limite < natural ? limite : limite - natural < 1.2 ? limite : natural;
     return Math.max(alvo, minima);
   };
+  // A crista do vizinho, um pouco além do nosso contorno. Vizinho muito baixo é preparo ou falha: não vale.
+  const medirCristaDoVizinho = (lado: number): number | null => {
+    const cima = topoEstimado + 8;
+    const alturas: number[] = [];
+    for (const d of [0.5, 0.9, 1.3]) {
+      for (const dv of [-0.22 * vl, 0, 0.22 * vl]) {
+        const h = e.ambiente.raio(pontoDaGrade(cm + lado * (md / 2 + d), cv + dv, cima), mul(l.a, -1), 16);
+        if (h) alturas.push(cima - h.t);
+      }
+    }
+    if (alturas.length < 5) return null;
+    // Mediana: a crista do vizinho, e não a ponta de uma cúspide dele que caiu na amostra.
+    alturas.sort((a, b) => a - b);
+    const crista = alturas[Math.floor(alturas.length / 2)];
+    return crista >= topoEstimado - ALTURA_MINIMA_DA_CRISTA_VIZINHA ? crista : null;
+  };
+  const cristaDoVizinho = { mesial: medirCristaDoVizinho(1), distal: medirCristaDoVizinho(-1) };
+
   // Sem antagonista não há o que encaixar. Com ele, escolhe a posição em que menos precisa descer.
   // Só vale andar se ajudar de verdade: o desenho no meio do dente também conta ponto.
   if (e.antagonista) {
@@ -772,7 +895,7 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
       for (const dv of DESLOCA_NO_ENCAIXE) {
         for (const giro of GIROS_NO_ENCAIXE) {
           const movido = moverPlano(planoPedido, (2 * dm) / md, (2 * dv) / vl, giro, razao);
-          const r = relevoDoPlano(movido, cm, cv, md, vl, alturaDeCada, alturaH);
+          const r = relevoDoPlano(movido, cm, cv, md, vl, alturaDeCada, alturaH, cristaDoVizinho);
           let sobra = 0;
           for (let y = 0; y < ly; y += 2) {
             for (let x = 0; x < lx; x += 2) {
@@ -794,9 +917,21 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
     }
     plano = melhor;
   }
-  const relevo = relevoDoPlano(plano, cm, cv, md, vl, alturaDeCada, alturaH);
+  const relevo = relevoDoPlano(plano, cm, cv, md, vl, alturaDeCada, alturaH, cristaDoVizinho);
   const sulcos = profundidadeDosSulcos(plano, cm, cv, md, vl);
 
+  // A ponta de uma cúspide dele cai entre as células da grade: sem esta margem, quem pega é o corte
+  // seco no fim, e sobra uma marca com borda.
+  const zAntSeguro = new Float64Array(lx * ly);
+  for (let y = 0; y < ly; y++) {
+    for (let x = 0; x < lx; x++) {
+      let menor = Infinity;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) menor = Math.min(menor, zAnt[limita(x + dx, 0, lx - 1) + limita(y + dy, 0, ly - 1) * lx]);
+      }
+      zAntSeguro[x + y * lx] = menor;
+    }
+  }
   const grossa = new Float64Array(lx * ly);
   const teto = new Float64Array(lx * ly);
   for (let y = 0; y < ly; y++) {
@@ -804,10 +939,14 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
       const k = x + y * lx;
       grossa[k] = relevo(m0 + x * PASSO_DOS_LIMITES, v0 + y * PASSO_DOS_LIMITES);
       // Onde não há espaço para os dois, quem manda é a espessura.
-      teto[k] = zAnt[k] === Infinity ? Infinity : Math.max(zAnt[k] - e.folgaAntagonista - RESERVA_DO_CORTE, camada[k]);
+      teto[k] = zAntSeguro[k] === Infinity ? Infinity : Math.max(zAntSeguro[k] - e.folgaAntagonista - RESERVA_DO_CORTE, camada[k]);
     }
   }
   const descida = descerSobOAntagonista(grossa, teto, lx, ly, PASSO_DOS_LIMITES);
+  // Espaço guardado para os sulcos, sem passar do antagonista. Só o teto dele é alisado: se a superfície
+  // seguisse o teto cru, copiaria a cúspide dele, que é a marca de mordida de novo. A camada fica de
+  // fora: alisá-la junto consome a folga onde ela é curva, e o sulco fica sem onde entrar.
+  const pisoLiso = pisoDosSulcos(teto, camada, lx, ly);
   let maiorDescida = 0;
   for (let k = 0; k < descida.length; k++) maiorDescida = Math.max(maiorDescida, descida[k]);
 
@@ -822,9 +961,7 @@ export function construirForma(e: EntradaDaForma, planoPedido: PlanoDoDente, dir
       const fx = (m - m0) / PASSO_DOS_LIMITES;
       const fy = (v - v0) / PASSO_DOS_LIMITES;
       const c = interpolar(camada, lx, ly, fx, fy);
-      const tetoAqui = tetoNoPonto(teto, lx, ly, fx, fy);
-      const piso2 = Number.isFinite(tetoAqui) ? Math.min(c + FOLGA_DOS_SULCOS, Math.max(tetoAqui, c)) : c + FOLGA_DOS_SULCOS;
-      const baseH = smax(relevo(m, v) - interpolar(descida, lx, ly, fx, fy), piso2, 0.6);
+      const baseH = smax(relevo(m, v) - interpolar(descida, lx, ly, fx, fy), interpolar(pisoLiso, lx, ly, fx, fy), 0.6);
       // Quanto menos espaço acima da camada, mais raso o sulco: um limite seco deixaria uma plaquinha.
       const espaco = Math.max(0.001, baseH - c);
       mapa[x + y * nx] = baseH - espaco * (1 - Math.exp(-sulcos(m, v) / espaco));

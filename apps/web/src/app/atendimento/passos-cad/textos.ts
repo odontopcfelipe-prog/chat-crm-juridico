@@ -76,7 +76,8 @@ export const TEXTOS = Object.freeze({
   verAntagonista: 'Antagonista',
   pCimento: 'Espaço de cimento (mm)',
   pInicioCimento: 'Cimento começa a (mm da margem)',
-  pEspessura: 'Espessura mínima (mm)',
+  pEspessura: 'Espessura mínima na parede (mm)',
+  pEspessuraOclusal: 'Espessura mínima na oclusal (mm)',
   pAntagonista: 'Folga do antagonista (mm)',
   pVizinho: 'Folga do vizinho (mm)',
   recalcular: 'Recalcular a coroa',
@@ -161,12 +162,12 @@ export const MAPAS: readonly { id: MapaId; nome: string }[] = Object.freeze([
 ]);
 
 export const MATERIAIS: readonly { id: string; nome: string; parametros: Parametros }[] = Object.freeze([
-  { id: 'zirconia', nome: 'Zircônia', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 0.6 } },
-  { id: 'dissilicato', nome: 'Dissilicato de lítio', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0 } },
-  { id: 'feldspatica', nome: 'Feldspática', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0 } },
-  { id: 'hibrida', nome: 'Cerâmica híbrida', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0 } },
-  { id: 'pmma', nome: 'PMMA (provisório)', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, cimento: 0.1 } },
-  { id: 'metal', nome: 'Metal', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 0.4 } },
+  { id: 'zirconia', nome: 'Zircônia', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 0.6, espessuraOclusal: 0.8 } },
+  { id: 'dissilicato', nome: 'Dissilicato de lítio', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.5 } },
+  { id: 'feldspatica', nome: 'Feldspática', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.5 } },
+  { id: 'hibrida', nome: 'Cerâmica híbrida', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.5 } },
+  { id: 'pmma', nome: 'PMMA (provisório)', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.2, cimento: 0.1 } },
+  { id: 'metal', nome: 'Metal', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 0.4, espessuraOclusal: 0.4 } },
 ]);
 
 export const AJUSTES_DA_ANATOMIA: readonly {

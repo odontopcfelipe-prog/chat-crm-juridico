@@ -13,6 +13,7 @@ import {
   arcoSemTroquel,
   construirCoroa,
   eixosDoDente,
+  normalizarParametros,
   posicionarAutomatico,
   type Ajuste,
   type EntradaCoroa,
@@ -33,6 +34,7 @@ export interface ResumoDente {
 export interface ResumoCoroa {
   malha: Malha;
   espessura: Float32Array;
+  espessuraPedida: Float32Array;
   folgaAntagonista: Float32Array;
   folgaVizinho: Float32Array;
   corteFresa: Float32Array;
@@ -159,8 +161,9 @@ export class Sessao {
     };
   }
 
-  private entrada(p: Parametros): EntradaCoroa {
+  private entrada(bruto: Parametros): EntradaCoroa {
     if (!this.recorteB || !this.prep || !this.margem || !this.eixos || !this.anatomia) throw new Error('Faltam o preparo, a margem ou a anatomia.');
+    const p = normalizarParametros(bruto);
     return {
       arco: this.recorteB,
       antagonista: this.antB,
@@ -205,14 +208,15 @@ export class Sessao {
     this.coroa = construirCoroa(this.entrada(p), this.ambiente as Bvh, aj, this.grade.linhas);
     this.escultor = null;
     const c = this.coroa;
-    return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
+    return { malha: c.malha, espessura: c.espessura, espessuraPedida: c.espessuraPedida, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
   }
 
   /** O que a IA recebe: número do dente e medidas em mm, nada do arquivo. */
-  quadroParaIa(p: Parametros): PedidoDesenhoIa {
+  quadroParaIa(bruto: Parametros): PedidoDesenhoIa {
     if (!this.recorteB || !this.prep || !this.margem || !this.eixos || !this.ambiente) throw new Error('Faltam o preparo ou a margem.');
+    const p = normalizarParametros(bruto);
     return quadroDoCaso(
-      { prep: this.prep, margem: this.margem, eixos: this.eixos, antagonista: this.antB, ambiente: this.ambiente, folgaAntagonista: p.folgaAntagonista, espessuraMinima: p.espessuraMinima, emergencia: p.emergencia },
+      { prep: this.prep, margem: this.margem, eixos: this.eixos, antagonista: this.antB, ambiente: this.ambiente, folgaAntagonista: p.folgaAntagonista, espessuraMinima: p.espessuraMinima, espessuraOclusal: p.espessuraOclusal, emergencia: p.emergencia },
       this.recorteB,
       planoPadrao(this.fdi),
       this.fdi,
@@ -220,8 +224,9 @@ export class Sessao {
   }
 
   /** Modelagem pelo plano do dente: não usa a biblioteca. */
-  construirComPlano(plano: PlanoDoDente, p: Parametros): ResumoCoroa {
+  construirComPlano(plano: PlanoDoDente, bruto: Parametros): ResumoCoroa {
     if (!this.recorteB || !this.prep || !this.margem || !this.eixos) throw new Error('Faltam o preparo ou a margem.');
+    const p = normalizarParametros(bruto);
     this.parametros = p;
     const e: EntradaCoroa = {
       arco: this.recorteB,
@@ -238,7 +243,7 @@ export class Sessao {
     this.coroa = construirCoroa(e, this.ambiente as Bvh, semAjuste, this.grade.linhas);
     this.escultor = null;
     const c = this.coroa;
-    return { malha: c.malha, espessura: c.espessura, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
+    return { malha: c.malha, espessura: c.espessura, espessuraPedida: c.espessuraPedida, folgaAntagonista: c.folgaAntagonista, folgaVizinho: c.folgaVizinho, corteFresa: c.corteFresa, externos: c.externos, relatorio: c.relatorio };
   }
 
   private pincel(): Escultor {
