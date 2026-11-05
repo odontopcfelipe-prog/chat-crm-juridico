@@ -30,7 +30,7 @@ export const TEXTOS = Object.freeze({
   clienteOutros: 'Outros nomes já usados',
   clienteBuscando: 'Buscando no cadastro...',
   clienteFalhou: 'Não deu para abrir o cadastro agora. Digite o nome.',
-  clienteVazio: 'Nenhum dentista na sua lista. Digite o nome.',
+  clienteVazio: 'Nenhum dentista no cadastro. Digite o nome.',
   clienteSemAchado: 'Nenhum nome parecido. Pode seguir com o que digitou.',
   clienteMais: 'Continue digitando para achar outros nomes.',
   fichaPaciente: 'Paciente do caso',

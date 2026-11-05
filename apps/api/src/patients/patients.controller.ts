@@ -203,14 +203,16 @@ export class PatientsController {
 
   /**
    * Passos CAD: só os nomes, para a lista da ficha do caso. Documento e contato não saem
-   * por aqui. Vale a mesma carteira da lista completa. ANTES de @Get(':id').
+   * por aqui. No laboratório lista a conta inteira, por decisão do dono: o técnico recebe
+   * caso de qualquer dentista. Na clínica vale a carteira. ANTES de @Get(':id').
    */
   @RequiresPermission('view_patients')
   @Get('nomes')
   async nomes(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.patientsService.nomes(tenantId, await this.ownerFor(req));
+    const carteira = pedidoDeLaboratorio(req.user) ? null : await this.ownerFor(req);
+    return this.patientsService.nomes(tenantId, carteira);
   }
 
   /** Aniversariantes do periodo (today | week | month). */

@@ -1,12 +1,14 @@
 /**
  * Passos CAD — lista de clientes da ficha do caso (GET /patients/nomes).
  *
- * Só o nome sai da API: nem documento nem contato. Conta, arquivados e carteira filtram como na
- * lista completa. A rota tem de estar liberada para o laboratório, senão a tela leva 403 em
+ * Só o nome sai da API: nem documento nem contato. Conta e arquivados filtram sempre. No laboratório
+ * a lista é da conta inteira, mesmo para o protético sem "ver todos" (decisão do dono); na clínica
+ * vale a carteira. A rota tem de estar liberada para o laboratório, senão a tela leva 403 em
  * produção, e tem de vir antes de @Get(':id'), senão "nomes" vira um id.
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { BT_LABORATORIO, __limparCacheLabTenants } from '@crm/shared';
 import { PatientsController } from './patients.controller';
 import { PatientsService } from './patients.service';
 import { ownPatientsWhere } from '../auth/patient-scope';
@@ -57,7 +59,15 @@ describe('PatientsController.nomes', () => {
     const svc = { nomes: jest.fn().mockResolvedValue(['Dra. Ana']) };
     return { svc, ctrl: new PatientsController(svc as any, {} as any, {} as any, {} as any) };
   }
+  beforeEach(() => __limparCacheLabTenants());
   afterEach(() => jest.restoreAllMocks());
+
+  it('laboratório: o protético sem "ver todos" vê a conta inteira', async () => {
+    jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['view_patients', 'create_evaluation']) as any);
+    const m = montar();
+    await m.ctrl.nomes({ user: { id: 'u4', roles: ['OPERADOR'], tenant_id: CONTA, bt: BT_LABORATORIO } });
+    expect(m.svc.nomes).toHaveBeenCalledWith(CONTA, null);
+  });
 
   it('administrador vê todos', async () => {
     const m = montar();
@@ -65,7 +75,7 @@ describe('PatientsController.nomes', () => {
     expect(m.svc.nomes).toHaveBeenCalledWith(CONTA, null);
   });
 
-  it('sem "ver todos" fica preso à própria carteira', async () => {
+  it('clínica: sem "ver todos" fica preso à própria carteira', async () => {
     jest.spyOn(PermissionsGuard, 'permissionsFor').mockResolvedValue(new Set(['view_patients', 'create_evaluation']) as any);
     const m = montar();
     await m.ctrl.nomes({ user: { id: 'u2', roles: ['OPERADOR'], tenant_id: CONTA } });
