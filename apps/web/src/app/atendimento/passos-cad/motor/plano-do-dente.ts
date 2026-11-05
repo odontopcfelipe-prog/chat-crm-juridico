@@ -22,6 +22,8 @@ export interface PedidoDesenhoIa {
     folgaAntagonistaMm: number;
     espessuraOclusalMm: number;
     espessuraAxialMm: number;
+    /** Altura, na mesma escala dos mapas, em que fica h = 1. */
+    alturaDoDenteMm: number;
     vizinhoMesialMm: number | null;
     vizinhoDistalMm: number | null;
   };
@@ -80,6 +82,8 @@ export interface PlanoDoDente {
   contatoDistal: number;
   /** Largura da face oclusal em relação ao contorno (0,5 a 0,95). */
   mesa: number;
+  /** Incisivo ou canino: a altura conta da margem vestibular, e a borda anda mais para fugir do dente oposto. */
+  anterior?: boolean;
 }
 
 type Anatomia = Omit<PlanoDoDente, 'alturaMm' | 'larguraMm' | 'vlMm'>;
@@ -279,7 +283,7 @@ function preMolarInferior(unidade: number): Anatomia {
 
 function canino(superior: boolean): Anatomia {
   // A ponta fica para a mesial: a aresta mesial é mais curta que a distal.
-  const ponta = lobo('ponta', superior ? 0.12 : 0.18, superior ? 0.2 : 0.1, 1);
+  const ponta = lobo('ponta', superior ? 0.12 : 0.18, superior ? 0.36 : 0.1, 1);
   const cingulo = lobo('cingulo', 0, -0.76, superior ? 0.38 : 0.28);
   const cristas: Crista[] = [
     { de: [ponta.u, ponta.w], ate: [0.86, 0.12], hDe: 0.99, hMeio: 0.9, hAte: 0.8, largura: 0.85 },
@@ -352,7 +356,7 @@ export function planoPadrao(fdi: number): PlanoDoDente {
   const unidade = fdi % 10;
   const superior = quadrante === 1 || quadrante === 2;
   const [alturaMm, larguraMm, vlMm] = (superior ? MEDIDAS_SUPERIORES : MEDIDAS_INFERIORES)[unidade - 1];
-  return { ...anatomiaDoDente(unidade, superior), alturaMm, larguraMm, vlMm };
+  return { ...anatomiaDoDente(unidade, superior), alturaMm, larguraMm, vlMm, anterior: unidade <= 3 };
 }
 
 const numero = (v: unknown, padrao: number, a: number, b: number): number => (typeof v === 'number' && Number.isFinite(v) ? limita(v, a, b) : padrao);
@@ -447,5 +451,6 @@ export function validarPlano(bruto: unknown, fdi: number): PlanoDoDente {
     contatoMesial: numero(r.contatoMesial, base.contatoMesial, 0.4, 0.9),
     contatoDistal: numero(r.contatoDistal, base.contatoDistal, 0.4, 0.9),
     mesa: numero(r.mesa, base.mesa, 0.5, 0.95),
+    anterior: base.anterior,
   };
 }

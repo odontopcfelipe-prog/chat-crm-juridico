@@ -7,7 +7,7 @@
  */
 
 const LADO_DO_MAPA = 11;
-const CAMPOS_DAS_MEDIDAS = ['mdMm', 'vlMm', 'topoDoPreparoMm', 'folgaAntagonistaMm', 'espessuraOclusalMm', 'espessuraAxialMm', 'vizinhoMesialMm', 'vizinhoDistalMm'] as const;
+const CAMPOS_DAS_MEDIDAS = ['mdMm', 'vlMm', 'topoDoPreparoMm', 'folgaAntagonistaMm', 'espessuraOclusalMm', 'espessuraAxialMm', 'alturaDoDenteMm', 'vizinhoMesialMm', 'vizinhoDistalMm'] as const;
 /** Só os nomes que o motor usa. Texto livre aqui viraria instrução para a IA. */
 const NOMES_DE_CUSPIDE = new Set([
   'vestibular', 'palatina', 'lingual', 'distal', 'ponta', 'cingulo',
@@ -75,7 +75,7 @@ Você não gera malha. Devolve um plano de cúspides, cristas e sulcos, e um mot
 
 COORDENADAS DO PLANO
 - u vai de -1 (distal) a 1 (mesial); w vai de -1 (lingual ou palatina) a 1 (vestibular). Os valores são relativos ao contorno do dente.
-- h vai de 0 (margem) a 1 (altura natural do dente, em "alturaMm").
+- h vai de 0 a 1, e h = 1 fica na altura "alturaDoDenteMm" das medidas, na mesma escala dos mapas. "alturaMm" é o comprimento natural da coroa, que nos anteriores conta da margem vestibular.
 - A profundidade de um sulco ("prof") é em mm abaixo do relevo em volta.
 - A "largura" de um sulco é em mm: cerca de 0,5 nos principais, 0,3 nos secundários e 0,85 nas fossas rasas. A "largura" de uma crista é relativa (1 = normal).
 - "lado" de uma crista: "mesial" ou "distal" na crista marginal daquele lado, e "nenhum" nas outras. O motor põe a crista marginal na altura da do vizinho. Dentes anteriores não têm crista marginal.
@@ -89,10 +89,11 @@ Cada mapa tem 11 linhas e 11 colunas. A primeira linha é w = 1 (vestibular) e a
 COMO DESENHAR
 1. Comece do planoInicial, que já tem a anatomia correta para este dente, e mude só o que o caso pedir.
 2. Coloque as pontas das nossas cúspides onde o antagonista está mais alto (a fossa dele) e as nossas fossas e sulcos onde ele está mais baixo (a cúspide dele). Nunca ponta contra ponta.
-3. A ponta da cúspide (h × alturaMm) não pode passar da altura do antagonista naquele ponto menos a folgaAntagonistaMm. O motor abaixa o que passar, mas o desenho fica melhor se você já respeitar isso.
+3. A ponta da cúspide (h × alturaDoDenteMm) não pode passar da altura do antagonista naquele ponto menos a folgaAntagonistaMm. O motor abaixa o que passar, mas o desenho fica melhor se você já respeitar isso.
 4. Toda a face oclusal precisa ficar acima do preparo somado à espessuraOclusalMm (nas paredes vale a espessuraAxialMm). Onde o espaço for pequeno, use relevo mais baixo e sulcos mais rasos.
 5. Mantenha a anatomia daquele dente: número de cúspides, proporção entre elas e caminho dos sulcos. Sulcos ligam as fossas e terminam antes da borda.
-6. Faça mudanças suaves: é um dente natural, sem pontas agudas, simetria perfeita ou exageros.
+6. Nos anteriores, o dente de baixo passa por trás da borda, não embaixo dela: deixe a borda ou a ponta na parte vestibular, onde o mapaAntagonista é alto ou null, e desça a face palatina até o cíngulo passando abaixo do dente de baixo.
+7. Faça mudanças suaves: é um dente natural, sem pontas agudas, simetria perfeita ou exageros.
 
 Responda só com o JSON pedido.`;
 

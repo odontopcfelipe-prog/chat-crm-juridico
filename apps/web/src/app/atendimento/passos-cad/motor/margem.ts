@@ -89,7 +89,91 @@ export function acharPreparo(arco: Bvh, clique: V3, ladoOclusal: V3): Preparo {
   if (noTopo) topo = noTopo.ponto;
   // Mais baixo: de perto do nível da margem o chanfro é visto de frente, não de raspão.
   O = centralizar(arco, sub(topo, mul(a, ALTURA_DE_O)), a);
-  return centrarPelaMargem(arco, { a, O, topo, ...baseDoEixo(a) });
+  const inicial: Preparo = { a, O, topo, ...baseDoEixo(a) };
+  // A crista é lida depois de centrar: do preparo do clique, fora do centro, ela parece outra.
+  const comLinha = centrarPelaMargem(arco, inicial);
+  return temCrista(arco, comLinha) ? comLinha : centrarSemCrista(arco, inicial, ladoOclusal);
+}
+
+/**
+ * Preparo sem crista, como um coto liso que entra no sulco. A primeira estimativa pode vir longe: no
+ * anterior, a face palatina inclinada domina a média das normais (51° do eixo do dente no 11 do caso
+ * 031). As paredes dão o eixo sozinhas, e a linha dá o centro. Tudo a partir de O.
+ */
+function centrarSemCrista(arco: Bvh, inicial: Preparo, lado: V3): Preparo {
+  let a = inicial.a;
+  let O = inicial.O;
+  for (let it = 0; it < VOLTAS_DO_EIXO_LIVRE; it++) {
+    const novo = eixoLivreDasParedes(arco, O, a, lado);
+    if (!novo) break;
+    const parou = anguloEntre(novo, a) < PLANO_ACEITO;
+    a = novo;
+    const topo = topoDoPreparo(arco, O, a);
+    if (topo) O = centralizar(arco, sub(topo, mul(a, ALTURA_DE_O)), a);
+    if (parou) break;
+  }
+  // A parede de trás do anterior é baixa: na altura de O o anel de raios só vê a da frente, e O encosta
+  // nela. O centro da linha fica no meio de verdade.
+  for (let it = 0; it < VOLTAS_PELO_CENTRO; it++) {
+    const topo = topoDoPreparo(arco, O, a) ?? inicial.topo;
+    const prep: Preparo = { a, O, topo, ...baseDoEixo(a) };
+    let margem: PontoMargem[];
+    try {
+      // Sem a conferência: com O ainda encostado numa parede, a linha sai torta, e o centro dela já serve.
+      margem = linhaDeMargem(arco, prep, 120);
+    } catch {
+      break;
+    }
+    const centro = centroDaMargem(margem, prep);
+    const desvio = norma(sub(centro, O));
+    O = centro;
+    a = eixoLivreDasParedes(arco, O, a, lado) ?? a;
+    const topoNovo = topoDoPreparo(arco, O, a);
+    if (topoNovo) O = soma(O, mul(a, dot(sub(topoNovo, O), a) - ALTURA_DE_O));
+    if (desvio < CENTRO_ACEITO) break;
+  }
+  const semRetencao = eixoComMenosRetencao(arco, O, a);
+  if (anguloEntre(semRetencao, a) <= DESVIO_MAXIMO) a = semRetencao;
+  return { a, O, topo: topoDoPreparo(arco, O, a) ?? inicial.topo, ...baseDoEixo(a) };
+}
+
+/** O autovetor das paredes sem exigir que fique perto de nada. Null se não há parede para contar. */
+function eixoLivreDasParedes(arco: Bvh, O: V3, a: V3, lado: V3): V3 | null {
+  const b = baseDoEixo(a);
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  let paredes = 0;
+  for (let i = 0; i < 72; i++) {
+    for (let ph = 55; ph <= 130; ph += 5) {
+      const d = direcao({ a, ...b }, (2 * Math.PI * i) / 72, ph * GRAU);
+      const h = arco.raio(O, d, 7.5);
+      if (!h || dot(h.normal, d) < 0.3 || Math.abs(dot(h.normal, a)) > 0.75) continue;
+      paredes++;
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += h.normal[r] * h.normal[c];
+    }
+  }
+  if (paredes < 120) return null;
+  const novo = menorAutovetor(S);
+  return dot(novo, lado) < 0 ? mul(novo, -1) : novo;
+}
+
+/** O ponto mais alto de verdade: no anterior ele fica perto da face vestibular, não em cima de O. */
+function topoDoPreparo(arco: Bvh, O: V3, a: V3): V3 | null {
+  const b = baseDoEixo(a);
+  let melhor: V3 | null = null;
+  let maior = -Infinity;
+  for (let ph = 0; ph <= 60; ph += 5) {
+    for (let i = 0; i < (ph === 0 ? 1 : 24); i++) {
+      const d = direcao({ a, ...b }, (2 * Math.PI * i) / 24, ph * GRAU);
+      const h = arco.raio(O, d, 9);
+      if (!h || dot(h.normal, d) < 0.2) continue;
+      const alt = dot(sub(h.ponto, O), a);
+      if (alt > maior) {
+        maior = alt;
+        melhor = h.ponto;
+      }
+    }
+  }
+  return melhor;
 }
 
 /**
@@ -304,6 +388,7 @@ export interface OpcoesMargem {
 
 const DESVIO_MAXIMO = 20 * GRAU;
 const VOLTAS_PELO_CENTRO = 3;
+const VOLTAS_DO_EIXO_LIVRE = 6;
 const CENTRO_ACEITO = 0.2;
 const PLANO_ACEITO = 2 * GRAU;
 const ALTURA_DE_O = 3.8;
@@ -313,7 +398,58 @@ const PASSO_PHI = 0.5;
 const PHI_MIN = 40;
 const PHI_MAX = 150;
 
+/**
+ * Abaixo disso, na mediana dos meridianos, não há crista: é ruído do escaneamento numa parede lisa
+ * (1/mm). Medido: 0,35 a 0,46 nos preparos lisos do caso 031, 1,15 a 1,34 nos com término do caso 042.
+ */
+const CRISTA_MINIMA = 0.7;
+/** Um raio para o outro: mais que isso é o raio que passou da borda, não a mesma parede (mm). */
+const SALTO_DA_PAREDE = 1;
+/** Até onde o fim da parede atrai a linha (mm, ao longo dela). */
+const ALCANCE_DO_FIM_DA_PAREDE = 2.5;
+/** Fica um pouco antes do fim: o fundo do sulco é a parte mais ruidosa do escaneamento (mm). */
+const RECUO_DO_FIM_DA_PAREDE = 0.15;
+/** Meridianos em volta usados para o fim da parede: um furo no escaneamento não puxa a linha. */
+const VIZINHOS_DO_FIM_DA_PAREDE = 6;
+
 const CURVATURAS = new WeakMap<Bvh, Float64Array>();
+
+const medianaDe = (v: ArrayLike<number>): number => {
+  const a = Array.from(v).sort((x, y) => x - y);
+  return a.length ? a[Math.floor(a.length / 2)] : 0;
+};
+
+/**
+ * Preparo sem degrau: a parede lisa entra direto no sulco da gengiva, e a convexidade nela é só ruído,
+ * que faz a linha cortar a parede em zigue-zague. O término, então, é onde a parede acaba. A nota sobe
+ * aos poucos até lá, para o caminho continuar liso entre os meridianos.
+ */
+function notaPeloFimDaParede(nota: Float32Array, fim: Int32Array, pts: Float64Array, NT: number, K: number): void {
+  const fimLiso = new Int32Array(NT);
+  for (let i = 0; i < NT; i++) {
+    const volta: number[] = [];
+    for (let q = -VIZINHOS_DO_FIM_DA_PAREDE; q <= VIZINHOS_DO_FIM_DA_PAREDE; q++) {
+      const f = fim[(i + q + NT) % NT];
+      if (f >= 0) volta.push(f);
+    }
+    fimLiso[i] = volta.length ? medianaDe(volta) : fim[i];
+  }
+  for (let i = 0; i < NT; i++) {
+    nota.fill(0, i * K, (i + 1) * K);
+    if (fimLiso[i] < 0) continue;
+    let andou = 0;
+    for (let k = fimLiso[i]; k >= 0; k--) {
+      if (k < fimLiso[i]) {
+        const a = 3 * (i * K + k);
+        const b = 3 * (i * K + k + 1);
+        andou += Math.hypot(pts[a] - pts[b], pts[a + 1] - pts[b + 1], pts[a + 2] - pts[b + 2]);
+      }
+      const longe = Math.abs(andou - RECUO_DO_FIM_DA_PAREDE);
+      if (longe >= ALCANCE_DO_FIM_DA_PAREDE) break;
+      nota[i * K + k] = 1 - longe / ALCANCE_DO_FIM_DA_PAREDE;
+    }
+  }
+}
 
 /** A curvatura é da superfície, não da linha: refazer a linha não precisa recalcular. */
 function curvaturaDe(arco: Bvh): Float64Array {
@@ -325,20 +461,22 @@ function curvaturaDe(arco: Bvh): Float64Array {
   return c;
 }
 
-/** Linha de margem por Viterbi sobre a grade (meridiano × φ). */
-export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}): PontoMargem[] {
-  const NT = opcoes.meridianos ?? 360;
-  const K = Math.round((PHI_MAX - PHI_MIN) / PASSO_PHI) + 1;
+/** Cada raio de cada meridiano: onde bate, quanto vale, e até onde a parede vai sem interrupção. */
+function lerColunas(arco: Bvh, prep: Preparo, NT: number, K: number) {
   const curva = curvaturaDe(arco);
   const nota = new Float32Array(NT * K);
   const pts = new Float64Array(NT * K * 3);
   const vale = new Uint8Array(NT * K);
   const alturaTopo = dot(sub(prep.topo, prep.O), prep.a);
+  const fimDaParede = new Int32Array(NT).fill(-1);
+  const maiorDaColuna = new Float64Array(NT);
 
   for (let i = 0; i < NT; i++) {
     const th = (2 * Math.PI * i) / NT;
     let anterior: number | null = null;
     let raioMax = 0;
+    let naParede: number | null = null;
+    let paredeAcabou = false;
     for (let k = 0; k < K; k++) {
       const d = direcao(prep, th, (PHI_MIN + k * PASSO_PHI) * GRAU);
       const h = arco.raio(prep.O, d, 10);
@@ -349,6 +487,14 @@ export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}
       raioMax = Math.max(raioMax, rho);
       pts.set(h.ponto, 3 * (i * K + k));
       if (rho > RAIO_MAXIMO_MARGEM - 0.5) break;
+      if (!paredeAcabou) {
+        if (dot(h.normal, d) < 0 || (naParede !== null && Math.abs(h.t - naParede) > SALTO_DA_PAREDE)) {
+          paredeAcabou = true;
+        } else {
+          naParede = h.t;
+          fimDaParede[i] = k;
+        }
+      }
       // Saiu do troquel: entrou numa superfície por fora, ou a margem ficaria alta demais.
       if (dot(h.normal, d) < 0 || alturaTopo - alt < 2) { anterior = h.t; continue; }
       const t = m3(arco, h.tri);
@@ -359,11 +505,32 @@ export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}
       if (salto) break;
       vale[i * K + k] = 1;
       nota[i * K + k] = Math.min(c, 3);
+      if (!paredeAcabou) maiorDaColuna[i] = Math.max(maiorDaColuna[i], c);
     }
   }
+  return { nota, pts, vale, fimDaParede, maiorDaColuna };
+}
+
+/** Existe um término marcado no preparo, ou só a parede lisa? */
+function temCrista(arco: Bvh, prep: Preparo): boolean {
+  return medianaDe(lerColunas(arco, prep, 72, Math.round((PHI_MAX - PHI_MIN) / PASSO_PHI) + 1).maiorDaColuna) >= CRISTA_MINIMA;
+}
+
+/** Linha de margem conferida: fora de qualquer dente, avisa em vez de desenhar. */
+export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}): PontoMargem[] {
+  const saida = linhaDeMargem(arco, prep, opcoes.meridianos ?? 360, opcoes.fixos);
+  conferirMargem(saida, prep);
+  return saida;
+}
+
+/** Linha de margem por Viterbi sobre a grade (meridiano × φ). */
+function linhaDeMargem(arco: Bvh, prep: Preparo, NT: number, fixos: V3[] = []): PontoMargem[] {
+  const K = Math.round((PHI_MAX - PHI_MIN) / PASSO_PHI) + 1;
+  const { nota, pts, vale, fimDaParede, maiorDaColuna } = lerColunas(arco, prep, NT, K);
+  if (medianaDe(maiorDaColuna) < CRISTA_MINIMA) notaPeloFimDaParede(nota, fimDaParede, pts, NT, K);
 
   const fixoPorColuna = new Map<number, number>();
-  for (const f of opcoes.fixos ?? []) {
+  for (const f of fixos) {
     const v = sub(f, prep.O);
     const alt = dot(v, prep.a);
     const lado = sub(v, mul(prep.a, alt));
@@ -434,7 +601,6 @@ export function proporMargem(arco: Bvh, prep: Preparo, opcoes: OpcoesMargem = {}
     if (!achou) throw new Error('Não foi possível fechar a linha de margem. Confira o ponto clicado no preparo.');
     saida.push(achou);
   }
-  conferirMargem(saida, prep);
   return saida;
 }
 

@@ -16,7 +16,7 @@ import { rotaDoLaboratorio } from '../business-type/lab-route-policy';
 const CONTA = 'conta-exemplo-1';
 const PEDIDO = {
   fdi: 45,
-  medidas: { mdMm: 7.5, vlMm: 8.2, topoDoPreparoMm: 3.1, folgaAntagonistaMm: 0.03, espessuraOclusalMm: 0.8, espessuraAxialMm: 0.6, vizinhoMesialMm: 4, vizinhoDistalMm: null },
+  medidas: { mdMm: 7.5, vlMm: 8.2, topoDoPreparoMm: 3.1, folgaAntagonistaMm: 0.03, espessuraOclusalMm: 0.8, espessuraAxialMm: 0.6, alturaDoDenteMm: 7.5, vizinhoMesialMm: 4, vizinhoDistalMm: null },
   mapaAntagonista: [[1.5, null]],
   mapaPreparo: [[2, null]],
   planoInicial: { cuspides: [{ nome: 'vestibular', u: 0, w: 0.4, h: 1 }] },
@@ -232,7 +232,7 @@ describe('partes do pedido', () => {
     expect(p.contatoDistal).toBeDefined();
     expect(p.sulcos.items.properties.largura).toBeDefined();
     expect(p.cristas.items.properties.lado.enum).toEqual(['mesial', 'distal', 'nenhum']);
-    for (const texto of ['lado', 'largura', 'vlMm', 'contatoMesial', 'espessuraAxialMm']) expect(INSTRUCOES).toContain(texto);
+    for (const texto of ['lado', 'largura', 'vlMm', 'contatoMesial', 'espessuraAxialMm', 'alturaDoDenteMm']) expect(INSTRUCOES).toContain(texto);
   });
 });
 

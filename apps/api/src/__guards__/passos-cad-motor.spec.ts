@@ -5,9 +5,9 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { Bvh, conferirMalha, cross, dot, juntar, norma, sub, unit, vert, type Malha, type V3 } from '../../../web/src/app/atendimento/passos-cad/motor/geo';
+import { Bvh, conferirMalha, cross, dot, juntar, mul, norma, soma, sub, unit, vert, type Malha, type V3 } from '../../../web/src/app/atendimento/passos-cad/motor/geo';
 import { ArquivoRecusado, escreverStl, lerMalha, lerObj, lerOffBinario, lerPly, lerStl } from '../../../web/src/app/atendimento/passos-cad/motor/arquivos';
-import { acharPreparo, conferirMargem, proporMargem, type PontoMargem } from '../../../web/src/app/atendimento/passos-cad/motor/margem';
+import { acharPreparo, conferirMargem, margemDePontos, proporMargem, type PontoMargem } from '../../../web/src/app/atendimento/passos-cad/motor/margem';
 import {
   anatomiaNoLugar,
   arcoSemTroquel,
@@ -25,7 +25,7 @@ import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/
 import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
 import { juntarRecente, nomesDoCadastro, opcoesDeCliente } from '../../../web/src/app/atendimento/passos-cad/ficha';
 import { planoPadrao, validarPlano } from '../../../web/src/app/atendimento/passos-cad/motor/plano-do-dente';
-import { alisarLimite, normalizarParametros } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
+import { alisarLimite, alisarOndeEncosta, normalizarParametros } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
 import { camadaSobOAntagonista, pisoDosSulcos } from '../../../web/src/app/atendimento/passos-cad/motor/forma-do-plano';
 import { MATERIAIS } from '../../../web/src/app/atendimento/passos-cad/textos';
 
@@ -86,6 +86,58 @@ function antagonistaPlano(z: number): Malha {
     tri[t + 2] = x;
   }
   return { pos: m.pos, tri };
+}
+
+const FUNDO_DO_SULCO = -3;
+const PERFIL_DO_COTO: [number, number][] = [[0, 6], [2, 6], [2.6, 5.4], [3.3, -2.5], [3.5, FUNDO_DO_SULCO], [4.2, -2], [6, -0.8], [13, -0.5]];
+
+/** Coto liso: a parede entra direto no sulco, sem degrau nenhum, como nos anteriores do caso 031. */
+function cotoLiso(): Malha {
+  return revolucao(denso(PERFIL_DO_COTO, 0.2), 120);
+}
+
+/**
+ * O coto com a face de trás cortada numa rampa, que domina a média das normais, e inclinado na boca.
+ * `ondula`: quanto a margem sobe entre os dentes (mm), como no caso real; com a margem plana, o plano dela já
+ * dá o eixo, e o defeito não aparece.
+ */
+function cotoDeAnterior(grau: number, ondula = 0): Malha {
+  const alturaNoRaio = (r: number) => {
+    for (let k = 0; k + 1 < PERFIL_DO_COTO.length; k++) {
+      const [r0, z0] = PERFIL_DO_COTO[k];
+      const [r1, z1] = PERFIL_DO_COTO[k + 1];
+      if (r <= r1) return z0 + ((z1 - z0) * (r - r0)) / (r1 - r0);
+    }
+    return PERFIL_DO_COTO[PERFIL_DO_COTO.length - 1][1];
+  };
+  const raios: number[] = [];
+  for (let r = 0; r < 6; r += 0.08) raios.push(r);
+  for (let r = 6; r <= 13; r += 0.5) raios.push(r);
+  const colunas = 120;
+  const pos: number[] = [];
+  const tri: number[] = [];
+  const c = Math.cos((grau * Math.PI) / 180);
+  const s = Math.sin((grau * Math.PI) / 180);
+  for (let q = 0; q < colunas; q++) {
+    const th = (2 * Math.PI * q) / colunas;
+    for (const r of raios) {
+      const x = r * Math.cos(th);
+      const y = r * Math.sin(th);
+      const parede = alturaNoRaio(r);
+      const rampa = 5.4 + 0.85 * (y - 2.4);
+      // Só em cima do coto, numa curva larga: uma quina ali seria um término de verdade.
+      const h = Math.max(2 - Math.abs(parede - rampa), 0) / 2;
+      const plano = r < 3.3 ? Math.min(parede, rampa) - h * h * 0.5 : parede;
+      const z = plano + ondula * Math.cos(th) ** 2 * Math.max(0, Math.min(1, (2 - plano) / 5));
+      pos.push(x, y * c - z * s, y * s + z * c);
+    }
+  }
+  const K = raios.length;
+  for (let q = 0; q < colunas; q++) {
+    const q1 = (q + 1) % colunas;
+    for (let k = 0; k + 1 < K; k++) tri.push(q * K + k, q * K + k + 1, q1 * K + k + 1, q * K + k, q1 * K + k + 1, q1 * K + k);
+  }
+  return { pos: Float64Array.from(pos), tri: Uint32Array.from(tri) };
 }
 
 let casoPronto: { arco: Malha; b: Bvh; prep: ReturnType<typeof acharPreparo>; margem: PontoMargem[] } | null = null;
@@ -269,6 +321,32 @@ describe('Passos CAD — preparo e margem', () => {
     expect(longe).toBeGreaterThan(0.6);
     const com = proporMargem(b, prep, { meridianos: 60, fixos: [fixo!.ponto] });
     expect(Math.min(...com.map((m) => norma(sub(m.ponto, fixo!.ponto))))).toBeLessThan(0.3);
+  });
+
+  it('preparo sem degrau: a linha vai até onde a parede acaba, em vez de cortar a parede', () => {
+    const b = new Bvh(cotoLiso());
+    const margem = proporMargem(b, acharPreparo(b, [0.3, 0.2, 6], [0, 0, 1]), { meridianos: 60 });
+    const alturas = margem.map((m) => m.ponto[2]);
+    expect(Math.max(...alturas)).toBeLessThan(FUNDO_DO_SULCO + 0.8);
+    expect(Math.max(...alturas) - Math.min(...alturas)).toBeLessThan(0.4);
+  });
+
+  it('preparo sem degrau: o eixo vem das paredes, mesmo com a primeira estimativa longe', () => {
+    const grau = 40;
+    const eixo: V3 = [0, -Math.sin((grau * Math.PI) / 180), Math.cos((grau * Math.PI) / 180)];
+    // A direção do antagonista no anterior aponta bem para trás: 53° do eixo do dente no 11 do caso 031.
+    const lado = unit([0, -0.95, 0.3]);
+    const b = new Bvh(cotoDeAnterior(grau, 3.5));
+    // Sem o caminho sem crista: 11,7° e 31,1°, conforme o clique. Com ele: menos de 1°.
+    for (const desvioDoClique of [0.3, 1.2]) {
+      const clique = b.raio(soma([desvioDoClique, 0, 0], mul(eixo, 20)), mul(eixo, -1), 40)!.ponto;
+      const prep = acharPreparo(b, clique, lado);
+      expect((Math.acos(Math.min(1, dot(prep.a, eixo))) * 180) / Math.PI).toBeLessThan(5);
+      // O: no meio do coto, e não encostado numa das paredes.
+      const margem = proporMargem(b, prep);
+      const raios = margem.map((m) => norma(sub(sub(m.ponto, prep.O), mul(prep.a, dot(sub(m.ponto, prep.O), prep.a)))));
+      expect(Math.min(...raios)).toBeGreaterThan(2);
+    }
   });
 
   it('linha fora do tamanho de um dente é recusada, não desenhada', () => {
@@ -1277,17 +1355,171 @@ describe('Passos CAD — modelagem pelo plano do dente', () => {
       alisarLimite(longe, Array.from({ length: NT }, () => new Float64Array(J + 1).fill(Infinity)), arco, NT, J);
       const naLinha = Array.from(longe[0].subarray(5, J - 5));
       expect(Math.max(...naLinha) - Math.min(...naLinha)).toBeLessThan(0.03);
-      // Com o antagonista áspero logo acima: fica como está, porque subir copiaria a textura dele.
+      // Com o antagonista áspero logo acima: sobe só até uma versão lisa do teto. Até o teto cru, copiaria a textura dele.
       const perto = pisoRuidoso();
       const teto = Array.from({ length: NT }, (_, i) => Float64Array.from({ length: J + 1 }, (_, j) => 6.02 + (((i * 7 + j * 13) % 5) * 0.02)));
       alisarLimite(perto, teto, arco, NT, J);
       const antes = pisoRuidoso();
-      for (let i = 0; i < NT; i++) for (let j = 2; j < J - 2; j++) expect(Math.abs(perto[i][j] - antes[i][j])).toBeLessThan(0.01);
+      const naTexturaDele: number[] = [];
+      for (let i = 0; i < NT; i++) {
+        for (let j = 2; j < J - 2; j++) {
+          expect(perto[i][j]).toBeLessThanOrEqual(Math.max(antes[i][j], teto[i][j]) + 1e-9);
+          if (j % 2 === 0) naTexturaDele.push(perto[i][j]);
+        }
+      }
+      expect(Math.max(...naTexturaDele) - Math.min(...naTexturaDele)).toBeLessThan(0.02);
       // Com a espessura passando do antagonista: fica liso, porque não há contato a preservar.
       const semEspaco = pisoRuidoso();
       alisarLimite(semEspaco, Array.from({ length: NT }, () => new Float64Array(J + 1).fill(5.5)), arco, NT, J);
       const emConflito = Array.from(semEspaco[0].subarray(5, J - 5));
       expect(Math.max(...emConflito) - Math.min(...emConflito)).toBeLessThan(0.03);
+    });
+
+    it('a borda do dente oposto não vira degrau no limite de espessura', () => {
+      const NT = 60;
+      const J = 40;
+      const arco = Array.from({ length: NT }, () => new Float64Array(J + 1).fill(5));
+      const piso = Array.from({ length: NT }, () => new Float64Array(J + 1).fill(6));
+      for (const linha of piso) for (let j = 0; j <= J; j++) linha[j] += (j % 2) * 0.3;
+      // Metade dos raios pega o dente oposto, e a outra passa por fora, numa linha serrilhada.
+      const teto = Array.from({ length: NT }, (_, i) => Float64Array.from({ length: J + 1 }, (_, j) => (j < 18 + (i % 2) * 4 ? 6.2 : Infinity)));
+      alisarLimite(piso, teto, arco, NT, J);
+      let maior = 0;
+      for (let i = 0; i < NT; i++) for (let j = 4; j < J - 4; j += 2) maior = Math.max(maior, Math.abs(piso[(i + 1) % NT][j] - piso[i][j]));
+      expect(maior).toBeLessThan(0.08);
+    });
+
+    it('a lateral do dente oposto não carimba degraus na camada', () => {
+      const n = 81;
+      // Dois dentes de baixo, um mais à frente que o outro, com a lateral quase em pé.
+      const zAnt = new Float64Array(n * n).fill(Infinity);
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (y < (x < 40 ? 30 : 36)) zAnt[x + y * n] = 5;
+      const camada = new Float64Array(n * n).fill(9);
+      camadaSobOAntagonista(camada, new Float64Array(n * n).fill(4), zAnt, 0.05, n, n);
+      for (let k = 0; k < camada.length; k++) if (zAnt[k] !== Infinity) expect(camada[k]).toBeLessThanOrEqual(4.95 + 1e-9);
+      // Sobe aos poucos a partir da lateral: sem isso, pula cerca de 1 mm de uma célula para a outra.
+      let maior = 0;
+      for (let y = 0; y + 1 < n; y++) for (let x = 0; x < n; x++) maior = Math.max(maior, Math.abs(camada[x + (y + 1) * n] - camada[x + y * n]));
+      expect(maior).toBeLessThan(0.45);
+    });
+
+    it('onde a camada cede, ela não copia o relevo do preparo', () => {
+      const n = 81;
+      const zAnt = new Float64Array(n * n).fill(Infinity);
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (y < 30) zAnt[x + y * n] = 5;
+      const piso = new Float64Array(n * n);
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) piso[x + y * n] = 6 + (((x * 7 + y * 13) % 5) * 0.05);
+      const camada = new Float64Array(n * n).fill(9);
+      camadaSobOAntagonista(camada, piso, zAnt, 0.05, n, n);
+      // Logo depois da lateral dele, onde o teto liso ainda está abaixo do preparo: fica no apoio liso.
+      const naLinha = Array.from({ length: 41 }, (_, x) => camada[x + 20 + 34 * n]);
+      expect(Math.max(...naLinha) - Math.min(...naLinha)).toBeLessThan(0.03);
+    });
+
+    it('onde a coroa encosta, fica lisa e entre os dois limites; o resto não muda', () => {
+      const NT = 60;
+      const J = 60;
+      const piso = Array.from({ length: NT }, () => new Float64Array(J + 1).fill(4));
+      // Até a linha 20 os raios pegam o dente oposto, numa borda serrilhada.
+      const teto = Array.from({ length: NT }, (_, i) => Float64Array.from({ length: J + 1 }, (_, j) => (j < 20 + (i % 2) * 3 ? 5 : Infinity)));
+      const R = Array.from({ length: NT }, (_, i) => Float64Array.from({ length: J + 1 }, (_, j) => (j < 20 + (i % 2) * 3 ? 5 : 6)));
+      // Um sulco longe dali: o alisado não pode apagar.
+      for (let i = 0; i < NT; i++) R[i][45] = 5.6;
+      alisarOndeEncosta(R, piso, teto, NT, J);
+      let degrau = 0;
+      for (let i = 0; i < NT; i++) {
+        for (let j = 2; j < J - 2; j++) {
+          expect(R[i][j]).toBeLessThanOrEqual(teto[i][j] + 1e-9);
+          expect(R[i][j]).toBeGreaterThanOrEqual(piso[i][j] - 1e-9);
+          if (j > 12 && j < 30) degrau = Math.max(degrau, Math.abs(R[(i + 1) % NT][j] - R[i][j]));
+        }
+      }
+      expect(degrau).toBeLessThan(0.3);
+      expect(R[0][45]).toBeCloseTo(5.6, 6);
+    });
+
+    it('preparo sem degrau: o contorno não incha para dar espessura perto da margem', () => {
+      const s = new Sessao({ meridianos: 60, linhas: 40 });
+      s.abrirArco('coto.stl', escreverStl(cotoLiso(), 'coto'));
+      const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+      s.abrirDente(11, h!.ponto, h!.normal);
+      const c = s.construirComPlano(planoPadrao(11), PARAMETROS);
+      expect(c.relatorio.malha.arestasAbertas).toBe(0);
+      // Sem a correção: 9,28 e 10,37 mm. Com ela: 8,23 e 9,54 mm.
+      expect(c.relatorio.vlMm).toBeLessThan(8.7);
+      expect(c.relatorio.mdMm).toBeLessThan(10);
+    });
+
+    describe('gengiva entre os dentes', () => {
+      const COTO = PERFIL_DO_COTO.slice(0, 5);
+      const GENGIVA_BAIXA: [number, number][] = [[6, -2.8], [13, -2.6]];
+      const coroaSobre = (arco: Malha, parametros = PARAMETROS) => {
+        const s = new Sessao({ meridianos: 60, linhas: 40 });
+        s.abrirArco('coto.stl', escreverStl(arco, 'coto'));
+        const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+        s.abrirDente(11, h!.ponto, h!.normal);
+        return s.construirComPlano(planoPadrao(11), parametros);
+      };
+
+      it('a gengiva entre os dentes não limita nem puxa a coroa', () => {
+        const baixa = coroaSobre(revolucao(denso([...COTO, ...GENGIVA_BAIXA], 0.2), 120));
+        const alta = coroaSobre(revolucao(denso([...COTO, [4.3, -1.4], [7, -0.8], [13, -0.5]], 0.2), 120));
+        // Sem a correção, a alta vira contato: 9,22 mm contra 8,16 mm.
+        expect(Math.abs(alta.relatorio.mdMm - baixa.relatorio.mdMm)).toBeLessThan(0.1);
+        expect(alta.relatorio.regioesContatoVizinho).toBe(0);
+      });
+
+      it('um dente baixo ao lado continua limitando: a coroa não entra nele', () => {
+        // Parede em pé em x = 3,6, de 0,4 a 2,4 mm acima da margem: é dente, não gengiva. Espessura fina, para
+        // caber: se a espessura pedida não coubesse, ela venceria, e a tela avisaria do conflito.
+        const dente = revolucao(denso([[0, -0.6], [3.6, -0.6], [3.6, -3]]), 72, 1, 1, [7.2, 0, 0]);
+        const c = coroaSobre(juntar(revolucao(denso([...COTO, ...GENGIVA_BAIXA], 0.2), 120), dente), { ...PARAMETROS, espessuraMinima: 0.3 });
+        let maisLonge = -Infinity;
+        for (let v = 0; v < c.externos; v++) {
+          const p = vert(c.malha, v);
+          if (p[2] > -2 && p[2] < -0.8 && Math.abs(p[1]) < 0.5) maisLonge = Math.max(maisLonge, p[0]);
+        }
+        // Sem a correção: 3,81 mm, 0,2 mm dentro do dente. Com ela: 3,63 mm.
+        expect(maisLonge).toBeLessThan(3.7);
+      });
+    });
+
+    it('anterior: a altura conta da margem vestibular', () => {
+      const arco = cotoLiso();
+      const b = new Bvh(arco);
+      const prep = acharPreparo(b, [0.3, 0.2, 6], [0, 0, 1]);
+      const pontos: V3[] = [];
+      for (let k = 0; k < 72; k++) {
+        const th = (2 * Math.PI * k) / 72;
+        // A margem vestibular (y positivo) 2 mm abaixo da palatina, como no 13 do caso 031.
+        pontos.push([3.3 * Math.cos(th), 3.3 * Math.sin(th), -1 - Math.sin(th)]);
+      }
+      const margem = margemDePontos(b, prep, pontos, 60);
+      const ajuste: Ajuste = { escalaMD: 1, escalaVL: 1, escalaAltura: 1, deslocMesial: 0, deslocVestibular: 0, deslocOclusal: 0, giro: 0 };
+      const altura = (plano: ReturnType<typeof planoPadrao>) => {
+        const e: EntradaCoroa = { arco: b, antagonista: null, vizinhos: null, prep, margem, eixos: eixosDoDente(prep, 11, arco, [0, -30, 0]), anatomia: { pos: new Float64Array(0), tri: new Uint32Array(0) }, parametros: { ...PARAMETROS }, plano };
+        return construirCoroa(e, new Bvh(arcoSemTroquel(arco, prep, margem)), ajuste).relatorio.alturaMm;
+      };
+      const plano = planoPadrao(11);
+      expect(plano.anterior).toBe(true);
+      expect(altura({ ...plano, anterior: false }) - altura(plano)).toBeGreaterThan(0.6);
+      // Posterior segue contando do meio da margem, e a IA não troca isso.
+      expect(planoPadrao(16).anterior).toBe(false);
+      expect(validarPlano({ anterior: false, cuspides: [{ nome: 'a', u: 0, w: 0, h: 1 }] }, 11).anterior).toBe(true);
+    });
+
+    it('vizinho longe abre o contorno devagar: estreito, o passo vira uma asa saindo do dente', () => {
+      const vizinho = revolucao(denso([[0, 9], [3, 8.5], [3.4, 3], [3.8, 0]]), 36, 1, 1, [10.6, 0, 0]);
+      const s = new Sessao({ meridianos: 90, linhas: 40 });
+      s.abrirArco('arco.stl', escreverStl(juntar(arcoSintetico(), vizinho), 'arco'));
+      const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+      s.abrirDente(16, h!.ponto, h!.normal);
+      const c = s.construirComPlano({ ...planoPadrao(16), larguraMm: 16 }, PARAMETROS);
+      // A largura do dente perto da ponta. Sem a correção: 3,78 mm. Com ela: 4,82 mm.
+      const pontos = Array.from({ length: c.externos }, (_, v) => vert(c.malha, v));
+      const maisLonge = Math.max(...pontos.map((p) => p[0]));
+      const ys = pontos.filter((p) => p[0] > maisLonge - 1).map((p) => p[1]);
+      expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(4.3);
     });
 
     it('crista marginal da IA só vale em dente posterior', () => {

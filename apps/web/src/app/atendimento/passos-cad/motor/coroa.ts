@@ -9,7 +9,7 @@
  * esses eixos para (mesial, vestibular, oclusal) do caso já acerta o lado do arco: nos
  * quadrantes 2 e 4 essa troca espelha o dente, que é o correto.
  */
-import { construirForma } from './forma-do-plano';
+import { construirForma, eGengiva } from './forma-do-plano';
 import { compensarFresa } from './fresa';
 import { Bvh, centroide, conferirMalha, cross, dot, filtrarTriangulos, malhaDaGrade, mul, norma, normaisDeVertice, passoSuave, soma, sub, unit, vert, type Conferencia, type Malha, type V3 } from './geo';
 import { direcao, type PontoMargem, type Preparo } from './margem';
@@ -572,7 +572,9 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       piso[i][j] = dentro + (e.plano ? pedida(arco[i][j], i, j) : pedida(arco[i][j], i, j) / Math.max(0.5, Math.abs(dot(d, normalDie[i][j]))));
       for (const viz of vizinhoExtra ? [ambiente, vizinhoExtra] : [ambiente]) {
         const h = viz.raio(soma(O, mul(d, dentro)), d, 25);
-        if (h && !propriaParede(i, h.ponto) && dot(sub(h.ponto, O), a) > altMargem[i] + ALTURA_MIN_CONTATO) {
+        if (!h) continue;
+        const acima = dot(sub(h.ponto, O), a) - altMargem[i];
+        if (!propriaParede(i, h.ponto) && acima > ALTURA_MIN_CONTATO && !(viz === ambiente && eGengiva(h.normal, a, acima))) {
           tetoVizinho[i][j] = Math.min(tetoVizinho[i][j], dentro + h.t - P.folgaVizinho);
           teto[i][j] = Math.min(teto[i][j], tetoVizinho[i][j]);
         }
@@ -601,6 +603,7 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
     for (let i = 0; i < NT; i++) for (let j = 1; j < J - 2; j++) R[i][j] = novo[i][j];
     limitar();
   }
+  if (e.plano) alisarOndeEncosta(R, piso, teto, NT, J);
   // A suavização afasta um pouco o que encostou: fecha de novo, agora só o que sobrou.
   fecharContatos(R, teto, tetoVizinho, dirs, O, e.eixos.mesial, a, altMargem, J);
   limitar();
@@ -621,7 +624,9 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
         if (alto) {
           for (const viz of vizinhosDoCaso) {
             const q = viz.proximo(p, 0.3);
-            if (q && !propriaParede(i, q.ponto) && q.d < P.folgaVizinho) recuo = Math.max(recuo, (P.folgaVizinho - q.d) / Math.max(0.4, Math.abs(dot(d, q.normal))));
+            if (q && !propriaParede(i, q.ponto) && q.d < P.folgaVizinho && !(viz === ambiente && eGengiva(q.normal, a, dot(sub(q.ponto, O), a) - altMargem[i]))) {
+              recuo = Math.max(recuo, (P.folgaVizinho - q.d) / Math.max(0.4, Math.abs(dot(d, q.normal))));
+            }
           }
         }
         const q = ant?.proximo(p, 0.4);
@@ -686,10 +691,12 @@ export function construirCoroa(e: EntradaCoroa, ambiente: Bvh, aj: Ajuste, J = 1
       folgaA[v] = q ? q.d : 2;
     }
     let melhorV = Infinity;
-    if (dot(sub(p, O), a) > altMargem[Math.round(((Math.atan2(dot(sub(p, O), prep.e2), dot(sub(p, O), prep.e1)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * NT) % NT] + ALTURA_MIN_CONTATO) {
+    const margemAqui = altMargem[Math.round(((Math.atan2(dot(sub(p, O), prep.e2), dot(sub(p, O), prep.e1)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * NT) % NT];
+    if (dot(sub(p, O), a) > margemAqui + ALTURA_MIN_CONTATO) {
       for (const b of ambienteViz) {
         const q = b.proximo(p, 1);
-        if (q) melhorV = Math.min(melhorV, q.d);
+        // Gengiva não é contato nem invasão: o mapa e o pincel não podem tratar a coroa como dentro de um dente.
+        if (q && !(b === ambiente && eGengiva(q.normal, a, dot(sub(q.ponto, O), a) - margemAqui))) melhorV = Math.min(melhorV, q.d);
       }
     }
     folgaV[v] = melhorV === Infinity ? 1 : melhorV;
@@ -836,15 +843,114 @@ export function alisarLimite(piso: Float64Array[], teto: Float64Array[], arco: F
     }
     liso = novo;
   }
+  // Perto do antagonista o limite sobe só até uma versão lisa do teto dele. Subir até o teto cru copiaria
+  // a textura do escaneamento. Decidir ponto a ponto se cabe deixaria degraus na borda do dente oposto,
+  // onde um raio pega o dente e o seguinte passa por fora.
+  const tetoLiso = tetoAlisado(teto, liso, NT, J);
   for (let i = 0; i < NT; i++) {
     for (let j = 0; j < J; j++) {
-      // Perto do antagonista o limite não sobe: subir até o teto dele copiaria a textura do escaneamento.
-      // Mas se a espessura já passa dele, não há o que preservar: o contato é ajustado de qualquer jeito, e
-      // o limite cru deixaria a oclusal com a textura do preparo. Aí ele continua liso.
-      const cabe = Math.max(passoSuave(0, 0.4, teto[i][j] - liso[i][j]), 1 - passoSuave(-0.1, 0.02, teto[i][j] - piso[i][j]));
-      const peso = passoSuave(0.8, 1.6, arco[i][j]) * cabe;
-      piso[i][j] += Math.max(0, liso[i][j] - piso[i][j]) * peso;
+      const alvo = Math.min(liso[i][j], tetoLiso[i][j]);
+      // Se a espessura já passa do antagonista, não há o que preservar: o contato é ajustado de qualquer
+      // jeito, e o limite cru deixaria a oclusal com a textura do preparo. Aí ele continua liso.
+      const naoCabe = 1 - passoSuave(-0.1, 0.02, teto[i][j] - piso[i][j]);
+      const destino = alvo + (liso[i][j] - alvo) * naoCabe;
+      piso[i][j] += Math.max(0, destino - piso[i][j]) * passoSuave(0.8, 1.6, arco[i][j]);
     }
+  }
+}
+
+/** Onde não há antagonista, o teto fica este tanto acima do limite: longe o bastante para não contar (mm). */
+const SEM_TETO_NA_GRADE = 3;
+
+/**
+ * Versão lisa do teto, sempre abaixo dele: pega o menor valor em volta e borra só até esse alcance, o que
+ * é uma média de valores já abaixo do teto do ponto. Prender depois de borrar devolveria a borda seca.
+ */
+function tetoAlisado(teto: Float64Array[], referencia: Float64Array[], NT: number, J: number): Float64Array[] {
+  const RI = Math.max(2, Math.round(NT / 70));
+  const RJ = Math.max(2, Math.round(J / 45));
+  const cru = teto.map((linha, i) => linha.map((v, j) => (v === Infinity ? referencia[i][j] + SEM_TETO_NA_GRADE : v)));
+  const menor = cru.map((linha) => Float64Array.from(linha));
+  for (let i = 0; i < NT; i++) {
+    for (let j = 0; j < J; j++) {
+      let m = Infinity;
+      for (let di = -RI; di <= RI; di++) {
+        const linha = cru[(i + di + NT) % NT];
+        for (let dj = -RJ; dj <= RJ; dj++) m = Math.min(m, linha[Math.min(J - 1, Math.max(0, j + dj))]);
+      }
+      menor[i][j] = m;
+    }
+  }
+  const liso = menor.map((linha) => Float64Array.from(linha));
+  for (let i = 0; i < NT; i++) {
+    for (let j = 0; j < J; j++) {
+      let soma = 0;
+      for (let di = -RI; di <= RI; di++) {
+        const linha = menor[(i + di + NT) % NT];
+        for (let dj = -RJ; dj <= RJ; dj++) soma += linha[Math.min(J - 1, Math.max(0, j + dj))];
+      }
+      liso[i][j] = soma / ((2 * RI + 1) * (2 * RJ + 1));
+    }
+  }
+  return liso;
+}
+
+/** Encostado no limite a menos que isso (mm): ali a superfície copia o escaneamento. */
+const COLADO_NO_TETO = 0.08;
+const COLADO_NO_PISO = 0.02;
+const PASSADAS_ONDE_ENCOSTA = 40;
+
+/**
+ * Onde a superfície encosta num limite, ela copia o escaneamento: a textura do antagonista, ou os degraus
+ * na borda dele, onde um raio pega o dente e o seguinte passa por fora. Alisa só ali, e sempre entre os
+ * limites. Alisar o próprio limite não serve: ele deixa de valer, e abriu crateras onde a superfície o
+ * encontra. Em volta, a transição é gradual; o resto, com sulcos e cristas, fica como está.
+ */
+export function alisarOndeEncosta(R: Float64Array[], piso: Float64Array[], teto: Float64Array[], NT: number, J: number): void {
+  const RI = Math.max(2, Math.round(NT / 60));
+  const RJ = Math.max(2, Math.round(J / 30));
+  let peso = R.map((linha, i) => {
+    const p = new Float64Array(J + 1);
+    for (let j = 1; j < J - 2; j++) if (teto[i][j] - linha[j] < COLADO_NO_TETO || linha[j] - piso[i][j] < COLADO_NO_PISO) p[j] = 1;
+    return p;
+  });
+  // Abre a região e borra a borda dela, para o alisado não terminar num vinco.
+  const aberto = peso.map((p) => Float64Array.from(p));
+  for (let i = 0; i < NT; i++) {
+    for (let j = 1; j < J - 2; j++) {
+      let maior = 0;
+      for (let di = -RI; di <= RI; di++) maior = Math.max(maior, peso[(i + di + NT) % NT][j]);
+      for (let dj = -RJ; dj <= RJ; dj++) maior = Math.max(maior, peso[i][Math.min(J - 2, Math.max(1, j + dj))]);
+      aberto[i][j] = maior;
+    }
+  }
+  peso = aberto;
+  for (let passada = 0; passada < 2; passada++) {
+    const novo = peso.map((p) => Float64Array.from(p));
+    for (let i = 0; i < NT; i++) {
+      for (let j = 1; j < J - 2; j++) {
+        let soma = 0;
+        for (let di = -RI; di <= RI; di++) soma += peso[(i + di + NT) % NT][j];
+        for (let dj = -RJ; dj <= RJ; dj++) soma += peso[i][Math.min(J - 2, Math.max(1, j + dj))];
+        novo[i][j] = soma / (2 * RI + 2 * RJ + 2);
+      }
+    }
+    peso = novo;
+  }
+  for (let passada = 0; passada < PASSADAS_ONDE_ENCOSTA; passada++) {
+    const novo = R.map((r) => Float64Array.from(r));
+    for (let i = 0; i < NT; i++) {
+      const e0 = (i + NT - 1) % NT;
+      const e1 = (i + 1) % NT;
+      for (let j = 1; j < J - 2; j++) {
+        const media = 0.25 * (R[e0][j] + R[e1][j] + R[i][j - 1] + R[i][j + 1]);
+        const alvo = R[i][j] + (media - R[i][j]) * 0.6 * peso[i][j];
+        // Perto do teto só baixa: subir colaria a superfície no escaneamento áspero, em vez de tocar só as pontas.
+        const sobeNoTeto = alvo > R[i][j] && teto[i][j] - R[i][j] < COLADO_NO_TETO;
+        novo[i][j] = sobeNoTeto ? R[i][j] : Math.max(piso[i][j], Math.min(alvo, teto[i][j]));
+      }
+    }
+    for (let i = 0; i < NT; i++) for (let j = 1; j < J - 2; j++) R[i][j] = novo[i][j];
   }
 }
 
