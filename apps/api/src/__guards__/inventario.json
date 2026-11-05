@@ -7,7 +7,7 @@
     "globais": 14,
     "produtores": 24,
     "controllers": 91,
-    "handlers": 971,
+    "handlers": 972,
     "@Public": 31
   },
   "automatismos": [
@@ -1700,6 +1700,7 @@
         { "metodo": "TenantsController.update", "verbo": "PATCH", "path": ":id", "rota": "PATCH /tenants/:id", "acesso": ["@SuperAdmin()"] },
         { "metodo": "TenantsController.suspend", "verbo": "POST", "path": ":id/suspend", "rota": "POST /tenants/:id/suspend", "acesso": ["@SuperAdmin()"] },
         { "metodo": "TenantsController.activate", "verbo": "POST", "path": ":id/activate", "rota": "POST /tenants/:id/activate", "acesso": ["@SuperAdmin()"] },
+        { "metodo": "TenantsController.excluir", "verbo": "POST", "path": ":id/excluir", "rota": "POST /tenants/:id/excluir", "acesso": ["@SuperAdmin()"] },
         { "metodo": "TenantsController.listSettings", "verbo": "GET", "path": ":id/settings", "rota": "GET /tenants/:id/settings", "acesso": ["@SuperAdmin()"] },
         { "metodo": "TenantsController.upsertSetting", "verbo": "POST", "path": ":id/settings", "rota": "POST /tenants/:id/settings", "acesso": ["@SuperAdmin()"] },
         { "metodo": "TenantsController.deleteSetting", "verbo": "POST", "path": ":id/settings/:key/delete", "rota": "POST /tenants/:id/settings/:key/delete", "acesso": ["@SuperAdmin()"] },

@@ -170,21 +170,57 @@ function GeralTab({ tenant, onReload }: { tenant: Tenant; onReload: () => void }
           {tenant.suspended_reason && <Field label="Motivo da suspensão" value={tenant.suspended_reason} />}
         </dl>
       </div>
-      {tenant.status === 'SUSPENDED' && (
-        <button
-          type="button"
-          onClick={async () => {
-            if (!confirm(`Reativar ${tenant.name}?`)) return;
-            await api.post(`/tenants/${tenant.id}/activate`);
-            showSuccess('Reativado');
-            onReload();
-          }}
-          className="text-sm font-bold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-2"
-        >
-          <Play size={14} />
-          Reativar tenant
-        </button>
-      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        {(tenant.status === 'SUSPENDED' || tenant.status === 'DELETED') && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (!confirm(`Reativar ${tenant.name}?`)) return;
+              try {
+                await api.post(`/tenants/${tenant.id}/activate`);
+                showSuccess('Reativado');
+                onReload();
+              } catch (e: any) {
+                showError(e?.response?.data?.message || 'Erro ao reativar');
+              }
+            }}
+            className="text-sm font-bold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-2"
+          >
+            <Play size={14} />
+            Reativar conta
+          </button>
+        )}
+        {tenant.status !== 'DELETED' && (
+          <button
+            type="button"
+            onClick={async () => {
+              const digitado = prompt(
+                `Excluir a conta "${tenant.name}"?\n\n` +
+                `A conta some da operação e a equipe dela não consegue mais entrar. ` +
+                `NADA é apagado e você pode reativar depois.\n\n` +
+                `Para confirmar, digite o nome exato da conta:`,
+              );
+              if (digitado === null) return;
+              if (digitado.trim() !== tenant.name.trim()) {
+                showError('O nome não confere. A conta não foi excluída.');
+                return;
+              }
+              const motivo = prompt('Motivo da exclusão (opcional, fica registrado):') || undefined;
+              try {
+                await api.post(`/tenants/${tenant.id}/excluir`, { reason: motivo });
+                showSuccess('Conta excluída (reversível). Use "Reativar" para voltar.');
+                onReload();
+              } catch (e: any) {
+                showError(e?.response?.data?.message || 'Erro ao excluir');
+              }
+            }}
+            className="text-sm font-bold px-4 py-2 rounded-lg border border-red-600/40 bg-red-600/10 text-red-700 hover:bg-red-600/20 inline-flex items-center gap-2"
+          >
+            <Trash2 size={14} />
+            Excluir conta
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -5,8 +5,9 @@
  * transacional: cria Tenant + admin User. Roles do admin: ['ADMIN']
  * (admin DO TENANT, nao SUPER_ADMIN do SaaS).
  */
-import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { registrarAuditoria } from '../common/utils/audit-log.util';
 import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
@@ -702,7 +703,9 @@ export class TenantsService {
 
   async setStatus(id: string, status: string, reason?: string) {
     const data: any = { status };
-    if (status === 'SUSPENDED') {
+    // DELETED reusa suspended_at/suspended_reason pra guardar quando e por quê
+    // (a tela mostra esses campos). Reativar (ACTIVE) limpa os dois.
+    if (status === 'SUSPENDED' || status === 'DELETED') {
       data.suspended_at = new Date();
       data.suspended_reason = reason || null;
     } else if (status === 'ACTIVE') {
@@ -710,5 +713,34 @@ export class TenantsService {
       data.suspended_reason = null;
     }
     return this.prisma.tenant.update({ where: { id }, data });
+  }
+
+  /**
+   * Exclusão REVERSÍVEL do tenant (status DELETED): esconde da operação e bloqueia
+   * o login da equipe dele, mas NÃO apaga dado nenhum (paciente é dado de saúde e
+   * há registro financeiro com retenção legal). Reativar volta tudo (setStatus ACTIVE).
+   * Trava: o dono não exclui a própria conta, para não trancar a equipe dele.
+   */
+  async excluir(id: string, reason: string | undefined, actor: { userId?: string; tenantId?: string }) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, name: true, status: true } });
+    if (!tenant) throw new NotFoundException('Conta não encontrada.');
+    if (actor.tenantId && actor.tenantId === id) {
+      throw new ForbiddenException('Você não pode excluir a sua própria conta.');
+    }
+    if (tenant.status === 'DELETED') return tenant; // idempotente
+    const atualizado = await this.setStatus(id, 'DELETED', reason);
+    await registrarAuditoria(
+      this.prisma,
+      {
+        tenantId: id,
+        actorUserId: actor.userId ?? null,
+        entity: 'TENANT',
+        entityId: id,
+        action: 'EXCLUIU',
+        meta: { nome: tenant.name, motivo: reason || null },
+      },
+      this.logger,
+    );
+    return atualizado;
   }
 }

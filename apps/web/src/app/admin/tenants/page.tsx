@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Search, Plus, Building2, Users, HeartPulse, Briefcase, Receipt,
-  Pause, Play, Pencil, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
+  Pause, Play, Pencil, Trash2, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
   Sparkles, FlaskConical,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -168,6 +168,30 @@ export default function AdminTenantsPage() {
       void load();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao reativar');
+    }
+  };
+
+  // Exclusão reversível: pede pra digitar o nome exato (evita excluir sem querer).
+  // O backend bloqueia excluir a própria conta e não apaga nenhum dado.
+  const handleExcluir = async (t: Tenant) => {
+    const digitado = prompt(
+      `Excluir a conta "${t.name}"?\n\n` +
+      `A conta some da operação e a equipe dela não consegue mais entrar. ` +
+      `NADA é apagado e você pode reativar depois.\n\n` +
+      `Para confirmar, digite o nome exato da conta:`,
+    );
+    if (digitado === null) return; // cancelou
+    if (digitado.trim() !== t.name.trim()) {
+      showError('O nome não confere. A conta não foi excluída.');
+      return;
+    }
+    const motivo = prompt('Motivo da exclusão (opcional, fica registrado):') || undefined;
+    try {
+      await api.post(`/tenants/${t.id}/excluir`, { reason: motivo });
+      showSuccess('Conta excluída (reversível). Use "Reativar" para voltar.');
+      void load();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao excluir');
     }
   };
 
@@ -406,7 +430,7 @@ export default function AdminTenantsPage() {
                     >
                       <Pencil size={12} />
                     </button>
-                    {t.status === 'SUSPENDED' ? (
+                    {(t.status === 'SUSPENDED' || t.status === 'DELETED') && (
                       <button
                         type="button"
                         onClick={() => handleActivate(t)}
@@ -415,14 +439,25 @@ export default function AdminTenantsPage() {
                       >
                         <Play size={12} />
                       </button>
-                    ) : t.status !== 'DELETED' && (
+                    )}
+                    {t.status !== 'DELETED' && (
                       <button
                         type="button"
                         onClick={() => handleSuspend(t)}
                         className="p-2 rounded-md border border-red-500/30 bg-red-500/10 text-red-700 hover:bg-red-500/20 transition-colors"
-                        title="Suspender"
+                        title="Suspender (bloqueia o login, reversível)"
                       >
                         <Pause size={12} />
+                      </button>
+                    )}
+                    {t.status !== 'DELETED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleExcluir(t)}
+                        className="p-2 rounded-md border border-red-600/40 bg-red-600/10 text-red-700 hover:bg-red-600/20 transition-colors"
+                        title="Excluir (some da operação, reversível — não apaga os dados)"
+                      >
+                        <Trash2 size={12} />
                       </button>
                     )}
                   </div>

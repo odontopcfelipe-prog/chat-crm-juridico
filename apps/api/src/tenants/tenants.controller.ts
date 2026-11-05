@@ -405,11 +405,22 @@ export class TenantsController {
     return this.service.setStatus(id, 'SUSPENDED', body?.reason);
   }
 
-  /** Reativa um tenant suspenso. */
+  /** Reativa um tenant suspenso ou excluído. */
   @Post(':id/activate')
   @SuperAdmin()
   activate(@Param('id') id: string) {
     return this.service.setStatus(id, 'ACTIVE');
+  }
+
+  /**
+   * Exclusão REVERSÍVEL do tenant (status DELETED): some da operação e bloqueia o
+   * login da equipe dele, sem apagar dado nenhum. Reativa pelo /activate. O dono
+   * não exclui a própria conta (checado no service pelo tenant_id de quem chama).
+   */
+  @Post(':id/excluir')
+  @SuperAdmin()
+  excluir(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req?: any) {
+    return this.service.excluir(id, body?.reason, { userId: req?.user?.sub, tenantId: req?.user?.tenant_id });
   }
 
   /**
