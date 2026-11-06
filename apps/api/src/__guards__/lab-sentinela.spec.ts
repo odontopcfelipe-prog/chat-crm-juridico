@@ -177,6 +177,11 @@ describe('com laboratório', () => {
 });
 
 describe('contarForaDoLugar — cada contagem olha só a conta do laboratório', () => {
+  it('são 29 contagens, o mesmo número que o spec do Postgres confere', async () => {
+    const r = await contarForaDoLugar(prismaFalso({ chips: ['lab-chip'] }), LAB);
+    expect(Object.keys(r)).toHaveLength(29);
+  });
+
   it('todo where cita o id do laboratório', async () => {
     const prisma = prismaFalso({ chips: ['lab-chip'] });
     await contarForaDoLugar(prisma, LAB);

@@ -1,7 +1,7 @@
 /**
  * F2 parte 4 — contagens da vigia do laboratório contra o Postgres DE VERDADE
  * (só no CI). O Prisma só reclama de where errado na hora de executar: aqui as
- * 31 contagens rodam num banco descartável, e as que dependem de NULL e de chip
+ * 29 contagens rodam num banco descartável, e as que dependem de NULL e de chip
  * são conferidas com linhas de verdade.
  *
  * Roda SÓ no job do CI (banco ci@localhost:5432/ci, recriado a cada execução).
@@ -78,7 +78,7 @@ descrever('vigia do laboratório no Postgres do CI', () => {
 
   it('todas as contagens rodam sem erro do Prisma e só acham o que está errado no laboratório', async () => {
     const r = await contarForaDoLugar(prisma as any, LAB);
-    expect(Object.keys(r)).toHaveLength(31);
+    expect(Object.keys(r)).toHaveLength(29);
     expect(r['Mensagem enviada por chip de outra conta']).toBe(1);
     expect(r['Conversa de outra conta no chip do laboratório']).toBe(1);
     expect(r['Evento de agenda de clínica']).toBe(1);
