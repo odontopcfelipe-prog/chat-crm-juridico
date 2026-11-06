@@ -181,7 +181,7 @@ export default function PontoSettingsPage() {
   const [data, setData] = useState<ConfigData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [modal, setModal] = useState<
-    | { kind: 'add' }
+    | { kind: 'add'; userId?: string }
     | { kind: 'schedule'; m: Member }
     | { kind: 'period'; m: Member }
     | null
@@ -191,7 +191,18 @@ export default function PontoSettingsPage() {
     let alive = true;
     api
       .get<ConfigData>('/ponto/config')
-      .then((res) => { if (alive) setData(res.data); })
+      .then((res) => {
+        if (!alive) return;
+        setData(res.data);
+        // Veio do cadastro de um colaborador novo: já abre o horário dele. Tira o
+        // parâmetro do endereço para recarregar a página não abrir de novo.
+        const params = new URLSearchParams(window.location.search);
+        const novo = params.get('adicionar');
+        if (!novo) return;
+        params.delete('adicionar');
+        window.history.replaceState(null, '', window.location.pathname + (params.size ? `?${params}` : ''));
+        if (!res.data.members.some((m) => m.user_id === novo)) setModal({ kind: 'add', userId: novo });
+      })
       .catch((e) => { if (alive) setErr(apiErr(e, 'Falha ao carregar a configuração do ponto.')); });
     return () => { alive = false; };
   }, []);
@@ -310,7 +321,7 @@ export default function PontoSettingsPage() {
       </div>
 
       {data && modal?.kind === 'add' && (
-        <AddMemberModal data={data} onClose={() => setModal(null)} onDone={(d) => applied(d, 'Funcionário adicionado ao ponto.')} />
+        <AddMemberModal data={data} inicial={modal.userId} onClose={() => setModal(null)} onDone={(d) => applied(d, 'Funcionário adicionado ao ponto.')} />
       )}
       {data && modal?.kind === 'schedule' && (
         <ScheduleModal m={modal.m} today={data.today} onClose={() => setModal(null)} onDone={(d, msg) => applied(d, msg)} />
@@ -559,10 +570,10 @@ function LocalCard({ data, onSaved }: { data: ConfigData; onSaved: (l: PontoLoca
 }
 
 /* ── adicionar funcionário ───────────────────────────────── */
-function AddMemberModal({ data, onClose, onDone }: { data: ConfigData; onClose: () => void; onDone: (d: ConfigData) => void }) {
+function AddMemberModal({ data, inicial, onClose, onDone }: { data: ConfigData; inicial?: string; onClose: () => void; onDone: (d: ConfigData) => void }) {
   const enrolled = new Set(data.members.map((m) => m.user_id));
   const options = data.users.filter((u) => !enrolled.has(u.id));
-  const [userId, setUserId] = useState(options[0]?.id ?? '');
+  const [userId, setUserId] = useState(options.some((u) => u.id === inicial) ? inicial! : options[0]?.id ?? '');
   const [start, setStart] = useState(data.today);
   const [rows, setRows] = useState<Row[]>(DEFAULT_ROWS);
   const [busy, setBusy] = useState(false);

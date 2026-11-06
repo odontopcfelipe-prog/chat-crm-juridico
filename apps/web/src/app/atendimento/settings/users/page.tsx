@@ -526,6 +526,12 @@ export default function UsersSettingsPage() {
       }
 
       setShowModal(false);
+      // Colaborador novo: sem horário no ponto ele não consegue bater e só veria a tela
+      // de bloqueio. Leva direto para definir o horário, com a pessoa já escolhida.
+      if (!editingId && form.sector === 'colaborador' && savedUserId) {
+        router.push(`/atendimento/settings/ponto?adicionar=${encodeURIComponent(savedUserId)}`);
+        return;
+      }
       fetchUsers();
     } catch (e: any) {
       setError(e.response?.data?.message || 'Erro ao salvar usuário.');
@@ -1329,7 +1335,11 @@ export default function UsersSettingsPage() {
                     <Clock size={14} className="shrink-0 mt-0.5 text-sky-500" />
                     <div className="text-xs text-foreground space-y-1">
                       <p>Por enquanto, o colaborador só acessa o <strong>Meu ponto</strong>: bate entrada e saída e vê as próprias horas.</p>
-                      <p>Para ele conseguir bater o ponto, depois de salvar inclua-o na equipe em <strong>Configurações › Ponto</strong> e defina o horário.</p>
+                      <p>
+                        {editingId
+                          ? <>Para bater o ponto, ele precisa estar na equipe em <strong>Configurações › Ponto</strong>, com o horário definido.</>
+                          : <>Ao criar, abre em seguida o <strong>horário de trabalho</strong> dele no ponto. Sem o horário, ele não consegue bater.</>}
+                      </p>
                     </div>
                   </div>
                 )}

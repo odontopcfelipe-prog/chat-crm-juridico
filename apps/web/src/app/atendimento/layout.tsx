@@ -88,19 +88,21 @@ function NoRouteAccess({ onHome, lab }: { onHome: () => void; lab: boolean }) {
 
 /**
  * Nov/2026 — casca do colaborador, que só acessa o ponto: a tela e o menu da conta
- * (Aparência e Sair). Separada da casca normal de propósito: banner, chat, busca e
- * atalho que entrarem lá não aparecem aqui sem alguém decidir.
+ * (Sair). Separada da casca normal de propósito: banner, chat, busca e atalho que
+ * entrarem lá não aparecem aqui sem alguém decidir. A maioria bate pelo celular:
+ * h-dvh acompanha a barra do navegador (com h-screen o fim da tela ficava cortado).
  */
 function CascaDoColaborador({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   return (
     <SocketProvider pathname={pathname} chatNotifications={false}>
       <TelaAoVivoEmissor />
-      <div className="flex flex-col h-screen overflow-hidden">
-        <header className="flex items-center justify-end gap-1 px-4 md:px-6 py-1.5 border-b border-border bg-card shrink-0">
-          <ThemeMenuButton variant="header" align="right" />
+      <div className="flex flex-col h-dvh overflow-hidden">
+        <header className="flex items-center gap-2.5 px-4 md:px-6 py-1.5 border-b border-border bg-card shrink-0">
+          <span className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 grid place-items-center shrink-0"><Clock size={18} /></span>
+          <span className="text-base font-bold text-foreground flex-1 truncate">Meu ponto</span>
           <AccountMenu />
         </header>
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto overscroll-contain">
           {colaboradorAllowsRoute(pathname) ? children : null}
         </main>
       </div>

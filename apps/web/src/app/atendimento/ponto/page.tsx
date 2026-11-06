@@ -62,6 +62,8 @@ export default function PontoPage() {
   const geoRef = useRef<GeoState>(geo);
   geoRef.current = geo;
   const isAdm = hasPermission('manage_users');
+  // O colaborador só tem esta tela: o título fica na barra de cima e não há para onde voltar.
+  const soPonto = ehSoPonto(sector, []);
 
   const load = useCallback(async (month?: string | null) => {
     setErr(null);
@@ -197,33 +199,36 @@ export default function PontoPage() {
   const hint = geo.pos ? precisionHint(geo.pos.accuracy, data.max_precisao_m) : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
-      {/* O colaborador só tem esta tela: não há para onde voltar. */}
-      {!ehSoPonto(sector, []) && (
-        <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
-          <ChevronLeft className="w-4 h-4" /> Voltar
-        </button>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 grid place-items-center"><Clock className="w-5 h-5" /></div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 leading-none">Meu ponto</h1>
-            <p className="text-sm text-slate-500 mt-0.5">{pickBt(bt, 'Registre no local da clínica. A hora registrada é a do sistema.', 'Registre no local do laboratório. A hora registrada é a do sistema.')}</p>
+    <div className={`max-w-5xl mx-auto px-4 ${soPonto ? 'py-4 sm:py-6 pb-10' : 'py-6'}`}>
+      {!soPonto && (
+        <>
+          <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
+            <ChevronLeft className="w-4 h-4" /> Voltar
+          </button>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 grid place-items-center"><Clock className="w-5 h-5" /></div>
+              <div>
+                <h1 className="text-xl font-bold text-slate-800 leading-none">Meu ponto</h1>
+                <p className="text-sm text-slate-500 mt-0.5">{pickBt(bt, 'Registre no local da clínica. A hora registrada é a do sistema.', 'Registre no local do laboratório. A hora registrada é a do sistema.')}</p>
+              </div>
+            </div>
+            {isAdm && (
+              <Link href="/atendimento/ponto/equipe" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900">
+                <Users className="w-4 h-4" /> Ponto da equipe
+              </Link>
+            )}
           </div>
-        </div>
-        {isAdm && (
-          <Link href="/atendimento/ponto/equipe" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900">
-            <Users className="w-4 h-4" /> Ponto da equipe
-          </Link>
-        )}
-      </div>
+        </>
+      )}
 
       {/* relógio + botão */}
       <div className="grid md:grid-cols-5 gap-4 mb-6">
-        <div className="md:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center text-center">
+        <div className="md:col-span-3 bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col items-center text-center">
+          {soPonto && <div className="text-base font-semibold text-slate-800 mb-0.5">Olá, {data.user.name.trim().split(/\s+/)[0]}</div>}
           <div className="text-sm text-slate-500">{cap1(dataLonga)}</div>
-          <div className="text-5xl sm:text-6xl font-bold text-slate-800 tabular-nums tracking-tight mt-1">{hora}</div>
+          {/* clamp: cabe até em celular de 320 px sem quebrar a hora em duas linhas. */}
+          <div className="text-[clamp(3rem,16vw,3.75rem)] leading-none sm:text-6xl font-bold text-slate-800 tabular-nums tracking-tight mt-1">{hora}</div>
 
           {!data.member.active ? (
             <p className="mt-4 text-sm text-slate-500">
@@ -235,41 +240,43 @@ export default function PontoPage() {
             <p className="mt-4 text-sm font-semibold text-amber-700">O administrador ainda não cadastrou o local do ponto.</p>
           ) : (
             <>
-              <div className="mt-3 text-sm min-h-[1.5rem] flex flex-wrap items-center justify-center gap-x-2">
-                {geo.kind === 'loading' && !geo.pos && <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Localizando…</span>}
-                {geo.kind === 'denied' && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4 shrink-0" /> Localização bloqueada neste aparelho — veja abaixo como liberar</span>}
-                {geo.kind === 'unavailable' && !geo.pos && <span className="text-rose-600 flex items-center gap-1.5"><MapPinOff className="w-4 h-4 shrink-0" /> Não consegui sua localização — ative a localização do aparelho</span>}
+              {/* Etiqueta colorida: dá pra ler de relance, inclusive no sol. */}
+              <div className="mt-3 text-sm min-h-[2.25rem] flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                {geo.kind === 'loading' && !geo.pos && <span className="rounded-xl px-3 py-2 font-medium bg-slate-100 text-slate-500 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Localizando…</span>}
+                {geo.kind === 'denied' && <span className="rounded-xl px-3 py-2 font-medium bg-rose-50 text-rose-700 flex items-start sm:items-center gap-1.5 text-left"><MapPinOff className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" /> Localização bloqueada neste aparelho — veja abaixo como liberar</span>}
+                {geo.kind === 'unavailable' && !geo.pos && <span className="rounded-xl px-3 py-2 font-medium bg-rose-50 text-rose-700 flex items-start sm:items-center gap-1.5 text-left"><MapPinOff className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" /> Não consegui sua localização — ative a localização do aparelho</span>}
                 {geo.pos && !precise && hint && (
-                  <span className="text-amber-700 flex items-start gap-1.5 max-w-md"><Crosshair className="w-4 h-4 shrink-0 mt-0.5" /> {hint.text}</span>
+                  <span className="rounded-xl px-3 py-2 font-medium bg-amber-50 text-amber-800 flex items-start gap-1.5 max-w-md text-left"><Crosshair className="w-4 h-4 shrink-0 mt-0.5" /> {hint.text}</span>
                 )}
                 {geo.pos && precise && !inside && (
-                  <span className="text-rose-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" />{pickBt(bt, ' Fora da área da clínica · ', ' Fora da área do laboratório · ')}{fmtDist(dist)}</span>
+                  <span className="rounded-xl px-3 py-2 font-medium bg-rose-50 text-rose-700 flex items-center gap-1.5"><MapPin className="w-4 h-4 shrink-0" />{pickBt(bt, ' Fora da área da clínica · ', ' Fora da área do laboratório · ')}{fmtDist(dist)}</span>
                 )}
                 {geo.pos && precise && inside && (
-                  <span className="text-emerald-600 flex items-center gap-1.5"><MapPin className="w-4 h-4" />{pickBt(bt, ' Dentro da área da clínica · ', ' Dentro da área do laboratório · ')}{fmtDist(dist)}</span>
+                  <span className="rounded-xl px-3 py-2 font-medium bg-emerald-50 text-emerald-700 flex items-center gap-1.5"><MapPin className="w-4 h-4 shrink-0" />{pickBt(bt, ' Dentro da área da clínica · ', ' Dentro da área do laboratório · ')}{fmtDist(dist)}</span>
                 )}
-                {geo.pos && precise && <span className="text-slate-400 text-xs">(± {fmtDist(geo.pos.accuracy)})</span>}
+                {geo.pos && precise && <span className="hidden sm:inline text-slate-400 text-xs">(± {fmtDist(geo.pos.accuracy)})</span>}
               </div>
 
               <button
                 onClick={punch}
                 disabled={busy || !canPunch}
-                className={`mt-5 w-full max-w-sm py-4 rounded-2xl text-white text-lg font-bold shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+                className={`mt-4 sm:mt-5 w-full max-w-sm px-3 py-5 sm:py-4 rounded-2xl text-white text-xl sm:text-lg leading-tight font-bold shadow-sm transition active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
                   data.next_is_entry ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
-                {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : data.next_is_entry ? <LogIn className="w-5 h-5" /> : <LogOut className="w-5 h-5" />}
+                {busy ? <Loader2 className="w-6 h-6 sm:w-5 sm:h-5 animate-spin" /> : data.next_is_entry ? <LogIn className="w-6 h-6 sm:w-5 sm:h-5" /> : <LogOut className="w-6 h-6 sm:w-5 sm:h-5" />}
                 {waiting !== undefined
                   ? `Aguardando o GPS${waiting != null ? ` (± ${fmtDist(waiting)})` : '…'}`
                   : `Registrar ${data.next_label.toLowerCase()}`}
               </button>
-              <div className="mt-2 flex items-center gap-4 text-sm">
+              {/* min-h-11: área de toque de 44 px no celular. */}
+              <div className="mt-1 sm:mt-2 flex flex-wrap items-center justify-center gap-x-4 text-sm">
                 {(!precise || !inside) && geo.kind !== 'loading' && !busy && (
-                  <button onClick={relocate} className="text-sky-600 hover:underline flex items-center gap-1">
+                  <button onClick={relocate} className="min-h-11 sm:min-h-0 text-sky-600 hover:underline flex items-center gap-1">
                     <RefreshCw className="w-3.5 h-3.5" /> Localizar de novo
                   </button>
                 )}
-                <button onClick={() => setShowMap((v) => !v)} className="text-sky-600 hover:underline flex items-center gap-1">
+                <button onClick={() => setShowMap((v) => !v)} className="min-h-11 sm:min-h-0 text-sky-600 hover:underline flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" /> {showMap ? 'Esconder mapa' : 'Ver no mapa'}
                 </button>
               </div>
@@ -317,7 +324,7 @@ export default function PontoPage() {
             {data.today_punches.length === 0 && <li className="text-sm text-slate-400">Nenhuma batida hoje.</li>}
             {data.today_punches.map((p) => (
               <li key={p.id}>
-                <button onClick={() => setDetail({ p, date: data.today })} className={`w-full flex items-center justify-between gap-2 text-sm px-3 py-2 rounded-lg border ${p.voided ? 'border-slate-100 text-slate-300 line-through' : 'border-slate-100 hover:bg-slate-50'}`}>
+                <button onClick={() => setDetail({ p, date: data.today })} className={`w-full flex items-center justify-between gap-2 text-sm px-3 py-2.5 sm:py-2 rounded-lg border ${p.voided ? 'border-slate-100 text-slate-300 line-through' : 'border-slate-100 hover:bg-slate-50'}`}>
                   <span className="font-semibold tabular-nums">{p.hora}</span>
                   <span className={p.voided ? '' : p.kind === 'ENTRADA' ? 'text-emerald-700' : 'text-slate-600'}>{p.voided ? 'Anulada' : p.label}</span>
                   <span className={`text-xs ${GEO_META[p.geo_status]?.cls}`}>{geoLabel(bt, p.geo_status)}</span>
@@ -339,15 +346,15 @@ export default function PontoPage() {
       </div>
 
       {/* espelho do mês */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 mb-3">
         <h2 className="font-bold text-slate-800">Meu espelho de ponto</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <MonthNav ym={data.espelho.ym} maxYm={data.today.slice(0, 7)} onChange={(m) => { setYm(m); load(m); }} />
+        <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
+          <MonthNav largaNoCelular ym={data.espelho.ym} maxYm={data.today.slice(0, 7)} onChange={(m) => { setYm(m); load(m); }} />
         </div>
       </div>
       <div className="space-y-3">
-        <TotalsCards t={data.espelho.totals} />
-        <EspelhoTable data={data.espelho} onPunchClick={(p, date) => setDetail({ p, date })} />
+        <TotalsCards t={data.espelho.totals} resumoNoCelular />
+        <EspelhoTable data={data.espelho} recentesPrimeiroNoCelular onPunchClick={(p, date) => setDetail({ p, date })} />
         <p className="text-xs text-slate-400">
           Esqueceu de bater ou bateu errado? Só o administrador ajusta — ele lança ou anula a batida com o motivo, e tudo fica registrado aqui.
         </p>

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, MapPin, MapPinOff, PenLine, X, Loader2, Plus,
+  ChevronDown, ChevronLeft, ChevronRight, MapPin, MapPinOff, PenLine, X, Loader2, Plus,
   Download, Printer, AlertTriangle, Crosshair,
 } from 'lucide-react';
 import { isLab, pickBt } from '@crm/shared';
@@ -189,17 +189,18 @@ function GeoIcon({ p, className = 'w-3 h-3' }: { p: Punch; className?: string })
 }
 
 /* ── navegação de mês ────────────────────────────────────── */
-export function MonthNav({ ym, onChange, maxYm }: { ym: string; onChange: (ym: string) => void; maxYm: string }) {
+export function MonthNav({ ym, onChange, maxYm, largaNoCelular = false }: { ym: string; onChange: (ym: string) => void; maxYm: string; /** Ocupa a linha toda no celular, com setas de 44 px. */ largaNoCelular?: boolean }) {
+  const seta = largaNoCelular ? 'p-3.5 sm:p-2' : 'p-2';
   return (
-    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg">
-      <button onClick={() => onChange(shiftMonth(ym, -1))} className="p-2 text-slate-500 hover:text-slate-800" aria-label="Mês anterior">
+    <div className={`flex items-center gap-1 bg-white border border-slate-200 rounded-lg ${largaNoCelular ? 'w-full sm:w-auto justify-between sm:justify-start' : ''}`}>
+      <button onClick={() => onChange(shiftMonth(ym, -1))} className={`${seta} text-slate-500 hover:text-slate-800`} aria-label="Mês anterior">
         <ChevronLeft className="w-4 h-4" />
       </button>
       <span className="text-sm font-semibold text-slate-700 min-w-[9.5rem] text-center">{cap1(monthLabel(ym))}</span>
       <button
         onClick={() => onChange(shiftMonth(ym, 1))}
         disabled={ym >= maxYm}
-        className="p-2 text-slate-500 hover:text-slate-800 disabled:opacity-30"
+        className={`${seta} text-slate-500 hover:text-slate-800 disabled:opacity-30`}
         aria-label="Próximo mês"
       >
         <ChevronRight className="w-4 h-4" />
@@ -209,28 +210,44 @@ export function MonthNav({ ym, onChange, maxYm }: { ym: string; onChange: (ym: s
 }
 
 /* ── totais ──────────────────────────────────────────────── */
-export function TotalsCards({ t }: { t: Totals }) {
+export function TotalsCards({ t, resumoNoCelular = false }: { t: Totals; /** Celular: trabalhado, previsto, saldo e o que não está zerado; o resto abre no botão. */ resumoNoCelular?: boolean }) {
+  const [verTudo, setVerTudo] = useState(false);
   const items = [
-    { label: 'Trabalhado', value: fmtMin(t.worked_min), cls: 'text-slate-800' },
-    { label: 'Previsto', value: fmtMin(t.expected_min), cls: 'text-slate-800' },
-    { label: 'Saldo do mês', value: fmtSaldo(t.balance_min), cls: saldoCls(t.balance_min) },
-    { label: 'Horas extras', value: fmtMin(t.extra_min), cls: t.extra_min ? 'text-emerald-600' : 'text-slate-800' },
-    { label: 'Extras dom./feriado', value: fmtMin(t.extra_dsr_min), cls: t.extra_dsr_min ? 'text-emerald-600' : 'text-slate-800' },
-    { label: 'Atrasos e saídas antes', value: fmtMin(t.debit_min), cls: t.debit_min ? 'text-rose-600' : 'text-slate-800' },
-    { label: 'Faltas', value: `${t.absences} dia(s) · ${fmtMin(t.absence_min)}`, cls: t.absences ? 'text-rose-600' : 'text-slate-800' },
-    { label: 'Sem batida de saída', value: String(t.incomplete), cls: t.incomplete ? 'text-amber-600' : 'text-slate-800' },
+    { label: 'Trabalhado', value: fmtMin(t.worked_min), cls: 'text-slate-800', sempre: true },
+    { label: 'Previsto', value: fmtMin(t.expected_min), cls: 'text-slate-800', sempre: true },
+    { label: 'Saldo do mês', value: fmtSaldo(t.balance_min), cls: saldoCls(t.balance_min), sempre: true },
+    { label: 'Horas extras', value: fmtMin(t.extra_min), cls: t.extra_min ? 'text-emerald-600' : 'text-slate-800', sempre: !!t.extra_min },
+    { label: 'Extras dom./feriado', value: fmtMin(t.extra_dsr_min), cls: t.extra_dsr_min ? 'text-emerald-600' : 'text-slate-800', sempre: !!t.extra_dsr_min },
+    { label: 'Atrasos e saídas antes', value: fmtMin(t.debit_min), cls: t.debit_min ? 'text-rose-600' : 'text-slate-800', sempre: !!t.debit_min },
+    { label: 'Faltas', value: `${t.absences} dia(s) · ${fmtMin(t.absence_min)}`, cls: t.absences ? 'text-rose-600' : 'text-slate-800', sempre: !!t.absences },
+    { label: 'Sem batida de saída', value: String(t.incomplete), cls: t.incomplete ? 'text-amber-600' : 'text-slate-800', sempre: !!t.incomplete },
   ];
+  const resumo = resumoNoCelular && !verTudo;
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {items.map((i) => (
-          <div key={i.label} className="bg-white border border-slate-200 rounded-xl px-3.5 py-3">
+          <div
+            key={i.label}
+            className={`bg-white border border-slate-200 rounded-xl px-3.5 py-3 ${resumoNoCelular && i.label === 'Saldo do mês' ? 'col-span-2 sm:col-span-1' : ''} ${resumo && !i.sempre ? 'hidden sm:block' : ''}`}
+          >
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{i.label}</div>
             <div className={`text-lg font-bold tabular-nums mt-0.5 ${i.cls}`}>{i.value}</div>
           </div>
         ))}
       </div>
-      <p className="text-xs text-slate-400 mt-2">
+      {resumoNoCelular && (
+        <button
+          type="button"
+          onClick={() => setVerTudo((v) => !v)}
+          aria-expanded={verTudo}
+          className="sm:hidden mt-1 w-full min-h-11 flex items-center justify-center gap-1 text-sm font-medium text-sky-600"
+        >
+          {verTudo ? 'Mostrar menos' : 'Ver todos os totais'}
+          <ChevronDown className={`w-4 h-4 transition ${verTudo ? 'rotate-180' : ''}`} />
+        </button>
+      )}
+      <p className={`text-xs text-slate-400 mt-2 ${resumo ? 'hidden sm:block' : ''}`}>
         Totais dos dias fechados (até ontem). Saldo = extras + extras dom./feriado − atrasos − faltas.
         {t.tolerance_min !== 0 && (
           <> Trabalhado − previsto = saldo {t.tolerance_min > 0 ? '+' : '−'} {fmtMin(Math.abs(t.tolerance_min))} que a tolerância desconsiderou.</>
@@ -264,7 +281,7 @@ function PunchChips({ d, onPunchClick, bt }: { d: Day; onPunchClick: (p: Punch, 
           key={p.id}
           onClick={() => onPunchClick(p, d.date)}
           title={p.voided ? `Anulada: ${p.void_reason ?? ''}` : `${p.label ?? ''} · ${geoLabel(bt, p.geo_status) ?? ''}`}
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums transition hover:shadow-sm ${
+          className={`inline-flex items-center gap-1 px-2 py-1 sm:px-1.5 sm:py-0.5 rounded-md border text-xs font-semibold tabular-nums transition hover:shadow-sm ${
             p.voided
               ? 'border-slate-200 text-slate-300 line-through'
               : p.kind === 'ENTRADA'
@@ -306,14 +323,18 @@ export function EspelhoTable({
   data,
   onPunchClick,
   onAdd,
+  recentesPrimeiroNoCelular = false,
 }: {
   data: Espelho;
   onPunchClick: (p: Punch, date: string) => void;
   /** Adm: lançar batida no dia. */
   onAdd?: (date: string) => void;
+  /** Funcionário no celular: hoje no topo, sem rolar o mês inteiro. */
+  recentesPrimeiroNoCelular?: boolean;
 }) {
   const bt = useBusinessType();
   const rows = visibleDays(data);
+  const rowsCelular = recentesPrimeiroNoCelular ? [...rows].reverse() : rows;
   const rowBg = (d: Day) =>
     `${d.weekday === 0 || d.weekday === 6 || d.holiday ? 'bg-slate-50/60' : ''} ${d.status === 'HOJE' ? 'bg-sky-50/50' : ''}`;
   return (
@@ -321,7 +342,7 @@ export function EspelhoTable({
       {/* celular: cartões */}
       <div className="sm:hidden bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
         {rows.length === 0 && <p className="px-3 py-8 text-center text-sm text-slate-400">Nenhum dia do ponto neste mês.</p>}
-        {rows.map((d) => {
+        {rowsCelular.map((d) => {
           const off = d.status === 'FORA_DO_PERIODO';
           return (
             <div key={d.date} className={`px-3 py-2.5 ${rowBg(d)}`}>
@@ -331,8 +352,9 @@ export function EspelhoTable({
                     <span className="font-semibold tabular-nums">{dayLabel(d.date)}</span>{' '}
                     <span className="text-xs text-slate-400">{WEEKDAYS[d.weekday]}</span>
                   </div>
-                  {!off && (
-                    <div className="text-[11px] text-slate-400 tabular-nums">{d.holiday ? 'Feriado' : scheduleText(d.schedule)}</div>
+                  {/* Folga e feriado já aparecem na observação, logo abaixo. */}
+                  {!off && d.schedule && !d.holiday && (
+                    <div className="text-[11px] text-slate-400 tabular-nums">{scheduleText(d.schedule)}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -347,10 +369,13 @@ export function EspelhoTable({
                 </div>
               </div>
               {d.punches.length > 0 && <div className="mt-1.5"><PunchChips d={d} onPunchClick={onPunchClick} bt={bt} /></div>}
-              <div className="mt-1 text-xs text-slate-500 tabular-nums">
-                Trabalhado {d.punches.length || d.worked_min ? fmtMin(d.worked_min) : '—'}
-                {!off && <> · Previsto {fmtMin(d.expected_min)}</>}
-              </div>
+              {/* Dia sem batida e sem nada previsto (folga, feriado): nada a mostrar aqui. */}
+              {(d.punches.length > 0 || d.worked_min > 0 || d.expected_min > 0) && (
+                <div className="mt-1 text-xs text-slate-500 tabular-nums">
+                  Trabalhado {d.punches.length || d.worked_min ? fmtMin(d.worked_min) : '—'}
+                  {!off && <> · Previsto {fmtMin(d.expected_min)}</>}
+                </div>
+              )}
               <div className="text-xs mt-0.5"><DayNotes d={d} /></div>
             </div>
           );
