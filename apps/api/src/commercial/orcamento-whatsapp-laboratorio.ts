@@ -1,10 +1,11 @@
 /**
  * F6 do laboratório — envio do orçamento de trabalho pelo WhatsApp.
  *
- * No laboratório não há portal nem link: a mensagem leva o PDF do orçamento
+ * No laboratório não há portal do cliente: a mensagem leva o PDF do orçamento
  * (QuotePdfService.generatePdf, que já desenha o orçamento de trabalho para a conta
  * de laboratório) e a legenda com o nome do cliente, o número do orçamento e o nome
- * da conta. Sai SÓ pela conversa do cliente no chip Atendimento/Comercial
+ * da conta. A legenda leva também o link da página de aceite on-line do orçamento
+ * (proposta-online-laboratorio.ts); se o link não puder ser criado, o PDF sai sozinho. Sai SÓ pela conversa do cliente no chip Atendimento/Comercial
  * (MessagesService.sendPatientFile), nunca pelo chip do Financeiro.
  *
  * Mesma ordem do envio da clínica (QuotesService.sendByWhatsapp): status, telefone,
@@ -25,6 +26,7 @@ import type { QuoteVersionsService } from './quote-versions.service';
 import { LAB_API_MESSAGES } from '../business-type/lab-api-messages';
 import { trocarTexto } from '../business-type/lab-vocab.interceptor';
 import { LAB_ORCAMENTO_WHATSAPP } from './lab-orcamento-textos';
+import { LAB_PROPOSTA_ONLINE_WHATSAPP } from './lab-proposta-online-textos';
 import { numeroDoOrcamento } from './quote-pdf-laboratorio';
 
 export type DepsDoEnvioDoLaboratorio = {
@@ -35,6 +37,8 @@ export type DepsDoEnvioDoLaboratorio = {
   versions?: QuoteVersionsService;
   logger: Logger;
   resolverLead: (patientId: string, tenantId: string) => Promise<string>;
+  /** Link da página de aceite do orçamento (proposta-online-laboratorio.ts). */
+  criarLink?: (quote: any, tenantId: string) => Promise<string>;
 };
 
 function formatBRL(v: unknown): string {
@@ -42,7 +46,12 @@ function formatBRL(v: unknown): string {
 }
 
 /** Legenda do PDF no WhatsApp (sem link). */
-export function legendaDoOrcamentoDoLaboratorio(quote: any, numero: string, nomeDaConta: string | null): string {
+export function legendaDoOrcamentoDoLaboratorio(
+  quote: any,
+  numero: string,
+  nomeDaConta: string | null,
+  link: string | null = null,
+): string {
   const T = LAB_ORCAMENTO_WHATSAPP;
   const nome = String(quote.patient?.name || '').trim();
   const itens = quote.items?.length || 0;
@@ -59,6 +68,7 @@ export function legendaDoOrcamentoDoLaboratorio(quote: any, numero: string, nome
   if (Number(quote.discount_value) > 0) linhas.push(T.desconto(formatBRL(quote.discount_value)));
   if (validade) linhas.push(T.validade(validade));
   if (anexos > 0) linhas.push(T.anexos(anexos));
+  if (link) linhas.push(LAB_PROPOSTA_ONLINE_WHATSAPP.linkAntes, link);
   linhas.push(T.fecho);
   return linhas.join('\n');
 }
@@ -73,8 +83,8 @@ export async function enviarOrcamentoDoLaboratorio(
   quoteId: string,
   tenantId: string,
   userId?: string,
-): Promise<{ ok: true; link: null; sent_to: string; status: 'SENT'; conversationId: string }> {
-  const { prisma, messages, conversations, pdfService, versions, logger, resolverLead } = deps;
+): Promise<{ ok: true; link: string | null; sent_to: string; status: 'SENT'; conversationId: string }> {
+  const { prisma, messages, conversations, pdfService, versions, logger, resolverLead, criarLink } = deps;
 
   if (!['DRAFT', 'SENT'].includes(quote.status)) {
     throw new BadRequestException(LAB_ORCAMENTO_WHATSAPP.statusNaoReenvia(String(quote.status)));
@@ -108,7 +118,16 @@ export async function enviarOrcamentoDoLaboratorio(
   const numero = numeroDoOrcamento(quote);
   const nomeDaConta =
     (await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name?.trim() || null;
-  const caption = legendaDoOrcamentoDoLaboratorio(quote, numero, nomeDaConta);
+  // Link de aceite: se falhar, o PDF segue sozinho (o link é um extra, não o conteúdo).
+  let link: string | null = null;
+  if (criarLink) {
+    try {
+      link = await criarLink(quote, tenantId);
+    } catch (e) {
+      logger.warn(`[LAB-ORCAMENTO] link de aceite do orçamento ${quoteId} não saiu: ${(e as Error)?.message ?? e}`);
+    }
+  }
+  const caption = legendaDoOrcamentoDoLaboratorio(quote, numero, nomeDaConta, link);
 
   let sent: { message: any; instance: string; purpose: 'CLINICA' | 'COMERCIAL' };
   try {
@@ -145,5 +164,5 @@ export async function enviarOrcamentoDoLaboratorio(
   logger.log(
     `[LAB-ORCAMENTO] orçamento ${quoteId} enviado via WhatsApp (conversa ${conversationId}, chip ${sent.instance}/${sent.purpose})`,
   );
-  return { ok: true, link: null, sent_to: quote.patient.phone, status: 'SENT', conversationId };
+  return { ok: true, link, sent_to: quote.patient.phone, status: 'SENT', conversationId };
 }

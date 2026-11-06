@@ -1,6 +1,15 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Inject, forwardRef, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
+import { isLabTenant } from '@crm/shared';
+import { assertAnyPermission, negarPermissao } from '../auth/require-any-permission';
+import { isAdminRole } from '../auth/patient-scope';
+import { situacaoDaCobrancaDaParcela } from '../payment-gateway/cobranca-laboratorio';
+import { LAB_COBRANCA_AVULSA } from './lab-cobranca-avulsa-textos';
+
+/** Quem pediu a ação (req.user): as ações sobre o boleto em aberto conferem o papel. */
+type QuemPede = { id?: string; roles?: string[] } | null | undefined;
 
 @Injectable()
 export class LeadHonorariosService {
@@ -9,11 +18,76 @@ export class LeadHonorariosService {
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => FinanceiroService)) private financeiroService: FinanceiroService,
+    private moduleRef: ModuleRef,
   ) {}
+
+  // ─── Conta do laboratório ───────────────────────────────
+
+  /**
+   * Conta de laboratório? (lista em cache de 60 s; a clínica só paga essa leitura.) No
+   * laboratório a cobrança avulsa só alcança contato e parcela da PRÓPRIA conta: o
+   * registro de outra conta responde como inexistente.
+   */
+  private async doLab(tenantId?: string): Promise<boolean> {
+    return !!tenantId && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)));
+  }
+
+  /** Laboratório: o honorário (ou, sem conta gravada, o contato dele) é da conta de quem chama? */
+  private async daContaDoLab(tenantId: string, hon: { tenant_id: string | null; lead_id: string }): Promise<boolean> {
+    if (hon.tenant_id) return hon.tenant_id === tenantId;
+    const lead = await this.prisma.lead.findUnique({ where: { id: hon.lead_id }, select: { tenant_id: true } });
+    return lead?.tenant_id === tenantId;
+  }
+
+  /**
+   * Contato com conta gravada e diferente da conta do token: em qualquer tipo de conta,
+   * responde como inexistente. Contato legado (sem conta) e chamada interna (sem token): como antes.
+   */
+  private async contatoDeOutraConta(leadId: string, tenantId?: string): Promise<boolean> {
+    if (!tenantId) return false;
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { tenant_id: true } });
+    return !!lead?.tenant_id && lead.tenant_id !== tenantId;
+  }
+
+  /** PaymentGatewayService pelo ModuleRef, sem injeção nova (mesmo padrão do módulo dele). */
+  private gateway() {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('../payment-gateway/payment-gateway.service');
+    return this.moduleRef.get(mod.PaymentGatewayService, { strict: false }) as import('../payment-gateway/payment-gateway.service').PaymentGatewayService;
+  }
+
+  /** Cancela no Asaas o boleto em aberto da parcela. Só o administrador; o gateway recusa se o Asaas não confirmar. */
+  private async cancelarBoletoDaParcela(paymentId: string, tenantId: string, quem: QuemPede, motivo: string): Promise<void> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { lead_honorario_payment_id: paymentId },
+      select: { status: true, received_in_cash: true },
+    });
+    if (charge && situacaoDaCobrancaDaParcela(charge) === 'ABERTA' && !isAdminRole(quem?.roles)) {
+      throw negarPermissao(LAB_COBRANCA_AVULSA.soAdminCancelaBoleto);
+    }
+    if (charge) await this.gateway().cancelarCobrancaDaParcelaDoLab(paymentId, tenantId, { userId: quem?.id ?? null, reason: motivo });
+  }
 
   // ─── Queries ────────────────────────────────────────────
 
-  async findByLead(leadId: string) {
+  async findByLead(leadId: string, tenantId?: string) {
+    if (await this.doLab(tenantId)) {
+      const contato = await this.prisma.lead.findFirst({ where: { id: leadId, tenant_id: tenantId }, select: { id: true } });
+      if (!contato) throw new NotFoundException(LAB_COBRANCA_AVULSA.contatoNaoEncontrado);
+      // A tela mostra o estado e o link da cobrança de cada parcela.
+      return this.prisma.leadHonorario.findMany({
+        where: { lead_id: leadId },
+        include: {
+          payments: {
+            orderBy: { due_date: 'asc' },
+            include: { gateway_charge: { select: { status: true, received_in_cash: true, boleto_url: true, invoice_url: true } } },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+    } else if (await this.contatoDeOutraConta(leadId, tenantId)) {
+      throw new NotFoundException('Lead não encontrado');
+    }
     return this.prisma.leadHonorario.findMany({
       where: { lead_id: leadId },
       include: {
@@ -94,6 +168,13 @@ export class LeadHonorariosService {
     if (!data.total_value || data.total_value <= 0) {
       throw new BadRequestException('Valor total deve ser maior que zero');
     }
+    // Laboratório: só contato da própria conta.
+    if (await this.doLab(tenantId)) {
+      const contato = await this.prisma.lead.findFirst({ where: { id: leadId, tenant_id: tenantId }, select: { id: true } });
+      if (!contato) throw new NotFoundException(LAB_COBRANCA_AVULSA.contatoNaoEncontrado);
+    } else if (await this.contatoDeOutraConta(leadId, tenantId)) {
+      throw new NotFoundException('Lead não encontrado');
+    }
 
     const validTypes = ['CONTRATUAL', 'ENTRADA', 'ACORDO'];
     if (!validTypes.includes(data.type)) {
@@ -143,9 +224,13 @@ export class LeadHonorariosService {
     total_value?: number;
     notes?: string;
     status?: string;
-  }) {
+  }, tenantId?: string) {
     const existing = await this.prisma.leadHonorario.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Honorário negociado não encontrado');
+    if (tenantId && (await this.doLab(tenantId)) && !(await this.daContaDoLab(tenantId, existing))) {
+      throw new NotFoundException(LAB_COBRANCA_AVULSA.naoEncontrada);
+    }
+    if (await this.contatoDeOutraConta(existing.lead_id, tenantId)) throw new NotFoundException('Honorário negociado não encontrado');
     if (existing.status === 'CONVERTIDO') {
       throw new ForbiddenException('Honorário já convertido não pode ser alterado');
     }
@@ -176,11 +261,27 @@ export class LeadHonorariosService {
     });
   }
 
-  async delete(id: string) {
+  async delete(id: string, tenantId?: string, quem?: QuemPede) {
     const existing = await this.prisma.leadHonorario.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Honorário negociado não encontrado');
+    const lab = await this.doLab(tenantId);
+    if (tenantId && lab && !(await this.daContaDoLab(tenantId, existing))) {
+      throw new NotFoundException(LAB_COBRANCA_AVULSA.naoEncontrada);
+    }
+    if (await this.contatoDeOutraConta(existing.lead_id, tenantId)) throw new NotFoundException('Honorário negociado não encontrado');
     if (existing.status === 'CONVERTIDO') {
       throw new ForbiddenException('Honorário já convertido não pode ser excluído');
+    }
+    // Laboratório: parcela paga segura a cobrança; boleto em aberto é cancelado no Asaas antes.
+    if (tenantId && lab) {
+      const parcelas = await this.prisma.leadHonorarioPayment.findMany({
+        where: { lead_honorario_id: id },
+        select: { id: true, status: true, gateway_charge: { select: { status: true, received_in_cash: true } } },
+      });
+      if (parcelas.some((p) => p.status === 'PAGO' || (p.gateway_charge && situacaoDaCobrancaDaParcela(p.gateway_charge) === 'PAGA'))) {
+        throw new BadRequestException(LAB_COBRANCA_AVULSA.temParcelaPaga);
+      }
+      for (const p of parcelas) await this.cancelarBoletoDaParcela(p.id, tenantId, quem, LAB_COBRANCA_AVULSA.motivoExcluirCobranca);
     }
 
     await this.prisma.leadHonorario.delete({ where: { id } });
@@ -189,9 +290,13 @@ export class LeadHonorariosService {
 
   // ─── Parcelas (Payments) ────────────────────────────────
 
-  async addPayment(leadHonorarioId: string, data: { amount: number; due_date: string }) {
+  async addPayment(leadHonorarioId: string, data: { amount: number; due_date: string }, tenantId?: string) {
     const hon = await this.prisma.leadHonorario.findUnique({ where: { id: leadHonorarioId } });
     if (!hon) throw new NotFoundException('Honorário não encontrado');
+    if (tenantId && (await this.doLab(tenantId)) && !(await this.daContaDoLab(tenantId, hon))) {
+      throw new NotFoundException(LAB_COBRANCA_AVULSA.naoEncontrada);
+    }
+    if (await this.contatoDeOutraConta(hon.lead_id, tenantId)) throw new NotFoundException('Honorário não encontrado');
     if (hon.status === 'CONVERTIDO') throw new ForbiddenException('Honorário já convertido');
 
     const dueDate = new Date(data.due_date);
@@ -214,10 +319,20 @@ export class LeadHonorariosService {
     return payment;
   }
 
-  async deletePayment(paymentId: string) {
-    const payment = await this.prisma.leadHonorarioPayment.findUnique({ where: { id: paymentId } });
+  async deletePayment(paymentId: string, tenantId?: string, quem?: QuemPede) {
+    const payment = await this.prisma.leadHonorarioPayment.findUnique({
+      where: { id: paymentId },
+      include: { lead_honorario: { select: { tenant_id: true, lead_id: true } } },
+    });
     if (!payment) throw new NotFoundException('Parcela não encontrada');
+    const lab = await this.doLab(tenantId);
+    if (tenantId && lab && !(await this.daContaDoLab(tenantId, payment.lead_honorario))) {
+      throw new NotFoundException(LAB_COBRANCA_AVULSA.parcelaNaoEncontrada);
+    }
+    if (await this.contatoDeOutraConta(payment.lead_honorario.lead_id, tenantId)) throw new NotFoundException('Parcela não encontrada');
     if (payment.status === 'PAGO') throw new ForbiddenException('Parcela já paga não pode ser excluída');
+    // Laboratório: boleto em aberto é cancelado no Asaas antes (se o Asaas não confirmar, a parcela fica).
+    if (tenantId && lab) await this.cancelarBoletoDaParcela(paymentId, tenantId, quem, LAB_COBRANCA_AVULSA.motivoExcluirParcela);
 
     await this.prisma.leadHonorarioPayment.delete({ where: { id: paymentId } });
 
@@ -231,16 +346,34 @@ export class LeadHonorariosService {
     return { ok: true };
   }
 
-  async markPaid(paymentId: string, data: { payment_method?: string }) {
+  async markPaid(paymentId: string, data: { payment_method?: string }, tenantId?: string, quem?: QuemPede) {
     const payment = await this.prisma.leadHonorarioPayment.findUnique({
       where: { id: paymentId },
       include: {
         lead_honorario: {
-          select: { tenant_id: true, type: true, lead: { select: { name: true } } },
+          select: { tenant_id: true, lead_id: true, type: true, lead: { select: { name: true } } },
         },
       },
     });
     if (!payment) throw new NotFoundException('Parcela não encontrada');
+    const lab = await this.doLab(tenantId);
+    if (tenantId && lab && !(await this.daContaDoLab(tenantId, payment.lead_honorario))) {
+      throw new NotFoundException(LAB_COBRANCA_AVULSA.parcelaNaoEncontrada);
+    }
+    if (await this.contatoDeOutraConta(payment.lead_honorario.lead_id, tenantId)) throw new NotFoundException('Parcela não encontrada');
+    // Laboratório: parcela com boleto em aberto dá baixa nele no Asaas, e é essa baixa que
+    // marca a parcela e lança a receita (um lançamento só, e o cliente não paga duas vezes).
+    if (tenantId && lab) {
+      const charge = await this.prisma.paymentGatewayCharge.findUnique({
+        where: { lead_honorario_payment_id: paymentId },
+        select: { status: true, received_in_cash: true },
+      });
+      if (charge && situacaoDaCobrancaDaParcela(charge) === 'ABERTA') {
+        await assertAnyPermission(this.prisma, quem, ['operate_cash', 'manage_financial'], LAB_COBRANCA_AVULSA.soCaixaDaBaixa);
+        await this.gateway().baixarCobrancaDaParcelaDoLab(paymentId, tenantId, { userId: quem?.id ?? null, paymentMethod: data.payment_method });
+        return this.prisma.leadHonorarioPayment.findUnique({ where: { id: paymentId } });
+      }
+    }
 
     const updated = await this.prisma.leadHonorarioPayment.update({
       where: { id: paymentId },

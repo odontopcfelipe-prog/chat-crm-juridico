@@ -676,6 +676,50 @@ describe('Agenda — coleta, prova e entrega: lembretes de 48 h e 24 h e aviso d
     expect(m.de('calendarEvent.create')).toEqual([]);
   });
 
+  describe('bloqueio de agendamento de devedor: opt-in da conta', () => {
+    const CHAVE = `BLOCK_SCHED_ON_OVERDUE_${LAB}`;
+    const vencidas = (t: string) => ({
+      'patient.findUnique': () => ({ id: 'pac-lab', tenant_id: t, lead_id: null, lead: null }),
+      'paymentGatewayCharge.findMany': ({ where }: any) => (where.tenant_id === t ? [{ amount: 350 }] : []),
+    });
+    const comChave = (valor: string | null, t = LAB) => ({
+      ...vencidas(t),
+      'globalSetting.findUnique': ({ where }: any) => (where.key === CHAVE && valor !== null ? { value: valor } : null),
+    });
+    const coleta = (extra: Record<string, any> = {}) => evento(LAB, { lead_id: undefined, patient_id: 'pac-lab', ...extra });
+
+    it.each([['sem a chave', null], ["chave em 'false'", 'false']])('%s: cliente com boleto vencido marca normalmente, sem conferir atraso', async (_n, valor) => {
+      const m = montar([LAB], comChave(valor as string | null));
+      await m.svc.create(coleta());
+      await esperar();
+      expect(m.de('calendarEvent.create')).toHaveLength(1);
+      expect(m.de('paymentGatewayCharge.findMany')).toEqual([]);
+    });
+
+    it('chave ligada na conta: barra com o código do bloqueio, nada é gravado; só a cobrança da conta conta', async () => {
+      const m = montar([LAB], comChave('true'));
+      const e = await erro(m.svc.create(coleta()));
+      expect(e.getStatus()).toBe(400);
+      expect(e.getResponse()).toMatchObject({ code: 'SCHEDULING_BLOCKED_OVERDUE', overdue: { count: 1, total: 350 } });
+      expect(m.de('calendarEvent.create')).toEqual([]);
+      expect(m.de('paymentGatewayCharge.findMany')[0].where).toMatchObject({ tenant_id: LAB, status: { in: ['PENDING', 'OVERDUE'] }, received_in_cash: false });
+    });
+
+    it('chave ligada, admin libera com motivo: grava a liberação no evento', async () => {
+      const m = montar([LAB], comChave('true'));
+      await m.svc.create(coleta({ actor_roles: ['ADMIN'], override_overdue_block: true, override_overdue_reason: 'Acordo combinado' }));
+      await esperar();
+      expect(m.de('calendarEvent.create')[0].data).toMatchObject({ overdue_override_reason: 'Acordo combinado' });
+    });
+
+    it('selo da ficha: bloqueado só com a chave ligada na conta', async () => {
+      const desligado = montar([LAB], comChave(null));
+      expect(await desligado.svc.getSchedulingBlockStatus('pac-lab', LAB)).toMatchObject({ has_overdue: true, block_enabled: false, blocked: false });
+      const ligado = montar([LAB], comChave('true'));
+      expect(await ligado.svc.getSchedulingBlockStatus('pac-lab', LAB)).toMatchObject({ has_overdue: true, block_enabled: true, blocked: true });
+    });
+  });
+
   const antes = (t: string, tipo = 'COLETA') => ({
     'calendarEvent.findUnique': () => ({
       type: tipo, start_at: new Date(INICIO), location: null, lead_id: 'lead-1', status: 'AGENDADO',

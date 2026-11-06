@@ -5,15 +5,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FollowupService } from './followup.service';
 import axios from 'axios';
-import { algumLab, getLabTenantIds, isLabTenant } from '@crm/shared';
+import { contaDoLabPodeEnviar, isLabTenant } from '@crm/shared';
+import { LAB_FOLLOWUP_MOTIVOS, LAB_FOLLOWUP_NOME_PADRAO } from './lab-followup-textos';
 // Null-safe: `NOT { inbox: { purpose: 'FINANCEIRO' } }` descarta caixa com purpose NULL
 // (clínica legada de 1 chip) — o filtro da reativação inclui esses casos.
 import { FORA_DO_FINANCEIRO } from '../reativacao/reativacao-dados';
 import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
+import { classifyHistorySender, loadAutomationSignals } from '../ai/history-sender';
 
 /** Sem chip: cai no MESMO registro de falha de quando a Evolution recusava o chip vazio/morto. */
 const SEM_CHIP_PROPRIO = 'Clínica sem chip próprio — o chip padrão do servidor está vazio ou é de outra clínica';
-const SEM_DISPARO_DE_LAB = 'Laboratório: sem disparo em massa';
 
 @Processor('followup-jobs')
 export class FollowupProcessor extends WorkerHost {
@@ -106,16 +107,37 @@ export class FollowupProcessor extends WorkerHost {
 
     if (!enrollment || enrollment.status !== 'ATIVO') return;
 
-    // F2 [LAB-GATE] — freio DEFINITIVO do follow-up (o cron do worker e a API enfileiram
-    // aqui): lead de laboratório não tem texto gerado pela IA nem envio. A inscrição
-    // sai do ATIVO para não voltar a cada hora. Clínica: nenhum id casa e segue igual.
-    if (await isLabTenant(this.prisma, enrollment.lead?.tenant_id, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] followup — inscrição ${enrollmentId} é de laboratório: pausada, sem IA e sem envio`);
-      await this.prisma.followupEnrollment.update({
-        where: { id: enrollmentId },
-        data: { status: 'PAUSADO', paused_reason: 'Laboratório: sem follow-up automático' },
-      });
-      return;
+    // Laboratório (o cron do worker e a API enfileiram aqui): só roda se a PRÓPRIA conta
+    // ligou — a sequência é dela e está ligada. Sequência global (escrita para as
+    // clínicas), de outra conta ou desligada: a inscrição sai do ATIVO (volta pelo
+    // "retomar", que confere de novo). O texto é fixo (sem IA). Clínica: nenhum id casa
+    // e segue igual.
+    const doLab = await isLabTenant(this.prisma, enrollment.lead?.tenant_id, (m) => this.logger.warn(m));
+    if (doLab) {
+      // Conta suspensa ou congelada: não envia. A inscrição segue ATIVA e é olhada de novo
+      // em 12 h, sem ocupar a busca por hora do cron; a conta que volta retoma sozinha,
+      // sem ninguém precisar reativar inscrição por inscrição.
+      if (!(await contaDoLabPodeEnviar(this.prisma, enrollment.lead?.tenant_id))) {
+        this.logger.log(`[LAB] followup — inscrição ${enrollmentId} adiada: ${LAB_FOLLOWUP_MOTIVOS.contaSuspensa}`);
+        await this.prisma.followupEnrollment.update({
+          where: { id: enrollmentId },
+          data: { next_send_at: new Date(Date.now() + 12 * 3600000) },
+        });
+        return;
+      }
+      const motivo = !enrollment.sequence.active || enrollment.sequence.tenant_id !== enrollment.lead?.tenant_id
+        ? LAB_FOLLOWUP_MOTIVOS.sequenciaDesligada
+        : (enrollment.lead?.contact_opt_out_at || enrollment.lead?.whatsapp_invalid_at || enrollment.lead?.non_patient_category)
+          ? LAB_FOLLOWUP_MOTIVOS.naoRecebe
+          : null;
+      if (motivo) {
+        this.logger.log(`[LAB] followup — inscrição ${enrollmentId} não roda: ${motivo}`);
+        await this.prisma.followupEnrollment.update({
+          where: { id: enrollmentId },
+          data: { status: 'PAUSADO', paused_reason: motivo },
+        });
+        return;
+      }
     }
 
     // Onda 17.64 — REDE DE SEGURANÇA: se o lead virou PACIENTE (is_client), não manda
@@ -183,10 +205,21 @@ export class FollowupProcessor extends WorkerHost {
       where: { lead_id: enrollment.lead_id, status: 'ABERTO', ...FORA_DO_FINANCEIRO },
       orderBy: { last_message_at: 'desc' },
     });
+    // Laboratório: a conversa com a IA desligada é o normal, e a sequência é texto fixo da
+    // própria conta. Só adia se alguém (o contato ou a equipe) escreveu nas últimas 12 h;
+    // os envios automáticos da conversa não contam.
+    if (doLab && convo && (await this.mensagemHumanaRecente(convo.id, enrollment.lead))) {
+      this.logger.log(`[LAB] followup — inscrição ${enrollmentId} adiada: conversa com mensagem nas últimas 12 h`);
+      await this.prisma.followupEnrollment.update({
+        where: { id: enrollmentId },
+        data: { next_send_at: new Date(Date.now() + 12 * 3600000) },
+      });
+      return;
+    }
     // Onda 18.x — respeita o "IA Inativa": se o operador desligou a IA da conversa,
     // NAO manda follow-up de sequencia (o usuario espera silencio ao desligar).
     // Reagenda pra rechecar depois (caso a IA volte a ser ligada).
-    if (convo && (convo as any).ai_mode === false) {
+    if (!doLab && convo && (convo as any).ai_mode === false) {
       this.logger.log(`[FOLLOWUP] Pulando ${enrollment.lead_id} — IA da conversa desativada (ai_mode=false)`);
       await this.prisma.followupEnrollment.update({
         where: { id: enrollmentId },
@@ -194,7 +227,7 @@ export class FollowupProcessor extends WorkerHost {
       });
       return;
     }
-    if (convo?.last_message_at) {
+    if (!doLab && convo?.last_message_at) {
       const horasDesde = (Date.now() - convo.last_message_at.getTime()) / 3600000;
       if (horasDesde < 12) {
         this.logger.log(`[FOLLOWUP] Pulando ${enrollment.lead_id} — conversa ativa (${Math.round(horasDesde)}h atrás)`);
@@ -211,9 +244,29 @@ export class FollowupProcessor extends WorkerHost {
     // ─── Gerar mensagem com IA ────────────────────────────────────────────
 
     try {
-      const dossie = await this.followupService.buildDossie(enrollment, step, enrollment.lead);
-      const generatedText = await this.followupService.generateMessage(dossie, step.custom_prompt);
-      const riskLevel = this.followupService.classifyRisk(dossie, step);
+      // Laboratório: o passo é o texto fixo da conta (custom_prompt, {{nome}} = primeiro
+      // nome), sem dossiê e sem IA. Passo sem texto ou fora do WhatsApp pausa a inscrição.
+      let dossie: any = null;
+      let generatedText: string;
+      let riskLevel: string;
+      if (doLab) {
+        const fixo = (step.custom_prompt ?? '').trim();
+        if (!fixo || step.channel !== 'whatsapp') {
+          this.logger.log(`[LAB] followup — inscrição ${enrollmentId}: passo ${step.position} sem texto fixo, pausada`);
+          await this.prisma.followupEnrollment.update({
+            where: { id: enrollmentId },
+            data: { status: 'PAUSADO', paused_reason: LAB_FOLLOWUP_MOTIVOS.semTextoFixo },
+          });
+          return;
+        }
+        const primeiroNome = (enrollment.lead?.name || '').trim().split(/\s+/)[0] || LAB_FOLLOWUP_NOME_PADRAO;
+        generatedText = fixo.replace(/\{\{\s*nome\s*\}\}/g, primeiroNome);
+        riskLevel = 'baixo';
+      } else {
+        dossie = await this.followupService.buildDossie(enrollment, step, enrollment.lead);
+        generatedText = await this.followupService.generateMessage(dossie, step.custom_prompt);
+        riskLevel = this.followupService.classifyRisk(dossie, step);
+      }
 
       const msg = await this.prisma.followupMessage.create({
         data: {
@@ -225,7 +278,7 @@ export class FollowupProcessor extends WorkerHost {
           sent_text: step.auto_send ? generatedText : undefined,
           status: step.auto_send && riskLevel === 'baixo' ? 'APROVADO' : 'PENDENTE_APROVACAO',
           risk_level: riskLevel,
-          context_json: dossie as any,
+          context_json: (dossie ?? undefined) as any, // laboratório: texto fixo, sem dossiê
         },
       });
 
@@ -239,12 +292,58 @@ export class FollowupProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Laboratório: a conversa teve mensagem do contato ou da equipe nas últimas 12 h? Nota
+   * interna, transferência, IA e envio automático não contam. Na dúvida (erro de leitura)
+   * responde que sim: adiar uma mensagem é melhor que mandá-la no meio de uma conversa.
+   */
+  private async mensagemHumanaRecente(
+    conversationId: string,
+    lead: { id: string; phone?: string | null; tenant_id?: string | null } | null,
+  ): Promise<boolean> {
+    try {
+      const mensagens = await this.prisma.message.findMany({
+        where: {
+          conversation_id: conversationId,
+          created_at: { gte: new Date(Date.now() - 12 * 3600000) },
+          type: { notIn: ['internal_note', 'note', 'transfer_event'] },
+        },
+        select: { direction: true, external_message_id: true, skill_id: true, created_at: true },
+        orderBy: { created_at: 'desc' },
+        take: 100,
+      });
+      if (!mensagens.length) return false;
+      const sinais = await loadAutomationSignals(this.prisma, {
+        tenantId: lead?.tenant_id ?? null,
+        lead: lead ? { id: lead.id, phone: lead.phone } : null,
+        messages: mensagens,
+      });
+      return mensagens.some((m) => {
+        const quem = classifyHistorySender(m, sinais);
+        return quem === 'client' || quem === 'operator';
+      });
+    } catch (e: any) {
+      this.logger.warn(`[LAB] followup — não leu as mensagens da conversa ${conversationId}: ${e?.message}`);
+      return true;
+    }
+  }
+
   private async sendMessage(messageId: string) {
     const msg = await this.prisma.followupMessage.findUnique({
       where: { id: messageId },
       include: { enrollment: { include: { lead: true, sequence: true } }, step: true },
     });
     if (!msg || msg.status === 'ENVIADO') return;
+
+    // Laboratório: mensagem aprovada antes de a conta ser suspensa ou congelada não sai.
+    const contaDaMensagem = (msg as any).enrollment?.lead?.tenant_id;
+    if (
+      (await isLabTenant(this.prisma, contaDaMensagem, (m) => this.logger.warn(m))) &&
+      !(await contaDoLabPodeEnviar(this.prisma, contaDaMensagem))
+    ) {
+      this.logger.log(`[LAB] followup — mensagem ${messageId} não sai: ${LAB_FOLLOWUP_MOTIVOS.contaSuspensa}`);
+      return;
+    }
 
     // Onda 17.64 — REDE DE SEGURANÇA no path de APROVAÇÃO MANUAL (não passa pelo
     // processStep). Se a msg é de sequência de LEAD e o lead já virou PACIENTE
@@ -370,14 +469,26 @@ export class FollowupProcessor extends WorkerHost {
     }
 
     try {
-      // F2 [LAB-GATE] — disparo em massa legado (texto do operador ou gerado pela IA com
-      // prompt de outro ramo): para contato de laboratório não sai e não chama a IA. Olha
-      // a conta do disparo E a do contato (disparo sem conta lista contatos de todas). O
-      // catch marca o item como falha e a contagem abaixo conclui o disparo. Clínica:
-      // nenhum id casa e segue igual.
-      if (algumLab(await getLabTenantIds(this.prisma, (m) => this.logger.warn(m)), [broadcast.tenant_id, lead.tenant_id])) {
-        this.logger.log(`[LAB-GATE] broadcast — item ${itemId} do disparo ${broadcastId} é de laboratório: não sai`);
-        throw new Error(SEM_DISPARO_DE_LAB);
+      // Laboratório: o disparo em massa é só o comunicado (texto fixo, nunca IA), da própria
+      // conta e para quem aceita mensagens. Olha a conta do disparo E a do contato (disparo
+      // sem conta lista contatos de todas). O catch marca o item como falha e a contagem
+      // abaixo conclui o disparo. Clínica: nenhum id casa e segue igual.
+      const labDoDisparo = await isLabTenant(this.prisma, broadcast.tenant_id, (m) => this.logger.warn(m));
+      const labDoContato = await isLabTenant(this.prisma, lead.tenant_id, (m) => this.logger.warn(m));
+      if (labDoDisparo || labDoContato) {
+        const motivo = broadcast.type !== 'COMUNICADO' || !customPrompt?.trim()
+          ? LAB_FOLLOWUP_MOTIVOS.disparoSoComunicado
+          : broadcast.tenant_id !== lead.tenant_id
+            ? LAB_FOLLOWUP_MOTIVOS.disparoDeOutraConta
+            : (lead.contact_opt_out_at || lead.whatsapp_invalid_at || lead.non_patient_category)
+              ? LAB_FOLLOWUP_MOTIVOS.naoRecebe
+              : !(await contaDoLabPodeEnviar(this.prisma, broadcast.tenant_id))
+                ? LAB_FOLLOWUP_MOTIVOS.contaSuspensa
+                : null;
+        if (motivo) {
+          this.logger.log(`[LAB] broadcast — item ${itemId} do disparo ${broadcastId} não sai: ${motivo}`);
+          throw new Error(motivo);
+        }
       }
 
       // COMUNICADO: usa mensagem fixa do custom_prompt (sem IA)

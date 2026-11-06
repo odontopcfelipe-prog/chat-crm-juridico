@@ -21,8 +21,12 @@ import {
   LAB_AGENDA_TEXTOS,
   LAB_NEGOCIACAO,
   LAB_RECUSA_DISPAROS,
+  LAB_REGUA,
   LAB_TESTE_DA_CENTRAL,
+  REGUA_DO_LABORATORIO,
   REMINDER_CONFIG_PADRAO_DO_LABORATORIO,
+  semVariaveis,
+  temVocabularioDeClinica,
 } from '@crm/shared';
 import { CODIGO_VERTICAL_NEGADA } from '../common/lab-gate.util';
 
@@ -271,7 +275,7 @@ describe('Recusas do laboratório no servidor', () => {
     }
   });
 
-  it.each(['nps', 'recall_preventivo', 'confirmacao_orto', 'confirmacao_orto_imediata', 'lembrete_orto_1h', 'comercial_confirmacao', 'lembrete_1h', 'lembrete_15min', 'aniversario_desejo', 'aniversario_presente', 'boleto_intro', 'pix_delivery'])(
+  it.each(['nps', 'recall_preventivo', 'confirmacao_orto', 'confirmacao_orto_imediata', 'lembrete_orto_1h', 'comercial_confirmacao', 'lembrete_1h', 'lembrete_15min', 'aniversario_desejo', 'aniversario_presente', 'pix_delivery', 'comprovante_pagamento'])(
     'Testar "%s" no laboratório: recusado antes de escolher o chip, nada é lido nem enviado',
     async (id) => {
       const m = montar();
@@ -331,6 +335,25 @@ describe('Testar da Central no laboratório', () => {
     expect(r.message).not.toContain('Clareamento');
     expect(LAB_NEGOCIACAO.parcelado).toContain('{itens}');
     expect(m.whatsapp.sendText.mock.calls[0][2]).toBe(`chip-FINANCEIRO-${LAB}`);
+  });
+
+  it.each([...REGUA_DO_LABORATORIO])('régua, %s: o padrão do laboratório, pelo chip do Financeiro da conta', async (id) => {
+    const m = montar({}, comChip());
+    const r = await m.svc.sendTestDisparo(LAB, id, TEL, undefined, true);
+    expect(r.message).toContain('Carlos (teste)');
+    expect(r.message).toContain('Laboratório Exemplo');
+    expect(r.message).not.toMatch(/\{\w+\}/);
+    expect(temVocabularioDeClinica(semVariaveis(r.message))).toBe(false);
+    expect(m.whatsapp.sendText.mock.calls[0][2]).toBe(`chip-FINANCEIRO-${LAB}`);
+    expect(r.anexos).toEqual({ enviados: 0, falhas: [] });
+  });
+
+  it('régua: o texto da tela vale no Testar; a apresentação usa o texto do laboratório', async () => {
+    const m = montar({}, comChip());
+    const tela = await m.svc.sendTestDisparo(LAB, 'boleto_no_dia', TEL, 'Oi {nome}, {valor} de {clinica}. {codigo}', true);
+    expect(tela.message.startsWith('Oi Carlos (teste), R$ 350,00 de Laboratório Exemplo.')).toBe(true);
+    const intro = await m.svc.sendTestDisparo(LAB, 'boleto_intro', TEL, undefined, true);
+    expect(intro.message).toBe(LAB_REGUA.apresentacao.replace('{nome}', 'Carlos (teste)').replace('{clinica}', 'Laboratório Exemplo'));
   });
 
   it('clínica: o Testar de antes (paciente de exemplo, dentista da conta, agenda de avaliação)', async () => {

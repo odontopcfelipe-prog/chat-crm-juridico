@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AFILIADOS_JOGO } from './lab-afiliados-textos';
 
 interface RankRow {
   id: string;
@@ -58,6 +61,7 @@ const faixaTone = (l?: string | null) => (l && FAIXA_TONE[l]) || 'bg-muted text-
 const FAIXA_EMOJI: Record<string, string> = { Bronze: '🥉', Prata: '🥈', Ouro: '🥇', Diamante: '💎' };
 
 export default function AfiliadosJogoView() {
+  const lab = isLab(useBusinessType());
   const [game, setGame] = useState<Game | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -76,7 +80,7 @@ export default function AfiliadosJogoView() {
 
   const definirMeta = async () => {
     const raw = window.prompt(
-      'Meta coletiva da temporada — quantas indicações FECHADAS a clínica quer bater no mês?\n\n(0 ou vazio remove a meta)',
+      lab ? LAB_AFILIADOS_JOGO.metaPergunta : 'Meta coletiva da temporada — quantas indicações FECHADAS a clínica quer bater no mês?\n\n(0 ou vazio remove a meta)',
       String(game?.meta.alvo ?? ''),
     );
     if (raw == null) return;
@@ -118,8 +122,7 @@ export default function AfiliadosJogoView() {
             </div>
             <h2 className="text-2xl font-extrabold mt-0.5">Corrida das Indicações</h2>
             <p className="text-sm text-emerald-100/80 mt-1 max-w-xl">
-              Cada tratamento fechado por indicação conta ponto. Bata a meta da clínica e todos os
-              afiliados concorrem ao prêmio.
+              {lab ? LAB_AFILIADOS_JOGO.intro : 'Cada tratamento fechado por indicação conta ponto. Bata a meta da clínica e todos os afiliados concorrem ao prêmio.'}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -187,8 +190,7 @@ export default function AfiliadosJogoView() {
                 <Users size={30} className="mx-auto mb-2 opacity-40" />
                 <p className="text-sm font-medium">Nenhum afiliado na corrida ainda</p>
                 <p className="text-xs mt-1 max-w-md mx-auto">
-                  Marque pacientes como afiliados (botão <b>“+ Adicionar afiliado”</b>). Quando indicarem e
-                  o tratamento fechar, eles sobem no ranking aqui — sem número inventado.
+                  {lab ? LAB_AFILIADOS_JOGO.vazioMarque : 'Marque pacientes como afiliados (botão'} <b>“+ Adicionar afiliado”</b>{lab ? LAB_AFILIADOS_JOGO.vazioQuando : '). Quando indicarem e o tratamento fechar, eles sobem no ranking aqui — sem número inventado.'}
                 </p>
               </div>
             ) : (
@@ -322,7 +324,7 @@ export default function AfiliadosJogoView() {
                 })}
               </div>
               <div className="px-4 py-2 text-[11px] text-muted-foreground border-t border-border">
-                Progresso real (indicações fechadas no mês). A recompensa é um rótulo — o prêmio fica a critério da clínica.
+                {lab ? LAB_AFILIADOS_JOGO.rodape : 'Progresso real (indicações fechadas no mês). A recompensa é um rótulo — o prêmio fica a critério da clínica.'}
               </div>
             </section>
 

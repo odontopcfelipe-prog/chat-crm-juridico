@@ -15,7 +15,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, getLabTenantIds, isLabTenant, withoutLabTenants, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, pickDentistForProcedure, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_BOLETO_INTRO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, toBrazilWhatsappNumber, recebeDisparoEquipe, contaDoLabPodeEnviar, getLabTenantIds, isLabTenant, TIPOS_SO_DO_LABORATORIO, withoutLabTenants, type Permission, type Sector } from '@crm/shared';
 // F2 parte 2c — recusa de função de clínica no laboratório (pura, sem DI).
 import { eRecusaDeLaboratorio, negarLaboratorio } from '../common/lab-gate.util';
 // Out/2026 — direcionar procedimento pro dentista da área (especialidade).
@@ -34,11 +34,12 @@ import type { VendaBalcaoDto } from './dto/commercial.dto';
 // F6 — orçamento de trabalho do laboratório: envio pelo WhatsApp (função pura) e texto
 // da recusa do elemento fora da numeração FDI.
 import { enviarOrcamentoDoLaboratorio } from './orcamento-whatsapp-laboratorio';
+import { criarLinkDaProposta } from './proposta-online-laboratorio';
 import { LAB_ORCAMENTO_ITENS } from './lab-orcamento-textos';
 // F7 — avisos de venda do laboratório (orçamento aprovado, boleto da entrada, venda feita
 // e resumo do dia): textos do laboratório e o primeiro nome sem título. Só o ramo do
 // laboratório usa; funções puras (sem DI).
-import { LAB_NEGOCIACAO, LAB_ENTRADA, LAB_VENDA_FEITA, LAB_RESUMO_DIA, LAB_AGENDA_TEXTOS, primeiroNomeSemTitulo } from '@crm/shared';
+import { LAB_NEGOCIACAO, LAB_ENTRADA, LAB_VENDA_FEITA, LAB_RESUMO_DIA, LAB_AGENDA_TEXTOS, LAB_REGUA, primeiroNomeSemTitulo } from '@crm/shared';
 import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
 
 type ItemInput = {
@@ -1431,11 +1432,6 @@ export class QuotesService {
    * "não comissiona" ficam de fora). Idempotente (1 VENDA por orçamento).
    */
   private async generateSaleCommission(tenantId: string, sellerUserId: string, quoteId: string, patientId: string, chargedValue?: number) {
-    // F2 parte 4 [LAB-GATE] — comissão de profissional fica fora do laboratório.
-    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] comissao-venda — conta de laboratório, sem comissão na proposta ${quoteId}`);
-      return;
-    }
     // Idempotência: 1 comissão de venda por orçamento.
     const exists = await this.prisma.commission.findFirst({
       where: { quote_id: quoteId, kind: 'VENDA' },
@@ -1893,13 +1889,9 @@ export class QuotesService {
       const ws = this.whatsapp;
       const phone = patient?.phone?.trim();
       if (!tenantId) return;
-      // F2 [LAB-GATE] — régua de cobrança inteira fora no laboratório (decisão do dono):
-      // nem a apresentação, nem a âncora BOLETO_INTRO que libera o carnê automático D+2.
-      // O envio MANUAL de boleto/carnê pela tela continua. Clínica: só a leitura da lista.
-      if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-        this.logger.log(`[LAB-GATE] apresentacao-fechamento — conta ${tenantId} é laboratório: sem apresentação nem âncora (plano ${planId})`);
-        return;
-      }
+      // Laboratório: o mesmo fluxo, só na conta que ligou (chave ausente = desligado, sem
+      // herança), com o texto dele. Clínica: só a leitura da lista.
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
 
       // Dedup por venda — se já tem âncora, não repete (nem manda, nem re-ancora).
       const ja = await this.prisma.auditLog.findFirst({
@@ -1915,18 +1907,22 @@ export class QuotesService {
         this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } }),
       ]);
       const introEnabled = introRow?.value === 'true';
-      const deliveryEnabled = delRow ? delRow.value === 'true' : introEnabled;
+      const deliveryEnabled = delRow ? delRow.value === 'true' : !lab && introEnabled;
 
       // Só apresenta se apresentação + entrega ligadas E há telefone/WhatsApp. Se só a
       // entrega está ligada, apenas ANCORA (libera os boletos D+1) sem mandar a msg.
       if (introEnabled && deliveryEnabled && ws && phone) {
-        const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
-        const firstName = (patient?.name || 'paciente').split(' ')[0];
-        let template = DEFAULT_BOLETO_INTRO;
+        const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || (lab ? LAB_REGUA.laboratorioSemNome : 'a clínica');
+        const firstName = lab
+          ? (primeiroNomeSemTitulo(patient?.name) || LAB_REGUA.clienteSemNome)
+          : (patient?.name || 'paciente').split(' ')[0];
+        let template: string = lab ? LAB_REGUA.apresentacao : DEFAULT_BOLETO_INTRO;
         const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('boleto_intro', tenantId) } });
         if (tplRow?.value) {
           try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* default */ }
         }
+        // Laboratório: texto salvo com palavra de clínica não vai ao cliente.
+        if (lab && temVocabularioDeClinica(semVariaveis(template))) template = LAB_REGUA.apresentacao;
         const msg = template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica).trim();
         const instance = (await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO'))
           || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
@@ -2078,6 +2074,12 @@ export class QuotesService {
     terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string };
   }): Promise<void> {
     const { tenantId, planId, terms } = payload;
+    // Roda 3 min depois do fechamento: a conta de laboratório pode ter sido suspensa ou
+    // congelada nesse meio-tempo. Aí nada sai.
+    if ((await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) {
+      this.logger.log(`[FECHAMENTO] conta de laboratório ${tenantId} suspensa: negociação e entrada não saem (plano ${planId})`);
+      return;
+    }
     // F7 — o laboratório também recebe a negociação e a entrada: cada envio escolhe o
     // texto do laboratório (sendNegociacaoAprovada e sendEntradaCobranca).
     const plan = await this.prisma.treatmentPlan.findUnique({
@@ -2336,6 +2338,11 @@ export class QuotesService {
       if (on?.value !== 'true') return;
       // F7 — laboratório: o mesmo aviso, com os nomes padrão do laboratório.
       const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+      // O pagamento confirmado pelo Asaas chega aqui mesmo com a conta suspensa ou congelada.
+      if (lab && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) {
+        this.logger.log(`[VENDA_FEITA] conta de laboratório ${tenantId} suspensa: aviso não sai (plano ${planId})`);
+        return;
+      }
       // Quem recebe: os números da Central (VENDA_FEITA_PHONE; se vazio, HERDA o do
       // Resumo Diário) + os ADMs com "Venda feita" marcado no cadastro da equipe,
       // menos quem desligou (regra única do @crm/shared).
@@ -4303,6 +4310,10 @@ export class QuotesService {
     // "agora" = Date.now()-3h pra comparar apples-to-apples (quirk da agenda:
     // sem isso, à noite o UTC já virou o dia seguinte e a consulta "some").
     const CLINICAL_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+    // Laboratório: o que marca o trabalho na agenda é a visita dele (coleta, prova ou entrega).
+    const tiposDeVisita = (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))
+      ? [...TIPOS_SO_DO_LABORATORIO]
+      : CLINICAL_TYPES;
     const nowMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const patientIds = Array.from(
       new Set(quotes.map((q) => q.patient?.id).filter((id): id is string => !!id)),
@@ -4330,7 +4341,7 @@ export class QuotesService {
         where: {
           tenant_id: tenantId,
           ...belongsToPatients,
-          type: { in: CLINICAL_TYPES },
+          type: { in: tiposDeVisita },
           status: { notIn: ['CANCELADO', 'NO_SHOW'] },
           start_at: { gte: nowMaceio },
         },
@@ -4355,7 +4366,7 @@ export class QuotesService {
       const attended = await this.prisma.calendarEvent.findMany({
         where: {
           tenant_id: tenantId,
-          type: { in: CLINICAL_TYPES },
+          type: { in: tiposDeVisita },
           AND: [
             belongsToPatients,
             {
@@ -5373,6 +5384,8 @@ export class QuotesService {
 
         // F7 — laboratório: o mesmo resumo, com os nomes padrão do laboratório.
         const lab = await isLabTenant(this.prisma, tid, (m) => this.logger.warn(m));
+        // Conta suspensa ou congelada: o resumo do dia não sai.
+        if (lab && !(await contaDoLabPodeEnviar(this.prisma, tid))) continue;
         const msg = await this.buildDailySummary(tid, startUTC, endUTC, dataLabel, lab);
         // Mesmo helper resiliente do venda_feita: tenta os chips e só marca SENT
         // se algum REALMENTE entregou (antes marcava SENT mesmo com o chip caído,
@@ -5588,6 +5601,7 @@ export class QuotesService {
           versions: this.versions,
           logger: this.logger,
           resolverLead: (p, t) => this.resolvePatientWhatsappLead(p, t),
+          criarLink: (q, t) => criarLinkDaProposta(this.prisma, t, q),
         },
         quote,
         quoteId,

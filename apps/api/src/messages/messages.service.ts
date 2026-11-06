@@ -3,7 +3,16 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed, describeEvolutionFailure } from '../whatsapp/whatsapp.service';
-import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, getLabTenantIds, algumLab } from '@crm/shared';
+import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, getLabTenantIds, algumLab, isLabTenant } from '@crm/shared';
+import {
+  exigirContaComIa,
+  LIMITE_CORRECAO,
+  LIMITE_TRANSCRICAO,
+  MAX_TOKENS_DA_CORRECAO,
+  registrarUsoDoLaboratorio,
+  TEXTO_MAXIMO_DA_CORRECAO,
+} from '../settings/lab-ia-conta';
+import { LAB_IA_API, LAB_IA_CORRECAO, LAB_IA_TRANSCRICAO } from '../settings/lab-ia-api-textos';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { MediaS3Service } from '../media/s3.service';
 import { FileStorageService } from '../media/filesystem.service';
@@ -983,6 +992,10 @@ export class MessagesService {
 
   async transcribeAudio(messageId: string, tenantId?: string): Promise<{ transcription: string }> {
     await this.assertMessageTenant(messageId, tenantId);
+    // Laboratório: vale sem a IA do chip ligada, mas só com a conta em ACTIVE (a chave é
+    // compartilhada), e o gasto fica na conta dele.
+    const laboratorio = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (laboratorio) await exigirContaComIa(this.prisma, tenantId);
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { media: true },
@@ -994,6 +1007,7 @@ export class MessagesService {
 
     const { apiKey: openAiKey } = await this.settings.getAiConfig();
     if (!openAiKey) throw new BadRequestException('OPENAI_API_KEY não configurada');
+    if (laboratorio) LIMITE_TRANSCRICAO.consumir(tenantId as string);
 
     // Dual-read: prefere filesystem (novo), cai no S3/MinIO (legado)
     let buffer: Buffer;
@@ -1019,8 +1033,17 @@ export class MessagesService {
       file,
       model: 'gpt-4o-transcribe',
       language: 'pt',
-      prompt: 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com um escritório de advocacia sobre questões jurídicas.',
+      prompt: laboratorio ? LAB_IA_TRANSCRICAO : 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com um escritório de advocacia sobre questões jurídicas.',
     });
+    if (laboratorio) {
+      await registrarUsoDoLaboratorio(this.prisma, {
+        tenantId: tenantId as string,
+        conversationId: message.conversation_id,
+        model: 'gpt-4o-transcribe',
+        callType: 'whisper',
+        usage: (result as any).usage,
+      });
+    }
 
     const transcription = result.text?.trim() || '';
 
@@ -1034,9 +1057,17 @@ export class MessagesService {
     return { transcription };
   }
 
-  async correctText(text: string, action: string): Promise<{ result: string }> {
+  async correctText(text: string, action: string, tenantId?: string | null): Promise<{ result: string }> {
+    const laboratorio = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (laboratorio) await exigirContaComIa(this.prisma, tenantId);
     const { apiKey } = await this.settings.getAiConfig();
     if (!apiKey) throw new BadRequestException('OPENAI_API_KEY não configurada');
+    if (laboratorio) {
+      if (typeof text !== 'string' || text.length > TEXTO_MAXIMO_DA_CORRECAO) {
+        throw new BadRequestException(LAB_IA_API.textoLongoParaCorrigir);
+      }
+      LIMITE_CORRECAO.consumir(tenantId as string);
+    }
 
     const prompts: Record<string, string> = {
       corrigir: 'Corrija a ortografia e gramática do texto a seguir. Retorne apenas o texto corrigido, sem nenhuma explicação.',
@@ -1046,6 +1077,7 @@ export class MessagesService {
       simplificar: 'Simplifique o texto a seguir, tornando-o mais claro e direto ao ponto. Retorne apenas o texto simplificado, sem nenhuma explicação.',
     };
 
+    if (laboratorio) prompts.profissional = LAB_IA_CORRECAO.profissional;
     const systemPrompt = prompts[action] ?? prompts['corrigir'];
 
     const openai = new OpenAI({ apiKey });
@@ -1055,7 +1087,17 @@ export class MessagesService {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text },
       ],
+      ...(laboratorio ? { max_tokens: MAX_TOKENS_DA_CORRECAO } : {}),
     });
+
+    if (laboratorio) {
+      await registrarUsoDoLaboratorio(this.prisma, {
+        tenantId: tenantId as string,
+        model: 'gpt-4.1-mini',
+        callType: 'chat',
+        usage: completion.usage,
+      });
+    }
 
     const result = completion.choices[0]?.message?.content?.trim() || text;
     return { result };

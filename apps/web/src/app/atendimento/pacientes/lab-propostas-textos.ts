@@ -99,6 +99,10 @@ export const LAB_PROPOSTAS = Object.freeze({
 });
 
 /** O que os três modais de cobrança (boleto, PIX e cartão) têm em comum. */
+export const LAB_PROPOSTAS_CONTRAPROPOSTA = Object.freeze({
+  notaExemplo: 'Ex: cliente vai pensar até sexta · pediu mais um desconto',
+});
+
 export const LAB_PROPOSTAS_COBRANCA = Object.freeze({
   titulo: 'Cobrança do trabalho',
   valorTotal: 'Valor total do trabalho',
@@ -107,6 +111,9 @@ export const LAB_PROPOSTAS_COBRANCA = Object.freeze({
   servico: 'serviço',
   servicos: 'serviços',
   jaSalvaTitulo: 'Esta já é a forma salva. Clique para salvar de novo com a configuração atual. Ela vale até a aprovação, no rodapé.',
+  /** O parcelamento no boleto do laboratório (no lugar do financiamento com banco e consulta de crédito da clínica). */
+  parcelamentoProprio: (parcelas: number, entradaPct: number, jurosMes: number) =>
+    `${parcelas}x no Parcelamento próprio (entrada ${entradaPct}% + ${jurosMes}%/mês)`,
   enviarWhatsappTitulo: 'Envia o PDF do orçamento para o WhatsApp do cliente revisar antes',
   enviarWhatsapp: 'Enviar orçamento no WhatsApp',
 });
@@ -165,6 +172,30 @@ export const LAB_PROPOSTAS_ARQUIVAR = Object.freeze({
   avisoAntes: ' Arquivados saem de Propostas e ficam em ',
   avisoOnde: 'Orçamentos de trabalho › Arquivado',
   avisoDepois: '.',
+});
+
+/**
+ * Adicionar ao trabalho SEM cobrar (só o administrador): o trabalho já foi cobrado por fora,
+ * então o orçamento é aceito e o trabalho entra na fila do Financeiro sem gerar boleto, PIX
+ * nem dívida nova.
+ */
+export const LAB_PROPOSTAS_SEM_COBRANCA = Object.freeze({
+  botao: 'Adicionar ao trabalho (sem cobrar)',
+  botaoTitulo:
+    'Adiciona os serviços ao trabalho SEM gerar cobrança (o cliente já pagou ou será cobrado por fora). Vai para a fila do Financeiro validar. Não gera boleto nem dívida nova.',
+  semServicos: 'O orçamento não tem serviços para adicionar.',
+  confirmar: (n: number) =>
+    'Adicionar ao trabalho SEM gerar cobrança?\n\n' +
+    `${n} serviço(s)\n\n` +
+    'Isso vai:\n' +
+    '• Aceitar o orçamento e ativar o trabalho\n' +
+    '• ZERAR os valores dos serviços (a cobrança real fica por fora do sistema)\n' +
+    '• Mandar para a fila do Financeiro validar\n' +
+    '• NÃO gerar boleto/PIX nem dívida nova\n' +
+    '• NÃO contar como venda do dia\n\n' +
+    'Use só quando o trabalho já foi cobrado por fora. Para cobrar de verdade, use "Aprovar venda".',
+  adicionado: 'Serviços adicionados ao trabalho (sem cobrança) — na fila do Financeiro.',
+  erro: 'Erro ao adicionar ao trabalho sem cobrança',
 });
 
 /** Resultado do aprovar e cobrar (PIX ao vivo, cartão, boleto). */

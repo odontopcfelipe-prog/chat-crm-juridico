@@ -14,6 +14,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Trophy } from 'lucide-react';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_MEU_JOGO } from '../comissoes/lab-comissoes-textos';
 import api from '@/lib/api';
 import '../comissoes/comissoes-jogo.css';
 
@@ -54,6 +57,7 @@ function monthLabel(month: string): string {
 const pts = (n: number) => `${n.toLocaleString('pt-BR')} pts`;
 
 export default function MeuJogoPage() {
+  const lab = isLab(useBusinessType());
   const router = useRouter();
   const current = maceioMonth();
   const [month, setMonth] = useState(current);
@@ -212,7 +216,7 @@ export default function MeuJogoPage() {
             <div className="cj-panel mb-4">
               <div className="cj-ph">🏁 Suas metas do mês</div>
               {data.metas.length === 0 ? (
-                <p className="text-sm text-[#5b6172]">Nenhuma meta sua neste mês ainda. Quando a clínica lançar, ela aparece aqui.</p>
+                <p className="text-sm text-[#5b6172]">{lab ? LAB_MEU_JOGO.semMetas : 'Nenhuma meta sua neste mês ainda. Quando a clínica lançar, ela aparece aqui.'}</p>
               ) : (
                 <div className="space-y-3.5">
                   {data.metas.map((m) => (

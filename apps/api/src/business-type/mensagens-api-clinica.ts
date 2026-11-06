@@ -22,6 +22,16 @@
  * em apps/api/src: se alguém mudar a frase no serviço, ele avisa para atualizar aqui.
  */
 export const MENSAGENS_API_CLINICA = Object.freeze({
+  // ─── IA do laboratório (Ajustes de IA) ──────────────────────────────────────
+  // ai-test-chat.service.ts
+  iaTesteSemMensagem: 'Mande ao menos uma mensagem do paciente no teste.',
+  iaTesteUltimaMensagem: 'A última mensagem do teste precisa ser do paciente.',
+  iaTesteSemResposta:
+    'A IA não respondeu. Confira se a chave da OpenAI/Anthropic está configurada e se há skill ativa no chip escolhido.',
+  // settings.controller.ts, settings.service.ts
+  iaUsuarioSemConta: 'Usuário sem clínica',
+  iaContaNaoEncontrada: 'Clínica não encontrada',
+  iaNomeVazio: 'O nome da clínica não pode ficar vazio.',
   // ─── Telas da F4 (inbox, chat, caixa, ponto, configurações) ─────────────────
   // team-chat.service.ts, patient-tags.service.ts, quotes.service.ts
   pacienteNaoEncontrado: 'Paciente não encontrado',
@@ -163,6 +173,28 @@ export const MENSAGENS_API_CLINICA = Object.freeze({
     'type must be one of the following values: CONSULTA, PROCEDIMENTO, RETORNO, ORTODONTIA, BLOQUEIO, TAREFA, OUTRO, AUDIENCIA, PERICIA, PRAZO',
   // calendar.service.ts (Testar da Central sem chip conectado)
   testeSemChip: 'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
+
+  // ─── Paridade: afiliados e indicação ─────────────────────────────────────────
+  // affiliate.service.ts (pedir saque de quem não é afiliado)
+  afiliadoSaqueNaoAfiliado: 'Paciente nao e afiliado ativo',
+  // affiliate.service.ts (lançar indicação antiga de quem não é afiliado)
+  afiliadoNaoMarcado: 'Este paciente nao esta marcado como afiliado (Editar paciente > Programa de Afiliado)',
+  // affiliate.service.ts (lançar indicação antiga: indicado não existe)
+  afiliadoIndicadoNaoEncontrado: 'Paciente indicado nao encontrado',
+  // affiliate.service.ts (lançar indicação antiga: proposta de outro paciente)
+  afiliadoPropostaOutroPaciente: 'Proposta nao encontrada para este paciente',
+  // affiliate.service.ts (lançar indicação antiga sem valor)
+  afiliadoSemValorAcertado: 'Informe o valor acertado do tratamento (sem juros)',
+  // referrals.service.ts (indicador e indicado de contas diferentes)
+  indicacaoOutraConta: 'Indicador e indicado devem ser pacientes do mesmo tenant',
+  // patients.service.ts (indicador de outra conta no cadastro)
+  indicadorInvalido: 'Paciente indicador inválido',
+  // analytics/ga4-config.ts (GA4_SO_ADMIN_MSG)
+  ga4SoAdmin: 'Configurar o Google Analytics — somente o administrador da clínica.',
+  // quotes.service.ts (trocar o afiliado da venda depois do aceite)
+  afiliadoVendaJaAceita: 'Proposta ja aceita — a comissao de indicacao ja foi creditada e nao pode ser trocada',
+  // quotes.service.ts (afiliado da venda é o próprio indicado)
+  afiliadoDaPropriaVenda: 'O paciente nao pode ser afiliado da propria venda',
 });
 
 export const MOLDES_API_CLINICA = Object.freeze({
@@ -189,4 +221,11 @@ export const MOLDES_API_CLINICA = Object.freeze({
   edicaoSoStatus: 'Sem permissao para alterar: {1}. Dentista pode mudar apenas o status do proprio evento.',
   // calendar.service.ts (Testar da Central: o envio falhou)
   testeNaoEnviou: 'Não enviou: {1}. Verifique se o WhatsApp da clínica está conectado.',
+  // quotes.service.ts (afiliado da venda sem o cadastro de afiliado; {1} = nome)
+  afiliadoVendaNaoMarcado: '{1} nao esta marcado como afiliado (Editar paciente > Programa de Afiliado)',
+  // ─── Funis comerciais (tela de funis do laboratório) ──────────────────────────
+  // pipelines.service.ts (excluir funil com contatos)
+  funilComContatos: 'Não é possível excluir: {1} lead(s) vinculado(s). Mova-os para outro funil primeiro.',
+  // pipelines.service.ts (excluir etapa com contatos)
+  etapaComContatos: 'Não é possível excluir: {1} lead(s) nesta etapa. Mova-os para outra primeiro.',
 });

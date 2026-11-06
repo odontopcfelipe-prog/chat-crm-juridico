@@ -11,6 +11,8 @@ import { negarLaboratorio } from '../common/lab-gate.util';
 import { recusaDoToggleNoLaboratorio, TEMPLATES_FIN_DO_LABORATORIO, padraoFinDoLaboratorio } from '@crm/shared';
 import { recusarNoLaboratorio } from '../business-type/pedido-de-laboratorio';
 import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
+// Laboratório — sequência de texto fixo e comunicado (sem IA).
+import { LAB_FOLLOWUP_COMUNICADO, LAB_FOLLOWUP_ERROS, LAB_FOLLOWUP_PASSO, LAB_FOLLOWUP_SEMENTES } from './lab-followup-textos';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -114,8 +116,10 @@ export class FollowupService {
     return `${Math.max(1, Math.round(min))} min antes`;
   }
 
-  /** Agrega as 4 metricas do dia + os 4 estados de toggle numa resposta so. */
-  async getOperacional(tenantId: string) {
+  /** Agrega as 4 metricas do dia + os 4 estados de toggle numa resposta so.
+   *  `lab` = pedido de conta de laboratório (controller): lá o envio dos boletos não herda
+   *  da apresentação, o card mostra o que o envio faz. */
+  async getOperacional(tenantId: string, lab = false) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const { start: dayStart, end: dayEnd } = this.dayWindowMaceio();
     const since30 = new Date(Date.now() - 30 * 86400000);
@@ -414,7 +418,7 @@ export class FollowupService {
       boleto_delivery: {
         enabled: boletoDeliverySetting
           ? boletoDeliverySetting.value === 'true'
-          : boletoIntroSetting?.value === 'true',
+          : !lab && boletoIntroSetting?.value === 'true',
       },
       // Fase 3 — recall de revisão e alertas de tarefa (defaults LIGADOS: os
       // motores já rodavam pra todo mundo; o card permite desligar).
@@ -836,12 +840,12 @@ export class FollowupService {
   }
 
   /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le).
-   *  `lab` = pedido de conta de laboratório (controller): aviso que não existe nele e
-   *  a régua de cobrança sendo ligada são recusados antes de gravar qualquer coisa. */
+   *  `lab` = pedido de conta de laboratório (controller): aviso que não existe nele é
+   *  recusado antes de gravar qualquer coisa. */
   async setOperacionalToggle(tenantId: string, which: string, enabled: boolean, lab = false) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     if (lab) {
-      const recusa = recusaDoToggleNoLaboratorio(which, !!enabled);
+      const recusa = recusaDoToggleNoLaboratorio(which);
       if (recusa) throw recusarNoLaboratorio(recusa);
     }
     const mergeJson = async (key: string, patch: Record<string, any>) => {
@@ -1105,7 +1109,7 @@ export class FollowupService {
     if (!isFinTemplateId(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
     const t: CobrancaTipo | undefined =
       tipo && isCobrancaStage(stage) && isCobrancaTipo(tipo) ? tipo : undefined;
-    let template: string = (lab && padraoFinDoLaboratorio(stage)) || defaultFinTemplate(stage, t);
+    let template: string = (lab && padraoFinDoLaboratorio(stage, t)) || defaultFinTemplate(stage, t);
     if (t) {
       const specific = await this.readTemplateKey(cobrancaTemplateKey(stage, tenantId, t));
       const legacy = specific ? null : await this.readTemplateKey(cobrancaTemplateKey(stage, tenantId));
@@ -1115,7 +1119,7 @@ export class FollowupService {
     }
     // F7 — laboratório: texto salvo com palavra de clínica não sai (quem envia usa o
     // padrão do laboratório); o editor mostra o que sai de verdade.
-    if (lab && temVocabularioDeClinica(semVariaveis(template))) template = padraoFinDoLaboratorio(stage) || template;
+    if (lab && temVocabularioDeClinica(semVariaveis(template))) template = padraoFinDoLaboratorio(stage, t) || template;
     return { template };
   }
 
@@ -1284,13 +1288,19 @@ export class FollowupService {
     auto_enroll_stages?: string[]; max_attempts?: number; tenant_id?: string;
     steps?: Array<{ position: number; delay_hours: number; channel: string; tone: string; objective: string; custom_prompt?: string; auto_send?: boolean }>;
   }, contaDoUsuario?: string | null) {
-    if (await isLabTenant(this.prisma, contaDoUsuario, (m) => this.logger.warn(m))) {
+    const lab = await isLabTenant(this.prisma, contaDoUsuario, (m) => this.logger.warn(m));
+    if (lab) {
       data = { ...data, tenant_id: contaDoUsuario as string };
     }
-    const steps = Array.isArray(data.steps) ? data.steps.map((p) => soCampos(p, CAMPOS_PASSO)) : undefined;
+    // Laboratório: o passo é texto fixo por WhatsApp; a sequência nasce DESLIGADA e sem
+    // etapa automática (só uma regra de automação inscreve o cliente).
+    const steps = Array.isArray(data.steps)
+      ? data.steps.map((p, i) => (lab ? this.passoDoLaboratorio(p, i + 1) : soCampos(p, CAMPOS_PASSO)))
+      : undefined;
     return this.prisma.followupSequence.create({
       data: {
         ...(soCampos(data, CAMPOS_SEQUENCIA) as { name: string }),
+        ...(lab ? { active: false, auto_enroll_stages: [] } : {}),
         ...(data.tenant_id ? { tenant_id: data.tenant_id } : {}),
         steps: steps ? { create: steps as any } : undefined,
       },
@@ -1303,6 +1313,13 @@ export class FollowupService {
     auto_enroll_stages: string[]; max_attempts: number;
   }>, escopo?: EscopoFollowup) {
     await this.assertSequencia(id, escopo);
+    // Laboratório: só nome, descrição e liga/desliga; ligar exige texto em todos os passos.
+    if (await isLabTenant(this.prisma, escopo?.tenantId, (m) => this.logger.warn(m))) {
+      if (data.active === true) await this.exigirTextoNosPassos(id);
+      return this.prisma.followupSequence.update({ where: { id }, data: soCampos(data, ['name', 'description', 'active']),
+        include: { steps: { orderBy: { position: 'asc' } } },
+      });
+    }
     return this.prisma.followupSequence.update({ where: { id }, data: soCampos(data, CAMPOS_SEQUENCIA),
       include: { steps: { orderBy: { position: 'asc' } } },
     });
@@ -1324,6 +1341,10 @@ export class FollowupService {
     objective: string; custom_prompt?: string; auto_send?: boolean;
   }, escopo?: EscopoFollowup) {
     await this.assertSequencia(sequenceId, escopo);
+    if (await isLabTenant(this.prisma, escopo?.tenantId, (m) => this.logger.warn(m))) {
+      const ultimo = await this.prisma.followupStep.findFirst({ where: { sequence_id: sequenceId }, orderBy: { position: 'desc' }, select: { position: true } });
+      return this.prisma.followupStep.create({ data: { ...(this.passoDoLaboratorio(data, (ultimo?.position ?? 0) + 1) as any), sequence_id: sequenceId } });
+    }
     return this.prisma.followupStep.create({ data: { ...(soCampos(data, CAMPOS_PASSO) as any), sequence_id: sequenceId } });
   }
 
@@ -1332,6 +1353,13 @@ export class FollowupService {
     objective: string; custom_prompt: string; auto_send: boolean;
   }>, escopo?: EscopoFollowup) {
     await this.assertPasso(stepId, escopo);
+    // Laboratório: só o texto fixo e o prazo; cada um conferido.
+    if (await isLabTenant(this.prisma, escopo?.tenantId, (m) => this.logger.warn(m))) {
+      const novo: Record<string, unknown> = {};
+      if (data.custom_prompt !== undefined) novo.custom_prompt = this.textoFixoDoLaboratorio(data.custom_prompt);
+      if (data.delay_hours !== undefined) novo.delay_hours = this.prazoDoLaboratorio(data.delay_hours);
+      return this.prisma.followupStep.update({ where: { id: stepId }, data: novo });
+    }
     return this.prisma.followupStep.update({ where: { id: stepId }, data: soCampos(data, CAMPOS_PASSO) });
   }
 
@@ -1339,6 +1367,77 @@ export class FollowupService {
     await this.assertPasso(stepId, escopo);
     await this.prisma.followupStep.delete({ where: { id: stepId } });
     return { ok: true };
+  }
+
+  // ─── Laboratório: passo de texto fixo ────────────────────────────────────
+
+  /** Texto fixo do passo no laboratório: obrigatório e sem vocabulário de clínica. */
+  private textoFixoDoLaboratorio(valor: unknown): string {
+    const texto = typeof valor === 'string' ? valor.trim() : '';
+    if (!texto || texto.length > 2000) throw new BadRequestException(LAB_FOLLOWUP_ERROS.semTexto);
+    if (temVocabularioDeClinica(semVariaveis(texto))) throw new BadRequestException(LAB_FOLLOWUP_ERROS.textoDeClinica);
+    return texto;
+  }
+
+  private prazoDoLaboratorio(valor: unknown): number {
+    const horas = Number(valor);
+    if (!Number.isInteger(horas) || horas < 0 || horas > 8760) throw new BadRequestException(LAB_FOLLOWUP_ERROS.prazoInvalido);
+    return horas;
+  }
+
+  /** Passo do laboratório: WhatsApp, texto fixo em custom_prompt, envio direto. */
+  private passoDoLaboratorio(p: any, posicaoPadrao: number): Record<string, unknown> {
+    if (p?.channel !== undefined && p.channel !== LAB_FOLLOWUP_PASSO.canal) throw new BadRequestException(LAB_FOLLOWUP_ERROS.soWhatsapp);
+    return {
+      position: Number.isInteger(p?.position) && p.position > 0 ? p.position : posicaoPadrao,
+      delay_hours: p?.delay_hours === undefined ? 24 : this.prazoDoLaboratorio(p.delay_hours),
+      channel: LAB_FOLLOWUP_PASSO.canal,
+      tone: LAB_FOLLOWUP_PASSO.tom,
+      objective: LAB_FOLLOWUP_PASSO.objetivo,
+      custom_prompt: this.textoFixoDoLaboratorio(p?.custom_prompt),
+      auto_send: true,
+    };
+  }
+
+  /** Ligar uma sequência do laboratório: tem passo e todo passo tem o texto fixo. */
+  private async exigirTextoNosPassos(sequenceId: string): Promise<void> {
+    const passos = await this.prisma.followupStep.findMany({ where: { sequence_id: sequenceId }, select: { custom_prompt: true } });
+    if (!passos.length) throw new BadRequestException(LAB_FOLLOWUP_ERROS.semPassos);
+    if (passos.some((p) => !(p.custom_prompt ?? '').trim())) throw new BadRequestException(LAB_FOLLOWUP_ERROS.semTexto);
+  }
+
+  /** Sequências padrão do laboratório: da própria conta, desligadas, sem etapa automática. */
+  async seedSequenciasDoLaboratorio(tenantId: string | null | undefined) {
+    if (typeof tenantId !== 'string' || tenantId === '') throw new BadRequestException(LAB_FOLLOWUP_ERROS.semConta);
+    const created: string[] = [];
+    for (const seq of LAB_FOLLOWUP_SEMENTES) {
+      const existing = await this.prisma.followupSequence.findFirst({ where: { tenant_id: tenantId, name: seq.nome } });
+      if (existing) continue;
+      await this.prisma.followupSequence.create({
+        data: {
+          tenant_id: tenantId,
+          name: seq.nome,
+          description: seq.descricao,
+          category: seq.categoria,
+          active: false,
+          auto_enroll_stages: [],
+          max_attempts: seq.passos.length,
+          steps: {
+            create: seq.passos.map((p, i) => ({
+              position: i + 1,
+              delay_hours: p.atrasoHoras,
+              channel: LAB_FOLLOWUP_PASSO.canal,
+              tone: LAB_FOLLOWUP_PASSO.tom,
+              objective: LAB_FOLLOWUP_PASSO.objetivo,
+              custom_prompt: p.texto,
+              auto_send: true,
+            })),
+          },
+        },
+      });
+      created.push(seq.nome);
+    }
+    return { created, message: `${created.length} sequência(s) padrão criada(s)` };
   }
 
   // ─── Enrollments ─────────────────────────────────────────────────────────
@@ -1366,11 +1465,15 @@ export class FollowupService {
       this.prisma.followupSequence.findUnique({ where: { id: sequenceId }, include: { steps: { orderBy: { position: 'asc' }, take: 1 } } }),
     ]);
     if (!lead || !(await this.dentroDoEscopo(lead.tenant_id, escopo))) throw new NotFoundException('Lead não encontrado');
-    // F2 [LAB-GATE] — follow-up (sequência com mensagens da IA de clínica) não existe no
-    // laboratório: a inscrição manual recusa; a automática (regra, troca de etapa) cai
-    // aqui e é engolida por quem chama. Clínica: só a leitura cacheada.
+    // Laboratório: só entra em sequência da própria conta (nunca as globais, escritas
+    // para as clínicas) e só quem aceita mensagens. Se a sequência está ligada é
+    // conferido logo abaixo; o texto de cada passo, ao ligá-la.
+    // Clínica: só a leitura cacheada.
     if (await isLabTenant(this.prisma, lead.tenant_id, (m) => this.logger.warn(m))) {
-      throw negarLaboratorio('Sequência de follow-up');
+      if (!sequence || sequence.tenant_id !== lead.tenant_id) throw new NotFoundException('Sequência não encontrada');
+      if (lead.contact_opt_out_at || lead.whatsapp_invalid_at || lead.non_patient_category) {
+        throw new BadRequestException(LAB_FOLLOWUP_ERROS.contatoNaoRecebe);
+      }
     }
     if (!sequence) throw new NotFoundException('Sequência não encontrada');
     // Sequência de uma clínica nunca pega lead de outra (regra de automação,
@@ -1421,6 +1524,12 @@ export class FollowupService {
     });
     if (!enrollment) throw new NotFoundException('Enrollment não encontrado');
     if (enrollment.status !== 'PAUSADO') throw new BadRequestException('Enrollment não está pausado');
+    // Laboratório: só retoma se a sequência é da conta e está ligada.
+    if (await isLabTenant(this.prisma, escopo?.tenantId, (m) => this.logger.warn(m))) {
+      if (!enrollment.sequence.active || enrollment.sequence.tenant_id !== escopo?.tenantId) {
+        throw new BadRequestException(LAB_FOLLOWUP_ERROS.sequenciaDesligada);
+      }
+    }
 
     const currentStep = enrollment.sequence.steps.find(s => s.position === enrollment.current_step);
     const nextSendAt = currentStep ? new Date(Date.now() + currentStep.delay_hours * 3600 * 1000) : new Date(Date.now() + 3600000);
@@ -1503,6 +1612,10 @@ export class FollowupService {
 
   async regenerateMessage(messageId: string, escopo?: EscopoFollowup) {
     await this.assertMensagem(messageId, escopo);
+    // Laboratório: o texto é fixo; não há geração por IA.
+    if (await isLabTenant(this.prisma, escopo?.tenantId, (m) => this.logger.warn(m))) {
+      throw negarLaboratorio('Texto gerado pela IA');
+    }
     const msg = await this.prisma.followupMessage.findUnique({
       where: { id: messageId },
       include: {
@@ -1661,6 +1774,10 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
   // ─── Disparos em Massa (Broadcasts) ─────────────────────────────────────
 
   async previewBroadcast(type: string, daysAhead: number, tenantId?: string) {
+    // Laboratório: só o comunicado (texto fixo), da própria conta e só para quem aceita
+    // mensagens. Clínica: só a leitura cacheada.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (lab && type !== 'COMUNICADO') throw new BadRequestException(LAB_FOLLOWUP_ERROS.disparoSoComunicado);
     // COMUNICADO: busca todos os clientes ativos (LegalCase removido — usa Lead.is_client)
     if (type === 'COMUNICADO') {
       const clients = await this.prisma.lead.findMany({
@@ -1668,6 +1785,7 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
           phone: { not: '' },
           is_client: true,
           ...(tenantId ? { tenant_id: tenantId } : {}),
+          ...(lab ? { contact_opt_out_at: null, whatsapp_invalid_at: null, non_patient_category: null } : {}),
         },
         select: { id: true, name: true, phone: true, stage: true },
         orderBy: { became_client_at: 'desc' },
@@ -1722,6 +1840,14 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
   }
 
   async createBroadcast(data: { type: string; days_ahead: number; interval_ms: number; custom_prompt?: string }, userId: string, tenantId?: string) {
+    // Laboratório: o texto do comunicado é obrigatório (nada de IA) e sem vocabulário de clínica.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (lab) {
+      if (data.type !== 'COMUNICADO') throw new BadRequestException(LAB_FOLLOWUP_ERROS.disparoSoComunicado);
+      const texto = typeof data.custom_prompt === 'string' ? data.custom_prompt.trim() : '';
+      if (!texto) throw new BadRequestException(LAB_FOLLOWUP_ERROS.comunicadoSemTexto);
+      if (temVocabularioDeClinica(semVariaveis(texto))) throw new BadRequestException(LAB_FOLLOWUP_ERROS.textoDeClinica);
+    }
     const targets = await this.previewBroadcast(data.type, data.days_ahead, tenantId);
     if (targets.length === 0) throw new BadRequestException('Nenhum alvo encontrado para este disparo');
 
@@ -1730,7 +1856,7 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
 
     const typeLabels: Record<string, string> = { AUDIENCIA: 'Audiências', PERICIA: 'Perícias', PRAZO: 'Prazos', COMUNICADO: 'Comunicados' };
     const today = new Date().toLocaleDateString('pt-BR');
-    const name = `Lembrete ${typeLabels[data.type] || data.type} — ${today}`;
+    const name = lab ? `${LAB_FOLLOWUP_COMUNICADO.nome} — ${today}` : `Lembrete ${typeLabels[data.type] || data.type} — ${today}`;
 
     const broadcast = await this.prisma.broadcastJob.create({
       data: {
@@ -1824,19 +1950,16 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
       where: { id: leadId },
       select: { is_client: true, tenant_id: true },
     });
-    // F2 [LAB-GATE] — lead de laboratório não entra em sequência nenhuma (nem as globais,
-    // feitas para as clínicas): nem lê as sequências. Clínica: só a leitura cacheada.
-    if (await isLabTenant(this.prisma, lead?.tenant_id, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] followup-auto — lead ${leadId} é de laboratório: sem inscrição (stage ${stage})`);
-      return;
-    }
+    // Lead de laboratório: só as sequências LIGADAS da própria conta (nunca as globais,
+    // feitas para as clínicas). Clínica: só a leitura cacheada.
+    const doLab = await isLabTenant(this.prisma, lead?.tenant_id, (m) => this.logger.warn(m));
     // Só as sequências da clínica DO LEAD (+ as globais, sem tenant). Lead sem
     // clínica (legado): como antes, todas.
     const sequences = await this.prisma.followupSequence.findMany({
       where: {
         active: true,
         auto_enroll_stages: { has: stage },
-        ...(lead?.tenant_id ? { OR: [{ tenant_id: lead.tenant_id }, { tenant_id: null }] } : {}),
+        ...(doLab ? { tenant_id: lead?.tenant_id } : lead?.tenant_id ? { OR: [{ tenant_id: lead.tenant_id }, { tenant_id: null }] } : {}),
       },
     });
     if (sequences.length === 0) return;

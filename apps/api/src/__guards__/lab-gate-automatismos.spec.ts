@@ -11,7 +11,9 @@
  *  - fila calendar-reminders: lembretes 48/24 h, 1 h e 15 min (WhatsApp e e-mail) e o
  *    aviso de audiência/perícia;
  *  - régua por e-mail ("vence amanhã" e "pagamento em atraso");
- *  - apresentação do Financeiro/âncora no fechamento e a entrega automática do carnê D+2.
+ *  - a fila das clínicas na entrega automática do carnê D+2 (o laboratório tem a rodada
+ *    dele, só na conta que ligou: payment-gateway/boleto-delivery.laboratorio.spec.ts).
+ *    A apresentação do Financeiro no fechamento sai no laboratório só na conta que ligou.
  *
  * Na F7 o resumo diário do dentista e o aniversário (que passam a ter ramo de
  * laboratório) foram para lab-gate-agenda-avisos.spec.ts, e a fila fechamento-jobs
@@ -33,6 +35,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import { Logger } from '@nestjs/common';
 import {
+  LAB_REGUA,
   __limparCacheLabTenants,
   lembreteClinicoIdFor,
   retornoDisparoId,
@@ -148,6 +151,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -671,7 +677,7 @@ describe('Aviso de audiência/perícia (fila calendar-reminders) — evento de l
 
 // ─── apresentação do Financeiro e âncora no fechamento ───────────────────────
 
-describe('Apresentação do Financeiro no fechamento — laboratório: sem mensagem e sem âncora do carnê', () => {
+describe('Apresentação do Financeiro no fechamento — laboratório: só na conta que ligou, com o texto dele', () => {
   const PACIENTE = { name: 'Maria Exemplo', phone: TEL[CLINICA] };
   function montar(labs: string[], ligados: Record<string, string>) {
     const b = banco(labs, {
@@ -710,20 +716,58 @@ describe('Apresentação do Financeiro no fechamento — laboratório: sem mensa
     expect(depois.de('auditLog.create')).toHaveLength(1);
   });
 
+  const CLIENTE = { name: 'Dr. Cliente Exemplo', phone: TEL[LAB] };
+  const ANCORA = (plano: string) => [{ data: { entity: 'BOLETO_INTRO', entity_id: plano, action: 'intro', meta_json: { tenant_id: LAB, source: 'fechamento' } } }];
+
   it.each([
-    ['apresentação + entrega ligadas', ligadosDe(LAB)],
-    ['só a entrega ligada', soEntregaDe(LAB)],
+    ['sem chave nenhuma', {}],
+    ['chaves em false', { [`BOLETO_INTRO_ENABLED_${LAB}`]: 'false', [`BOLETO_DELIVERY_ENABLED_${LAB}`]: 'false' }],
+    ['só a apresentação, chave da entrega ausente (sem herança)', { [`BOLETO_INTRO_ENABLED_${LAB}`]: 'true' }],
+    ['ligadas em OUTRA conta', ligadosDe(CLINICA)],
   ])('laboratório — %s: nem mensagem, nem âncora BOLETO_INTRO', async (_n, ligados) => {
     const m = montar([LAB], ligados);
-    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', { name: 'Dr. Cliente Exemplo', phone: TEL[LAB] });
-    expect(m.ops).toEqual([]);
+    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', CLIENTE);
     expect(m.whatsapp.sendText).not.toHaveBeenCalled();
+    expect(m.de('auditLog.create')).toEqual([]);
+    expect(m.de('dispatchLog.create')).toEqual([]);
+  });
+
+  it('laboratório — só a entrega ligada: só ancora, sem mensagem', async () => {
+    const m = montar([LAB], soEntregaDe(LAB));
+    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', CLIENTE);
+    expect(m.whatsapp.sendText).not.toHaveBeenCalled();
+    expect(m.de('auditLog.create')).toEqual(ANCORA('plano-lab'));
+  });
+
+  it('laboratório — apresentação + entrega ligadas: texto do laboratório, chip da conta e âncora', async () => {
+    const m = montar([LAB], ligadosDe(LAB));
+    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', CLIENTE);
+    expect(m.whatsapp.sendText.mock.calls).toEqual([
+      [TEL[LAB], LAB_REGUA.apresentacao.replace('{nome}', 'Cliente').replace('{clinica}', 'Clínica Exemplo'), 'chip-financeiro'],
+    ]);
+    expect(m.de('auditLog.create')).toEqual(ANCORA('plano-lab'));
+    expect(m.de('dispatchLog.create')[0].data).toMatchObject({ tenant_id: LAB, type: 'boleto_intro', status: 'SENT' });
+  });
+
+  it('laboratório — texto salvo com palavra de clínica: sai o padrão do laboratório', async () => {
+    const m = montar([LAB], { ...ligadosDe(LAB), [`COBRANCA_TEMPLATE_BOLETO_INTRO_${LAB}`]: JSON.stringify({ template: 'Oi {nome}, seu tratamento começou.' }) });
+    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', CLIENTE);
+    expect(m.whatsapp.sendText.mock.calls[0][1]).toBe(LAB_REGUA.apresentacao.replace('{nome}', 'Cliente').replace('{clinica}', 'Clínica Exemplo'));
+  });
+
+  it('laboratório — sem chip da conta: não ancora (o cron D+1 tenta e registra a falha)', async () => {
+    const m = montar([LAB], ligadosDe(LAB));
+    m.whatsapp.getInstanceForPurpose.mockImplementation(async () => null as any);
+    m.whatsapp.sendText.mockImplementation(async () => ({ statusCode: 503, error: 'sem chip' }) as any);
+    await (m.svc as any).sendApresentacao(LAB, 'plano-lab', CLIENTE);
+    expect(m.whatsapp.sendText.mock.calls[0][2]).toBeUndefined();
+    expect(m.de('auditLog.create')).toEqual([]);
   });
 });
 
 // ─── carnê automático D+2 ────────────────────────────────────────────────────
 
-describe('Entrega automática do carnê D+2 (cron) — venda de laboratório não entra', () => {
+describe('Entrega automática do carnê D+2 (cron) — a fila das clínicas sem venda de laboratório', () => {
   const intro = (t: string, plano = `plano-${t}`) => ({ entity_id: plano, meta_json: { tenant_id: t, source: 'fechamento' } });
   function montar(labs: string[], logs: any[]) {
     const b = banco(labs, {
@@ -752,13 +796,16 @@ describe('Entrega automática do carnê D+2 (cron) — venda de laboratório nã
     await antes.svc.tick();
     const depois = montar([LAB], TRES);
     await depois.svc.tick();
-    // As leituras de antes do laço (as âncoras e as já entregues) são as mesmas; só as
-    // do toggle do laboratório saem.
-    expect(depois.ops).toEqual(antes.ops.filter(([o, a]) => !(o === 'globalSetting.findUnique' && tocaLab(a))));
+    // A rodada das clínicas (as âncoras, as já entregues e os toggles delas) é a mesma, na
+    // mesma ordem; só o toggle do laboratório sai dela. Depois vem a rodada dos
+    // laboratórios, que só lê a chave deles.
+    const daClinica = antes.ops.filter(([o, a]) => !(o === 'globalSetting.findUnique' && tocaLab(a)));
+    expect(depois.ops.slice(0, daClinica.length)).toEqual(daClinica);
+    expect(depois.ops.slice(daClinica.length).map(([o]) => o)).toEqual(['globalSetting.findMany']);
     expect(depois.entrega.mock.calls).toEqual(antes.entrega.mock.calls.filter((c: any[]) => c[0].tenantId !== LAB));
   });
 
-  it('laboratório: não entra na fila nem ocupa vaga do teto por rodada (30)', async () => {
+  it('laboratório: não entra na fila das clínicas nem ocupa vaga do teto por rodada (30)', async () => {
     const lab = Array.from({ length: 30 }, (_, i) => intro(LAB, `plano-${LAB}-${i}`));
     const m = montar([LAB], [...lab, intro(CLINICA)]);
     const fila = await (m.svc as any).findPendingDeliveries();
@@ -828,11 +875,24 @@ describe('E-mail "vence amanhã" (cron) — cobrança de laboratório fica fora 
     expect(depois.mail.send).toHaveBeenCalledTimes(2);
   });
 
-  it('laboratório: o e-mail não sai e a cobrança não é marcada', async () => {
+  it('laboratório que não ligou o e-mail: o e-mail não sai e a cobrança não é marcada', async () => {
     const m = montar([LAB], [cobranca(CLINICA), cobranca(LAB)]);
     await m.svc.sendDueTomorrowReminders();
     expect(m.mail.send.mock.calls.map((c: any[]) => c[0].to)).toEqual([`paciente@${CLINICA}.exemplo.test`]);
-    expect(tocaLab(m.ops.filter(([o]) => o !== 'paymentGatewayCharge.findMany'))).toBe(false);
+    expect(tocaLab(m.ops.filter(([o]) => o !== 'paymentGatewayCharge.findMany' && o !== 'tenantEmailTemplate.findMany'))).toBe(false);
+  });
+
+  it('laboratório que ligou o e-mail "vencimento amanhã": a cobrança dele entra e o e-mail sai (texto de laboratório)', async () => {
+    const b = banco([LAB], {
+      'tenantEmailTemplate.findMany': () => [{ tenant_id: LAB }],
+      'tenantEmailTemplate.findUnique': () => ({ enabled: true, subject: null, body: null }),
+      'paymentGatewayCharge.findMany': ({ where }) => [cobranca(LAB)].filter((c) => casa(where, c)),
+      'tenant.findUnique': () => ({ name: 'Conta exemplo', email: null }),
+    });
+    const mail = { renderTemplate: jest.fn(() => '<html>corpo</html>'), send: jest.fn(async () => true) };
+    await new EmailAutomationService(b.prisma, mail as any).sendDueTomorrowReminders();
+    expect(b.de('paymentGatewayCharge.findMany')[0].where).toEqual(BASE);
+    expect(mail.send.mock.calls.map((c: any[]) => c[0].to)).toEqual([`paciente@${LAB}.exemplo.test`]);
   });
 });
 
@@ -881,10 +941,9 @@ describe('E-mail "pagamento em atraso" (webhook do Asaas) — cobrança de labor
     expect(depois.emails.dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it('laboratório: nem lê a parcela, nem manda', async () => {
+  it('laboratório: entrega ao e-mail automático, que só envia se a própria conta ligou o "pagamento atrasado"', async () => {
     const m = montar([LAB]);
     await (m.svc as any).sendPaymentOverdueEmail(cobranca(LAB));
-    expect(m.ops).toEqual([]);
-    expect(m.emails.dispatch).not.toHaveBeenCalled();
+    expect(m.emails.dispatch.mock.calls.map((c: any[]) => [c[0], c[1]])).toEqual([['pagamento_atrasado', LAB]]);
   });
 });

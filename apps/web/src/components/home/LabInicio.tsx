@@ -23,8 +23,8 @@
 import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Calendar, Clock, FileText, Layers, LayoutGrid, MessageSquare, PenTool, Receipt, ReceiptText, Send, Settings, UserCog, Users,
-  Wallet, Zap,
+  ArrowRight, Calendar, Clock, FileText, Layers, LayoutGrid, LineChart, MessageSquare, PenTool, PieChart, Receipt, ReceiptText, Send, Settings, UserCog, Users,
+  Trophy, Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -88,6 +88,13 @@ const BALAO_DA_ROTA: Readonly<Record<string, ChaveBalao>> = Object.freeze({
   '/atendimento/orcamentos': 'orcamentos',
   '/atendimento/orcamentos?status=SENT': 'propostas',
   '/atendimento/agenda': 'agenda',
+  '/atendimento/crm': 'funil',
+  '/atendimento/relatorios': 'relatorios',
+  '/atendimento/progresso': 'progresso',
+  '/atendimento/comissoes': 'comissoes',
+  '/atendimento/metas': 'metas',
+  '/atendimento/meu-jogo': 'pontuacao',
+  '/atendimento/afiliados': 'afiliados',
 });
 
 /** Agenda e Central de Disparos (F7). */
@@ -108,7 +115,7 @@ const PERMISSAO_DO_ATALHO: Readonly<Partial<Record<ChaveBalao, Permission>>> = O
 
 /** Ícone pelo nome do lucide do balão (HomeAction.lucide). */
 const ICONES: Readonly<Record<string, LucideIcon>> = Object.freeze({
-  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog, FileText, Layers, Calendar, Send,
+  MessageSquare, Wallet, Settings, Clock, Users, Zap, Receipt, ReceiptText, UserCog, FileText, Layers, Calendar, Send, LineChart, PieChart, Trophy,
 });
 
 /**
@@ -135,6 +142,13 @@ const ARTE: Readonly<Record<ChaveBalao, ComponentType>> = Object.freeze({
   agenda: CalendarArt,
   avisos: GearArt,
   passosCad: DocArt,
+  funil: PatientCardsArt,
+  relatorios: DocArt,
+  progresso: DocArt,
+  comissoes: MoneyArt,
+  metas: DocArt,
+  pontuacao: DocArt,
+  afiliados: PatientCardsArt,
 });
 
 function saudacao(hora: number): string {

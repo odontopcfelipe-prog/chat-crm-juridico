@@ -1,4 +1,4 @@
-import { aiEnabledKey, isAiChipPurpose, isLabTenant } from '@crm/shared';
+import { aiEnabledKey, chipDoLabComIa, isAiChipPurpose, isLabTenant } from '@crm/shared';
 
 /**
  * A IA está LIGADA neste chip, nesta clínica? Mesma regra do webhook
@@ -8,14 +8,15 @@ import { aiEnabledKey, isAiChipPurpose, isLabTenant } from '@crm/shared';
  *   3. kill switch global WHATSAPP_AI_ENABLED.
  * Função pura sobre o Prisma (sem DI) — pode ser usada em qualquer service sem
  * criar import entre módulos (ciclos de DI já derrubaram a API).
- * Laboratório: sempre false (F2 — laboratório não tem IA, seja qual for a chave).
+ * Laboratório: só a chave da própria conta, com o valor exato 'true' e a conta em
+ * ACTIVE (chipDoLabComIa); a chave global não entra.
  */
 export async function isChipAiEnabled(
   prisma: any,
   tenantId: string | null | undefined,
   purpose: string | null | undefined,
 ): Promise<boolean> {
-  if (await isLabTenant(prisma, tenantId)) return false;
+  if (await isLabTenant(prisma, tenantId)) return chipDoLabComIa(prisma, tenantId, purpose);
   const kill = await prisma.globalSetting.findUnique({ where: { key: 'WHATSAPP_AI_ENABLED' } }).catch(() => null);
   const master = (kill?.value ?? 'true') !== 'false';
   if (!isAiChipPurpose(purpose)) return master;

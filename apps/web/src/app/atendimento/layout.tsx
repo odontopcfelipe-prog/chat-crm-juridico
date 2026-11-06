@@ -364,7 +364,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   // Out/2026 — abas/itens filtrados pelo acesso por tela: quem não pode abrir
   // CRC/Chat/Contatos (ex.: Dentista) não vê esses atalhos; sobra o "Início".
   const allMainTabs = [
-    { label: 'CRC', href: '/atendimento/crm', icon: Briefcase, match: (p: string) => p.startsWith('/atendimento/crm') },
+    { label: lab ? LAB_MENU.funil : 'CRC', href: '/atendimento/crm', icon: Briefcase, match: (p: string) => p.startsWith('/atendimento/crm') },
     { label: 'Chat', href: '/atendimento', icon: MessageSquare, match: (p: string) => p === '/atendimento' || p.startsWith('/atendimento/chat'), isCenter: true, badge: unreadTotal },
     { label: 'Contatos', href: '/atendimento/contacts', icon: Users, match: (p: string) => p.startsWith('/atendimento/contacts') },
   ];

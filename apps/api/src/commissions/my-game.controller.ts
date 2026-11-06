@@ -1,4 +1,5 @@
 import { Controller, Get, Query, Request, UseGuards, BadRequestException } from '@nestjs/common';
+import { isLabTenant } from '@crm/shared';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeMyGame, maceioMonthKey, monthBounds, readGameScoring, readMissionsConfig } from './game-rules';
@@ -26,11 +27,12 @@ export class MyGameController {
     if (!selfUserId) throw new BadRequestException('user_id ausente');
     const ref = month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : maceioMonthKey();
     // Pontuação DESTE profissional (o admin pode ajustar no cadastro dele).
+    const lab = await isLabTenant(this.prisma, tenantId);
     const [missions, scoring] = await Promise.all([
-      readMissionsConfig(this.prisma, tenantId),
+      readMissionsConfig(this.prisma, tenantId, lab),
       readGameScoring(this.prisma, tenantId, selfUserId),
     ]);
-    return computeMyGame(this.prisma, tenantId, selfUserId, ref, missions, scoring);
+    return computeMyGame(this.prisma, tenantId, selfUserId, ref, missions, scoring, undefined, lab);
   }
 
   /**

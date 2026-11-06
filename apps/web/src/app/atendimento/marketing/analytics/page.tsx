@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_ANALYTICS } from './lab-analytics-textos';
 
 /* ──────────────────────────────────────────────────────────────
    Tipos
@@ -321,6 +324,7 @@ export default function AnalyticsDashboard() {
   // O GA4 é da clínica e só o administrador dela configura (a API recusa os
   // demais); quem só vê o Marketing vê os números, sem o formulário.
   const { isAdmin, isSuperAdmin } = useRole();
+  const lab = isLab(useBusinessType());
   const podeConfigurarGa4 = isAdmin || isSuperAdmin;
   const [pages, setPages]               = useState<PageStat[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -426,12 +430,13 @@ export default function AnalyticsDashboard() {
               <BarChart2 size={17} />
             </div>
             <div>
-              <h1 className="text-base font-bold text-foreground leading-tight">Analytics de Landing Pages</h1>
-              <p className="text-[10px] text-muted-foreground">Últimos 30 dias · {pages.length} {pages.length === 1 ? 'página' : 'páginas'} rastreadas</p>
+              <h1 className="text-base font-bold text-foreground leading-tight">{lab ? LAB_ANALYTICS.titulo : 'Analytics de Landing Pages'}</h1>
+              <p className="text-[10px] text-muted-foreground">{lab ? LAB_ANALYTICS.subtitulo : <>Últimos 30 dias · {pages.length} {pages.length === 1 ? 'página' : 'páginas'} rastreadas</>}</p>
             </div>
           </div>
 
           {/* Totais globais compactos */}
+          {!lab && (<>
           <div className="grid grid-cols-3 gap-2 mb-4">
             {[
               { label: 'Visitas',   value: totalViews.toLocaleString('pt-BR'),   icon: Globe,           color: 'text-blue-500 bg-blue-500/10' },
@@ -473,6 +478,7 @@ export default function AnalyticsDashboard() {
               </select>
             </div>
           </div>
+          </>)}
         </div>
 
         {/* Grid de cards de LP */}
@@ -485,10 +491,17 @@ export default function AnalyticsDashboard() {
               {search ? (
                 <p className="text-muted-foreground text-sm">Nenhuma LP encontrada para &ldquo;<strong>{search}</strong>&rdquo;</p>
               ) : (
+                lab ? (
+                  <>
+                    <p className="text-muted-foreground font-medium">{LAB_ANALYTICS.vazioTitulo}</p>
+                    <p className="text-xs text-muted-foreground">{LAB_ANALYTICS.vazioDica}</p>
+                  </>
+                ) : (
                 <>
                   <p className="text-muted-foreground font-medium">Nenhuma visita registrada ainda.</p>
                   <p className="text-xs text-muted-foreground">Adicione <code className="bg-muted px-1 rounded">&lt;LPTracker /&gt;</code> nas suas páginas.</p>
                 </>
+                )
               )}
             </div>
           ) : (
@@ -535,7 +548,7 @@ export default function AnalyticsDashboard() {
                   <p className="text-xs text-muted-foreground py-2">
                     {podeConfigurarGa4
                       ? 'Configure as credenciais GA4 abaixo para ver os dados do site.'
-                      : 'O Google Analytics da clínica ainda não foi configurado — fale com o administrador da clínica.'}
+                      : (lab ? LAB_ANALYTICS.naoConfigurado : 'O Google Analytics da clínica ainda não foi configurado — fale com o administrador da clínica.')}
                   </p>
                 )}
               </div>

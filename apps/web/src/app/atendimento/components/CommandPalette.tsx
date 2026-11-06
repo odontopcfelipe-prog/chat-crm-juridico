@@ -5,6 +5,7 @@ import { Search, MessageSquare, Bot, ArrowRightLeft, XCircle, Clock, Kanban, Cal
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { isLab, labAllowsRoute } from '@crm/shared';
+import { LAB_ATALHOS_LABEL } from '@/lib/lab-casca-textos';
 import { useBusinessType } from '@/lib/useBusinessType';
 import type { ConversationSummary } from '../types';
 
@@ -205,7 +206,7 @@ export function CommandPalette({
     items.push({
       id: n.id,
       type: 'nav',
-      label: n.label,
+      label: (lab && LAB_ATALHOS_LABEL[n.id]) || n.label,
       sublabel: lab ? undefined : n.sublabel,
       icon: n.icon,
       onSelect: () => { router.push(n.href); onClose(); },

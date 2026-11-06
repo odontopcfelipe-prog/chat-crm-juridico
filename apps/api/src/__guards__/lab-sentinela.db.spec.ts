@@ -53,9 +53,18 @@ descrever('vigia do laboratório no Postgres do CI', () => {
     await evento(CLINICA, 'CONSULTA'); // da clínica: não conta
 
     await prisma.aiUsage.create({ data: { tenant_id: CLINICA, model: 'x', call_type: 'chat' } });
+
+    const cliente = await prisma.patient.create({ data: { tenant_id: LAB, name: 'Cliente da vigia' } });
+    const contrato = async (template_type: string) => {
+      const orcamento = await prisma.quote.create({ data: { patient_id: cliente.id, created_by_user_id: usuario } });
+      await prisma.contract.create({ data: { quote_id: orcamento.id, template_type, created_by_user_id: usuario } });
+    };
+    await contrato('LABORATORIO'); // certo: contrato do laboratório
+    await contrato('ORTODONTIA'); // ERRADO
   });
 
   afterAll(async () => {
+    await prisma.patient.deleteMany({ where: { tenant_id: LAB } }); // leva orçamentos e contratos junto
     await prisma.calendarEvent.deleteMany({ where: { tenant_id: { in: [LAB, CLINICA] } } });
     await prisma.aiUsage.deleteMany({ where: { tenant_id: { in: [LAB, CLINICA] } } });
     await prisma.message.deleteMany({ where: { conversation: { lead_id: { in: leads } } } });
@@ -73,9 +82,16 @@ descrever('vigia do laboratório no Postgres do CI', () => {
     expect(r['Mensagem enviada por chip de outra conta']).toBe(1);
     expect(r['Conversa de outra conta no chip do laboratório']).toBe(1);
     expect(r['Evento de agenda de clínica']).toBe(1);
-    expect(r['Uso de IA']).toBe(0);
+    expect(r['Contrato odontológico']).toBe(1);
+    expect(r['Uso de IA fora do atendimento']).toBe(0);
     const resto = Object.entries(r).filter(
-      ([n]) => !['Mensagem enviada por chip de outra conta', 'Conversa de outra conta no chip do laboratório', 'Evento de agenda de clínica'].includes(n),
+      ([n]) =>
+        ![
+          'Mensagem enviada por chip de outra conta',
+          'Conversa de outra conta no chip do laboratório',
+          'Evento de agenda de clínica',
+          'Contrato odontológico',
+        ].includes(n),
     );
     expect(resto.every(([, n]) => n === 0)).toBe(true);
   });

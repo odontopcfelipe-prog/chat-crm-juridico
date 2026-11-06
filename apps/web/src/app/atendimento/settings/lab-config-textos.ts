@@ -12,15 +12,20 @@
 export const LAB_CONFIG_POR_ROTA: Readonly<Record<string, string>> = Object.freeze({
   '/atendimento/settings/identidade': 'Identidade do laboratório',
   '/atendimento/settings/procedures': 'Tabela de serviços',
+  '/atendimento/settings/specialties': 'Grupos de serviço',
   '/atendimento/settings/patient-tags': 'Etiquetas de clientes',
   '/atendimento/settings/quote-templates': 'Modelos de orçamento',
   '/atendimento/settings/disparos': 'Central de Disparos',
+  '/atendimento/settings/pipelines': 'Funis comerciais',
+  '/atendimento/settings/ai': 'Inteligência artificial',
+  '/atendimento/settings/contracts': 'Contratos',
+  '/atendimento/settings/nota-fiscal': 'Nota fiscal (NFS-e)',
 });
 
 /** Título da seção pelo título que a clínica vê. */
 export const LAB_CONFIG_POR_SECAO: Readonly<Record<string, string>> = Object.freeze({
   'Clínica': 'Laboratório',
-  'Inteligência Artificial': 'Avisos automáticos',
+  'Inteligência Artificial': 'IA e avisos automáticos',
 });
 
 /** Tela de modelos de orçamento (cestas prontas de serviços). */

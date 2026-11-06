@@ -8,6 +8,11 @@ import {
   Star, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import api from '@/lib/api';
+// Paridade do laboratório — a tela de funis também abre para o laboratório (sem os
+// modelos de funil da clínica, sem a migração de leads antigos e com os textos dele).
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_FUNIS } from './lab-funis-textos';
 
 interface Stage {
   id: string;
@@ -73,6 +78,7 @@ function normalizeSlug(raw: string): string {
 }
 
 export default function PipelinesSettingsPage() {
+  const lab = isLab(useBusinessType());
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,12 +201,16 @@ export default function PipelinesSettingsPage() {
             <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <Kanban size={24} />
             </div>
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">Funis de CRC</h1>
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">{lab ? LAB_FUNIS.titulo : 'Funis de CRC'}</h1>
           </div>
+          {lab ? (
+          <p className="text-muted-foreground max-w-3xl">{LAB_FUNIS.descricao}</p>
+          ) : (
           <p className="text-muted-foreground max-w-3xl">
             Crie múltiplos funis (ex: Odontologia, Estética) e configure as etapas de cada um. A IA usa essas etapas
             para classificar e mover leads automaticamente — edite aqui, sem precisar de deploy.
           </p>
+          )}
         </div>
       </header>
 
@@ -214,7 +224,7 @@ export default function PipelinesSettingsPage() {
               {pipelines.length} funil(is) configurado(s)
             </h2>
             <div className="flex items-center gap-2">
-              {pipelines.length > 0 && (
+              {!lab && pipelines.length > 0 && (
                 <button
                   onClick={migrateLegacyLeads}
                   disabled={migrating}
@@ -245,12 +255,14 @@ export default function PipelinesSettingsPage() {
                       <div className="font-bold text-sm text-foreground">Criar do zero</div>
                       <div className="text-xs text-muted-foreground">Define nome e adiciona etapas manualmente.</div>
                     </button>
+                    {!lab && (
                     <div className="px-4 py-2 bg-muted/30 border-b border-border">
                       <div className="text-[10px] font-black text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <Sparkles size={10} /> Usar template
                       </div>
                     </div>
-                    {templates.map(t => (
+                    )}
+                    {!lab && templates.map(t => (
                       <button
                         key={t.key}
                         onClick={() => createFromTemplate(t.key)}
@@ -282,7 +294,7 @@ export default function PipelinesSettingsPage() {
               </div>
               <h3 className="text-xl font-bold text-foreground mb-2">Nenhum funil configurado ainda</h3>
               <p className="text-muted-foreground max-w-md mb-6">
-                Crie seu primeiro funil (ex: Odontologia) para organizar como a IA classifica e avança leads pelas etapas do atendimento.
+                {lab ? LAB_FUNIS.vazioDescricao : 'Crie seu primeiro funil (ex: Odontologia) para organizar como a IA classifica e avança leads pelas etapas do atendimento.'}
               </p>
               <button
                 onClick={() => setShowNewMenu(true)}
@@ -331,6 +343,7 @@ export default function PipelinesSettingsPage() {
  * ────────────────────────────────────────────────────────────── */
 
 function StagnationSettings() {
+  const lab = isLab(useBusinessType());
   const [days, setDays] = useState<number>(3);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -365,7 +378,7 @@ function StagnationSettings() {
       <div className="flex items-center gap-2 mb-4">
         <AlertCircle size={14} className="text-muted-foreground" />
         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          Alerta de leads parados
+          {lab ? LAB_FUNIS.paradosTitulo : 'Alerta de leads parados'}
         </h3>
         <div className="ml-auto flex items-center gap-2 min-h-[18px]">
           {saving && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
@@ -389,7 +402,7 @@ function StagnationSettings() {
       ) : (
         <>
           <p className="text-[12px] text-muted-foreground mb-3">
-            Exibir alerta no CRC quando um lead ficar sem mensagem por pelo menos{' '}
+            {lab ? LAB_FUNIS.paradosAntes : 'Exibir alerta no CRC quando um lead ficar sem mensagem por pelo menos'}{' '}
             <span className="text-foreground font-bold">{days} dia{days !== 1 ? 's' : ''}</span>
             {' '}(exceto nas etapas marcadas como ganho/perdido).
           </p>
@@ -452,6 +465,7 @@ function PipelineCard({
   onRefresh: () => void;
   onEditStage: (id: string | null) => void;
 }) {
+  const lab = isLab(useBusinessType());
   const color = pipeline.color || '#6b7280';
 
   return (
@@ -480,7 +494,7 @@ function PipelineCard({
                 </span>
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {pipeline._count.stages} etapas · {pipeline._count.leads} leads
+                {lab ? LAB_FUNIS.contagem(pipeline._count.stages, pipeline._count.leads) : `${pipeline._count.stages} etapas · ${pipeline._count.leads} leads`}
                 {pipeline.description && <span className="block mt-0.5 text-[11px] italic">"{pipeline.description.slice(0, 90)}{pipeline.description.length > 90 ? '...' : ''}"</span>}
               </div>
             </div>
@@ -556,6 +570,7 @@ function StagesList({
   onEditStage: (id: string | null) => void;
   onRefresh: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [adding, setAdding] = useState(false);
   const [newStage, setNewStage] = useState<Partial<Stage>>({ name: '', emoji: '👋', color: '#3b82f6' });
 
@@ -631,7 +646,7 @@ function StagesList({
             onChange={(e) => setNewStage({ ...newStage, emoji: e.target.value })}
             className="w-14 text-xl bg-background border border-border rounded-lg px-1 py-1.5 text-center"
           >
-            {EMOJI_SUGGESTIONS.map(e => <option key={e} value={e}>{e}</option>)}
+            {(lab ? LAB_FUNIS.emojis : EMOJI_SUGGESTIONS).map(e => <option key={e} value={e}>{e}</option>)}
           </select>
           <input
             type="text"
@@ -684,6 +699,7 @@ function StageRow({
   onSetFlag: (flag: 'is_initial' | 'is_won' | 'is_lost', value: boolean) => void;
   onSaved: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [editName, setEditName] = useState(stage.name);
   const [editEmoji, setEditEmoji] = useState(stage.emoji || '');
   const [editColor, setEditColor] = useState(stage.color || '#3b82f6');
@@ -714,7 +730,7 @@ function StageRow({
             className="w-14 text-xl bg-background border border-border rounded-lg px-1 py-1.5 text-center"
           >
             <option value="">—</option>
-            {EMOJI_SUGGESTIONS.map(e => <option key={e} value={e}>{e}</option>)}
+            {(lab ? LAB_FUNIS.emojis : EMOJI_SUGGESTIONS).map(e => <option key={e} value={e}>{e}</option>)}
           </select>
           <input
             type="text"
@@ -727,7 +743,7 @@ function StageRow({
         <textarea
           value={editDescription}
           onChange={(e) => setEditDescription(e.target.value)}
-          placeholder="Descrição para a IA: quando mover o lead para esta etapa?"
+          placeholder={lab ? LAB_FUNIS.etapaDescricao : 'Descrição para a IA: quando mover o lead para esta etapa?'}
           rows={2}
           className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/50 resize-none"
         />
@@ -847,6 +863,7 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (c: string)
  * ────────────────────────────────────────────────────────────── */
 
 function CreateEmptyModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const lab = isLab(useBusinessType());
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState('#3b82f6');
@@ -891,18 +908,18 @@ function CreateEmptyModal({ onClose, onCreated }: { onClose: () => void; onCreat
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Odontologia, Estética Facial, B2B"
+              placeholder={lab ? LAB_FUNIS.nomeExemplo : 'Ex: Odontologia, Estética Facial, B2B'}
               className="w-full bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary/50"
               required
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider">Descrição (pra IA)</label>
+            <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider">{lab ? LAB_FUNIS.descricaoRotulo : 'Descrição (pra IA)'}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Quando a IA deve usar este funil? Ex: 'Leads interessados em procedimentos odontológicos convencionais'"
+              placeholder={lab ? LAB_FUNIS.descricaoExemplo : "Quando a IA deve usar este funil? Ex: 'Leads interessados em procedimentos odontológicos convencionais'"}
               className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 resize-none"
             />
           </div>

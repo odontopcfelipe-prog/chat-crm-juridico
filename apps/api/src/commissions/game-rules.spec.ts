@@ -5,7 +5,9 @@
 import {
   levelFor, weeksOfMonth, monthBounds, missionDone, maceioMonthKey, computeMyGame,
   GAME_POINTS, DEFAULT_MISSIONS, DEFAULT_SCORING, mergeScoring, parseScoringInput,
+  readMissionsConfig,
 } from './game-rules';
+import { LAB_DEFAULT_MISSIONS } from './lab-jogo-textos';
 
 describe('game-rules — níveis', () => {
   it('Bronze < 500 ≤ Prata < 1500 ≤ Ouro < 3000 ≤ Diamante', () => {
@@ -95,6 +97,47 @@ describe('computeMyGame — sem R$', () => {
     expect(g.proximo).toMatchObject({ nome: 'Prata', faltam: 140 });
     expect(g.regras.personalizado).toBe(true);
     expect(g.fontes.find((f) => f.chave === 'procedimentos')!.cada).toBe(20);
+  });
+});
+
+describe('computeMyGame — laboratório (protético)', () => {
+  const NOW = Date.parse('2026-10-18T15:00:00Z');
+  const mkPrisma = (): any => ({
+    treatmentPlanItem: { count: jest.fn().mockResolvedValue(10), findMany: jest.fn().mockResolvedValue([]) },
+    calendarEvent: { count: jest.fn().mockResolvedValue(99), findMany: jest.fn().mockResolvedValue([]) },
+    quote: { count: jest.fn((args: any) => Promise.resolve(args?.where?.status === 'ACCEPTED' ? 2 : 4)) },
+    goal: {
+      findMany: jest.fn().mockResolvedValue([
+        { id: 'g1', metric: 'SALES_VALUE', direction: 'ACHIEVE', target_value: 1000, current_value: 500, notes: null },
+        { id: 'g2', metric: 'NEW_PATIENTS', direction: 'ACHIEVE', target_value: 10, current_value: 3, notes: null },
+      ]),
+    },
+  });
+
+  it('sem "atendimento confirmado", com os nomes do laboratório e sem vocabulário de clínica nem R$', async () => {
+    const prisma = mkPrisma();
+    const g = await computeMyGame(prisma, 't1', 'u1', '2026-09', { enabled: false, missions: [] }, DEFAULT_SCORING, NOW, true);
+    expect(g.fontes.map((f) => f.chave)).toEqual(['procedimentos', 'avaliacoes', 'conversoes', 'missoes']);
+    expect(g.pontos).toBe(10 * GAME_POINTS.procedimento + 4 * GAME_POINTS.avaliacao + 2 * GAME_POINTS.conversao);
+    expect(prisma.calendarEvent.count).not.toHaveBeenCalled();
+    expect(g.metas.map((m) => m.label)).toEqual(['Produção do mês', 'Clientes novos']);
+    expect(g.metas[0]).toMatchObject({ atual: null, alvo: null });
+    expect(JSON.stringify(g)).not.toMatch(/R\$|comiss/i);
+    const textos = [...g.fontes.map((f) => f.label), ...g.metas.map((m) => m.label), ...g.conquistas.map((c) => c.label)].join(' | ');
+    expect(textos).not.toMatch(/paciente|consulta|tratamento|procedimento|avalia/i);
+  });
+
+  it('missões do laboratório: padrão só com serviços executados; "zero faltas" salvo na conta é ignorado', async () => {
+    const lab = { id: 'x', titulo: 't', metrica: 'zero_faltas', alvo: 1, recompensa: '' };
+    const prisma: any = {
+      globalSetting: { findUnique: jest.fn().mockResolvedValue({ value: JSON.stringify({ enabled: true, missions: [LAB_DEFAULT_MISSIONS.missions[0], lab] }) }) },
+    };
+    expect((await readMissionsConfig(prisma, 't1', true)).missions.map((m) => m.metrica)).toEqual(['procedimentos']);
+    expect((await readMissionsConfig(prisma, 't1', false)).missions).toHaveLength(2);
+    prisma.globalSetting.findUnique.mockResolvedValue(null);
+    expect(await readMissionsConfig(prisma, 't1', true)).toBe(LAB_DEFAULT_MISSIONS);
+    expect(await readMissionsConfig(prisma, 't1', false)).toBe(DEFAULT_MISSIONS);
+    expect(JSON.stringify(LAB_DEFAULT_MISSIONS.missions.map((m) => m.titulo))).not.toMatch(/procedimento|consulta|paciente/i);
   });
 });
 

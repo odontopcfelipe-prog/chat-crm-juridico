@@ -10,7 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ContractPdfService } from './contract-pdf.service';
 import { ClicksignService } from '../clicksign/clicksign.service';
 import { isLabTenant } from '@crm/shared';
-import { negarLaboratorio } from '../common/lab-gate.util';
+import { CODIGO_VERTICAL_NEGADA } from '../common/lab-gate.util';
+import { LAB_CONTRATO_MSG } from './lab-contrato-textos';
 
 /**
  * Onda 14.24 — Servico de gestao de contratos vinculados a Quote.
@@ -125,11 +126,9 @@ export class ContractsService {
     opts?: { selected_documents?: string[]; dentist_user_id?: string },
   ) {
     const quote = await this.assertQuoteAndGet(quoteId, tenantId);
-    // F2 [LAB-GATE] — contrato de tratamento odontológico (contract-pdf + TCLE) não
-    // existe no laboratório: recusa. Clínica: só a leitura cacheada.
-    if (await isLabTenant(this.prisma, quote.patient.tenant_id, (m) => this.logger.warn(m))) {
-      throw negarLaboratorio('Contrato de tratamento odontológico');
-    }
+    // Laboratório: o contrato é o de prestação de serviços de prótese dentária
+    // (contrato-laboratorio.ts), sem termos de procedimento. Clínica: só a leitura cacheada.
+    const lab = await isLabTenant(this.prisma, quote.patient.tenant_id, (m) => this.logger.warn(m));
     // Onda 14.36 — Bloqueia criação se faltam dados essenciais (paciente,
     // clínica, dentista responsável, valor). O operador vê o que falta na tela;
     // aqui é a trava de segurança no backend.
@@ -140,7 +139,9 @@ export class ContractsService {
     );
     if (!completeness.complete) {
       throw new BadRequestException(
-        `Faltam dados pra gerar o contrato: ${completeness.missing.join(', ')}. Complete o cadastro antes de criar.`,
+        lab
+          ? LAB_CONTRATO_MSG.faltamDados(completeness.missing.join(', '))
+          : `Faltam dados pra gerar o contrato: ${completeness.missing.join(', ')}. Complete o cadastro antes de criar.`,
       );
     }
     // Onda 14.34 — Permite criar contrato em DRAFT/SENT/ACCEPTED. Antes
@@ -157,10 +158,11 @@ export class ContractsService {
       throw new BadRequestException('Este orcamento ja tem um contrato — abra o existente');
     }
 
-    const templateType = this.inferTemplateType(quote.items);
+    const templateType = lab ? 'LABORATORIO' : this.inferTemplateType(quote.items);
     // Onda 14.30 — sanitiza array: aceita so strings, dedup, max 20 itens
     // pra evitar payload abusivo.
-    const docs = Array.isArray(opts?.selected_documents)
+    // Laboratório: o contrato leva todas as cláusulas; não há termos extras.
+    const docs = !lab && Array.isArray(opts?.selected_documents)
       ? Array.from(new Set(
           opts!.selected_documents.filter((d): d is string => typeof d === 'string').slice(0, 20),
         ))
@@ -181,7 +183,9 @@ export class ContractsService {
         events: {
           create: {
             event_type: 'CREATED',
-            description: docs.length > 0
+            description: lab
+              ? LAB_CONTRATO_MSG.eventoCriado
+              : docs.length > 0
               ? `Documento gerado: ${templateType} + ${docs.length} extras (${docs.join(', ')})`
               : `Documento gerado a partir do template ${templateType}`,
             triggered_by_user_id: userId,
@@ -213,8 +217,9 @@ export class ContractsService {
         'Só dá pra mudar os documentos enquanto o contrato está em rascunho (não enviado).',
       );
     }
-    // Mesma sanitizacao do createForQuote: so strings, dedup, max 20.
-    const docs = Array.isArray(selected_documents)
+    // Mesma sanitizacao do createForQuote: so strings, dedup, max 20. Laboratório
+    // não tem termos extras: a lista fica vazia.
+    const docs = contract.template_type !== 'LABORATORIO' && Array.isArray(selected_documents)
       ? Array.from(new Set(
           selected_documents.filter((d): d is string => typeof d === 'string').slice(0, 20),
         ))
@@ -286,8 +291,16 @@ export class ContractsService {
     eventType: string,
     description: string,
     extraData: Record<string, unknown> = {},
+    descricaoDoLaboratorio?: string,
   ) {
     const contract = await this.assertContractAndGet(contractId, tenantId);
+    // Laboratório: a linha do tempo fala do cliente e do laboratório. Clínica: só a leitura cacheada.
+    if (
+      descricaoDoLaboratorio !== undefined &&
+      (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m)))
+    ) {
+      description = descricaoDoLaboratorio;
+    }
 
     // Cancelled/Expired sao terminais — nao da pra voltar
     if (contract.status === 'CANCELLED' || contract.status === 'EXPIRED') {
@@ -335,6 +348,7 @@ export class ContractsService {
       'SENT',
       'Enviado ao paciente (manual)',
       { sent_at: new Date() },
+      LAB_CONTRATO_MSG.eventoEnviadoManual,
     );
   }
 
@@ -362,6 +376,11 @@ export class ContractsService {
       throw new BadRequestException('ClickSign nao esta disponivel neste ambiente');
     }
     const contract = await this.assertContractAndGet(contractId, tenantId);
+    // A conta da ClickSign é a da plataforma (das clínicas): contrato de laboratório
+    // não sobe nela, para o documento e os dados do cliente não irem para a conta de outro.
+    if (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m))) {
+      throw new ForbiddenException({ message: LAB_CONTRATO_MSG.clicksignIndisponivel, code: CODIGO_VERTICAL_NEGADA });
+    }
     if (contract.status !== 'DRAFT') {
       throw new BadRequestException(
         `Contrato ja foi enviado (status: ${contract.status}). Cancele e crie um novo se precisar reenviar.`,
@@ -438,6 +457,7 @@ export class ContractsService {
       'OPENED',
       'Paciente abriu o documento (manual)',
       { opened_at: new Date() },
+      LAB_CONTRATO_MSG.eventoClienteAbriu,
     );
   }
 
@@ -451,6 +471,7 @@ export class ContractsService {
       'PATIENT_SIGNED',
       'Paciente assinou (manual)',
       { patient_signed_at: new Date() },
+      LAB_CONTRATO_MSG.eventoClienteAssinou,
     );
   }
 
@@ -465,6 +486,7 @@ export class ContractsService {
       'CLINIC_SIGNED',
       'Clinica assinou — contrato finalizado',
       { clinic_signed_at: now, signed_at: now },
+      LAB_CONTRATO_MSG.eventoLaboratorioAssinou,
     );
   }
 

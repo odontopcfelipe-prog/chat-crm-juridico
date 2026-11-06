@@ -20,8 +20,7 @@ import {
   naoPacienteTriageKey,
   nonPatientCategoryLabel,
   desligouDisparoEquipe,
-  getLabTenantIds,
-  algumLab,
+  TIPOS_SO_DO_LABORATORIO,
 } from '@crm/shared';
 import { sendAdminAlert } from '../admin-alerts/admin-alert';
 import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
@@ -39,6 +38,30 @@ import {
   type NaoPacienteFlag,
 } from './non-patient-rules';
 import { aiTeamNoteExternalId, aiTeamNoteKey, hasRecentSameSubjectNote } from './team-note';
+import {
+  aplicarAtualizacoesDoLaboratorio,
+  avisoFinanceiroDoLaboratorio,
+  camadasDoPromptDoLaboratorio,
+  carregarCatalogoDoLaboratorio,
+  contatoDoLaboratorio,
+  estiloDoLaboratorio,
+  instrucaoDoTurnoDoLaboratorio,
+  lembreteDoLaboratorio,
+  lerPassarEquipe,
+  lerVisita,
+  marcarVisitaDoLaboratorio,
+  nomeDaIaDoLaboratorio,
+  prefixoDoTurnoNoLaboratorio,
+  proximasVisitasDoLaboratorio,
+  regraDeAgendaDoLaboratorio,
+  resumoFinanceiroDoLaboratorio,
+  situacaoAgoraDoLaboratorio,
+  skillDoLaboratorio,
+  tirarRotuloDoLaboratorio,
+  vereditoIaDaConversa,
+  type IaDoLaboratorio,
+} from './lab-ia';
+import { LAB_IA_EQUIPE, LAB_IA_FALLBACK, LAB_IA_FINANCEIRO, LAB_IA_PROMPT_TRANSCRICAO } from './lab-ia-textos';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import {
   loadPipelinesForTenant,
@@ -80,6 +103,7 @@ import {
 } from './financeiro';
 import {
   alternativeCandidates,
+  analyzeBookingClaims,
   assessBookingClaim,
   buildBookingFixText,
   buildHonestPreferenceText,
@@ -856,19 +880,24 @@ export class AiProcessor extends WorkerHost {
   }
 
   /**
-   * A conversa é de um laboratório? Olha a conta da conversa, a do contato e a do
-   * chip. Sem laboratório cadastrado, responde false sem consultar o banco (o
-   * conjunto de laboratórios vem do cache de 60 s).
+   * Conversa de laboratório: passa para a equipe e para de responder (nota interna +
+   * sininho para o atendente e os ADMs da conta, sem WhatsApp). Devolve o id da nota.
    */
-  private async conversaDeLaboratorio(convo: any): Promise<boolean> {
-    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (!labs.size) return false;
-    if (algumLab(labs, [convo?.tenant_id, convo?.lead?.tenant_id])) return true;
-    if (!convo?.instance_name) return false;
-    const inst = await this.prisma.instance
-      .findFirst({ where: { name: convo.instance_name }, select: { tenant_id: true } })
-      .catch(() => null);
-    return algumLab(labs, [inst?.tenant_id]);
+  private async passarParaEquipeNoLaboratorio(convo: any, motivo: string, ultimaMensagem: string | null): Promise<string | null> {
+    await (this.prisma as any).conversation.update({
+      where: { id: convo.id },
+      data: { ai_mode: false, ai_mode_disabled_at: new Date(), ai_mode_source: 'MANUAL' },
+    });
+    this.logger.log(`[AI][LAB] conv ${convo.id}: passou para a equipe (${motivo.slice(0, 120)})`);
+    return this.alertTeam(convo, {
+      key: aiTeamNoteKey({ topic: 'lab_equipe' }),
+      text: LAB_IA_EQUIPE.notaPassou(motivo, ultimaMensagem),
+      title: LAB_IA_EQUIPE.tituloPassou,
+      body: LAB_IA_EQUIPE.corpoPassou(convo.lead?.name || LAB_IA_EQUIPE.semNome, motivo),
+      notificationType: 'ai_handoff',
+      data: { reason: motivo },
+      logLabel: `laboratório passou para a equipe: ${motivo.slice(0, 120)}`,
+    });
   }
 
   /** Envio WhatsApp cru via Evolution com checagem de entrega REAL (estilo wasSent). */
@@ -1210,6 +1239,7 @@ export class AiProcessor extends WorkerHost {
   private async autoTranscribeAudios(
     messages: any[],
     ai: OpenAI,
+    labIa?: IaDoLaboratorio | null,
   ): Promise<void> {
     for (const msg of messages) {
       // Só áudios recebidos do cliente sem transcrição
@@ -1262,8 +1292,23 @@ export class AiProcessor extends WorkerHost {
           file,
           model: 'gpt-4o-transcribe',
           language: 'pt',
-          prompt: 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com uma clínica odontológica sobre procedimentos, agendamentos ou dúvidas clínicas.',
+          prompt: labIa ? LAB_IA_PROMPT_TRANSCRICAO : 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com uma clínica odontológica sobre procedimentos, agendamentos ou dúvidas clínicas.',
         });
+        // Laboratório: a chave é compartilhada, o gasto da transcrição fica na conta dele.
+        const usoDoAudio = (result as any).usage;
+        if (labIa && usoDoAudio) {
+          await this.saveUsage({
+            tenant_id: labIa.tenantId,
+            conversation_id: msg.conversation_id ?? null,
+            model: 'gpt-4o-transcribe',
+            call_type: 'whisper',
+            usage: {
+              prompt_tokens: Number(usoDoAudio.input_tokens ?? 0),
+              completion_tokens: Number(usoDoAudio.output_tokens ?? 0),
+              total_tokens: Number(usoDoAudio.total_tokens ?? 0),
+            },
+          });
+        }
 
         const transcription = result.text?.trim() || '';
         if (transcription) {
@@ -1959,13 +2004,23 @@ export class AiProcessor extends WorkerHost {
         return;
       }
 
-      // 3a'. F2 [LAB-GATE] — laboratório não tem IA em nenhuma camada: resposta,
-      // memória do atendente, 2ª tentativa, fora do expediente e chat de teste passam
-      // todos por aqui. Clínica: nenhum id casa e o job segue como sempre.
-      if (await this.conversaDeLaboratorio(convo)) {
-        this.logger.log(`[LAB-GATE] ai — job ${job.id} (conv ${conversation_id}) é de laboratório: a IA não roda`);
+      // 3a'. Conversa de laboratório: a IA só roda com a chave do chip na própria conta e
+      // a conta em ACTIVE, e com as camadas de lab-ia.ts. Dúvida ou erro de leitura: não
+      // responde, nunca cai no prompt de clínica. Clínica: nenhum id casa e o job segue
+      // como sempre.
+      const veredito = await vereditoIaDaConversa(this.prisma, convo, {
+        dryRun,
+        purposeDoTeste: job.data?.purpose,
+        segundaTentativa: isSchedulingRetry,
+        avisar: (m) => this.logger.warn(m),
+      });
+      if (veredito.tipo === 'nao_responde') {
+        this.logger.log(`[LAB-GATE] ai — job ${job.id} (conv ${conversation_id}): a IA não roda (${veredito.motivo})`);
         return;
       }
+      const labIa: IaDoLaboratorio | null = veredito.tipo === 'laboratorio' ? veredito : null;
+      // (O contato padrão do chat de teste tem nome de clínica.)
+      if (labIa && dryRun && !job.data?.leadName) convo.lead.name = LAB_IA_FALLBACK.contatoDeTeste;
 
       if (isSchedulingRetry) {
         // 3b'. 2ª tentativa: a última mensagem É nossa, de propósito — pula o
@@ -2001,10 +2056,11 @@ export class AiProcessor extends WorkerHost {
       const ai = new OpenAI({ apiKey: openAiKey });
 
       // 5. Auto-transcrever áudios sem texto (Whisper) — salva no banco
-      await this.autoTranscribeAudios(convo.messages as any[], ai);
+      await this.autoTranscribeAudios(convo.messages as any[], ai, labIa);
 
       // 6. Carregar AiMemory (Long Memory) do lead
-      const memory = await this.prisma.aiMemory.findUnique({
+      // (Laboratório não tem memória da IA.)
+      const memory = labIa ? null : await this.prisma.aiMemory.findUnique({
         where: { lead_id: convo.lead_id },
       });
       const factsJson = (memory?.facts_json as any) || null;
@@ -2145,6 +2201,9 @@ export class AiProcessor extends WorkerHost {
         this.logger.warn(`[AI] Falha ao resolver a função do chip: ${e.message} — usando todas as skills`);
       }
 
+      // Laboratório: a função do chip já veio do veredito (no teste, a escolhida na tela).
+      if (labIa) chipPurpose = labIa.purpose;
+
       // 6c. Contexto da CLÍNICA desta conversa (carregado UMA vez): perfil do chip
       // (AI_PROFILE_<PURPOSE>), nome/telefone/endereço do tenant e horário de
       // atendimento. No chat de teste sem chip daquela função, vale a função
@@ -2152,14 +2211,14 @@ export class AiProcessor extends WorkerHost {
       const rawTenantId: string | null = (convo as any).tenant_id || null;
       // Conversa legada sem clínica: cai pra clínica do lead e, por fim, pra dona do
       // chip (mesma regra do webhook, que aplica o tempo de resposta dessa clínica).
-      const profileTenantId: string | null = rawTenantId || (convo as any).lead?.tenant_id || chipTenantId || null;
+      const profileTenantId: string | null = labIa?.tenantId ?? (rawTenantId || (convo as any).lead?.tenant_id || chipTenantId || null);
       // Chip sem função (legado, 1 chip só) usa o perfil COMERCIAL — mesma regra do
       // webhook, do encerramento de não-paciente e do follow-up.
       const profilePurpose: string =
-        chipPurpose ?? (dryRun && typeof job.data?.purpose === 'string' ? job.data.purpose : null) ?? 'COMERCIAL';
+        labIa?.purpose ?? chipPurpose ?? (dryRun && typeof job.data?.purpose === 'string' ? job.data.purpose : null) ?? 'COMERCIAL';
       const clinicCtx: ClinicAiContext = await loadClinicAiContext(this.prisma, profileTenantId, profilePurpose);
       const aiProfile = clinicCtx.profile;
-      const assistantName = aiProfile.assistantName;
+      const assistantName = labIa ? nomeDaIaDoLaboratorio(clinicCtx.profileRaw, labIa.purpose) : aiProfile.assistantName;
 
       // 6d. 2ª tentativa de agendamento (fluxo real): checagens que dependem da
       // clínica/chip. O webhook NÃO passa por aqui, então o liga/desliga da IA do
@@ -2223,7 +2282,8 @@ export class AiProcessor extends WorkerHost {
         .join('\n');
 
       // 8. Carregar skills ativas (com tools e assets inclusos)
-      const allActiveSkills = await this.settings.getActiveSkills();
+      // Laboratório: só a skill do chip dele (lab-ia.ts); nada da tabela PromptSkill.
+      const allActiveSkills: any[] = labIa ? [skillDoLaboratorio(labIa.purpose)] : await this.settings.getActiveSkills();
       // 8.0 Onda 18.22 — filtrar pelo CHIP da conversa. Cada skill tem um purpose
       // (Comercial/Clínica/Financeiro) ou null="Geral" (vale em qualquer chip).
       // ISOLAMENTO DURO: se o chip TEM função mas NÃO tem skill própria (nem
@@ -2269,7 +2329,7 @@ export class AiProcessor extends WorkerHost {
         });
         if (lead?.is_client || (dryRun && convo.lead.is_client)) {
           isActiveClient = true;
-          try {
+          if (!labIa) try {
             activeCases = await (this.prisma as any).legalCase.findMany({
               where: { lead_id: convo.lead_id, archived: false },
               select: { id: true, case_number: true, specialty: true, tracking_stage: true, in_tracking: true, stage: true, opposing_party: true },
@@ -2295,12 +2355,13 @@ export class AiProcessor extends WorkerHost {
       // Handoff de não-paciente: fora da 2ª tentativa, contato que não é cliente, chip
       // COMERCIAL ou sem função (mesma trava do webhook dos anexos). Marcar/gravar: também
       // fora do chat de teste (lá só mostra o que faria).
+      // (Laboratório: a triagem é de clínica; quem não é cliente passa para a equipe.)
       const npEligible =
-        !isSchedulingRetry && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO';
+        !labIa && !isSchedulingRetry && !isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO';
       const npCanMark = !dryRun && npEligible;
       // Marca de não-paciente do lead que vale neste turno (handoff antigo; ignorada pra
       // quem tem ficha de Paciente ou consulta marcada).
-      const npLeadMark = await this.effectiveNonPatientMark(convo, isActiveClient);
+      const npLeadMark = labIa ? null : await this.effectiveNonPatientMark(convo, isActiveClient);
       // Classificou como não-paciente mas o handoff não saiu: segue o fluxo SEM agenda.
       let npClassified: { category: string; reason: string } | null = null;
       if (npCanMark) {
@@ -2328,7 +2389,7 @@ export class AiProcessor extends WorkerHost {
       // FINANCEIRO (Carla): NÃO aplica o override "cliente → Pós-Venda". No chip de
       // cobrança todo titular é paciente; sem esta exceção, a skill de venda/agenda
       // sequestraria a conversa. Deixa o filtro por purpose escolher a skill FINANCEIRO.
-      if (isActiveClient && profilePurpose !== 'FINANCEIRO') {
+      if (!labIa && isActiveClient && profilePurpose !== 'FINANCEIRO') {
         skill = allActiveSkills.find((s: any) => s.area === 'Acompanhamento') || null;
         if (skill) {
           const casesNote = activeCases.length > 0 ? ` com ${activeCases.length} processo(s) ativo(s)` : '';
@@ -2393,6 +2454,15 @@ export class AiProcessor extends WorkerHost {
       if (!skill) {
         skill = this.selectSkill(activeSkills, specialty);
         routerReason = routerReason || 'fallback: area matching';
+      }
+      if (labIa) {
+        // Só há a skill do chip; sem ela, nunca o prompt fallback (de clínica).
+        skill = allActiveSkills[0] ?? null;
+        routerReason = `laboratório: chip ${labIa.purpose}`;
+        if (!skill) {
+          this.logger.warn(`[AI][LAB] conv ${convo.id}: sem skill do chip ${labIa.purpose}: a IA não responde`);
+          return;
+        }
       }
 
       // 10. Preparar prompt e parâmetros
@@ -2464,7 +2534,25 @@ export class AiProcessor extends WorkerHost {
       let assignedDentistId: string | null = null;
       // FINANCEIRO não resolve/atribui Orçamentista (efeito colateral em dados) nem
       // calcula horários — só carrega o financeiro do paciente desta conversa.
-      if (profilePurpose === 'FINANCEIRO') {
+      // Laboratório: sem Orçamentista nem horários calculados; a agenda dele é a regra de
+      // lab-ia.ts (só propõe, ou marca coleta/prova/entrega se a conta ligou).
+      let labCatalogo = '';
+      let labAgendaLigada = false;
+      if (labIa) {
+        if (labIa.purpose === 'FINANCEIRO') {
+          try {
+            const finCtx = await loadFinanceiroContext(this.prisma as any, this.settings, labIa.tenantId, convo.lead_id || convo.lead?.id || null);
+            financeiroResumo = resumoFinanceiroDoLaboratorio(finCtx);
+            financeiroSendable = finCtx.sendable;
+          } catch (e: any) {
+            this.logger.warn(`[AI][LAB] Falha ao carregar o financeiro do cliente (conv ${convo.id}): ${e?.message}`);
+            financeiroResumo = LAB_IA_FINANCEIRO.falhaAoLer;
+          }
+        } else {
+          labCatalogo = await carregarCatalogoDoLaboratorio(this.prisma, labIa.tenantId);
+          labAgendaLigada = await isAiAutobookEnabled(this.prisma, labIa.tenantId);
+        }
+      } else if (profilePurpose === 'FINANCEIRO') {
         availableSlots = '(não se aplica — canal financeiro)';
         try {
           const finCtx = await loadFinanceiroContext(
@@ -2640,7 +2728,26 @@ export class AiProcessor extends WorkerHost {
 
       // ── Próximos eventos do calendário do lead — perícias, audiências, prazos ──
       let upcomingEventsBlock = '';
-      try {
+      if (labIa) {
+        try {
+          upcomingEventsBlock = proximasVisitasDoLaboratorio(
+            await this.prisma.calendarEvent.findMany({
+              where: {
+                tenant_id: labIa.tenantId,
+                lead_id: convo.lead_id,
+                type: { in: [...TIPOS_SO_DO_LABORATORIO] },
+                start_at: { gte: maceioNowNaive() },
+                status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+              },
+              orderBy: { start_at: 'asc' },
+              take: 5,
+              select: { type: true, start_at: true, location: true },
+            }),
+          );
+        } catch (e: any) {
+          this.logger.warn(`[AI][LAB] Falha ao buscar próximas visitas: ${e.message}`);
+        }
+      } else try {
         const upcomingEvents = await this.prisma.calendarEvent.findMany({
           where: {
             lead_id: convo.lead_id,
@@ -2709,7 +2816,9 @@ export class AiProcessor extends WorkerHost {
       // ── Reminder context — injeta aviso se cliente está respondendo a um lembrete recente ──
       let reminderContextBlock = '';
       const reminderCtx = (convo as any).reminder_context as any;
-      if (reminderCtx && reminderCtx.sent_at) {
+      if (labIa) {
+        reminderContextBlock = lembreteDoLaboratorio(reminderCtx);
+      } else if (reminderCtx && reminderCtx.sent_at) {
         const sentAt = new Date(reminderCtx.sent_at);
         const hoursAgo = Math.round((Date.now() - sentAt.getTime()) / 3_600_000);
         if (hoursAgo < 48) {
@@ -2799,10 +2908,10 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // (clinicCtx, 6c), dentista avaliador(a) (orçamentista resolvido acima) e a
       // tabela de valores que a IA pode falar (TenantSetting AI_PRICE_TABLE, editável
       // em Ajustes › IA).
-      const firmName = clinicCtx.firmName || 'nossa clínica';
+      const firmName = clinicCtx.firmName || (labIa ? LAB_IA_FALLBACK.nomeDoLaboratorio : 'nossa clínica');
       let doctorName = 'a dentista avaliadora';
       let priceTable = NO_PRICE_TABLE;
-      try {
+      if (!labIa) try {
         const [doctorRow, priceRow, pricesOnRow] = await Promise.all([
           assignedDentistId
             ? this.prisma.user.findUnique({ where: { id: assignedDentistId }, select: { name: true } })
@@ -2826,7 +2935,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       }
 
       // Campo da clínica não cadastrado: a IA não pode inventar endereço/telefone/horário.
-      const NOT_REGISTERED = '(não cadastrado — não invente; diga que vai confirmar com a equipe)';
+      const NOT_REGISTERED = labIa ? LAB_IA_FALLBACK.naoCadastrado : '(não cadastrado — não invente; diga que vai confirmar com a equipe)';
       const vars: Record<string, string> = {
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
@@ -2865,6 +2974,15 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         clinic_now: clinicNowText,
         patient_style: replyStyle.hint,
       };
+      if (labIa) {
+        // Só o que os textos do laboratório usam; o valor nunca é uma camada de clínica.
+        vars.clinic_now = situacaoAgoraDoLaboratorio(clinicCtx.hours, isHolidayToday, !!clinicCtx.hoursText);
+        vars.chip_instructions = aiProfile.instructions || LAB_IA_FALLBACK.semInstrucoes;
+        vars.lab_contato = contatoDoLaboratorio(isActiveClient);
+        vars.lab_estilo = estiloDoLaboratorio(aiProfile.replyLength, patientStyle, chronological as any[]);
+        vars.lab_catalogo = labCatalogo;
+        vars.lab_agenda = regraDeAgendaDoLaboratorio(labAgendaLigada);
+      }
 
       // Cabeçalho fixo de capacidades — injetado antes de qualquer skill prompt
       const MEDIA_CAPABILITIES_HEADER = `CAPACIDADES DE MÍDIA DISPONÍVEIS:
@@ -2936,7 +3054,7 @@ STATUS DA FICHA:
         // Tenant REAL da conversa (rawTenantId), não o tenantIdForBH: aquele vira
         // null pro '00000000-…' — que é o Instituto, clínica real — e o Instituto
         // ficava sem o resumo da clínica (OrganizationProfile) e sem memórias.
-        const tenantIdForMem: string | null = rawTenantId;
+        const tenantIdForMem: string | null = labIa ? null : rawTenantId;
         if (tenantIdForMem && leadIdForMem) {
           const [orgProfile, orgMems, profile, recentEpisodes] = await Promise.all([
             // OrganizationProfile consolidado (prosa) — fonte principal
@@ -3012,7 +3130,8 @@ STATUS DA FICHA:
       // falhas: se não há pipelines configurados, block fica vazio e a IA
       // opera no modo legado (Lead.stage String hardcoded).
       let pipelinesBlock = '';
-      try {
+      // (Laboratório: a IA dele não move o funil.)
+      if (!labIa) try {
         const tenantIdForPipelines = (convo as any)?.tenant_id ?? null;
         const pipelines = await loadPipelinesForTenant(this.prisma as any, tenantIdForPipelines);
         // Onde o contato está hoje no CRC — sem isso a IA não sabia se já tinha
@@ -3045,6 +3164,7 @@ STATUS DA FICHA:
         this.logger.warn(`[AI] Falha ao carregar pipelines do tenant: ${e.message}`);
       }
 
+      const labCamadas = labIa ? camadasDoPromptDoLaboratorio(labIa.purpose) : null;
       if (skill) {
         // Injetar references (SkillAssets com inject_mode=full_text) no prompt via PromptBuilder
         const references = (skill.assets || [])
@@ -3052,15 +3172,15 @@ STATUS DA FICHA:
           .map((a: any) => ({ name: a.name, content: a.content_text }));
 
         systemPrompt = this.promptBuilder.buildSystemPrompt({
-          mediaCapabilities: MEDIA_CAPABILITIES_HEADER,
-          behaviorRules: CORE_RULES,
+          mediaCapabilities: labCamadas?.mediaCapabilities ?? MEDIA_CAPABILITIES_HEADER,
+          behaviorRules: labCamadas?.behaviorRules ?? CORE_RULES,
           skillPrompt: skill.system_prompt,
           references,
           maxContextTokens: skill.max_context_tokens || 4000,
           vars,
           memoryBlock,
           pipelinesBlock,
-          finalRules: AGENDAMENTO_OVERRIDES,
+          finalRules: labCamadas?.finalRules ?? AGENDAMENTO_OVERRIDES,
         });
         // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
         // no prompt final enviado ao LLM.
@@ -3144,7 +3264,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // Chat de teste: permite trocar o modelo pra comparar (só no teste — o
       // WhatsApp real continua usando o modelo da skill). O provider (OpenAI x
       // Anthropic) é detectado pelo nome do modelo mais abaixo.
-      if (dryRun && typeof job.data?.model === 'string' && job.data.model.trim()) {
+      if (!labIa && dryRun && typeof job.data?.model === 'string' && job.data.model.trim()) {
         model = this.normalizeModelId(job.data.model.trim());
       }
 
@@ -3155,6 +3275,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       for (const m of chronological) {
         // Alerta interno que a própria IA gravou pra equipe (nunca foi pro paciente).
         if (isAiTeamNote(m)) continue;
+        // Laboratório: nota da equipe não é conversa (aqui ela ficaria sem rótulo).
+        if (labIa && (m as any).type === 'internal_note') continue;
         const isClient = (m as any).direction === 'in';
         const role: 'user' | 'assistant' = isClient ? 'user' : 'assistant';
 
@@ -3217,7 +3339,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
                 : '[mídia]');
         // Resposta da própria IA vai sem rótulo; operador humano e disparo automático
         // vão rotulados (history-sender.ts).
-        const finalContent = chatTurnPrefix(classifyHistorySender(m as any, automationSignals)) + content;
+        const remetente = classifyHistorySender(m as any, automationSignals);
+        const finalContent = (labIa ? prefixoDoTurnoNoLaboratorio(remetente) : chatTurnPrefix(remetente)) + content;
         // Mesclar mensagens de texto consecutivas do mesmo remetente
         const last = chatTurns[chatTurns.length - 1];
         if (last && last.role === role && typeof last.content === 'string') {
@@ -3241,7 +3364,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
             : 'Mensagens curtas, balões separados por linha em branco.';
       // 2ª tentativa de agendamento: a instrução própria SUBSTITUI a normal (a
       // última mensagem é nossa; a IA volta por conta própria com 2 horários).
-      const instruction = isSchedulingRetry
+      const instruction = labIa
+        ? instrucaoDoTurnoDoLaboratorio(lengthInstruction)
+        : isSchedulingRetry
         ? buildSchedulingRetryInstruction(leadFirstName(convo.lead?.name))
         : `[INSTRUÇÃO INTERNA — não exiba ao cliente]\nResponda à última mensagem do cliente — primeiro o que ele perguntou. Consulte o histórico completo acima e a MEMÓRIA DO LEAD no system prompt: NÃO repita perguntas, frases nem ofertas que você já fez. ${lengthInstruction} Atualize o status do funil conforme as regras de PROGRESSÃO DE ETAPAS.`;
       // Balões: a 2ª tentativa é UMA mensagem curta (no máx. 2 balões).
@@ -3278,6 +3403,8 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       let retrySchedulingFlag = false;
       // Modelo marcou "nao_paciente" (emprego, fornecedor, negócio… — não é consulta).
       let naoPacienteFromModel: NaoPacienteFlag | null = null;
+      // Resposta crua do modelo (o laboratório resgata o "passar_equipe" de JSON truncado).
+      let respostaCrua = '';
 
       if (useToolCalling) {
         // ─── PATH NOVO: Function Calling com Tool Executor ───
@@ -3475,7 +3602,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         const completion = { choices: [{ message: { content: legacyResult.content } }] } as any;
         // Salvar usage com dados reais (Onda 2.2 — tenant_id obrigatorio)
         await this.saveUsage({
-          tenant_id: (convo as any)?.tenant_id ?? null,
+          tenant_id: labIa?.tenantId ?? (convo as any)?.tenant_id ?? null,
           conversation_id: dryRun ? null : conversation_id,
           skill_id: skill?.id ?? null,
           model,
@@ -3490,6 +3617,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         const rawResponse =
           completion.choices[0]?.message?.content ||
           '{"reply":"Desculpe, estou com instabilidade no momento."}';
+        respostaCrua = rawResponse;
 
         const parsed = this.parseAiResponse(rawResponse);
         aiText = parsed.reply;
@@ -3530,6 +3658,17 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           }
           if (!financeiro_action && sanitized.financeiro_action) financeiro_action = sanitized.financeiro_action;
         }
+      }
+
+      // Laboratório: o contrato de saída é o de lab-ia-textos.ts. Ação de agenda, 2ª
+      // tentativa e triagem de clínica não existem nele, e o modelo não as liga por engano.
+      let labMotivoEquipe: string | null = null;
+      if (labIa) {
+        labMotivoEquipe = lerPassarEquipe(updates, respostaCrua);
+        scheduling_action = null;
+        slotsToOffer = null;
+        retrySchedulingFlag = false;
+        naoPacienteFromModel = null;
       }
 
       const isAwaitingConfirmation = reminderCtx?.awaiting_confirmation === true;
@@ -3656,6 +3795,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // consulta) nem pra quem não é paciente (13-NP).
       const netAction: string | null = scheduling_action?.action || null;
       if (
+        !labIa &&
         !npBlock.blocked &&
         !isSchedulingRetry &&
         profilePurpose !== 'FINANCEIRO' &&
@@ -3795,6 +3935,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // a agenda, então o mesmo horário não volta na oferta. Com horário listado, a 2ª
       // tentativa e o v28 não repetem a oferta (replyProposesSlots / aiProposedSlots).
       if (
+        !labIa &&
         !isSchedulingRetry &&
         !npBlock.blocked &&
         !claimCorrectedBy13a &&
@@ -3827,6 +3968,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       const retryBySafetyNet =
         !retrySchedulingFlag && isClosingWithoutScheduling(lastInboundForRetry?.text, lastOutBeforeInbound);
       const retryEligible =
+        !labIa &&
         !isSchedulingRetry &&
         !suppressRetry &&
         // Quem não é paciente (13-NP) nunca recebe tentativa de agendamento.
@@ -3874,11 +4016,13 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // (salvaguardas de agenda, updates do lead, envio, gravação) roda no teste.
       if (dryRun) {
         const handoff = skill?.handoff_signal;
-        const willHandoff = !!handoff && aiText.includes(handoff);
-        const reply = tidyReply(stripHistoryLabels(willHandoff ? aiText.split(handoff).join('') : aiText));
+        const willHandoff = !!labMotivoEquipe || (!!handoff && aiText.includes(handoff));
+        const reply = labIa
+          ? tidyReply(tirarRotuloDoLaboratorio(stripHistoryLabels(aiText)))
+          : tidyReply(stripHistoryLabels(willHandoff ? aiText.split(handoff).join('') : aiText));
         // Funil/etapa em que ela lançaria o contato no CRC (nada é gravado no teste).
         let funnel: { pipeline: string | null; stage: string | null } | null = null;
-        try {
+        if (!labIa) try {
           const testPipelines = await loadPipelinesForTenant(this.prisma as any, convo.tenant_id ?? null);
           funnel = describeFunnelChoice(testPipelines, updates);
         } catch {
@@ -3966,7 +4110,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // GATILHO 1: IA usou palavra de cancelamento sem emitir action
       // GATILHO 2: lead negou + IA nao emitiu action nem propos horarios novos
       // (2ª tentativa: o "não" do paciente é antigo e já foi tratado no turno normal.)
-      const shouldForceCancel = !isSchedulingRetry && noActionFromAi && (aiSaysCancel || patientSaidNo);
+      const shouldForceCancel = !labIa && !isSchedulingRetry && noActionFromAi && (aiSaysCancel || patientSaidNo);
 
       if (shouldForceCancel) {
         const reason = aiSaysCancel
@@ -4057,12 +4201,53 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
           (await this.alertTeamNonPatient(convo, npFlag, lastInboundForRetry?.text || null)) || teamAlertNoteId;
       }
 
+      // Laboratório: a visita (só com AI_AUTOBOOK_ENABLED_<conta> ligado) e a rede do
+      // "disse que marcou": sem a marcação feita, a frase não sai e a equipe assume.
+      if (labIa && labIa.purpose !== 'FINANCEIRO') {
+        const visita = labAgendaLigada ? lerVisita(updates) : null;
+        if (visita) {
+          const marcada = await marcarVisitaDoLaboratorio({
+            prisma: this.prisma,
+            reminderQueue: this.reminderQueue,
+            tenantId: labIa.tenantId,
+            conversationId: convo.id,
+            leadId: convo.lead.id,
+            assignedUserId: (convo as any).assigned_user_id ?? null,
+            assistantName,
+            hours: clinicCtx.hours,
+            visita,
+          }).catch((e: any) => ({ ok: false as const, motivo: String(e?.message || e).slice(0, 120) }));
+          if (!marcada.ok) {
+            this.logger.warn(`[AI][LAB] visita ${visita.tipo} ${visita.date} ${visita.time} não marcada (conv ${convo.id}): ${marcada.motivo}`);
+            finalText = LAB_IA_EQUIPE.respostaAgendaHonesta;
+            labMotivoEquipe = LAB_IA_EQUIPE.motivoVisitaRecusada(visita.tipo, visita.date, visita.time, marcada.motivo);
+          }
+        } else {
+          // Pergunta/oferta e "a equipe marca" não contam; quem já tem visita pode estar
+          // ouvindo sobre ela (PRÓXIMAS VISITAS).
+          const fala = analyzeBookingClaims(finalText, todayStr);
+          if (fala.claims.length && !fala.asksConfirmation && !upcomingEventsBlock) {
+            this.logger.warn(`[AI][LAB] disse que marcou sem visita marcada (conv ${convo.id}): "${finalText.slice(0, 160)}"`);
+            finalText = LAB_IA_EQUIPE.respostaAgendaHonesta;
+            labMotivoEquipe = labMotivoEquipe || LAB_IA_EQUIPE.motivoAgendaNaoMarcada;
+          }
+        }
+      }
+      if (labIa && labMotivoEquipe) {
+        teamAlertNoteId =
+          (await this.passarParaEquipeNoLaboratorio(convo, labMotivoEquipe, lastInboundForRetry?.text || null)) || teamAlertNoteId;
+      }
+
       // 14a. Reply vazio = conversa encerrada — IA decidiu não responder
       // (ex: cliente disse "obrigado" após despedida, loop detectado)
       if (!finalText || !finalText.trim()) {
         this.logger.log(`[AI] Reply vazio — conversa encerrada, IA não responde (conv ${conversation_id})`);
         // Ainda aplica updates e salva log, mas não envia mensagem
-        await this.applyAiUpdates(updates, convo.id, convo.lead.id, convo.lead.phone, convo.instance_name || null);
+        if (labIa) {
+          await aplicarAtualizacoesDoLaboratorio(this.prisma, updates, { conversationId: convo.id, leadId: convo.lead.id, isClient: isActiveClient });
+        } else {
+          await this.applyAiUpdates(updates, convo.id, convo.lead.id, convo.lead.phone, convo.instance_name || null);
+        }
         return;
       }
 
@@ -4072,7 +4257,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       try {
         await (this.prisma as any).skillExecutionLog.create({
           data: {
-            tenant_id: (convo as any)?.tenant_id || '00000000-0000-0000-0000-000000000000',
+            tenant_id: labIa?.tenantId || (convo as any)?.tenant_id || '00000000-0000-0000-0000-000000000000',
             conversation_id,
             skill_id: skill?.id || null,
             tool_calls_json: toolCallLogs.length > 0 ? toolCallLogs : undefined,
@@ -4084,6 +4269,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       } catch { /* non-critical */ }
 
       // 15. Aplicar updates automaticamente
+      if (labIa) {
+        await aplicarAtualizacoesDoLaboratorio(this.prisma, updates, { conversationId: convo.id, leadId: convo.lead.id, isClient: isActiveClient });
+      } else {
       await this.applyAiUpdates(
         updates,
         convo.id,
@@ -4091,6 +4279,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
         convo.lead.phone,
         convo.instance_name || null,
       );
+      }
 
       // 15b. Processar scheduling_action (agendamento automático de avaliação)
       // ⚠️ REGRA: TODA avaliação inicial vai pra um dentista com especialidade
@@ -4407,6 +4596,7 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
       // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
       // Também tira rótulo de turno copiado do histórico ("[Operador Humano]: …").
       finalText = tidyReply(stripHistoryLabels(finalText));
+      if (labIa) finalText = tirarRotuloDoLaboratorio(finalText);
 
       // ─── CARLA (FINANCEIRO): reenvio de boleto/PIX sob pedido ───────────────────
       // Só no chip FINANCEIRO, com ação emitida pela IA, fora do chat de teste. Os
@@ -4455,7 +4645,9 @@ retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar
               const r = await sendAdminAlert(this.prisma, this.settings, sendTenantId, {
                 type: 'carla_escalonamento',
                 disparo: 'carla_escalonamento',
-                text: `🔔 *Financeiro — precisa de você*\nPaciente: ${convo.lead?.name || 'sem nome'} (${convo.lead?.phone || 's/ número'})\n${resumo || '(sem resumo)'}\n\nResponda pelo chat do Financeiro.`,
+                text: labIa
+                  ? avisoFinanceiroDoLaboratorio(convo.lead, resumo)
+                  : `🔔 *Financeiro — precisa de você*\nPaciente: ${convo.lead?.name || 'sem nome'} (${convo.lead?.phone || 's/ número'})\n${resumo || '(sem resumo)'}\n\nResponda pelo chat do Financeiro.`,
                 recipientName: convo.lead?.name || null,
                 phones: recipPhones,
               });

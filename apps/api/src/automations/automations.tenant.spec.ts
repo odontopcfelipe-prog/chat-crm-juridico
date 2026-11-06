@@ -6,7 +6,8 @@
  * todas. Agora cada uma só alcança os leads/conversas da própria clínica; as
  * globais (sem tenant) e os registros legados (sem tenant) seguem como antes.
  */
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { __limparCacheLabTenants } from '@crm/shared';
 import { AutomationsService, regraValeParaConversa } from './automations.service';
 import { FollowupService } from '../followup/followup.service';
 
@@ -141,5 +142,104 @@ describe('AutomationsService — CREATE_TASK nasce na clínica', () => {
     const { rodar, criadas } = montarTarefa({ tenant_id: null }, null);
     await rodar(regra(null), { leadId: 'l0' });
     expect(criadas[0]).not.toHaveProperty('tenant_id');
+  });
+});
+
+describe('AutomationsService — editar e apagar regra', () => {
+  beforeEach(() => __limparCacheLabTenants());
+  afterEach(() => __limparCacheLabTenants());
+
+  const REGRAS: Record<string, any> = {
+    'r-a': { tenant_id: 'a', action: 'ADD_TAG', action_value: 'x' },
+    'r-seq': { tenant_id: 'a', action: 'ENROLL_FOLLOWUP', action_value: 's-a' },
+    'r-b': { tenant_id: 'b', action: 'ADD_TAG', action_value: 'x' },
+    'r-g': { tenant_id: null, action: 'ADD_TAG', action_value: 'x' },
+  };
+  const SEQUENCIAS: Record<string, any> = { 's-a': { tenant_id: 'a' }, 's-b': { tenant_id: 'b' }, 's-g': { tenant_id: null } };
+
+  function montarRegras(labs: string[] = []) {
+    const prisma: any = {
+      tenantBusinessProfile: { findMany: jest.fn(async () => labs.map((tenant_id) => ({ tenant_id }))) },
+      automationRule: {
+        findUnique: jest.fn(async ({ where }: any) => REGRAS[where.id] ?? null),
+        update: jest.fn(async (a: any) => a),
+        delete: jest.fn(async () => ({})),
+        create: jest.fn(async (a: any) => a.data),
+      },
+      followupSequence: { findUnique: jest.fn(async ({ where }: any) => SEQUENCIAS[where.id] ?? null) },
+    };
+    return { svc: new AutomationsService(prisma, {} as any), prisma };
+  }
+
+  it.each([[[] as string[]], [['a']]])('lista fechada: o corpo não muda a conta nem o id (laboratórios: %j)', async (labs) => {
+    const { svc, prisma } = montarRegras(labs);
+    await svc.update('r-a', { tenant_id: null, id: 'outro', created_at: new Date(0), enabled: false } as any, 'a');
+    const data = prisma.automationRule.update.mock.calls[0][0].data;
+    expect(data).toEqual({ name: undefined, trigger: undefined, action: undefined, action_value: undefined, enabled: false });
+    expect(Object.keys(data).sort()).toEqual(['action', 'action_value', 'enabled', 'name', 'trigger']);
+  });
+
+  it('regra de outra conta responde 404 para qualquer tipo de conta, sem gravar', async () => {
+    for (const labs of [[], ['a']]) {
+      __limparCacheLabTenants();
+      const { svc, prisma } = montarRegras(labs);
+      await expect(svc.update('r-b', { enabled: false }, 'a')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(svc.remove('r-b', 'a')).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.automationRule.update).not.toHaveBeenCalled();
+      expect(prisma.automationRule.delete).not.toHaveBeenCalled();
+    }
+  });
+
+  it('regra inexistente responde 404', async () => {
+    const { svc } = montarRegras();
+    await expect(svc.update('nao-existe', { enabled: false }, 'a')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('clínica: a regra dela e a global continuam editáveis, como na tela', async () => {
+    const { svc, prisma } = montarRegras();
+    await svc.update('r-a', { enabled: false }, 'a');
+    await svc.update('r-g', { enabled: false }, 'a');
+    await svc.remove('r-g', 'a');
+    expect(prisma.automationRule.update).toHaveBeenCalledTimes(2);
+    expect(prisma.automationRule.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('laboratório: a regra global responde 404', async () => {
+    const { svc, prisma } = montarRegras(['a']);
+    await expect(svc.update('r-g', { enabled: false }, 'a')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.automationRule.update).not.toHaveBeenCalled();
+  });
+
+  it('clínica: sequência de outra conta é recusada ao editar e ao criar; a dela e a global passam', async () => {
+    const { svc, prisma } = montarRegras();
+    await expect(svc.update('r-seq', { action_value: 's-b' }, 'a')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.update('r-a', { action: 'ENROLL_FOLLOWUP', action_value: 's-b' }, 'a')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.create({ name: 'R', trigger: 'NEW_LEAD', action: 'ENROLL_FOLLOWUP', action_value: 's-b', tenant_id: 'a' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.automationRule.update).not.toHaveBeenCalled();
+    expect(prisma.automationRule.create).not.toHaveBeenCalled();
+
+    await svc.update('r-seq', { action_value: 's-a' }, 'a');
+    await svc.update('r-seq', { action_value: 's-g' }, 'a');
+    await svc.create({ name: 'R', trigger: 'NEW_LEAD', action: 'ENROLL_FOLLOWUP', action_value: 's-g', tenant_id: 'a' });
+    expect(prisma.automationRule.update).toHaveBeenCalledTimes(2);
+    expect(prisma.automationRule.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('laboratório: ao editar, só sequência da própria conta (a global não); trocar a ação confere o valor gravado', async () => {
+    const { svc, prisma } = montarRegras(['a']);
+    await expect(svc.update('r-seq', { action_value: 's-g' }, 'a')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.update('r-a', { action: 'ENROLL_FOLLOWUP' }, 'a')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.automationRule.update).not.toHaveBeenCalled();
+    await svc.update('r-seq', { action_value: 's-a' }, 'a');
+    expect(prisma.automationRule.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('ligar e desligar não confere a sequência', async () => {
+    const { svc, prisma } = montarRegras();
+    await svc.update('r-seq', { enabled: false }, 'a');
+    expect(prisma.followupSequence.findUnique).not.toHaveBeenCalled();
+    expect(prisma.automationRule.update).toHaveBeenCalledTimes(1);
   });
 });

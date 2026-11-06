@@ -65,8 +65,7 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
     loading,
     currentUserId,
   } = useChatSocket(leadId, scope ? { scope } : undefined);
-  // Laboratório não tem IA no chat (a conversa pode chegar com ai_mode ligado).
-  const aiMode = !lab && aiModeDaConversa;
+  const aiMode = aiModeDaConversa;
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -193,9 +192,9 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
     setAiMode(newMode); // otimista
     try {
       await api.patch(`/conversations/${convoId}/ai-mode`, { ai_mode: newMode });
-    } catch {
+    } catch (e: any) {
       setAiMode(!newMode); // reverte
-      showError('Falha ao alternar IA');
+      showError((lab && e?.response?.data?.message) || 'Falha ao alternar IA');
     }
   };
 
@@ -308,7 +307,7 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
           >
             <ExternalLink size={13} />
           </button>
-          {!lab && (
+          {(
           <button
             onClick={toggleAi}
             disabled={isClosed}

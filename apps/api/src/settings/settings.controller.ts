@@ -21,6 +21,7 @@ import { setTenantSetting } from '../tenants/tenant-settings.helper';
 import { AiTestChatService } from './ai-test-chat.service';
 import { negarPermissao } from '../auth/require-any-permission';
 import { negarLaboratorio } from '../common/lab-gate.util';
+import { exigirContaComIa, LIMITE_TESTE_DA_IA } from './lab-ia-conta';
 import {
   MEMORY_BATCH_KEY,
   clinicSettingStorageKey,
@@ -394,7 +395,10 @@ export class SettingsController {
     const segundos = temTempo ? normalizarCooldown(corpo.cooldownSeconds) : null;
     const chaveTempo = temTempo ? chaveDeGravacaoDaClinica(AI_COOLDOWN_KEY, req.user) : null;
     const chaveRobo = temRobo ? chaveDeGravacaoDaClinica(ADMIN_BOT_KEY, req.user) : null;
-    const superNoLaboratorio = isSuper && (await this.ehLaboratorio(req));
+    const laboratorio = isSuper || (temRobo && corpo.adminBotEnabled) ? await this.ehLaboratorio(req) : false;
+    // Laboratório: o robô usa a chave compartilhada; só liga com a conta em ACTIVE.
+    if (laboratorio && temRobo && corpo.adminBotEnabled) await exigirContaComIa(this.prisma, contaDoUsuario(req.user));
+    const superNoLaboratorio = isSuper && laboratorio;
     const gravaPlataforma = isSuper && !superNoLaboratorio;
     const ignorados = gravaPlataforma ? [] : camposDePlataformaEnviados(corpo);
     if (ignorados.length) {
@@ -482,6 +486,19 @@ export class SettingsController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
     const p = String(body?.purpose || '').toUpperCase();
+    // Laboratório: o teste gasta a chave compartilhada (só com a conta em ACTIVE), o chip
+    // é sempre um dos três e o modelo não se escolhe.
+    if (await this.ehLaboratorio(req)) {
+      await exigirContaComIa(this.prisma, tenantId);
+      LIMITE_TESTE_DA_IA.consumir(tenantId);
+      return this.aiTestChatService.run({
+        tenantId,
+        purpose: p === 'CLINICA' || p === 'FINANCEIRO' ? (p as any) : 'COMERCIAL',
+        isClient: !!body?.isClient,
+        leadName: body?.leadName ? String(body.leadName).slice(0, 80) : null,
+        history: Array.isArray(body?.history) ? body!.history : [],
+      });
+    }
     return this.aiTestChatService.run({
       tenantId,
       purpose: p === 'COMERCIAL' || p === 'CLINICA' || p === 'FINANCEIRO' ? (p as any) : null,
@@ -501,6 +518,8 @@ export class SettingsController {
   async setAiChipToggle(@Request() req: any, @Body() body: { purpose: string; enabled: boolean }) {
     const tenantId = contaDoUsuario(req.user);
     if (!tenantId && !ehSuperAdmin(req.user)) throw negarPermissao(SEM_CONTA_MSG);
+    // Laboratório: ligar só com a conta em ACTIVE; desligar, sempre.
+    if (body?.enabled && (await this.ehLaboratorio(req))) await exigirContaComIa(this.prisma, tenantId);
     await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled, tenantId);
     return { ok: true, purpose: body?.purpose, enabled: !!body?.enabled };
   }
@@ -540,6 +559,10 @@ export class SettingsController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    // Laboratório: o resumo da conta é memória da IA, ele não tem.
+    if (await this.ehLaboratorio(req)) {
+      return this.settingsService.saveAiProfileClinic(tenantId, { ...body, summary: undefined });
+    }
     return this.settingsService.saveAiProfileClinic(tenantId, body);
   }
 
@@ -552,6 +575,7 @@ export class SettingsController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Usuário sem clínica');
+    if (body?.enabled === true && (await this.ehLaboratorio(req))) await exigirContaComIa(this.prisma, tenantId);
     return this.settingsService.saveAiChipProfile(tenantId, purpose, body ?? {});
   }
 

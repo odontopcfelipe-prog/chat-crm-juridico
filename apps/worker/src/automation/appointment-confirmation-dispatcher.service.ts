@@ -9,6 +9,7 @@ import {
   escolherChipPaciente,
   chipPacienteOuLegado,
   soTemChipFinanceiro,
+  contaDoLabPodeEnviar,
   getLabTenantIds,
   tipoSoDoLaboratorio,
   LAB_AGENDA_TEXTOS,
@@ -101,6 +102,7 @@ export class AppointmentConfirmationDispatcherService {
       // pelo mesmo caminho (toggle, chip de Atendimento, claim e horário comercial), sem
       // as chaves de ortodontia e sem anexos.
       const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      const labPodeEnviar = new Map<string, boolean>();
 
       for (const c of pending) {
         const tenantId = c.appointment?.tenant_id;
@@ -127,6 +129,17 @@ export class AppointmentConfirmationDispatcherService {
           await this.markFailed(c.id, 'Laboratório: sem confirmação automática');
           skipped++;
           continue;
+        }
+        // Conta de laboratório suspensa ou congelada: a confirmação não sai. Marca como
+        // falha (é da véspera, não vale mais quando a conta voltar) para não ocupar a fila.
+        if (lab) {
+          if (!labPodeEnviar.has(tenantId)) labPodeEnviar.set(tenantId, await contaDoLabPodeEnviar(this.prisma, tenantId));
+          if (!labPodeEnviar.get(tenantId)) {
+            this.logger.log(`[LAB] confirmacao-24h — conta ${tenantId} suspensa: confirmação ${c.id} não sai`);
+            await this.markFailed(c.id, 'Laboratório: conta suspensa');
+            skipped++;
+            continue;
+          }
         }
 
         // Onda 17.49 — respeita o toggle "Confirmação" do painel Operacional.

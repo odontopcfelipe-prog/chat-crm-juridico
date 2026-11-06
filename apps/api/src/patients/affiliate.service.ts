@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { isLabTenant, startOfTodayMaceioUtc } from '@crm/shared';
+import { TIPOS_SO_DO_LABORATORIO, isLabTenant, startOfTodayMaceioUtc } from '@crm/shared';
 
 /**
  * AffiliateService — Onda 5e v34 (Fase 25).
@@ -351,7 +351,7 @@ export class AffiliateService {
             tenant_id: tenantId,
             type: 'DESPESA',
             category: 'COMISSAO_AFILIADO',
-            description: `Saque afiliado — ${aff?.name || 'Paciente'}`,
+            description: `Saque afiliado — ${aff?.name || ((await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) ? 'Cliente' : 'Paciente')}`,
             amount: w.amount,
             date: paidAt,
             paid_at: paidAt,
@@ -405,6 +405,10 @@ export class AffiliateService {
 
     const hoje = startOfTodayMaceioUtc();
     const agora = new Date();
+    // Laboratório: o atendimento do indicado são as coletas, provas e entregas.
+    const tiposDeVisita = (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))
+      ? { in: [...TIPOS_SO_DO_LABORATORIO] }
+      : 'CONSULTA';
 
     // Cadeia do cliente do gateway: boleto importado costuma nao ter patient_id.
     const pacientes = await this.prisma.patient.findMany({
@@ -459,7 +463,7 @@ export class AffiliateService {
       this.prisma.calendarEvent.findMany({
         where: {
           patient_id: { in: ids },
-          type: 'CONSULTA',
+          type: tiposDeVisita,
           status: { notIn: ['CANCELADO'] },
         },
         select: { patient_id: true, start_at: true, status: true },
@@ -1272,11 +1276,6 @@ export class AffiliateService {
     tenantId: string;
   }): Promise<void> {
     try {
-      // F2 parte 4 [LAB-GATE] — comissão de afiliado é da clínica: no laboratório não nasce.
-      if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
-        this.logger.log(`[LAB-GATE] afiliado — conta de laboratório, sem comissão de afiliado na proposta ${params.quoteId}`);
-        return;
-      }
       // Ja existe referral VIVO pra essa Quote? (idempotente)
       // 'cancelado' NAO bloqueia: se o aceite foi desfeito (cobranca falhou) e o
       // operador refez a venda, a comissao tem que nascer de novo — senao o afiliado
@@ -1331,6 +1330,19 @@ export class AffiliateService {
           `[AFFILIATE] Referrer ${referrerId} (origem=${origem}) nao e afiliado — skip`,
         );
         return;
+      }
+
+      // Laboratório: o indicador tem de ser cadastro da própria conta (o vínculo vem de
+      // um id; confere o dono antes de creditar).
+      if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
+        const daConta = await this.prisma.patient.findFirst({
+          where: { id: referrer.id, tenant_id: params.tenantId },
+          select: { id: true },
+        });
+        if (!daConta) {
+          this.logger.warn(`[AFFILIATE] Indicador ${referrer.id} não é desta conta — sem comissão (quote=${params.quoteId})`);
+          return;
+        }
       }
 
       // ── ANTI-FRAUDE (skill, regra mínima): sem auto-indicação.

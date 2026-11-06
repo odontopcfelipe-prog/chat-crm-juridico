@@ -98,8 +98,8 @@ export class ConversationsController {
   }
 
   @Patch(':id/ai-mode')
-  setAiMode(@Param('id') id: string, @Body('ai_mode') ai_mode: boolean) {
-    return this.conversationsService.setAiMode(id, ai_mode);
+  setAiMode(@Param('id') id: string, @Body('ai_mode') ai_mode: boolean, @Request() req: any) {
+    return this.conversationsService.setAiMode(id, ai_mode, req?.user?.tenant_id);
   }
 
   @Patch(':id/assign')

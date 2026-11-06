@@ -4,10 +4,12 @@
  * tarefas a transformava num evento visível na agenda de TODAS as clínicas.
  * Só muda o dado gravado; nada é enviado ao paciente aqui.
  */
+import { __limparCacheLabTenants } from '@crm/shared';
 import { EvolutionService } from './evolution.service';
 
-function montar(intencao: string, leadTenant: string | null, requerHumano = false) {
+function montar(intencao: string, leadTenant: string | null, requerHumano = false, labs: string[] = []) {
   const prisma: any = {
+    tenantBusinessProfile: { findMany: jest.fn(async () => labs.map((tenant_id) => ({ tenant_id }))) },
     followupEnrollment: {
       findFirst: jest.fn(async () => ({
         id: 'enr-1',
@@ -33,8 +35,30 @@ function montar(intencao: string, leadTenant: string | null, requerHumano = fals
     prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, moduleRef, {} as any, {} as any, {} as any,
   );
   (evo as any).logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
-  return { evo, prisma };
+  return { evo, prisma, followupSvc };
 }
+
+describe('checkFollowupResponse — laboratório', () => {
+  beforeEach(() => __limparCacheLabTenants());
+  afterEach(() => __limparCacheLabTenants());
+
+  it('lead de laboratório: sem análise da IA e sem tarefa; a resposta pausa a sequência', async () => {
+    const { evo, prisma, followupSvc } = montar('quer_contratar', 'conta-lab', false, ['conta-lab']);
+    await (evo as any).checkFollowupResponse('lead-1', 'quero fechar sim');
+    expect(followupSvc.analyzeResponse).not.toHaveBeenCalled();
+    expect(prisma.task.create).not.toHaveBeenCalled();
+    expect(prisma.followupEnrollment.update).toHaveBeenCalledWith({
+      where: { id: 'enr-1' },
+      data: { status: 'PAUSADO', paused_reason: expect.any(String) },
+    });
+  });
+
+  it('clínica com outra conta laboratório cadastrada: a análise roda como sempre', async () => {
+    const { evo, followupSvc } = montar('quer_contratar', 'clinica-A', false, ['conta-lab']);
+    await (evo as any).checkFollowupResponse('lead-1', 'quero fechar sim');
+    expect(followupSvc.analyzeResponse).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('checkFollowupResponse — tarefa nasce com a clínica do lead', () => {
   it('lead quente (quer_contratar): Task com tenant_id do lead', async () => {

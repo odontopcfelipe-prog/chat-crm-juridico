@@ -6,8 +6,8 @@
  * olha para ela). O laboratório entra só com portão (`!lab && …`) e texto importado
  * (`lab ? LAB_X.y : 'texto de hoje'`), e os textos novos ficam em lab-propostas-textos.ts.
  * Este spec lê o arquivo pelo AST do TypeScript e confere:
- *   (a) contrato, afiliado, prancha do odontograma e consulta de crédito só aparecem
- *       atrás de `!lab &&`;
+ *   (a) contrato, prancha do odontograma e consulta de crédito só aparecem atrás de
+ *       `!lab &&` (o afiliado da venda abre no laboratório junto com a tela Afiliados);
  *   (b) "Adicionar ao tratamento (sem cobrar)" e o toggle da consulta de crédito recebem
  *       `lab ? undefined : …`;
  *   (c) sem pickBt e sem const LAB_; todo `lab` vem de isLab(useBusinessType()) e fica
@@ -235,7 +235,7 @@ describe('F6 — aba Propostas no laboratório (PropostasTab.tsx)', () => {
   const sf = ler(ARQ);
   const fonte = sf.getFullText();
 
-  it.each([['ContratoCard'], ['AfiliadoDaVenda'], ['OdontogramaPrancha'], ['ResumoProcedimentos'], ['CreditCheckDialog']])(
+  it.each([['ContratoCard'], ['OdontogramaPrancha'], ['ResumoProcedimentos'], ['CreditCheckDialog']])(
     '<%s> só aparece atrás de `!lab &&`',
     (tag) => {
       const usos = todos(sf, (no) => nomeDaTag(no) === tag);
@@ -245,7 +245,21 @@ describe('F6 — aba Propostas no laboratório (PropostasTab.tsx)', () => {
     },
   );
 
-  it.each([['onAcceptNoCharge'], ['onToggleRequiresCreditCheck']])('%s recebe `lab ? undefined : …` onde é passado', (prop) => {
+  // Paridade: onAcceptNoCharge saiu desta lista — o administrador do laboratório também pode
+  // adicionar o trabalho sem cobrar (textos em LAB_PROPOSTAS_SEM_COBRANCA).
+  it('onAcceptNoCharge é passado sempre (sem `lab ? undefined`) e o botão troca o texto pelo do laboratório', () => {
+    const atributos = todos(sf, (no) => ts.isJsxAttribute(no) && no.name.getText() === 'onAcceptNoCharge') as ts.JsxAttribute[];
+    expect(atributos.length).toBeGreaterThan(0);
+    for (const a of atributos) {
+      const ini = a.initializer;
+      expect(ini && ts.isJsxExpression(ini) && ini.expression && ts.isIdentifier(semParenteses(ini.expression))).toBe(true);
+    }
+    const fonte = sf.getFullText();
+    expect(fonte).toContain('LAB_PROPOSTAS_SEM_COBRANCA.botao');
+    expect(fonte).toContain('LAB_PROPOSTAS_SEM_COBRANCA.confirmar(itemCount)');
+  });
+
+  it.each([['onToggleRequiresCreditCheck']])('%s recebe `lab ? undefined : …` onde é passado', (prop) => {
     const atributos = todos(sf, (no) => ts.isJsxAttribute(no) && no.name.getText() === prop) as ts.JsxAttribute[];
     expect(atributos.length).toBeGreaterThan(0);
     const errados = atributos

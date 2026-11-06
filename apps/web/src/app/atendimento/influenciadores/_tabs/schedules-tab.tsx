@@ -13,6 +13,9 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import ModalBase from '@/components/ModalBase';
 import { inputCls, Field } from './ui-shared';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_INFLUENCIADORES } from '../lab-influenciadores-textos';
 import type { MessageTemplate } from './templates-tab';
 import type { Influencer } from './list-tab';
 
@@ -108,6 +111,7 @@ function describeRecipients(s: Schedule | FormState): string {
 }
 
 export function SchedulesTab() {
+  const lab = isLab(useBusinessType());
   const [items, setItems] = useState<Schedule[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [influencers, setInfluencers] = useState<Influencer[]>([]);
@@ -144,7 +148,8 @@ export function SchedulesTab() {
       return;
     }
     setEditing(null);
-    setForm({ ...EMPTY_FORM, template_id: templates[0]?.id || '' });
+    // Laboratório: o agendamento novo começa pausado (a conta liga quando quiser).
+    setForm({ ...EMPTY_FORM, template_id: templates[0]?.id || '', ...(lab ? { active: false } : {}) });
     setModalOpen(true);
   };
 
@@ -253,7 +258,7 @@ export function SchedulesTab() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <p className="text-xs text-muted-foreground">
-          Campanhas de envio automático. Worker dispara WhatsApp pelos destinatários no horário configurado.
+          {lab ? LAB_INFLUENCIADORES.agendamentoIntro : 'Campanhas de envio automático. Worker dispara WhatsApp pelos destinatários no horário configurado.'}
         </p>
         <button
           onClick={openCreate}

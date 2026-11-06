@@ -15,8 +15,10 @@ import { useRole } from '@/lib/useRole';
 import {
   CAMPANHA_MAX_MIDIAS, CAMPANHA_MAX_TEXTO, CAMPANHA_SETORES, CAMPANHA_SETOR_LABEL, CAMPANHA_STATUS_LABEL,
   CAMPANHA_VARIAVEIS, planejarEnvio, renderCampanhaTexto,
-  type CampanhaFiltros, type CampanhaSetor, type CampanhaStatus,
+  isLab, type CampanhaFiltros, type CampanhaSetor, type CampanhaStatus,
 } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_CAMPANHAS } from './lab-campanhas-textos';
 
 interface Resumo {
   id: string; name: string; setor: CampanhaSetor; status: CampanhaStatus; total: number;
@@ -48,6 +50,9 @@ const ITEM_LABEL: Record<string, { label: string; cls: string }> = {
   PULADO: { label: 'pulado', cls: 'text-amber-600' },
 };
 
+// Rótulo do setor: no laboratório o CLINICA aparece como "Atendimento" (o valor enviado não muda).
+const rotuloSetor = (lab: boolean, s: CampanhaSetor) => (lab && s === 'CLINICA' ? LAB_CAMPANHAS.setorAtendimento : CAMPANHA_SETOR_LABEL[s]);
+
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Maceio' }) : '—');
 const lerUrl = () => {
   if (typeof window === 'undefined') return { setor: null as string | null, id: null as string | null };
@@ -63,6 +68,7 @@ const gravarUrl = (setor: string | null, id: string | null) => {
 
 export default function CampanhasPage() {
   const { isAdmin } = useRole();
+  const lab = isLab(useBusinessType());
   const [setor, setSetor] = useState<CampanhaSetor | null>(null);
   const [lista, setLista] = useState<Resumo[] | null>(null);
   const [abertaId, setAbertaId] = useState<string | null>(null);
@@ -100,7 +106,7 @@ export default function CampanhasPage() {
   };
 
   if (!isAdmin) {
-    return <div className="p-6 max-w-3xl mx-auto text-sm text-muted-foreground">Só o ADM da clínica cria e envia campanhas.</div>;
+    return <div className="p-6 max-w-3xl mx-auto text-sm text-muted-foreground">{lab ? LAB_CAMPANHAS.soAdm : 'Só o ADM da clínica cria e envia campanhas.'}</div>;
   }
   if (abertaId) return <CampanhaAberta id={abertaId} onVoltar={() => abrir(null)} />;
 
@@ -113,8 +119,10 @@ export default function CampanhasPage() {
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Megaphone size={20} className="text-primary" /> Campanhas manuais</h1>
           <p className="text-[12px] text-muted-foreground mt-1 max-w-2xl">
+            {lab ? LAB_CAMPANHAS.explicacao : (<>
             Envio avulso pra um grupo de pacientes, pelo chip do setor escolhido, com texto, fotos e áudio. Sai no ritmo seguro
             (1 paciente a cada 3–7 min, seg–sáb 9h–18h, fora de feriado) e pula quem pediu pra não receber.
+            </>)}
           </p>
         </div>
         <button
@@ -133,7 +141,7 @@ export default function CampanhasPage() {
             onClick={() => { setSetor(s); gravarUrl(s, null); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${setor === s ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border text-muted-foreground hover:text-foreground'}`}
           >
-            {s ? CAMPANHA_SETOR_LABEL[s] : 'Todos os setores'}
+            {s ? rotuloSetor(lab, s) : 'Todos os setores'}
           </button>
         ))}
       </div>
@@ -154,7 +162,7 @@ export default function CampanhasPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold truncate">{c.name}</span>
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_CLS[c.status]}`}>{CAMPANHA_STATUS_LABEL[c.status]}</span>
-                      <span className="text-[10px] text-muted-foreground">chip {CAMPANHA_SETOR_LABEL[c.setor]}</span>
+                      <span className="text-[10px] text-muted-foreground">{lab ? LAB_CAMPANHAS.chip : 'chip'} {rotuloSetor(lab, c.setor)}</span>
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
                       {c.status === 'RASCUNHO' ? `criada ${fmt(c.created_at)}` : `${feitos}/${c.total} · ${c.sent_count} enviados${c.failed_count ? ` · ${c.failed_count} falhas` : ''}${c.skipped_count ? ` · ${c.skipped_count} pulados` : ''}`}
@@ -204,6 +212,7 @@ function CampanhaAberta({ id, onVoltar }: { id: string; onVoltar: () => void }) 
 // ─── Rascunho ───────────────────────────────────────────────────────────────
 
 function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => void; onExcluida: () => void }) {
+  const lab = isLab(useBusinessType());
   const [name, setName] = useState(c.name);
   const [setor, setSetor] = useState<CampanhaSetor>(c.setor);
   const [text, setText] = useState(c.text);
@@ -223,8 +232,9 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
 
   useEffect(() => {
     api.get('/patient-tags').then((r) => setTags(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    if (lab) return;
     api.get('/users/lawyers').then((r) => setDentistas(Array.isArray(r.data) ? r.data : [])).catch(() => {});
-  }, []);
+  }, [lab]);
 
   // Prévia do público (com folga pra não chamar a cada tecla).
   useEffect(() => {
@@ -305,8 +315,12 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
     if (quando === 'agendar' && !agendarPara) { showError('Escolha a data e a hora'); return; }
     const n = previa?.recebem ?? 0;
     const msg = quando === 'agendar'
-      ? `Agendar a campanha "${name}" pra ${n} paciente(s), pelo chip ${CAMPANHA_SETOR_LABEL[setor]}, a partir de ${new Date(agendarPara).toLocaleString('pt-BR')}?`
-      : `Começar agora a campanha "${name}" pra ${n} paciente(s), pelo chip ${CAMPANHA_SETOR_LABEL[setor]}?\n\nSai no ritmo seguro (${previa?.estimativa || ''}). Dá pra pausar ou cancelar depois.`;
+      ? (lab
+        ? LAB_CAMPANHAS.confirmarAgendar(name, n, rotuloSetor(lab, setor), new Date(agendarPara).toLocaleString('pt-BR'))
+        : `Agendar a campanha "${name}" pra ${n} paciente(s), pelo chip ${CAMPANHA_SETOR_LABEL[setor]}, a partir de ${new Date(agendarPara).toLocaleString('pt-BR')}?`)
+      : (lab
+        ? LAB_CAMPANHAS.confirmarAgora(name, n, rotuloSetor(lab, setor), previa?.estimativa || '')
+        : `Começar agora a campanha "${name}" pra ${n} paciente(s), pelo chip ${CAMPANHA_SETOR_LABEL[setor]}?\n\nSai no ritmo seguro (${previa?.estimativa || ''}). Dá pra pausar ou cancelar depois.`);
     if (!window.confirm(msg)) return;
     setIniciando(true);
     try {
@@ -333,9 +347,9 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
   };
 
   const passos = useMemo(
-    () => planejarEnvio(renderCampanhaTexto(text, { nome: 'Ana', nome_completo: 'Ana Souza', clinica: 'sua clínica' }),
+    () => planejarEnvio(renderCampanhaTexto(text, { nome: 'Ana', nome_completo: 'Ana Souza', clinica: lab ? LAB_CAMPANHAS.nomeLabExemplo : 'sua clínica' }),
       c.media.map((m) => ({ id: m.id, tipo: m.kind, posicao: m.position }))),
-    [text, c.media],
+    [text, c.media, lab],
   );
   const toggleTag = (tid: string) =>
     setFiltros((f) => {
@@ -353,25 +367,26 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg" />
           </label>
           <div className="text-[12px] font-semibold space-y-1">
-            <span>Setor (chip que envia)</span>
+            <span>{lab ? LAB_CAMPANHAS.setorTitulo : 'Setor (chip que envia)'}</span>
             <div className="flex gap-1.5">
               {CAMPANHA_SETORES.map((s) => (
                 <button key={s} type="button" onClick={() => setSetor(s)}
                   className={`flex-1 px-2 py-2 rounded-lg text-xs font-semibold border ${setor === s ? 'text-white' : 'bg-background border-border text-muted-foreground'}`}
                   style={setor === s ? { backgroundColor: SETOR_COR[s], borderColor: SETOR_COR[s] } : undefined}>
-                  {CAMPANHA_SETOR_LABEL[s]}
+                  {rotuloSetor(lab, s)}
                 </button>
               ))}
             </div>
+            {lab && <p className="text-[11px] font-normal text-muted-foreground">{LAB_CAMPANHAS.setorAjuda}</p>}
           </div>
         </div>
       </Bloco>
 
-      <Bloco titulo="2. Quem recebe (pacientes)" icone={<Users size={15} className="text-primary" />}>
+      <Bloco titulo={lab ? LAB_CAMPANHAS.publicoTitulo : '2. Quem recebe (pacientes)'} icone={<Users size={15} className="text-primary" />}>
         <div className="space-y-3 text-[12px]">
           <div>
-            <div className="font-semibold mb-1">Tags (qualquer uma)</div>
-            {tags.length === 0 ? <div className="text-muted-foreground">Nenhuma tag cadastrada.</div> : (
+            <div className="font-semibold mb-1">{lab ? LAB_CAMPANHAS.etiquetas : 'Tags (qualquer uma)'}</div>
+            {tags.length === 0 ? <div className="text-muted-foreground">{lab ? LAB_CAMPANHAS.semEtiquetas : 'Nenhuma tag cadastrada.'}</div> : (
               <div className="flex gap-1.5 flex-wrap">
                 {tags.map((t) => {
                   const on = filtros.tagIds?.includes(t.id);
@@ -385,22 +400,26 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
               </div>
             )}
           </div>
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className={lab ? 'grid sm:grid-cols-2 gap-3' : 'grid sm:grid-cols-3 gap-3'}>
             <label className="space-y-1">
               <span className="font-semibold">Situação</span>
               <select value={filtros.atividade || ''} onChange={(e) => setFiltros((f) => ({ ...f, atividade: (e.target.value || null) as any }))}
                 className="w-full px-2 py-2 bg-background border border-border rounded-lg">
                 <option value="">Todos (menos arquivados)</option>
-                <option value="ACTIVE">Ativos (atendidos nos últimos 12 meses)</option>
-                <option value="INACTIVE">Inativos (+12 meses sem atendimento)</option>
+                <option value="ACTIVE">{lab ? LAB_CAMPANHAS.ativos : 'Ativos (atendidos nos últimos 12 meses)'}</option>
+                <option value="INACTIVE">{lab ? LAB_CAMPANHAS.inativos : 'Inativos (+12 meses sem atendimento)'}</option>
               </select>
             </label>
+            {/* Laboratório: a data da última visita só é gravada por consulta/procedimento da clínica, então o filtro não vale lá. */}
+            {!lab && (
             <label className="space-y-1">
               <span className="font-semibold">Sem visita há (meses)</span>
               <input type="number" min={1} max={120} value={filtros.semVisitaMeses ?? ''} placeholder="qualquer"
                 onChange={(e) => setFiltros((f) => ({ ...f, semVisitaMeses: e.target.value ? Number(e.target.value) : null }))}
                 className="w-full px-2 py-2 bg-background border border-border rounded-lg" />
             </label>
+            )}
+            {!lab && (
             <label className="space-y-1">
               <span className="font-semibold">Dentista</span>
               <select value={filtros.dentistaId || ''} onChange={(e) => setFiltros((f) => ({ ...f, dentistaId: e.target.value || null }))}
@@ -409,11 +428,12 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
                 {dentistas.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </label>
+            )}
           </div>
           <div className="flex gap-4 flex-wrap">
             <label className="inline-flex items-center gap-1.5">
               <input type="checkbox" checked={!!filtros.comTratamentoAtivo} onChange={(e) => setFiltros((f) => ({ ...f, comTratamentoAtivo: e.target.checked }))} />
-              Com tratamento em andamento
+              {lab ? LAB_CAMPANHAS.comTrabalho : 'Com tratamento em andamento'}
             </label>
             <label className="inline-flex items-center gap-1.5">
               <input type="checkbox" checked={!!filtros.aniversariantesDoMes} onChange={(e) => setFiltros((f) => ({ ...f, aniversariantesDoMes: e.target.checked }))} />
@@ -424,7 +444,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
             {carregandoPrevia && !previa ? <Loader2 size={14} className="animate-spin" /> : previa ? (
               <div className="space-y-1.5">
                 <div className="text-sm">
-                  <b className="text-foreground">{previa.recebem}</b> paciente(s) recebem
+                  <b className="text-foreground">{previa.recebem}</b> {lab ? LAB_CAMPANHAS.recebem : 'paciente(s) recebem'}
                   {previa.fora.length > 0 && <span className="text-muted-foreground"> · fora: {previa.fora.map((f) => `${f.n} ${f.motivo}`).join(', ')}</span>}
                   {previa.recebem > 0 && <span className="text-muted-foreground"> · leva {previa.estimativa}</span>}
                   {carregandoPrevia && <Loader2 size={12} className="inline animate-spin ml-2" />}
@@ -446,7 +466,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
       <Bloco titulo="3. Mensagem">
         <div className="space-y-3">
           <div className="flex gap-3 flex-wrap text-[11px]">
-            {CAMPANHA_VARIAVEIS.map((v) => (
+            {(lab ? LAB_CAMPANHAS.variaveis : CAMPANHA_VARIAVEIS).map((v) => (
               <span key={v.key} className="text-muted-foreground">
                 <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">{`{${v.key}}`}</code> {v.desc}
               </span>
@@ -478,7 +498,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
         </div>
       </Bloco>
 
-      <Bloco titulo="Como o paciente recebe" icone={<Megaphone size={15} className="text-primary" />}>
+      <Bloco titulo={lab ? LAB_CAMPANHAS.comoRecebe : 'Como o paciente recebe'} icone={<Megaphone size={15} className="text-primary" />}>
         {passos.length === 0 ? <div className="text-[12px] text-muted-foreground">Escreva a mensagem ou anexe uma foto/áudio.</div> : (
           <div className="space-y-2">
             {passos.map((p, i) => (
@@ -489,7 +509,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
                 {p.tipo === 'audio' && <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400"><Mic size={12} /> Mensagem de voz</span>}
               </div>
             ))}
-            <p className="text-[10px] text-muted-foreground">Exemplo com a paciente “Ana”. Cada paciente recebe com o próprio nome.</p>
+            <p className="text-[10px] text-muted-foreground">{lab ? LAB_CAMPANHAS.exemploRecebe : 'Exemplo com a paciente “Ana”. Cada paciente recebe com o próprio nome.'}</p>
           </div>
         )}
       </Bloco>
@@ -516,7 +536,7 @@ function Editor({ c, setC, onExcluida }: { c: Detalhe; setC: (d: Detalhe) => voi
                   className="px-2 py-1 bg-background border border-border rounded-lg" />
               )}
             </div>
-            <p className="text-muted-foreground">A lista de quem recebe é fechada ao iniciar. Envia seg–sáb 9h–18h, fora de feriado; dá pra pausar ou cancelar.</p>
+            <p className="text-muted-foreground">{lab ? LAB_CAMPANHAS.enviarSaiPara : 'A lista de quem recebe é fechada ao iniciar. Envia seg–sáb 9h–18h, fora de feriado; dá pra pausar ou cancelar.'}</p>
           </div>
           <div className="flex gap-2 justify-between flex-wrap">
             <button type="button" onClick={excluir} className="inline-flex items-center gap-1.5 px-3 py-2 text-red-500 hover:bg-red-500/10 rounded-lg">
@@ -573,6 +593,7 @@ function AnexoCard({ campanhaId, m, onRemover }: { campanhaId: string; m: Midia;
 // ─── Acompanhamento ─────────────────────────────────────────────────────────
 
 function Acompanhamento({ c, setC, recarregar }: { c: Detalhe; setC: (d: Detalhe) => void; recarregar: () => Promise<void> }) {
+  const lab = isLab(useBusinessType());
   const [itens, setItens] = useState<Item[] | null>(null);
   const [filtro, setFiltro] = useState<string>('');
   const [acao, setAcao] = useState<string | null>(null);
@@ -618,7 +639,7 @@ function Acompanhamento({ c, setC, recarregar }: { c: Detalhe; setC: (d: Detalhe
             <h1 className="text-lg font-bold">{c.name}</h1>
             <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_CLS[c.status]}`}>{CAMPANHA_STATUS_LABEL[c.status]}</span>
-              chip {CAMPANHA_SETOR_LABEL[c.setor]}
+              {lab ? LAB_CAMPANHAS.chip : 'chip'} {rotuloSetor(lab, c.setor)}
               {c.status === 'AGENDADA' && c.scheduled_for && <> · começa {fmt(c.scheduled_for)}</>}
               {c.started_at && <> · iniciada {fmt(c.started_at)}</>}
               {c.completed_at && <> · terminou {fmt(c.completed_at)}</>}

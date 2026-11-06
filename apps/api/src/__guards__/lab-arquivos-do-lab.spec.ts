@@ -21,6 +21,11 @@ const RAIZ = path.resolve(__dirname, '..', '..', '..', '..');
 const ARQUIVOS_DO_LAB = [
   'apps/web/src/app/atendimento/pacientes/components/LabClienteModal.tsx',
   'apps/web/src/components/LabClientPanel.tsx',
+  // Paridade — cobrança avulsa do contato e página pública do orçamento (link de aceite)
+  'apps/web/src/components/LabCobrancaAvulsa.tsx',
+  'apps/web/src/app/atendimento/components/lab-cobranca-avulsa-textos.ts',
+  'apps/web/src/app/proposta/lab-proposta-textos.ts',
+  'apps/web/src/app/proposta/[token]/page.tsx',
   // F6 — aba Orçamento do laboratório e os textos novos das telas do orçamento de trabalho
   'apps/web/src/app/atendimento/pacientes/components/LabOrcamentoTab.tsx',
   'apps/web/src/app/atendimento/pacientes/lab-orcamento-textos.ts',
@@ -50,7 +55,7 @@ const ROTAS_DE_CLINICA = [
   '/anamnes',
   '/memories',
   '/google-drive',
-  '/honorarios',
+  '/honorarios', // (a cobrança avulsa do laboratório usa /honorarios-negociados: ver ROTAS_ABERTAS_AO_LAB)
   '/allergies',
   '/medications',
   '/start-attending',
@@ -60,13 +65,18 @@ const ROTAS_DE_CLINICA = [
   // F6 — sugestões do odontograma, duplicar como opção, contrato, consulta de crédito,
   // aceite sem cobrança, afiliados e o prefixo '/commercial/' (que a API não tem: 404)
   '/state-suggestions',
-  '/duplicate-as-option',
   '/contract',
   '/credit-check',
-  '/accept-no-charge',
   '/affiliates/options',
   '/commercial/',
 ];
+
+/**
+ * Trechos de rota que ERAM só de clínica e hoje o laboratório também usa (paridade): saem do
+ * texto antes da conferência acima. '/portal/proposta/' é a página pública do orçamento; o
+ * resto de '/portal/' segue fechado.
+ */
+const ROTAS_ABERTAS_AO_LAB = ['/honorarios-negociados', '/portal/proposta/'];
 
 /** Textos que chegam à tela: string, template (partes fixas) e texto de JSX. Fora: import/export e tipos. */
 function textosVisiveis(arq: string, fonte: string): Array<{ texto: string; linha: number }> {
@@ -109,7 +119,8 @@ describe('componentes só do laboratório (F5)', () => {
     const p = path.join(RAIZ, arq);
     if (!fs.existsSync(p)) throw new Error(`${arq} não existe`);
     const src = fs.readFileSync(p, 'utf8');
-    expect(ROTAS_DE_CLINICA.filter((r) => src.includes(r)).map((r) => `${arq} cita ${r}`)).toEqual([]);
+    const semAsAbertas = ROTAS_ABERTAS_AO_LAB.reduce((t, r) => t.split(r).join(''), src);
+    expect(ROTAS_DE_CLINICA.filter((r) => semAsAbertas.includes(r)).map((r) => `${arq} cita ${r}`)).toEqual([]);
   });
 
   it('o detector é o mesmo do interceptor (pega o que a trava pega e deixa passar "clínica" cliente)', () => {

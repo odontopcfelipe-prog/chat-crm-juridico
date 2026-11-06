@@ -25,7 +25,7 @@ export class AutomationsController {
     @Body() body: { name?: string; trigger?: string; action?: string; action_value?: string; enabled?: boolean },
     @Request() req: any,
   ) {
-    // F2 [LAB-GATE] — a conta de quem chama: o laboratório só mexe nas regras dele.
+    // A conta de quem chama: regra de outra conta responde 404 (AutomationsService.regraDaConta).
     return this.automationsService.update(id, body, req.user?.tenant_id);
   }
 

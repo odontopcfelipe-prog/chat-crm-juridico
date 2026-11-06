@@ -39,6 +39,11 @@ export const LAB_ORCAMENTO = Object.freeze({
   revisar: 'Revisar (nova versão)',
   confirmarRevisar: 'Revisar este orçamento? O enviado é encerrado e abre um rascunho novo com os mesmos serviços, para ajustar e enviar de novo.',
   revisado: 'Rascunho novo aberto com os mesmos serviços',
+  novaOpcao: 'Nova opção',
+  novaOpcaoDica: 'Cria uma nova opção em rascunho com os mesmos serviços (o orçamento atual continua como está)',
+  confirmarNovaOpcao:
+    'Duplicar como nova opção?\n\nOs mesmos serviços são copiados para um novo orçamento em rascunho. O orçamento atual não muda: você pode apresentar as duas opções ao cliente (ex.: à vista e parcelado).',
+  novaOpcaoCriada: 'Nova opção criada com os mesmos serviços',
   tabela: Object.freeze({
     elemento: 'Elemento',
     servico: 'Serviço',
@@ -75,6 +80,7 @@ export const LAB_ORCAMENTO = Object.freeze({
     pdf: 'Não foi possível gerar o PDF',
     sessao: 'Sessão expirada — faça login novamente',
     revisar: 'Não foi possível revisar o orçamento',
+    novaOpcao: 'Não foi possível criar a nova opção',
   }),
 });
 

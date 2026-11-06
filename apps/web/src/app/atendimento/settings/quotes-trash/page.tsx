@@ -16,6 +16,9 @@ import { useEffect, useState } from 'react';
 import { Trash2, RotateCcw, Loader2, AlertCircle, Calendar, User } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_LIXEIRA } from './lab-lixeira-textos';
 
 interface DeletedQuote {
   id: string;
@@ -47,6 +50,7 @@ function daysLeftUntilPurge(deletedAt: string): number {
 }
 
 export default function QuotesTrashPage() {
+  const lab = isLab(useBusinessType());
   const [list, setList] = useState<DeletedQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
@@ -66,7 +70,7 @@ export default function QuotesTrashPage() {
   useEffect(() => { load(); }, []);
 
   const restore = async (id: string) => {
-    if (!confirm('Restaurar este orçamento? Ele voltará a aparecer na ficha do paciente.')) return;
+    if (!confirm(lab ? LAB_LIXEIRA.confirmarRestaurar : 'Restaurar este orçamento? Ele voltará a aparecer na ficha do paciente.')) return;
     setRestoring(id);
     try {
       await api.post(`/quotes/${id}/restore`);
@@ -87,8 +91,10 @@ export default function QuotesTrashPage() {
           Lixeira de Orçamentos
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
+          {lab ? LAB_LIXEIRA.subtitulo : <>
           Orçamentos deletados nos últimos 30 dias podem ser restaurados aqui.
           Após 30 dias eles são removidos permanentemente.
+          </>}
         </p>
       </div>
 
@@ -96,10 +102,12 @@ export default function QuotesTrashPage() {
       <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2 text-sm text-amber-700">
         <AlertCircle size={16} className="shrink-0 mt-0.5" />
         <div>
-          <p className="font-semibold">Janela de recuperação: 30 dias</p>
+          <p className="font-semibold">{lab ? LAB_LIXEIRA.avisoTitulo : <>Janela de recuperação: 30 dias</>}</p>
           <p className="text-xs mt-0.5">
+            {lab ? LAB_LIXEIRA.avisoTexto : <>
             Apenas orçamentos em status DRAFT podem ser deletados (e portanto recuperados).
             Orçamentos enviados/aceitos/rejeitados ficam no histórico permanente do paciente.
+            </>}
           </p>
         </div>
       </div>
@@ -113,7 +121,7 @@ export default function QuotesTrashPage() {
         <div className="bg-card border border-border border-dashed rounded-xl p-12 text-center">
           <Trash2 size={32} className="mx-auto text-muted-foreground/40 mb-3" />
           <p className="text-sm text-muted-foreground">
-            Nenhum orçamento na lixeira. Tudo limpo.
+            {lab ? LAB_LIXEIRA.vazio : <>Nenhum orçamento na lixeira. Tudo limpo.</>}
           </p>
         </div>
       ) : (
@@ -121,7 +129,7 @@ export default function QuotesTrashPage() {
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground bg-muted/30 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2.5 font-medium">Paciente</th>
+                <th className="text-left px-4 py-2.5 font-medium">{lab ? LAB_LIXEIRA.colCliente : <>Paciente</>}</th>
                 <th className="text-right px-4 py-2.5 font-medium">Valor</th>
                 <th className="text-left px-4 py-2.5 font-medium">Deletado em</th>
                 <th className="text-left px-4 py-2.5 font-medium">Por</th>
@@ -138,7 +146,7 @@ export default function QuotesTrashPage() {
                     <td className="px-4 py-3">
                       <p className="font-medium">{q.patient.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {q._count?.items || 0} {q._count?.items === 1 ? 'item' : 'itens'} ·
+                        {lab ? LAB_LIXEIRA.servicos(q._count?.items || 0) : <>{q._count?.items || 0} {q._count?.items === 1 ? 'item' : 'itens'}</>} ·
                         Criado em {formatDateTime(q.created_at)}
                       </p>
                     </td>

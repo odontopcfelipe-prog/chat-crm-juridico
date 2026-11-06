@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_REDE } from './lab-rede-textos';
 
 interface RankingRow {
   clinic_id: string;
@@ -67,6 +70,7 @@ function periodToDates(preset: string): { from: string; to: string } {
 }
 
 export default function MinhaRedePage() {
+  const lab = isLab(useBusinessType());
   const [period, setPeriod] = useState('month');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<RankingData | null>(null);
@@ -166,7 +170,7 @@ export default function MinhaRedePage() {
                     {r.city && <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={10} /> {r.city}</p>}
                     <div className="text-xl font-bold text-primary mt-3">{fmtBRL(r.revenue)}</div>
                     <p className="text-[10px] text-muted-foreground">
-                      {r.quotes_count} venda(s) · {r.appointments_count} consulta(s)
+                      {r.quotes_count} venda(s) · {r.appointments_count} {lab ? LAB_REDE.visitas : 'consulta(s)'}
                     </p>
                   </div>
                 );
@@ -187,7 +191,7 @@ export default function MinhaRedePage() {
                   <th className="px-3 py-2">Unidade</th>
                   <th className="px-3 py-2 text-right">Faturamento</th>
                   <th className="px-3 py-2 text-right">Vendas</th>
-                  <th className="px-3 py-2 text-right">Consultas</th>
+                  <th className="px-3 py-2 text-right">{lab ? LAB_REDE.colVisitas : 'Consultas'}</th>
                   <th className="px-3 py-2 text-right">Comissoes pagas</th>
                 </tr>
               </thead>

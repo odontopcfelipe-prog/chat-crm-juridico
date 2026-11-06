@@ -1,12 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { buildCondicoesBlock, getLabTenantIds, isLabTenant } from '@crm/shared';
+import { buildCondicoesBlock, cobrancaTemplateKey, contaDoLabPodeEnviar, DEFAULT_BOLETO_DELIVERY, getLabTenantIds, isLabTenant, LAB_REGUA, primeiroNomeSemTitulo } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import axios from 'axios';
 import { montarCarneLocal } from './carne-local';
-import { ENVIO_DE_BOLETO_DO_LABORATORIO } from './cobranca-laboratorio';
+import { ENVIO_DE_BOLETO_DO_LABORATORIO, semVariaveis, temVocabularioDeClinica } from './cobranca-laboratorio';
 
 /**
  * Parte 2 — ENVIO DOS BOLETOS no dia seguinte à apresentação (Central de Disparos).
@@ -32,6 +32,12 @@ import { ENVIO_DE_BOLETO_DO_LABORATORIO } from './cobranca-laboratorio';
  * Dedup POR VENDA (AuditLog entity=BOLETO_DELIVERY) + POR PEÇA
  * (entity=BOLETO_DELIVERY_PIECE): retry reenvia só a peça que falhou, sem
  * duplicar, e a venda só é marcada entregue quando TODAS as peças saíram de fato.
+ *
+ * LABORATÓRIO: o mesmo envio numa rodada própria, depois da das clínicas (não ocupa o
+ * teto nem a fila delas) e só na conta que ligou o card (chave ausente = desligado, sem
+ * herdar da apresentação). Texto do laboratório, só boleto da conta Asaas dele e chip da
+ * conta (getInstanceForPurpose já procura FINANCEIRO → CLINICA → COMERCIAL). Sem chip da
+ * conta, não envia e registra a falha.
  */
 @Injectable()
 export class BoletoDeliveryService {
@@ -39,6 +45,8 @@ export class BoletoDeliveryService {
 
   /** Guard de reentrância: evita que duas rodadas do cron se sobreponham. */
   private busy = false;
+  /** O mesmo guard, da rodada dos laboratórios (uma não segura a outra). */
+  private busyLab = false;
 
   /** Só entrega boletos de apresentações dos últimos N dias (evita entregar venda velha). */
   private static readonly LOOKBACK_DAYS = 10;
@@ -68,6 +76,11 @@ export class BoletoDeliveryService {
   // rodada processa TODAS as entregas pendentes de uma vez (imediato), até o teto.
   @Cron('*/1 8-17 * * 1-5', { timeZone: 'America/Maceio' })
   async tick() {
+    await this.tickDasClinicas();
+    await this.tickDosLaboratorios();
+  }
+
+  private async tickDasClinicas() {
     if (this.busy) return;
     this.busy = true;
     try {
@@ -83,6 +96,23 @@ export class BoletoDeliveryService {
       this.logger.error(`[BOLETO_DELIVERY] Erro no tick: ${e?.message || e}`);
     } finally {
       this.busy = false;
+    }
+  }
+
+  /** Rodada dos laboratórios: só as contas que ligaram, com o mesmo gap entre clientes. */
+  private async tickDosLaboratorios() {
+    if (this.busyLab) return;
+    this.busyLab = true;
+    try {
+      const pending = await this.findPendingDosLaboratorios();
+      for (let i = 0; i < pending.length; i++) {
+        if (i > 0) await this.sleep(this.randomGapMs());
+        await this.deliverOne(pending[i], true);
+      }
+    } catch (e: any) {
+      this.logger.error(`[BOLETO_DELIVERY] Erro na rodada dos laboratórios: ${e?.message || e}`);
+    } finally {
+      this.busyLab = false;
     }
   }
 
@@ -183,7 +213,7 @@ export class BoletoDeliveryService {
     if (!url) return { ok: false, detail: 'O boleto ainda não tem PDF disponível — tente em instantes.' };
 
     const instance = await this.resolveInstance(tenantId);
-    const firstName = name.split(' ')[0];
+    const firstName = lab ? primeiroNomeSemTitulo(name) || ENVIO_DE_BOLETO_DO_LABORATORIO.nomePadrao : name.split(' ')[0];
     const due = new Date(next.due_date);
     const dd = String(due.getUTCDate()).padStart(2, '0');
     const mm = String(due.getUTCMonth() + 1).padStart(2, '0');
@@ -223,8 +253,19 @@ export class BoletoDeliveryService {
   }
 
   /** Entrega os boletos de UMA venda, imediatamente (sem cooldown). */
-  private async deliverOne(target: { planId: string; tenantId: string }): Promise<void> {
+  private async deliverOne(target: { planId: string; tenantId: string }, lab = false): Promise<void> {
     try {
+      // Laboratório: o plano tem de ser de um cadastro da própria conta.
+      if (lab) {
+        const daConta = await this.prisma.treatmentPlan.findFirst({
+          where: { id: target.planId, patient: { tenant_id: target.tenantId } },
+          select: { id: true },
+        });
+        if (!daConta) {
+          this.logger.warn(`[BOLETO_DELIVERY] Plano ${target.planId} não é de cadastro da conta ${target.tenantId} — não envia.`);
+          return;
+        }
+      }
       const plan = await this.prisma.treatmentPlan.findUnique({
         where: { id: target.planId },
         select: { patient: { select: { name: true, phone: true } } },
@@ -241,6 +282,7 @@ export class BoletoDeliveryService {
       const tentativasAntes = await this.countAttempts(target.planId);
       const ok = await this.sendBoletos(target.planId, target.tenantId, plan.patient.name, phone, {
         ultimaTentativa: tentativasAntes + 1 >= BoletoDeliveryService.MAX_ATTEMPTS,
+        ...(lab ? { lab } : {}),
       });
       if (ok) {
         await this.logDelivered(target.planId, target.tenantId, 'sent');
@@ -276,8 +318,9 @@ export class BoletoDeliveryService {
    * Próxima venda a entregar: teve apresentação (BOLETO_INTRO) num dia ANTERIOR
    * (Maceió) dentro da janela, do tenant com o disparo LIGADO, e ainda não
    * entregue (sem BOLETO_DELIVERY). A mais antiga primeiro.
+   * Com `contaLab`, só as vendas dessa conta de laboratório.
    */
-  private async findPendingDeliveries(): Promise<{ planId: string; tenantId: string }[]> {
+  private async findPendingDeliveries(contaLab?: string): Promise<{ planId: string; tenantId: string }[]> {
     const maceioNow = new Date(Date.now() - 3 * 3_600_000);
     const startOfTodayUtcMs =
       Date.UTC(maceioNow.getUTCFullYear(), maceioNow.getUTCMonth(), maceioNow.getUTCDate()) + 3 * 3_600_000;
@@ -294,6 +337,7 @@ export class BoletoDeliveryService {
         entity: 'BOLETO_INTRO',
         action: 'intro',
         created_at: { gte: windowStart, lt: startOfToday },
+        ...(contaLab ? { meta_json: { path: ['tenant_id'], equals: contaLab } } : {}),
       },
       select: { entity_id: true, meta_json: true },
       orderBy: { created_at: 'asc' },
@@ -315,10 +359,9 @@ export class BoletoDeliveryService {
     const done = new Set(delivered.map((d) => d.entity_id));
 
     // Apresentações pendentes de tenants com o disparo LIGADO — até o teto por rodada.
-    // F2 [LAB-GATE] — entrega automática do carnê é régua (decisão do dono): venda de
-    // laboratório não entra nem ocupa vaga do teto por rodada. O envio MANUAL pela tela
-    // continua. Clínica: sem laboratório o conjunto é vazio e o laço é o mesmo.
-    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    // Rodada das clínicas: venda de laboratório não entra nem ocupa vaga do teto por
+    // rodada (ela tem a rodada dela). Sem laboratório o conjunto é vazio e o laço é o mesmo.
+    const labs = contaLab ? null : await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     const enabledCache = new Map<string, boolean>();
     const out: { planId: string; tenantId: string }[] = [];
     for (const log of introLogs) {
@@ -326,14 +369,34 @@ export class BoletoDeliveryService {
       if (!planId || done.has(planId)) continue;
       const tenantId = ((log.meta_json as any)?.tenant_id as string) || '';
       if (!tenantId) continue;
-      if (labs.has(tenantId)) {
-        this.logger.debug(`[LAB-GATE] carne-d2 — plano ${planId} é de laboratório: entrega automática não sai`);
+      if (contaLab ? tenantId !== contaLab : labs?.has(tenantId)) {
+        this.logger.debug(`[LAB-GATE] carne-d2 — plano ${planId} fora desta rodada`);
         continue;
       }
-      if (!enabledCache.has(tenantId)) enabledCache.set(tenantId, await this.isEnabled(tenantId));
+      if (!enabledCache.has(tenantId)) enabledCache.set(tenantId, await this.isEnabled(tenantId, !!contaLab));
       if (!enabledCache.get(tenantId)) continue;
       out.push({ planId, tenantId });
       if (out.length >= BoletoDeliveryService.MAX_PER_RUN) break;
+    }
+    return out;
+  }
+
+  /** As vendas a entregar das contas de laboratório que ligaram o card (chave em 'true';
+   *  ausente = desligado). Sem laboratório, ou sem nenhum ligado, não lê mais nada. Conta
+   *  suspensa ou congelada fica de fora e volta sozinha quando ficar ativa. */
+  private async findPendingDosLaboratorios(): Promise<{ planId: string; tenantId: string }[]> {
+    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+    if (!labs.size) return [];
+    const prefixo = 'BOLETO_DELIVERY_ENABLED_';
+    const ligadas = await this.prisma.globalSetting.findMany({
+      where: { key: { in: [...labs].map((id) => `${prefixo}${id}`) }, value: 'true' },
+      select: { key: true },
+    });
+    const out: { planId: string; tenantId: string }[] = [];
+    for (const { key } of ligadas) {
+      const conta = key.slice(prefixo.length);
+      if (!(await contaDoLabPodeEnviar(this.prisma, conta))) continue;
+      out.push(...(await this.findPendingDeliveries(conta)));
     }
     return out;
   }
@@ -347,8 +410,9 @@ export class BoletoDeliveryService {
     tenantId: string,
     name: string,
     phone: string,
-    /** ultimaTentativa: só nela o carnê pode cair em links (antes, tenta o PDF de novo). */
-    opts?: { dedup?: boolean; ultimaTentativa?: boolean },
+    /** ultimaTentativa: só nela o carnê pode cair em links (antes, tenta o PDF de novo).
+     *  lab: rodada do laboratório (só boleto Asaas da conta, chip da conta e texto dele). */
+    opts?: { dedup?: boolean; ultimaTentativa?: boolean; lab?: boolean },
   ): Promise<boolean> {
     const dedup = opts?.dedup !== false; // teste passa dedup:false → força reenvio, sem marcar
     const charges = await this.prisma.paymentGatewayCharge.findMany({
@@ -358,6 +422,7 @@ export class BoletoDeliveryService {
         received_in_cash: false,
         status: { in: ['PENDING', 'OVERDUE'] },
         OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
+        ...(opts?.lab ? { gateway: 'ASAAS' } : {}),
       },
       select: { kind: true, external_id: true, boleto_url: true, due_date: true, amount: true, description: true },
       orderBy: { due_date: 'asc' },
@@ -402,7 +467,26 @@ export class BoletoDeliveryService {
       return allOk;
     }
     const instance = await this.resolveInstance(tenantId);
-    const firstName = name.split(' ')[0];
+    // Laboratório sem chip da conta: não envia e registra a falha (a mesma da peça recusada).
+    if (opts?.lab && !instance) {
+      this.logger.warn(`[BOLETO_DELIVERY] Conta ${tenantId} sem chip próprio — não envia (plano ${planId}).`);
+      if (dedup) {
+        await this.prisma.dispatchLog.create({
+          data: {
+            tenant_id: tenantId,
+            type: 'boleto_delivery',
+            channel: 'WHATSAPP',
+            recipient_name: name,
+            recipient_phone: phone,
+            status: 'FAILED',
+            error: 'Sem chip de WhatsApp da conta',
+            sent_at: new Date(),
+          },
+        }).catch((e: any) => this.logger.warn(`[DISPATCH-LOG] boleto_delivery não registrou: ${e?.message}`));
+      }
+      return false;
+    }
+    const firstName = opts?.lab ? primeiroNomeSemTitulo(name) || LAB_REGUA.clienteSemNome : name.split(' ')[0];
 
     // Condições dos boletos ({condicoes}/{condicoes_sem_total}) DERIVADAS das cobranças
     // que estão indo neste envio (descreve o carnê, não é extrato do contrato).
@@ -411,7 +495,7 @@ export class BoletoDeliveryService {
     // 1) Texto de abertura — editável na Central de Disparos (card "Envio dos
     // boletos"); cai no default se a clínica não editou. NÃO cita prazo ("ontem"):
     // a entrega pode sair D+1 ou dias depois (janela larga).
-    const abertura = await this.resolveDeliveryText(tenantId, firstName, cond);
+    const abertura = await this.resolveDeliveryText(tenantId, firstName, cond, !!opts?.lab);
     const textOk = await this.sendPiece(`${planId}:text`, tenantId, () =>
       this.whatsapp.sendText(phone, abertura, instance), dedup,
     );
@@ -619,12 +703,14 @@ export class BoletoDeliveryService {
   }
 
   /** Entrega (D+2) LIGADA pro tenant? Toggle próprio (BOLETO_DELIVERY_ENABLED); quando
-   *  nunca foi setado, HERDA a apresentação (compat: antes era 1 toggle só). */
-  private async isEnabled(tenantId: string): Promise<boolean> {
+   *  nunca foi setado, HERDA a apresentação (compat: antes era 1 toggle só).
+   *  Laboratório: sem herança, chave ausente = desligado. */
+  private async isEnabled(tenantId: string, lab = false): Promise<boolean> {
     if (!tenantId) return false;
     try {
       const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
       if (row) return row.value === 'true';
+      if (lab) return false;
       const intro = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
       return intro?.value === 'true';
     } catch {
@@ -634,14 +720,15 @@ export class BoletoDeliveryService {
 
   /** Texto de abertura da entrega — editável na Central de Disparos (mesma infra dos
    *  boletos, cobrancaTemplateKey 'boleto_delivery'); cai no default se não editado.
-   *  Resolve {nome}, {clinica} e (opt-in) {condicoes}/{condicoes_sem_total}. */
+   *  Resolve {nome}, {clinica} e (opt-in) {condicoes}/{condicoes_sem_total}.
+   *  Laboratório: padrão do laboratório, e texto salvo com palavra de clínica não sai. */
   private async resolveDeliveryText(
     tenantId: string,
     firstName: string,
     cond?: { condicoes: string; condicoesSemTotal: string },
+    lab = false,
   ): Promise<string> {
-    const { cobrancaTemplateKey, DEFAULT_BOLETO_DELIVERY } = await import('@crm/shared');
-    let template = DEFAULT_BOLETO_DELIVERY;
+    let template: string = lab ? LAB_REGUA.entrega : DEFAULT_BOLETO_DELIVERY;
     try {
       const row = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('boleto_delivery', tenantId) } });
       if (row?.value) {
@@ -649,7 +736,8 @@ export class BoletoDeliveryService {
         if (typeof parsed?.template === 'string' && parsed.template.trim()) template = parsed.template;
       }
     } catch { /* valor corrompido / sem template → default */ }
-    let clinica = 'a clínica';
+    if (lab && temVocabularioDeClinica(semVariaveis(template))) template = LAB_REGUA.entrega;
+    let clinica = lab ? LAB_REGUA.laboratorioSemNome : 'a clínica';
     if (template.includes('{clinica}')) {
       const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
       if (t?.name) clinica = t.name;

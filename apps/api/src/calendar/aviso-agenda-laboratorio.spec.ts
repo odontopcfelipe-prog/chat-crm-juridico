@@ -46,12 +46,20 @@ function montar(o: {
   chip?: string | null;
   envio?: any;
   remarcacao?: string;
+  status?: string;
 } = {}) {
   const prisma: any = {
-    globalSetting: { findUnique: jest.fn(async ({ where }: any) => (o.settings && where.key in o.settings ? { value: o.settings[where.key] } : null)) },
+    globalSetting: {
+      findUnique: jest.fn(async ({ where }: any) => (o.settings && where.key in o.settings ? { value: o.settings[where.key] } : null)),
+      findMany: jest.fn(async ({ where }: any) => where.key.in.filter((k: string) => o.settings?.[k] === 'true').map(() => ({ value: 'true' }))),
+    },
     patient: { findUnique: jest.fn(async () => (o.paciente === undefined ? PACIENTE_DO_LAB : o.paciente)) },
     lead: { findUnique: jest.fn(async () => o.contato ?? null) },
-    tenant: { findUnique: jest.fn(async () => (o.conta === undefined ? { name: 'Laboratório Exemplo' } : o.conta)) },
+    tenant: {
+      findUnique: jest.fn(async (a: any) =>
+        a.select.status ? { status: o.status ?? 'ACTIVE' } : o.conta === undefined ? { name: 'Laboratório Exemplo' } : o.conta,
+      ),
+    },
   };
   const whatsapp = { sendText: jest.fn(async (..._a: any[]) => o.envio ?? { key: { id: 'wamid-1' }, data: { key: { id: 'wamid-1' } } }) };
   const emailAutomation = { dispatch: jest.fn(async (..._a: any[]) => true) };
@@ -84,6 +92,22 @@ const pedido = (extra: Record<string, any> = {}, kind: 'created' | 'rescheduled'
   leadId: 'lead-1',
   tenantId: LAB,
   kind,
+});
+
+describe('Aviso de agenda do laboratório — conta suspensa ou congelada', () => {
+  it.each([
+    ['SUSPENDED', { status: 'SUSPENDED' }],
+    ['DELETED', { status: 'DELETED' }],
+    ['LAB_FREEZE', { settings: { LAB_FREEZE: 'true' } }],
+    ['LAB_FREEZE_<conta>', { settings: { [`LAB_FREEZE_${LAB}`]: 'true' } }],
+  ])('%s: nem WhatsApp, nem e-mail, nem registro', async (_n, conta) => {
+    const m = montar(conta as any);
+    const r = await avisarAgendaDoLaboratorio(m.deps, pedido());
+    expect(r).toEqual({ sent: false, reason: 'conta_suspensa' });
+    expect(m.whatsapp.sendText).not.toHaveBeenCalled();
+    expect(m.emailAutomation.dispatch).not.toHaveBeenCalled();
+    expect(m.registros).toEqual([]);
+  });
 });
 
 describe('Aviso de agenda do laboratório — WhatsApp', () => {
@@ -313,6 +337,9 @@ describe('Aviso de agenda do laboratório — pelo CalendarService', () => {
             if (typeof metodo !== 'string' || metodo === 'then') return undefined;
             return async (args: any) => {
               const op = `${modelo}.${metodo}`;
+              // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+              if (op === 'tenant.findUnique' && args?.select?.status) return { status: 'ACTIVE' };
+              if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
               ops.push([op, args]);
               if (respostas[op]) return respostas[op](args);
               return metodo === 'findMany' ? [] : null;

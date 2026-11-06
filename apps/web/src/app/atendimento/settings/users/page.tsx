@@ -374,7 +374,6 @@ export default function UsersSettingsPage() {
 
   // Pontuação do jogo DESTE profissional (só os campos que diferem do padrão).
   const loadScoring = async (userId: string) => {
-    if (isLab(btAgora())) return; // laboratório: sem o jogo do profissional
     try {
       const res = await api.get(`/users/${userId}/game-scoring`);
       setScoring(overrideToDraft(res.data?.override));
@@ -519,7 +518,7 @@ export default function UsersSettingsPage() {
       }
 
       // Out/2026 — pontuação do jogo deste profissional (só se o admin mexeu).
-      if (form.roles.includes('DENTIST') && savedUserId && scoringTouched && !labAgora) {
+      if (form.roles.includes('DENTIST') && savedUserId && scoringTouched) {
         await api.put(`/users/${savedUserId}/game-scoring`, draftToBody(scoring));
       }
 
@@ -941,8 +940,9 @@ export default function UsersSettingsPage() {
 
               {/* Out/2026 — Pontuação do "Meu jogo" deste profissional (o que ele vê no
                   lugar de comissão). Só pra quem atende como dentista. */}
-              {!lab && form.roles.includes('DENTIST') && (
+              {form.roles.includes('DENTIST') && (
                 <GameScoringSection
+                  lab={lab}
                   value={scoring}
                   onChange={(d) => { setScoring(d); setScoringTouched(true); }}
                 />

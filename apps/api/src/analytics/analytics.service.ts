@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
+import { isLabTenant } from '@crm/shared';
 import { abrirCredencialGa4, gravarGa4, lerGa4DaConta } from './ga4-config';
 
 export class TrackEventDto {
@@ -71,7 +72,13 @@ export class AnalyticsService {
     return 'direto'; // URL digitada diretamente ou sem referrer
   }
 
-  async getPages() {
+  /**
+   * As landing pages e os eventos (LpEvent) são do site da plataforma e não têm conta:
+   * o laboratório não tem página própria medida aqui, então não recebe métrica nenhuma
+   * (o Google Analytics dele é por conta e segue em getGa4Summary).
+   */
+  async getPages(tenantId?: string | null) {
+    if (await isLabTenant(this.prisma, tenantId, this.avisar)) return [];
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const sevenDaysAgo = new Date();
@@ -145,7 +152,16 @@ export class AnalyticsService {
       .sort((a, b) => b.views - a.views);
   }
 
-  async getPageDetail(page_path: string) {
+  async getPageDetail(page_path: string, tenantId?: string | null) {
+    if (await isLabTenant(this.prisma, tenantId, this.avisar)) {
+      const by_day: { date: string; views: number; clicks: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        by_day.push({ date: d.toISOString().slice(0, 10), views: 0, clicks: 0 });
+      }
+      return { page_path, total_views: 0, total_clicks: 0, conversion_rate: '0%', by_source: [], by_day };
+    }
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 

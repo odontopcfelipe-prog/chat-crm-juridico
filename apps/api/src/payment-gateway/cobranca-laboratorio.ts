@@ -11,6 +11,10 @@
  * Funções puras (sem Nest, sem Prisma). A clínica nunca passa por aqui: quem chama
  * só usa estas funções depois de saber que a conta é laboratório.
  */
+import { semVariaveis, temVocabularioDeClinica } from '@crm/shared';
+
+// O detector mora no @crm/shared (o worker usa o mesmo); quem importa daqui continua igual.
+export { semVariaveis, temVocabularioDeClinica };
 
 /** Nome que entra no lugar de {clinica} quando a conta de laboratório não tem nome. */
 export const NOME_PADRAO_DO_LABORATORIO = 'o laboratório';
@@ -35,50 +39,6 @@ export const DESCRICAO_DE_EMISSAO_DO_LABORATORIO = {
   /** Carnê das parcelas do parcelamento com entrada. */
   parcelado: 'Parcelado',
 } as const;
-
-// Palavras de clínica (sem acento, minúsculas, palavra inteira). "clínica" e
-// "dentista" ficam de fora de propósito: são os clientes do laboratório.
-const VOCABULARIO_DE_CLINICA = [
-  'pacientes?',
-  'consultas?',
-  'prontuarios?',
-  'anamneses?',
-  'odontogramas?',
-  'tratamentos?',
-  'odontologic[oa]s?',
-  'tcle',
-  'banco passos',
-];
-
-// Frases do laboratório que contêm uma palavra da lista e são permitidas.
-const PERMITIDAS = ['pacientes? do caso'];
-
-const palavra = (padrao: string, flags = '') =>
-  new RegExp(`(?<![\\p{L}\\p{N}])(?:${padrao})(?![\\p{L}\\p{N}])`, `u${flags}`);
-
-const RE_VOCABULARIO = palavra(VOCABULARIO_DE_CLINICA.join('|'));
-const RE_PERMITIDAS = PERMITIDAS.map((p) => palavra(p, 'g'));
-
-function normalizar(texto: string): string {
-  return texto
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
-/** O texto tem palavra de clínica (paciente, consulta, tratamento, odontológico…)? */
-export function temVocabularioDeClinica(texto: string | null | undefined): boolean {
-  if (!texto) return false;
-  let t = normalizar(texto);
-  for (const re of RE_PERMITIDAS) t = t.replace(re, ' ');
-  return RE_VOCABULARIO.test(t);
-}
-
-/** Tira as variáveis de template ({{nome}} e {nome}): sobra só o texto fixo. */
-export function semVariaveis(template: string | null | undefined): string {
-  return (template || '').replace(/\{\{\s*\w+\s*\}\}/g, ' ').replace(/\{\s*\w+\s*\}/g, ' ');
-}
 
 /**
  * Descrição da cobrança (já sem as tags internas) como o cliente do laboratório lê.
@@ -151,6 +111,20 @@ export const NOTAS_DA_RECEITA_DO_LABORATORIO = Object.freeze({
   /** Recebido na hora em várias formas (uma receita por forma). */
   split: 'Venda recebida no laboratório — pagamento dividido em várias formas (fechamento de caixa)',
 });
+
+// ─── Cobrança avulsa: a cobrança de cada parcela ───────────────────────────────
+
+/**
+ * Em que pé está a cobrança ligada a uma parcela da cobrança avulsa:
+ *  - PAGA: já paga no Asaas ou recebida à mão;
+ *  - ENCERRADA: apagada ou estornada (a parcela pode ganhar outra cobrança);
+ *  - ABERTA: todo o resto. O boleto pode estar vivo, então nunca se cria outro por cima.
+ */
+export function situacaoDaCobrancaDaParcela(c: { status?: string | null; received_in_cash?: boolean | null }): 'PAGA' | 'ENCERRADA' | 'ABERTA' {
+  if (c.received_in_cash || c.status === 'RECEIVED' || c.status === 'CONFIRMED') return 'PAGA';
+  if (c.status === 'DELETED' || c.status === 'CANCELLED' || c.status === 'REFUNDED') return 'ENCERRADA';
+  return 'ABERTA';
+}
 
 /** Respostas e nome do "Enviar boleto do mês" no laboratório. */
 export const ENVIO_DE_BOLETO_DO_LABORATORIO = Object.freeze({

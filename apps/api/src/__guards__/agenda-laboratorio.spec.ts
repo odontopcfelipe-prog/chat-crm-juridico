@@ -38,7 +38,6 @@ import {
   TIPOS_DE_AGENDA_DO_LABORATORIO,
   TIPOS_SO_DO_LABORATORIO,
   TODOS_OS_TIPOS_DE_AGENDA,
-  TOGGLES_DA_REGUA_NO_LABORATORIO,
   TOGGLES_DO_LABORATORIO,
   __limparCacheLabTenants,
   aplicarTextoDoLaboratorio,
@@ -412,7 +411,7 @@ describe('pedidoDeLaboratorio e recusarNoLaboratorio', () => {
   });
 
   it('recusa: 403 com o texto do motivo e o código da recusa de vertical', () => {
-    for (const motivo of ['escondido', 'regua', 'antecedencia', 'aniversario', 'template', 'teste'] as const) {
+    for (const motivo of ['escondido', 'antecedencia', 'aniversario', 'template', 'teste'] as const) {
       const e = recusarNoLaboratorio(motivo);
       expect(e).toBeInstanceOf(ForbiddenException);
       expect(e.getStatus()).toBe(403);
@@ -481,13 +480,14 @@ describe('Central de Disparos do laboratório — lista permitida e recusas', ()
     }
   });
 
-  it('régua: 10 cards visíveis, e o liga/desliga de cada um é da régua', () => {
+  it('régua: 10 cards visíveis; cada um liga e desliga, tem texto editável e tem o Testar', () => {
     const cards = cardsDoWeb();
     expect(REGUA_DO_LABORATORIO.size).toBe(10);
     for (const id of REGUA_DO_LABORATORIO) {
       expect(DISPAROS_VISIVEIS_NO_LABORATORIO.has(id)).toBe(true);
       const chave = /operacionalKey: '(\w+)'/.exec(cards.get(id)!)?.[1];
-      expect([id, chave && TOGGLES_DA_REGUA_NO_LABORATORIO.has(chave)]).toEqual([id, true]);
+      expect([id, chave && TOGGLES_DO_LABORATORIO.has(chave)]).toEqual([id, true]);
+      expect([id, TEMPLATES_FIN_DO_LABORATORIO.has(id), TESTES_DO_LABORATORIO.has(id)]).toEqual([id, true, true]);
     }
   });
 
@@ -498,7 +498,7 @@ describe('Central de Disparos do laboratório — lista permitida e recusas', ()
       const chave = /operacionalKey: '(\w+)'/.exec(card)?.[1];
       const antecedencia = /antecedenciaMin: (\d+)/.exec(card)?.[1];
       const aniversario = /birthdayMsg: (\d)/.exec(card)?.[1];
-      if (chave) expect([id, TOGGLES_DO_LABORATORIO.has(chave) || TOGGLES_DA_REGUA_NO_LABORATORIO.has(chave)]).toEqual([id, true]);
+      if (chave) expect([id, TOGGLES_DO_LABORATORIO.has(chave)]).toEqual([id, true]);
       else if (antecedencia) expect([id, ANTECEDENCIAS_DO_LABORATORIO.includes(Number(antecedencia))]).toEqual([id, true]);
       else expect([id, aniversario]).toEqual([id, '1']);
     }
@@ -506,41 +506,41 @@ describe('Central de Disparos do laboratório — lista permitida e recusas', ()
 
   it('os nomes dos liga/desliga são os do switch do servidor (nome morto = o laboratório perdeu o card)', () => {
     const casos = new Set(casosDoToggle());
-    expect([...TOGGLES_DO_LABORATORIO, ...TOGGLES_DA_REGUA_NO_LABORATORIO].filter((w) => !casos.has(w))).toEqual([]);
+    expect([...TOGGLES_DO_LABORATORIO].filter((w) => !casos.has(w))).toEqual([]);
   });
 
-  it('recusa do liga/desliga: régua só desliga; os permitidos passam; todo o resto é escondido', () => {
-    for (const w of TOGGLES_DO_LABORATORIO) {
-      expect(recusaDoToggleNoLaboratorio(w, true)).toBeNull();
-      expect(recusaDoToggleNoLaboratorio(w, false)).toBeNull();
-    }
-    expect(TOGGLES_DA_REGUA_NO_LABORATORIO.size).toBe(10);
-    for (const w of TOGGLES_DA_REGUA_NO_LABORATORIO) {
-      expect(recusaDoToggleNoLaboratorio(w, true)).toBe('regua');
-      expect(recusaDoToggleNoLaboratorio(w, false)).toBeNull();
-    }
-    const outros = casosDoToggle().filter((w) => !TOGGLES_DO_LABORATORIO.has(w) && !TOGGLES_DA_REGUA_NO_LABORATORIO.has(w));
+  it('recusa do liga/desliga: os permitidos passam (a régua inclusive); todo o resto é escondido', () => {
+    for (const w of TOGGLES_DO_LABORATORIO) expect(recusaDoToggleNoLaboratorio(w)).toBeNull();
+    for (const w of REGUA_DO_LABORATORIO) expect(TOGGLES_DO_LABORATORIO.has(w)).toBe(true);
+    const outros = casosDoToggle().filter((w) => !TOGGLES_DO_LABORATORIO.has(w));
     expect(outros).toEqual(
       expect.arrayContaining(['pos', 'recall_preventivo', 'task_alerts', 'comprovante_pagamento', 'pix_delivery', 'admin_agendamento_ia']),
     );
     for (const w of [...outros, 'comercial_confirmacao', 'reativacao_leads', 'retorno_limpeza_1', 'qualquer', '']) {
-      expect([w, recusaDoToggleNoLaboratorio(w, true)]).toEqual([w, 'escondido']);
-      expect([w, recusaDoToggleNoLaboratorio(w, false)]).toEqual([w, 'escondido']);
+      expect([w, recusaDoToggleNoLaboratorio(w)]).toEqual([w, 'escondido']);
     }
   });
 
-  it('textos de cobrança editáveis: os 3 da lista, com o padrão do laboratório', () => {
-    expect([...TEMPLATES_FIN_DO_LABORATORIO]).toEqual(['negociacao_aprovada', 'negociacao_aprovada_avista', 'confirmacao_pagamento']);
-    for (const s of TEMPLATES_FIN_DO_LABORATORIO) expect(isFinTemplateId(s)).toBe(true);
+  it('textos de cobrança editáveis: os da lista, com o padrão do laboratório', () => {
+    expect([...TEMPLATES_FIN_DO_LABORATORIO]).toEqual([
+      'negociacao_aprovada',
+      'negociacao_aprovada_avista',
+      'confirmacao_pagamento',
+      ...REGUA_DO_LABORATORIO,
+    ]);
+    for (const s of TEMPLATES_FIN_DO_LABORATORIO) {
+      expect(isFinTemplateId(s)).toBe(true);
+      expect([s, typeof padraoFinDoLaboratorio(s)]).toEqual([s, 'string']);
+    }
     expect(padraoFinDoLaboratorio('negociacao_aprovada')).toBe(LAB_NEGOCIACAO.parcelado);
     expect(padraoFinDoLaboratorio('negociacao_aprovada_avista')).toBe(LAB_NEGOCIACAO.avista);
     expect(padraoFinDoLaboratorio('confirmacao_pagamento')).toBe(DEFAULT_CONFIRMACAO_PAGAMENTO);
-    for (const s of ['boleto_1d_antes', 'boleto_intro', 'pix_delivery', 'comprovante_pagamento', 'x']) expect(padraoFinDoLaboratorio(s)).toBeNull();
+    for (const s of ['pix_delivery', 'comprovante_pagamento', 'x']) expect(padraoFinDoLaboratorio(s)).toBeNull();
   });
 
   it('Testar: só avisos que existem no laboratório', () => {
     for (const id of TESTES_DO_LABORATORIO) {
-      expect([id, ESCONDIDOS.includes(id) || REGUA_DO_LABORATORIO.has(id)]).toEqual([id, false]);
+      expect([id, ESCONDIDOS.includes(id)]).toEqual([id, false]);
     }
     expect(TESTES_DO_LABORATORIO.has('resumo_dentista')).toBe(true);
   });

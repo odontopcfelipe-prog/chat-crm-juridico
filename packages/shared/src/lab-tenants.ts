@@ -27,6 +27,8 @@ let cache: { ids: ReadonlySet<string>; ate: number } | null = null;
 let emVoo: Promise<ReadonlySet<string>> | null = null;
 /** Sobe a cada invalidação: consulta começada antes não regrava o cache com a lista velha. */
 let geracao = 0;
+/** A última leitura da lista falhou? (Quem tem de saber "não sei" lê por leituraDeLabsFalhou.) */
+let ultimaLeituraFalhou = false;
 
 /**
  * Ids das contas de laboratório (cache de 60 s; chamadas simultâneas dividem a
@@ -59,8 +61,10 @@ async function carregar(prisma: PrismaLab, avisar: (msg: string) => void): Promi
     });
     const ids = linhas.length ? new Set(linhas.map((l) => l.tenant_id)) : SEM_LAB;
     if (minhaGeracao === geracao) cache = { ids, ate: Date.now() + CACHE_MS };
+    ultimaLeituraFalhou = false;
     return ids;
   } catch (e) {
+    ultimaLeituraFalhou = true;
     const ids = cache?.ids ?? SEM_LAB;
     if (minhaGeracao === geracao) cache = { ids, ate: Date.now() + CACHE_MS };
     try {
@@ -70,6 +74,15 @@ async function carregar(prisma: PrismaLab, avisar: (msg: string) => void): Promi
     }
     return ids;
   }
+}
+
+/**
+ * A última leitura de getLabTenantIds falhou? O conjunto que ela devolve continua o
+ * último conhecido e pode não ter um laboratório novo. Só quem não pode tratar a
+ * dúvida como clínica (a IA) olha isto; nenhuma consulta nova.
+ */
+export function leituraDeLabsFalhou(): boolean {
+  return ultimaLeituraFalhou;
 }
 
 /**
@@ -173,4 +186,5 @@ export function invalidarCacheLabTenants(): void {
 export function __limparCacheLabTenants(): void {
   cache = null;
   emVoo = null;
+  ultimaLeituraFalhou = false;
 }

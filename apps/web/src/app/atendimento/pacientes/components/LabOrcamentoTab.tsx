@@ -314,6 +314,27 @@ export default function LabOrcamentoTab({
     }
   };
 
+  /** Nova opção paralela: copia os serviços para outro rascunho; o orçamento atual não muda. */
+  const novaOpcao = async (q: OrcamentoDaLista) => {
+    if (revisando || !confirm(LAB_ORCAMENTO.confirmarNovaOpcao)) return;
+    setRevisando(q.id);
+    try {
+      const { data } = await api.post<{ id: string }>(`/quotes/${q.id}/duplicate-as-option`);
+      showSuccess(LAB_ORCAMENTO.novaOpcaoCriada);
+      await carregarLista();
+      if (data?.id) {
+        setAberto(data.id);
+        abertoRef.current = data.id;
+        setDetalhe(null);
+        void carregarDetalhe(data.id);
+      }
+    } catch (err) {
+      showError(mensagemDoErro(err, LAB_ORCAMENTO.erros.novaOpcao));
+    } finally {
+      setRevisando(null);
+    }
+  };
+
   const apagarRascunho = async (q: OrcamentoDaLista) => {
     const nome = (q.title || '').trim() || LAB_ORCAMENTO.semNome;
     if (!confirm(LAB_ORCAMENTO.confirmarApagar(nome))) return;
@@ -527,6 +548,17 @@ export default function LabOrcamentoTab({
                         >
                           {revisando === q.id ? <Loader2 size={12} className="animate-spin" /> : <Pencil size={12} />}
                           {LAB_ORCAMENTO.revisar}
+                        </button>
+                      )}
+                      {podeNegociar && (
+                        <button
+                          type="button"
+                          onClick={() => novaOpcao(q)}
+                          disabled={!!revisando}
+                          title={LAB_ORCAMENTO.novaOpcaoDica}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-accent disabled:opacity-60"
+                        >
+                          <Plus size={12} /> {LAB_ORCAMENTO.novaOpcao}
                         </button>
                       )}
                       {montarAqui && (

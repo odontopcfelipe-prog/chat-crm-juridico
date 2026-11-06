@@ -149,8 +149,9 @@ export class MessagesController {
   correctText(
     @Body('text') text: string,
     @Body('action') action: string,
+    @Req() req: any,
   ) {
-    return this.messagesService.correctText(text, action);
+    return this.messagesService.correctText(text, action, req?.user?.tenant_id);
   }
 
   @Post(':id/transcribe')

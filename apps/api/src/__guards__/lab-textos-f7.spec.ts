@@ -128,6 +128,7 @@ describe('F7 — textos do laboratório da agenda e da Central', () => {
         'LAB_ENTRADA',
         'LAB_VENDA_FEITA',
         'LAB_RESUMO_DIA',
+        'LAB_REGUA',
         'LAB_RECUSA_DISPAROS',
         'LAB_TESTE_DA_CENTRAL',
       ]),
@@ -204,7 +205,7 @@ describe('F7 — textos do laboratório da agenda e da Central', () => {
     );
     expect(agenda.clienteObrigatorio.length).toBeGreaterThan(10);
     expect(Object.keys(LAB.LAB_RECUSA_DISPAROS as object).sort()).toEqual(
-      ['aniversario', 'antecedencia', 'escondido', 'regua', 'template', 'teste'].sort(),
+      ['aniversario', 'antecedencia', 'escondido', 'template', 'teste'].sort(),
     );
   });
 });

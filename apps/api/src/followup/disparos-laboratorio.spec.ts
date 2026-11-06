@@ -7,10 +7,10 @@
  *   - liga/desliga: aviso que não existe nele (pós-atendimento, recall, alertas de
  *     tarefa, ortodontia, agenda do comercial, reativação, retorno de manutenção,
  *     pacientes sem agendamento, triagem, aviso da IA, comprovante, envio do PIX) é
- *     recusado com 403 VERTICAL_DENIED e nada é gravado; a régua de cobrança só aceita
- *     desligar; o resto grava a MESMA chave da clínica, na conta do laboratório;
- *   - textos de cobrança: só os 3 da lista (orçamento aprovado parcelado e à vista e a
- *     confirmação de pagamento), com o padrão do laboratório; o resto é recusado.
+ *     recusado com 403 VERTICAL_DENIED e nada é gravado; o resto, régua de cobrança
+ *     inclusive, grava a MESMA chave da clínica, na conta do laboratório;
+ *   - textos de cobrança: só os da lista (orçamento aprovado parcelado e à vista, a
+ *     confirmação de pagamento e a régua), com o padrão do laboratório; o resto é recusado.
  *
  * Clínica (lab = false): para todo `which`, as operações de 9eb61bff (a tabela abaixo
  * foi gerada rodando o código de 9eb61bff), sem ler a lista de laboratórios.
@@ -24,8 +24,12 @@ import {
   DEFAULT_CONFIRMACAO_PAGAMENTO,
   LAB_NEGOCIACAO,
   LAB_RECUSA_DISPAROS,
+  COBRANCA_STAGES,
+  COBRANCA_TIPOS,
   REATIVACAO_TOGGLE_IDS,
+  REGUA_DO_LABORATORIO,
   RETORNO_DISPARO_IDS,
+  padraoFinDoLaboratorio,
   defaultFinTemplate,
   getLabTenantIds,
 } from '@crm/shared';
@@ -66,7 +70,7 @@ function banco(labs: string[] = [], respostas: Record<string, (a: any) => any> =
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
-                if (metodo === 'findMany') return [];
+                if (metodo === 'findMany' || metodo === 'groupBy') return [];
                 if (metodo === 'upsert') return { id: `upd-${modelo}` };
                 return null;
               };
@@ -182,6 +186,7 @@ const TODOS = ['pos', ...Object.keys(GRAVACAO_DA_CLINICA)];
 // ─── O que o laboratório liga, só desliga e não tem ──────────────────────────
 
 const LIBERADOS_NO_LAB = [
+  ...REGUA_DO_LABORATORIO,
   'confirmacao',
   'lembrete',
   'reagendamento',
@@ -194,18 +199,6 @@ const LIBERADOS_NO_LAB = [
   'venda_feita',
   'admin_agendamento_equipe',
   'block_sched_on_overdue',
-];
-const REGUA_NO_LAB = [
-  'boleto_1d_antes',
-  'boleto_no_dia',
-  'boleto_atraso_1d',
-  'boleto_atraso_2d',
-  'boleto_atraso_3d',
-  'boleto_atraso_15d',
-  'boleto_atraso_30d',
-  'boleto_atrasado',
-  'boleto_intro',
-  'boleto_delivery',
 ];
 const ESCONDIDOS_NO_LAB = [
   'pos',
@@ -229,7 +222,7 @@ const ESCONDIDOS_NO_LAB = [
 describe('liga/desliga da Central — clínica (lab = false): as operações de 9eb61bff', () => {
   it('a tabela cobre todo which que existia e as três listas do laboratório, sem sobra nem repetição', () => {
     expect(TODOS).toHaveLength(59);
-    expect([...LIBERADOS_NO_LAB, ...REGUA_NO_LAB, ...ESCONDIDOS_NO_LAB].sort()).toEqual([...TODOS].sort());
+    expect([...LIBERADOS_NO_LAB, ...ESCONDIDOS_NO_LAB].sort()).toEqual([...TODOS].sort());
   });
 
   it.each(TODOS)('%s: liga e desliga com as mesmas operações e a mesma resposta, sem leitura nova da lista de laboratórios', async (which) => {
@@ -261,6 +254,29 @@ describe('liga/desliga da Central — clínica (lab = false): as operações de 
   });
 });
 
+describe('leitura dos cards: envio dos boletos no laboratório não herda da apresentação', () => {
+  const soApresentacao = (conta: string) => ({
+    'globalSetting.findUnique': ({ where }: any) => (where.key === `BOLETO_INTRO_ENABLED_${conta}` ? { value: 'true' } : null),
+    'globalSetting.findMany': () => [],
+    'calendarEvent.count': () => 0,
+    'patient.findMany': () => [],
+  });
+
+  it('chave ausente com a apresentação ligada: desligado no laboratório; herda na clínica', async () => {
+    const noLab: any = await banco([LAB], soApresentacao(LAB)).svc.getOperacional(LAB, true);
+    expect(noLab.boleto_intro).toEqual({ enabled: true });
+    expect(noLab.boleto_delivery).toEqual({ enabled: false });
+    const naClinica: any = await banco([LAB], soApresentacao(CLINICA)).svc.getOperacional(CLINICA);
+    expect(naClinica.boleto_delivery).toEqual({ enabled: true });
+  });
+
+  it('chave ausente: todo marco da régua lê desligado na conta nova', async () => {
+    const r: any = await banco([LAB], { 'globalSetting.findMany': () => [] }).svc.getOperacional(LAB, true);
+    for (const id of REGUA_DO_LABORATORIO) expect([id, r[id]]).toEqual([id, { enabled: false }]);
+    expect(r.block_sched_on_overdue).toEqual({ enabled: false });
+  });
+});
+
 describe('liga/desliga da Central — laboratório (lab = true)', () => {
   const recusa = (e: any) => [e?.constructor?.name, e?.getStatus?.(), e?.getResponse?.()];
 
@@ -272,17 +288,6 @@ describe('liga/desliga da Central — laboratório (lab = true)', () => {
       expect(recusa(e)).toEqual(['ForbiddenException', 403, { message: LAB_RECUSA_DISPAROS.escondido, code: 'VERTICAL_DENIED' }]);
       expect(b.ops).toEqual([]);
     }
-  });
-
-  it.each(REGUA_NO_LAB)('%s: a régua não liga (403, nada gravado) e desliga na mesma chave da clínica', async (which) => {
-    const ligar = banco([LAB]);
-    const e = await erro(ligar.svc.setOperacionalToggle(LAB, which, true, true));
-    expect(recusa(e)).toEqual(['ForbiddenException', 403, { message: LAB_RECUSA_DISPAROS.regua, code: 'VERTICAL_DENIED' }]);
-    expect(ligar.ops).toEqual([]);
-
-    const desligar = banco([LAB]);
-    expect(await desligar.svc.setOperacionalToggle(LAB, which, false, true)).toEqual({ ok: true, which, enabled: false });
-    expect(desligar.ops).toEqual(opsEsperadas(which, false, LAB));
   });
 
   it.each(LIBERADOS_NO_LAB)('%s: liga e desliga na mesma chave da clínica, na conta do laboratório', async (which) => {
@@ -377,7 +382,7 @@ describe('textos de cobrança — laboratório (lab = true)', () => {
     });
   });
 
-  it.each(['boleto_1d_antes', 'boleto_intro', 'boleto_delivery', 'pix_delivery', 'comprovante_pagamento', 'xyz'])(
+  it.each(['pix_delivery', 'comprovante_pagamento', 'xyz'])(
     '%s: texto que não é editável no laboratório (ler e gravar recusados, nada lido nem gravado)',
     async (stage) => {
       const b = banco([LAB]);
@@ -392,6 +397,29 @@ describe('textos de cobrança — laboratório (lab = true)', () => {
       expect(b.ops).toEqual([]);
     },
   );
+
+  it.each(COBRANCA_STAGES)('%s: o editor abre com o padrão do laboratório de cada tipo, na chave do tipo', async (stage) => {
+    for (const tipo of COBRANCA_TIPOS) {
+      const b = banco([LAB], salvo(null));
+      expect(await b.svc.getCobrancaTemplate(LAB, stage, tipo, true)).toEqual({ template: padraoFinDoLaboratorio(stage, tipo) });
+      expect(b.ops.map(([, a]) => a.where.key)).toEqual([
+        `COBRANCA_TEMPLATE_${stage.toUpperCase()}_${tipo.toUpperCase()}_${LAB}`,
+        chaveDoTexto(stage, LAB),
+      ]);
+    }
+    // Texto com palavra de clínica: o editor mostra o padrão do tipo, que é o que sai.
+    const deClinica = banco([LAB], salvo('Olá {nome}, seu tratamento está em aberto.'));
+    expect(await deClinica.svc.getCobrancaTemplate(LAB, stage, 'pix', true)).toEqual({ template: padraoFinDoLaboratorio(stage, 'pix') });
+  });
+
+  it.each(['boleto_intro', 'boleto_delivery'])('%s: padrão do laboratório, texto próprio vale, texto de clínica não', async (stage) => {
+    const padrao = banco([LAB], salvo(null));
+    expect(await padrao.svc.getCobrancaTemplate(LAB, stage, undefined, true)).toEqual({ template: padraoFinDoLaboratorio(stage) });
+    const proprio = banco([LAB], salvo('Oi {nome}, aqui é {clinica}.'));
+    expect(await proprio.svc.getCobrancaTemplate(LAB, stage, undefined, true)).toEqual({ template: 'Oi {nome}, aqui é {clinica}.' });
+    const deClinica = banco([LAB], salvo('Oi {nome}, sua consulta foi paga.'));
+    expect(await deClinica.svc.getCobrancaTemplate(LAB, stage, undefined, true)).toEqual({ template: padraoFinDoLaboratorio(stage) });
+  });
 
   it('gravar um texto da lista: a mesma chave da clínica, na conta do laboratório, e devolve o que sai', async () => {
     const b = banco([LAB]);
@@ -427,6 +455,14 @@ describe('FollowupController — passa a conta do pedido (laboratório ou clíni
     expect(m.svc.setOperacionalToggle.mock.calls).toEqual([[LAB, 'confirmacao', true, true]]);
     expect(m.svc.getCobrancaTemplate.mock.calls).toEqual([[LAB, 'negociacao_aprovada', undefined, true]]);
     expect(m.svc.setCobrancaTemplate.mock.calls).toEqual([[LAB, 'negociacao_aprovada', 'x', undefined, true]]);
+  });
+
+  it('a leitura dos cards leva o mesmo sinal: true no laboratório, false na clínica', async () => {
+    const m = montar();
+    (m.svc as any).getOperacional = jest.fn(async () => ({}));
+    await (m.ctrl as any).getOperacional(ADMIN_LAB);
+    await (m.ctrl as any).getOperacional(ADMIN_CLINICA);
+    expect((m.svc as any).getOperacional.mock.calls).toEqual([[LAB, true], [CLINICA, false]]);
   });
 
   it('laboratório sem o claim (token antigo): vale a lista em cache', async () => {

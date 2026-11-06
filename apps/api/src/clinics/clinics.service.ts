@@ -2,7 +2,7 @@ import {
   Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@crm/shared';
+import { Prisma, TIPOS_SO_DO_LABORATORIO, isLabTenant } from '@crm/shared';
 import { CreateClinicDto, UpdateClinicDto, AssignUserClinicDto } from './dto/clinic.dto';
 
 @Injectable()
@@ -120,6 +120,9 @@ export class ClinicsService {
     const start = opts.from ? new Date(opts.from) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const end = opts.to ? new Date(`${opts.to}T23:59:59.999Z`) : new Date();
 
+    // Laboratório: as visitas são as coletas, provas e entregas (tipos só dele).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+
     const clinics = await this.prisma.clinic.findMany({
       where: { tenant_id: tenantId, active: true },
       include: {
@@ -159,7 +162,7 @@ export class ClinicsService {
           : this.prisma.calendarEvent.count({
               where: {
                 tenant_id: tenantId,
-                type: 'CONSULTA',
+                type: lab ? { in: [...TIPOS_SO_DO_LABORATORIO] } : 'CONSULTA',
                 start_at: { gte: start, lte: end },
                 assigned_user_id: { in: userIds },
               },

@@ -12,6 +12,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_GRUPOS } from './lab-grupos-textos';
 
 interface Specialty {
   id: string;
@@ -23,6 +26,7 @@ interface Specialty {
 }
 
 export default function SpecialtiesSettingsPage() {
+  const lab = isLab(useBusinessType());
   const [list, setList] = useState<Specialty[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Specialty | null>(null);
@@ -43,10 +47,10 @@ export default function SpecialtiesSettingsPage() {
   useEffect(() => { load(); }, []);
 
   const handleDelete = async (s: Specialty) => {
-    if (!confirm(`Remover especialidade "${s.name}"? Procedimentos linkados ficarão sem especialidade.`)) return;
+    if (!confirm(lab ? LAB_GRUPOS.confirmarRemover(s.name) : `Remover especialidade "${s.name}"? Procedimentos linkados ficarão sem especialidade.`)) return;
     try {
       await api.delete(`/specialties/${s.id}`);
-      showSuccess('Especialidade removida');
+      showSuccess(lab ? LAB_GRUPOS.removido : 'Especialidade removida');
       load();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao remover');
@@ -58,18 +62,18 @@ export default function SpecialtiesSettingsPage() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Layers size={24} className="text-primary" /> Especialidades
+            <Layers size={24} className="text-primary" /> {lab ? LAB_GRUPOS.titulo : 'Especialidades'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Categorias para organizar os procedimentos da clínica
-            (ex: Endodontia, Implantodontia, Estética, Ortodontia).
+            {lab ? LAB_GRUPOS.descricao : <>Categorias para organizar os procedimentos da clínica
+            (ex: Endodontia, Implantodontia, Estética, Ortodontia).</>}
           </p>
         </div>
         <button
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
         >
-          <Plus size={16} /> Nova especialidade
+          <Plus size={16} /> {lab ? LAB_GRUPOS.novo : 'Nova especialidade'}
         </button>
       </div>
 
@@ -80,12 +84,12 @@ export default function SpecialtiesSettingsPage() {
       ) : list.length === 0 ? (
         <div className="p-12 text-center bg-card border border-border rounded-xl">
           <Layers size={28} className="mx-auto mb-2 text-muted-foreground/50" />
-          <p className="text-sm text-muted-foreground mb-3">Nenhuma especialidade cadastrada.</p>
+          <p className="text-sm text-muted-foreground mb-3">{lab ? LAB_GRUPOS.vazio : 'Nenhuma especialidade cadastrada.'}</p>
           <button
             onClick={() => setCreating(true)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
           >
-            <Plus size={14} /> Criar primeira
+            <Plus size={14} /> {lab ? LAB_GRUPOS.criarPrimeiro : 'Criar primeira'}
           </button>
         </div>
       ) : (
@@ -107,7 +111,7 @@ export default function SpecialtiesSettingsPage() {
                 )}
                 {s._count && (
                   <p className="text-xs text-muted-foreground">
-                    {s._count.procedures} procedimento(s)
+                    {lab ? LAB_GRUPOS.servicos(s._count.procedures) : `${s._count.procedures} procedimento(s)`}
                   </p>
                 )}
               </div>
@@ -144,6 +148,7 @@ export default function SpecialtiesSettingsPage() {
 function SpecialtyModal({
   specialty, onClose, onSaved,
 }: { specialty: Specialty | null; onClose: () => void; onSaved: () => void }) {
+  const lab = isLab(useBusinessType());
   const isEdit = !!specialty;
   const [name, setName] = useState(specialty?.name || '');
   const [description, setDescription] = useState(specialty?.description || '');
@@ -164,10 +169,10 @@ function SpecialtyModal({
       };
       if (isEdit) {
         await api.patch(`/specialties/${specialty!.id}`, payload);
-        showSuccess('Especialidade atualizada');
+        showSuccess(lab ? LAB_GRUPOS.atualizado : 'Especialidade atualizada');
       } else {
         await api.post('/specialties', payload);
-        showSuccess('Especialidade criada');
+        showSuccess(lab ? LAB_GRUPOS.criado : 'Especialidade criada');
       }
       onSaved();
     } catch (err: any) {
@@ -191,7 +196,7 @@ function SpecialtyModal({
           <div className="flex items-center gap-2">
             <Layers size={18} className="text-primary" />
             <h2 className="text-base font-semibold">
-              {isEdit ? 'Editar especialidade' : 'Nova especialidade'}
+              {isEdit ? (lab ? LAB_GRUPOS.editarModal : 'Editar especialidade') : (lab ? LAB_GRUPOS.novoModal : 'Nova especialidade')}
             </h2>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-accent rounded">
@@ -207,7 +212,7 @@ function SpecialtyModal({
               onChange={(e) => setName(e.target.value)}
               required
               autoFocus
-              placeholder="Ex: Endodontia, Implantodontia, Estética Facial"
+              placeholder={lab ? LAB_GRUPOS.exemploNome : 'Ex: Endodontia, Implantodontia, Estética Facial'}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
@@ -218,7 +223,7 @@ function SpecialtyModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              placeholder="O que essa especialidade abrange"
+              placeholder={lab ? LAB_GRUPOS.descricaoPlaceholder : 'O que essa especialidade abrange'}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none"
             />
           </div>
@@ -230,7 +235,7 @@ function SpecialtyModal({
               onChange={(e) => setActive(e.target.checked)}
               className="w-4 h-4 rounded border-border"
             />
-            Especialidade ativa
+            {lab ? LAB_GRUPOS.ativo : 'Especialidade ativa'}
           </label>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-border">

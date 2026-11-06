@@ -5,6 +5,7 @@ import { RequiresPermission } from '../auth/decorators/requires-permission.decor
 import { negarPermissao } from '../auth/require-any-permission';
 // F7 — o pedido veio de conta de laboratório? (puro: claim do token ou a lista em cache)
 import { pedidoDeLaboratorio } from '../business-type/pedido-de-laboratorio';
+import { LAB_FOLLOWUP_ERROS } from './lab-followup-textos';
 
 /** 403 de quem cria sequência sem estar ligado a uma clínica (a global é do SUPER_ADMIN). */
 const SEQUENCIA_SEM_CONTA_MSG =
@@ -29,7 +30,7 @@ export class FollowupController {
 
   // ─── Painel "Operacional" (Onda 17.49) ───────────────────────────────────
   @Get('operacional')
-  getOperacional(@Request() req: any) { return this.svc.getOperacional(req.user?.tenant_id); }
+  getOperacional(@Request() req: any) { return this.svc.getOperacional(req.user?.tenant_id, pedidoDeLaboratorio(req.user)); }
 
   // ─── Histórico unificado de disparos (Onda 17.60) ─────────────────────────
   @Get('disparos')
@@ -240,7 +241,16 @@ export class FollowupController {
   // ─── Seed ────────────────────────────────────────────────────────────────
   // Cria sequências GLOBAIS (valem para todas as clínicas): só o SUPER_ADMIN.
   @Post('seed-defaults')
+  // Laboratório: o ADMIN da conta cria as sequências padrão DO LABORATÓRIO (texto fixo,
+  // desligadas, na própria conta); nunca as globais das clínicas.
   seedDefaultSequences(@Request() req: any) {
+    if (pedidoDeLaboratorio(req.user)) {
+      const roles: string[] = Array.isArray(req.user?.roles) ? req.user.roles : [];
+      if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+        throw new ForbiddenException({ message: LAB_FOLLOWUP_ERROS.semAcesso, code: 'PERMISSION_DENIED' });
+      }
+      return this.svc.seedSequenciasDoLaboratorio(req.user?.tenant_id);
+    }
     if (!escopo(req).superAdmin) {
       throw new ForbiddenException({ message: 'Só o administrador do sistema cria as sequências padrão', code: 'PERMISSION_DENIED' });
     }

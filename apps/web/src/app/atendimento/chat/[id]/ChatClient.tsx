@@ -150,9 +150,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     try {
       const res = await api.post(`/messages/${msgId}/transcribe`);
       setMessages(prev => prev.map((m: any) => m.id === msgId ? { ...m, text: res.data.transcription } : m));
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao transcrever áudio', e);
-      showError('Não foi possível transcrever o áudio. Tente novamente.');
+      showError((lab && e?.response?.data?.message) || 'Não foi possível transcrever o áudio. Tente novamente.');
     } finally {
       setTranscribing(prev => ({ ...prev, [msgId]: false }));
     }
@@ -164,8 +164,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     try {
       await api.patch(`/conversations/${convoId}/ai-mode`, { ai_mode: newMode });
       setAiMode(newMode);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao alterar modo IA', e);
+      if (lab && e?.response?.data?.message) showError(e.response.data.message);
     }
   };
 
@@ -449,7 +450,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           // btAgora() e não o `lab` do render: num carregamento direto (o iframe do
           // split) este efeito roda na hidratação, quando o hook ainda diz clínica.
           const labAgora = isLab(btAgora());
-          setAiMode(!labAgora && !!convo.ai_mode);
+          setAiMode(!!convo.ai_mode);
           setMessages(convo.messages || []);
           setSpecialty(convo.specialty || null);
           setAssignedDentist(convo.assigned_dentist || null);
@@ -725,7 +726,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 </button>
               </>
             )}
-            {!lab && (
+            {(
             <button
               onClick={handleToggleAiMode}
               title={aiMode ? 'Desativar IA' : 'Ativar IA'}
@@ -900,7 +901,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             <p className={`text-[12px] mt-2 leading-snug italic ${isOut ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                               {msg.text}
                             </p>
-                          ) : lab ? null : (
+                          ) : (
                             <button
                               onClick={() => handleTranscribe(msg.id)}
                               disabled={transcribing[msg.id]}
@@ -1113,7 +1114,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 
                     // ── Auto-disable AI upon typing ──
-                    if (!lab && aiMode && val.trim().length > 0 && convoId) {
+                    if (aiMode && val.trim().length > 0 && convoId) {
                       setAiMode(false);
                       (async () => {
                         try {
@@ -1139,7 +1140,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 />
                 <div className="absolute inset-y-0 right-3 flex items-center gap-1">
                   <EmojiPickerButton onEmojiSelect={handleEmojiSelect} compact />
-                  {!lab && <SophIAButton text={text} onResult={handleSophIAResult} compact />}
+                  <SophIAButton text={text} onResult={handleSophIAResult} compact />
                 </div>
               </div>
 

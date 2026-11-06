@@ -4,10 +4,13 @@ import {
   AI_CLINIC_HOURS_KEY,
   aiEnabledKey,
   aiProfileKey,
+  chipDoLabComIa,
+  contaDoLabLiberaIa,
   formatClinicHours,
   formatTenantAddress,
   isAiChipPurpose,
   isLabTenant,
+  nomeSalvoDaIa,
   normalizeAiChipProfile,
   normalizeClinicHours,
   type AiChipProfile,
@@ -66,7 +69,7 @@ function estimateCostUsd(model: string, inputTk: number, outputTk: number): numb
 /** Base URL da ClickSign quando nenhuma foi configurada (sandbox). */
 const CLICKSIGN_BASE_URL_PADRAO = 'https://sandbox.clicksign.com';
 
-/** IA desligada em todos os chips (visão da tela do laboratório). */
+/** Mapa com todos os chips desligados (ponto de partida da visão do laboratório). */
 function chipsComIaDesligada(): Record<AiChipPurpose, boolean> {
   const out = {} as Record<AiChipPurpose, boolean>;
   for (const p of AI_CHIP_PURPOSES) out[p] = false;
@@ -1955,10 +1958,9 @@ export class SettingsService {
    * lembretes, transcrição) só usam modelo/chaves e seguem na regra antiga.
    *
    * F2 parte 3b — `tenantId` de LABORATÓRIO: da global, só a parte da PLATAFORMA
-   * (chaves e modelos da IA); prompts do DJEN vazios, IA no WhatsApp desligada e
-   * IA desligada em todos os chips, sem ler a global das clínicas. Robô e tempo de
-   * resposta: os DELE (só a chave da conta, senão o padrão do código — ver
-   * config-da-clinica). Mesmo formato.
+   * (chaves e modelos da IA); prompts do DJEN vazios e nada da global das clínicas. A IA
+   * de cada chip é a chave DELE (getChipAiEnabledMap). Robô: só ligado com a chave dele
+   * em 'true'. Tempo de resposta: o DELE. Mesmo formato, mais `labIa` (só no laboratório).
    */
   async getAiConfig(tenantId?: string | null) {
     const avisar = (m: string) => this.logger.warn(m);
@@ -1972,7 +1974,8 @@ export class SettingsService {
     const djenNotifyTemplate = laboratorio ? null : await this.get('DJEN_CLIENT_NOTIFY_TEMPLATE');
     // Robô de comando e tempo de resposta: os da clínica (a que já existia herda o
     // valor antigo até salvar o dela). Erro de leitura = padrão, como antes.
-    const adminBotEnabled = adminBotEfetivo(await lerConfigDaClinicaSemErro(this.prisma, ADMIN_BOT_KEY, tenantId, avisar));
+    const roboCru = await lerConfigDaClinicaSemErro(this.prisma, ADMIN_BOT_KEY, tenantId, avisar);
+    const adminBotEnabled = laboratorio ? roboCru === 'true' : adminBotEfetivo(roboCru);
     const whatsappAiEnabled = laboratorio ? false : (await this.get('WHATSAPP_AI_ENABLED')) !== 'false';
     // Onda 18.21 — liberação de IA por chip. Migração suave: chip não setado
     // HERDA o global antigo (whatsappAiEnabled) — quem tinha a IA desligada
@@ -1995,6 +1998,7 @@ export class SettingsService {
       whatsappAiEnabled,
       aiChip,
       cooldownSeconds,
+      ...(laboratorio ? { labIa: { contaAtiva: await contaDoLabLiberaIa(this.prisma, tenantId) } } : {}),
     };
   }
 
@@ -2079,10 +2083,34 @@ export class SettingsService {
       throw new BadRequestException(`chip inválido: ${purpose}`);
     }
     if (tenantId) {
+      const laboratorio = await this.ehLaboratorio(tenantId);
+      const antes = laboratorio
+        ? await this.prisma.tenantSetting.findUnique({
+            where: { tenant_id_key: { tenant_id: tenantId, key: aiEnabledKey(p) } },
+            select: { value: true },
+          })
+        : null;
       await this.upsertTenantSetting(tenantId, aiEnabledKey(p), enabled ? 'true' : 'false');
+      if (laboratorio && (antes?.value === 'true') !== enabled) await this.tirarIaDasConversasDoChip(tenantId, p);
       return;
     }
     await this.set(aiEnabledKey(p), enabled ? 'true' : 'false');
+  }
+
+  /**
+   * Laboratório: ligar ou desligar o chip não mexe em quem atende as conversas que já
+   * existem. Elas ficam com a equipe; a IA pega as conversas novas e as que alguém ligar.
+   */
+  private async tirarIaDasConversasDoChip(tenantId: string, purpose: AiChipPurpose): Promise<void> {
+    const chips = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, purpose },
+      select: { name: true },
+    });
+    if (!chips.length) return;
+    await this.prisma.conversation.updateMany({
+      where: { tenant_id: tenantId, instance_name: { in: chips.map((c) => c.name) }, ai_mode: true },
+      data: { ai_mode: false, ai_mode_disabled_at: new Date(), ai_mode_source: 'MANUAL' },
+    });
   }
 
   /**
@@ -2092,14 +2120,18 @@ export class SettingsService {
    *   3. kill switch global WHATSAPP_AI_ENABLED (`master`).
    * Mesma regra do webhook (evolution.service) — manter as duas iguais.
    *
-   * F2 parte 3b — LABORATÓRIO: IA desligada em todos os chips (como o freio do
-   * efeito, chip-ai-enabled.util), sem ler a dele nem a global das clínicas.
+   * Laboratório: só a chave da própria conta, com a conta em ACTIVE (a mesma regra do
+   * webhook e do worker, chipDoLabComIa); a global das clínicas não é lida.
    */
   private async getChipAiEnabledMap(
     tenantId: string | null | undefined,
     master: boolean,
   ): Promise<Record<AiChipPurpose, boolean>> {
-    if (await this.ehLaboratorio(tenantId)) return chipsComIaDesligada();
+    if (await this.ehLaboratorio(tenantId)) {
+      const out = chipsComIaDesligada();
+      for (const p of AI_CHIP_PURPOSES) out[p] = await chipDoLabComIa(this.prisma, tenantId, p);
+      return out;
+    }
     const tenantRows = tenantId
       ? await this.prisma.tenantSetting
           .findMany({
@@ -2271,7 +2303,16 @@ export class SettingsService {
       select: { value: true },
     });
     const { enabled: _enabled, escalationRecipients: _recips, ...fields } = body ?? {};
-    const profile = normalizeAiChipProfile({ ...normalizeAiChipProfile(savedRow?.value ?? null), ...fields });
+    const normalizado = normalizeAiChipProfile({ ...normalizeAiChipProfile(savedRow?.value ?? null), ...fields });
+    // Laboratório: sem nome preenchido fica sem nome (a IA usa o padrão neutro dele), e
+    // não há 2ª tentativa de agendamento.
+    const profile = (await this.ehLaboratorio(tenantId))
+      ? {
+          ...normalizado,
+          assistantName: nomeSalvoDaIa(fields.assistantName !== undefined ? fields : savedRow?.value),
+          schedulingRetryMin: 0,
+        }
+      : normalizado;
     await this.upsertTenantSetting(tenantId, aiProfileKey(p), JSON.stringify(profile));
     if (typeof body?.enabled === 'boolean') {
       await this.setChipAiEnabled(p, body.enabled, tenantId);
@@ -2330,9 +2371,12 @@ export class SettingsService {
 
     const settingOf = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
     const enabledMap = await this.getChipAiEnabledMap(tenantId, master);
+    const laboratorio = await this.ehLaboratorio(tenantId);
     const chips = {} as Record<AiChipPurpose, AiChipProfile & { enabled: boolean }>;
     for (const p of AI_CHIP_PURPOSES) {
       chips[p] = { ...normalizeAiChipProfile(settingOf(aiProfileKey(p))), enabled: enabledMap[p] };
+      // Laboratório: o nome é o salvo (vazio = a IA usa o padrão neutro dele).
+      if (laboratorio) chips[p].assistantName = nomeSalvoDaIa(settingOf(aiProfileKey(p)));
     }
     // Destinatários do escalonamento da Carol — só no chip Financeiro (equipe escolhida).
     (chips.FINANCEIRO as any).escalationRecipients = this.parseRecipientIds(
@@ -2344,7 +2388,10 @@ export class SettingsService {
         hours: normalizeClinicHours(settingOf(AI_CLINIC_HOURS_KEY)),
         formattedAddress: formatTenantAddress(tenant),
       },
-      summary: {
+      // (O resumo da conta é memória da IA: o laboratório não tem.)
+      summary: laboratorio
+        ? { text: '', exists: false, manuallyEdited: false }
+        : {
         text: orgProfile?.summary ?? '',
         exists: !!orgProfile,
         manuallyEdited: !!orgProfile?.manually_edited_at,

@@ -47,11 +47,13 @@ export class ReferralsService {
       where: { tenant_id: tenantId },
     });
     if (!rule) {
-      // Cria regra default na primeira chamada — opt-out, não opt-in
+      // Cria regra default na primeira chamada — opt-out, não opt-in. Laboratório:
+      // nasce desligada (a conta liga e confere o valor antes de a indicação valer).
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
       rule = await (this.prisma as any).referralRule.create({
         data: {
           tenant_id: tenantId,
-          enabled: true,
+          enabled: !lab,
           default_reward_value: DEFAULT_REWARD,
           expiration_days: DEFAULT_EXPIRATION_DAYS,
         },
@@ -89,12 +91,6 @@ export class ReferralsService {
       this.logger.warn(`[REFERRAL] Tentativa de auto-indicacao ignorada (paciente=${params.referredId})`);
       return null;
     }
-    // F2 parte 4 [LAB-GATE] — indicação premiada é da clínica: no laboratório não nasce.
-    if (await isLabTenant(this.prisma, params.tenantId, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] indicacao — conta de laboratório, sem indicação para ${params.referredId}`);
-      return null;
-    }
-
     // Onda 17.34 — isolamento multi-tenant: referrerId vem do cliente
     // (referred_by_id no DTO, validado so como UUID). Sem esta checagem,
     // dava pra apontar um paciente de OUTRO tenant como indicador e gerar

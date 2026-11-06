@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isLabTenant, TIPOS_SO_DO_LABORATORIO } from '@crm/shared';
 
 interface PeriodRange {
   start: Date;
@@ -81,6 +82,9 @@ export class ReportsService {
     opts: { period?: string; from?: string; to?: string } = {},
   ) {
     const { start, end } = this.resolvePeriod(opts.period, opts.from, opts.to);
+    // Agenda: a clínica conta as CONSULTAS; o laboratório conta as visitas dele (coleta, prova e entrega).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    const tipoDaAgenda: any = lab ? { in: [...TIPOS_SO_DO_LABORATORIO] } : 'CONSULTA';
 
     const [
       // Vendas
@@ -124,14 +128,14 @@ export class ReportsService {
       this.prisma.calendarEvent.count({
         where: {
           tenant_id: tenantId,
-          type: 'CONSULTA',
+          type: tipoDaAgenda,
           start_at: { gte: start, lte: end },
         },
       }),
       this.prisma.calendarEvent.count({
         where: {
           tenant_id: tenantId,
-          type: 'CONSULTA',
+          type: tipoDaAgenda,
           status: 'CONFIRMADO',
           start_at: { gte: start, lte: end },
         },
@@ -139,7 +143,7 @@ export class ReportsService {
       this.prisma.calendarEvent.count({
         where: {
           tenant_id: tenantId,
-          type: 'CONSULTA',
+          type: tipoDaAgenda,
           status: 'CANCELADO',
           start_at: { gte: start, lte: end },
         },
@@ -147,7 +151,7 @@ export class ReportsService {
       this.prisma.calendarEvent.count({
         where: {
           tenant_id: tenantId,
-          type: 'CONSULTA',
+          type: tipoDaAgenda,
           status: 'ADIADO',
           start_at: { gte: start, lte: end },
         },

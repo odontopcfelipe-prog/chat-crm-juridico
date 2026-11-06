@@ -8,7 +8,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, isLabTenant } from '@crm/shared';
-import { negarLaboratorio } from '../common/lab-gate.util';
+import { CODIGO_VERTICAL_NEGADA } from '../common/lab-gate.util';
+import { LAB_CONTRATO_MSG } from './lab-contrato-textos';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../messages/messages.service';
@@ -74,10 +75,11 @@ export class ContractWhatsappService {
     return (phone || '').replace(/\D/g, '').slice(-4);
   }
 
-  private async defaultCaption(tenantId: string, patientName?: string | null): Promise<string> {
+  private async defaultCaption(tenantId: string, patientName?: string | null, lab = false): Promise<string> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
-    const clinica = tenant?.name?.trim() || 'a clínica';
+    const clinica = tenant?.name?.trim() || (lab ? LAB_CONTRATO_MSG.laboratorioPadrao : 'a clínica');
     const first = (patientName || '').trim().split(/\s+/)[0] || '';
+    if (lab) return LAB_CONTRATO_MSG.legenda(first, clinica);
     return (
       `Olá${first ? `, ${first}` : ''}! 😊\n\n` +
       `Segue em PDF o seu contrato de tratamento com ${clinica}, para você ler com calma.\n\n` +
@@ -85,7 +87,17 @@ export class ContractWhatsappService {
     );
   }
 
-  private problemMessage(problem: SendProblem | null, patientPhone?: string | null, leadPhone?: string | null): string | null {
+  private problemMessage(problem: SendProblem | null, patientPhone?: string | null, leadPhone?: string | null, lab = false): string | null {
+    if (lab) {
+      switch (problem) {
+        case 'CONTRACT_INACTIVE': return LAB_CONTRATO_MSG.inativo;
+        case 'NO_PHONE': return LAB_CONTRATO_MSG.semTelefone;
+        case 'PHONE_MISMATCH': return LAB_CONTRATO_MSG.telefoneDiferente(this.last4(patientPhone), this.last4(leadPhone));
+        case 'NO_CLINICAL_CHIP': return LAB_CONTRATO_MSG.semChip;
+        case 'LEAD_WILL_LINK': return LAB_CONTRATO_MSG.contatoSeraVinculado;
+        default: return null;
+      }
+    }
     switch (problem) {
       case 'CONTRACT_INACTIVE': return 'Contrato cancelado/expirado — não dá pra enviar.';
       case 'NO_PHONE': return 'Paciente sem telefone válido no cadastro — adicione o telefone antes de enviar.';
@@ -100,7 +112,8 @@ export class ContractWhatsappService {
   async preview(contractId: string, tenantId: string) {
     const contract = await this.loadContract(contractId, tenantId);
     const patient = contract.quote.patient;
-    const defaultCaption = await this.defaultCaption(tenantId, patient.name);
+    const lab = await isLabTenant(this.prisma, patient.tenant_id, (m) => this.logger.warn(m));
+    const defaultCaption = await this.defaultCaption(tenantId, patient.name, lab);
     const phoneDigits = toBrazilWhatsappNumber(patient.phone || '');
 
     let problem: SendProblem | null = null;
@@ -111,7 +124,7 @@ export class ContractWhatsappService {
       if (patient.lead && !this.samePhone(patient.lead.phone, patient.phone)) problem = 'PHONE_MISMATCH';
       // Sem lead ainda: o lead criado no envio nasce cliente → Clínica primeiro.
       const chips = await this.messages.resolvePatientChips(tenantId, patient.lead ? !!patient.lead.is_client : true);
-      if (chips[0]) chip = { purpose: chips[0].purpose, label: CHIP_LABEL[chips[0].purpose] };
+      if (chips[0]) chip = { purpose: chips[0].purpose, label: lab ? LAB_CONTRATO_MSG.rotuloChip[chips[0].purpose] : CHIP_LABEL[chips[0].purpose] };
       if (!problem && !chips.length) problem = 'NO_CLINICAL_CHIP';
       if (!problem && !patient.lead_id) problem = 'LEAD_WILL_LINK';
     }
@@ -121,7 +134,7 @@ export class ContractWhatsappService {
       phoneLast4: this.last4(patient.phone),
       chip,
       problem,
-      problemMessage: this.problemMessage(problem, patient.phone, patient.lead?.phone),
+      problemMessage: this.problemMessage(problem, patient.phone, patient.lead?.phone, lab),
       blocking: !!problem && problem !== 'LEAD_WILL_LINK',
     };
   }
@@ -132,24 +145,21 @@ export class ContractWhatsappService {
     if (!text) throw new BadRequestException('Escreva a mensagem que vai junto do contrato.');
 
     const contract = await this.loadContract(contractId, tenantId);
-    // F2 [LAB-GATE] — contrato de tratamento odontológico não existe no laboratório:
-    // recusa o envio. Clínica: só a leitura cacheada.
-    if (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m))) {
-      throw negarLaboratorio('Envio do contrato de tratamento pelo WhatsApp');
-    }
+    // Laboratório: o mesmo envio, com as mensagens do laboratório. Clínica: só a leitura cacheada.
+    const lab = await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m));
     if (contract.status === 'CANCELLED' || contract.status === 'EXPIRED') {
-      throw new BadRequestException(this.problemMessage('CONTRACT_INACTIVE'));
+      throw new BadRequestException(this.problemMessage('CONTRACT_INACTIVE', null, null, lab));
     }
     const patient = contract.quote.patient;
-    if (!toBrazilWhatsappNumber(patient.phone || '')) throw new BadRequestException(this.problemMessage('NO_PHONE'));
+    if (!toBrazilWhatsappNumber(patient.phone || '')) throw new BadRequestException(this.problemMessage('NO_PHONE', null, null, lab));
     // Telefone do cadastro ≠ contato do WhatsApp já vinculado: recusa sem tocar
     // no banco (rechecado depois do vínculo, pro caso de lead novo).
     if (patient.lead && !this.samePhone(patient.lead.phone, patient.phone)) {
-      throw new ConflictException(this.problemMessage('PHONE_MISMATCH', patient.phone, patient.lead.phone));
+      throw new ConflictException(this.problemMessage('PHONE_MISMATCH', patient.phone, patient.lead.phone, lab));
     }
     // Sem nenhum chip clínico não adianta criar lead/conversa — recusa antes.
     if (!(await this.messages.resolvePatientChips(tenantId, true)).length) {
-      throw new BadRequestException(this.problemMessage('NO_CLINICAL_CHIP'));
+      throw new BadRequestException(this.problemMessage('NO_CLINICAL_CHIP', null, null, lab));
     }
 
     // Trava ATÔMICA anti-reenvio (clique duplo, dois operadores, duas abas): sob
@@ -179,7 +189,7 @@ export class ContractWhatsappService {
     if (!claim) throw new ConflictException('Este contrato acabou de ser enviado — confira na conversa antes de reenviar.');
 
     try {
-      const result = await this.sendClaimed(contract, patient, tenantId, text);
+      const result = await this.sendClaimed(contract, patient, tenantId, text, lab);
       await this.prisma.contractEvent.update({
         where: { id: claim.id },
         data: {
@@ -216,9 +226,10 @@ export class ContractWhatsappService {
    */
   async sendClickSign(contractId: string, tenantId: string, userId: string) {
     const contract = await this.loadContract(contractId, tenantId);
-    // F2 [LAB-GATE] — idem: nem ClickSign, nem link. Clínica: só a leitura cacheada.
+    // A conta da ClickSign é a da plataforma (das clínicas): contrato de laboratório não
+    // sobe nela, nem sai link de assinatura. Clínica: só a leitura cacheada.
     if (await isLabTenant(this.prisma, contract.quote.patient.tenant_id, (m) => this.logger.warn(m))) {
-      throw negarLaboratorio('Contrato de tratamento pela ClickSign');
+      throw new ForbiddenException({ message: LAB_CONTRATO_MSG.clicksignIndisponivel, code: CODIGO_VERTICAL_NEGADA });
     }
     const patient = contract.quote.patient;
     if (!toBrazilWhatsappNumber(patient.phone || '')) {
@@ -256,6 +267,7 @@ export class ContractWhatsappService {
     patient: { id: string; name: string; phone: string | null },
     tenantId: string,
     text: string,
+    lab = false,
   ) {
     const leadId = await this.quotes.ensurePatientLead(patient.id, tenantId, 'whatsapp');
     const lead = await this.prisma.lead.findUnique({
@@ -266,19 +278,21 @@ export class ContractWhatsappService {
     // Nunca reescreve o telefone salvo: se o cadastro diverge do contato do
     // WhatsApp, o contrato iria pra outro número — bloqueia com o motivo.
     if (!this.samePhone(lead.phone, patient.phone)) {
-      throw new ConflictException(this.problemMessage('PHONE_MISMATCH', patient.phone, lead.phone));
+      throw new ConflictException(this.problemMessage('PHONE_MISMATCH', patient.phone, lead.phone, lab));
     }
     const chips = await this.messages.resolvePatientChips(tenantId, !!lead.is_client);
-    if (!chips.length) throw new BadRequestException(this.problemMessage('NO_CLINICAL_CHIP'));
+    if (!chips.length) throw new BadRequestException(this.problemMessage('NO_CLINICAL_CHIP', null, null, lab));
 
     const conversationId = await this.conversations.findOrCreatePatientConversationId(lead.id, tenantId);
-    if (!conversationId) throw new BadRequestException('Sem caixa de entrada Clínica/Comercial pra esse paciente — configure o WhatsApp da clínica.');
+    if (!conversationId) {
+      throw new BadRequestException(lab ? LAB_CONTRATO_MSG.semCaixaDeEntrada : 'Sem caixa de entrada Clínica/Comercial pra esse paciente — configure o WhatsApp da clínica.');
+    }
 
     const buffer = await this.contractPdf.generatePdf(contract.id, tenantId);
     if (!isPdfBuffer(buffer)) throw new InternalServerErrorException('Falha ao gerar o PDF do contrato.');
-    const slug = (patient.name || 'paciente')
+    const slug = (patient.name || (lab ? LAB_CONTRATO_MSG.arquivoPadrao : 'paciente'))
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'paciente';
+      .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || (lab ? LAB_CONTRATO_MSG.arquivoPadrao : 'paciente');
 
     const sent = await this.messages.sendPatientFile({
       conversationId,
@@ -291,7 +305,7 @@ export class ContractWhatsappService {
     return {
       conversationId,
       messageId: sent.message?.id ?? null,
-      chip: { purpose: sent.purpose, label: CHIP_LABEL[sent.purpose] },
+      chip: { purpose: sent.purpose, label: lab ? LAB_CONTRATO_MSG.rotuloChip[sent.purpose] : CHIP_LABEL[sent.purpose] },
     };
   }
 }

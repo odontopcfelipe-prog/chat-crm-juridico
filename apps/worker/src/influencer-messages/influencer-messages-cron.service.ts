@@ -17,7 +17,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { computeNextRunAt, interpolateTemplate } from '@crm/shared';
+import { chipPacienteOuLegado, computeNextRunAt, contaDoLabPodeEnviar, escolherChipPaciente, interpolateTemplate, isLabTenant } from '@crm/shared';
 import axios from 'axios';
 import { resolveOwnedEnvChip } from '../admin-alerts/env-chip';
 
@@ -60,8 +60,27 @@ export class InfluencerMessagesCronService {
   }
 
   private async processSchedule(sch: any, now: Date) {
+    // Laboratório com a conta suspensa ou congelada: nada sai e o agendamento não fica
+    // voltando a cada minuto. O recorrente pula para a próxima ocorrência; o de uma vez só
+    // é olhado de novo em 1 h e sai quando a conta voltar a ficar ativa.
+    if (
+      (await isLabTenant(this.prisma, sch.tenant_id, (m) => this.logger.warn(m))) &&
+      !(await contaDoLabPodeEnviar(this.prisma, sch.tenant_id))
+    ) {
+      this.logger.log(`[INF-MSG] Schedule ${sch.id} — conta de laboratório suspensa: não envia`);
+      await (this.prisma as any).influencerSchedule.update({
+        where: { id: sch.id },
+        data: {
+          next_run_at: sch.schedule_type === 'ONCE' ? new Date(now.getTime() + 60 * 60_000) : this.proximaOcorrencia(sch, now),
+        },
+      });
+      return;
+    }
+
     const scheduledFor = sch.next_run_at as Date;
     const recipients = await this.resolveRecipients(sch);
+    // Laboratório: o envio sai pelo chip da própria conta (undefined = clínica, como sempre).
+    const chipDoLab = recipients.length > 0 ? await this.chipDoLaboratorio(sch.tenant_id) : undefined;
 
     if (recipients.length === 0) {
       this.logger.warn(`[INF-MSG] Schedule ${sch.id} sem destinatários — pulando`);
@@ -71,7 +90,7 @@ export class InfluencerMessagesCronService {
       let skipped = 0;
 
       for (const inf of recipients) {
-        const result = await this.dispatchOne(sch, inf, scheduledFor);
+        const result = await this.dispatchOne(sch, inf, scheduledFor, chipDoLab);
         if (result === 'SENT') sent++;
         else if (result === 'FAILED') failed++;
         else skipped++;
@@ -82,7 +101,20 @@ export class InfluencerMessagesCronService {
     }
 
     // Recalcula next_run_at pro próximo disparo
-    const nextRunAt = computeNextRunAt(
+    const nextRunAt = this.proximaOcorrencia(sch, now);
+
+    await (this.prisma as any).influencerSchedule.update({
+      where: { id: sch.id },
+      data: {
+        last_run_at: now,
+        next_run_at: nextRunAt,
+        active: sch.schedule_type === 'ONCE' ? false : sch.active,
+      },
+    });
+  }
+
+  private proximaOcorrencia(sch: any, now: Date) {
+    return computeNextRunAt(
       {
         schedule_type: sch.schedule_type,
         run_at: sch.run_at,
@@ -94,15 +126,21 @@ export class InfluencerMessagesCronService {
       },
       now,
     );
+  }
 
-    await (this.prisma as any).influencerSchedule.update({
-      where: { id: sch.id },
-      data: {
-        last_run_at: now,
-        next_run_at: nextRunAt,
-        active: sch.schedule_type === 'ONCE' ? false : sch.active,
-      },
+  /**
+   * Conta de laboratório: o chip dela (Comercial, senão Atendimento; nunca o Financeiro).
+   * null = laboratório sem chip próprio (o envio é registrado como falha). undefined = a
+   * conta não é laboratório. Nunca cai no chip padrão do servidor.
+   */
+  private async chipDoLaboratorio(tenantId: string): Promise<string | null | undefined> {
+    if (!(await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) return undefined;
+    const chips = await this.prisma.instance.findMany({
+      where: { type: 'whatsapp', tenant_id: tenantId },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, purpose: true },
     });
+    return chipPacienteOuLegado(escolherChipPaciente(chips, 'COMERCIAL'));
   }
 
   /** Aplica filtros + soma com lista manual. Deduplica por id. */
@@ -158,6 +196,7 @@ export class InfluencerMessagesCronService {
     sch: any,
     inf: any,
     scheduledFor: Date,
+    chipDoLab?: string | null,
   ): Promise<'SENT' | 'FAILED' | 'SKIPPED'> {
     if (!inf.phone) {
       await this.writeLog(sch, inf, scheduledFor, {
@@ -186,8 +225,16 @@ export class InfluencerMessagesCronService {
       }
       // Chip padrão do servidor SÓ se for desta clínica (env-chip.ts; cache de 60s, não
       // consulta por destinatário). Sem ele → catch abaixo: log FAILED, como o 404 de hoje.
-      const instance = await resolveOwnedEnvChip(this.prisma, sch.tenant_id, 'influenciadores', 'whatsapp');
-      if (!instance) throw new Error('Clínica sem chip próprio — o chip padrão do servidor não é desta clínica');
+      const instance = chipDoLab !== undefined
+        ? chipDoLab
+        : await resolveOwnedEnvChip(this.prisma, sch.tenant_id, 'influenciadores', 'whatsapp');
+      if (!instance) {
+        throw new Error(
+          chipDoLab !== undefined
+            ? 'Laboratório sem WhatsApp conectado — conecte um número em Configurações'
+            : 'Clínica sem chip próprio — o chip padrão do servidor não é desta clínica',
+        );
+      }
       const cleanPhone = inf.phone.replace(/\D/g, '');
       const res = await axios.post(
         `${apiUrl}/message/sendText/${instance}`,

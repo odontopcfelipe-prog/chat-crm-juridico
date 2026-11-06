@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_INDICACAO } from './lab-indicacao-textos';
 
 interface Referral {
   id: string;
@@ -69,6 +72,7 @@ export default function ReferralsPage() {
 }
 
 function ReferralsPageInner() {
+  const lab = isLab(useBusinessType());
   const router = useRouter();
   const searchParams = useSearchParams();
   const [referrals, setReferrals] = useState<Referral[]>([]);
@@ -103,7 +107,7 @@ function ReferralsPageInner() {
   useEffect(() => { load(); }, [load]);
 
   const handleMarkPaid = async (r: Referral) => {
-    if (!confirm(`Marcar como PAGO o cashback de ${formatBRL(r.reward_value)} pra ${r.referrer.name || 'paciente'}?`)) return;
+    if (!confirm(lab ? LAB_INDICACAO.confirmarPago(formatBRL(r.reward_value), r.referrer.name) : `Marcar como PAGO o cashback de ${formatBRL(r.reward_value)} pra ${r.referrer.name || 'paciente'}?`)) return;
     try {
       await api.post(`/referrals/${r.id}/mark-paid`);
       showSuccess('Cashback marcado como pago');
@@ -121,9 +125,9 @@ function ReferralsPageInner() {
             <Trophy size={26} className="text-primary" /> Indicação Premiada
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Programa de cashback: paciente A indica B. Quando B fecha um plano,
+            {lab ? LAB_INDICACAO.intro(rule ? formatBRL(rule.default_reward_value) : '—') : <>Programa de cashback: paciente A indica B. Quando B fecha um plano,
             A ganha {rule ? formatBRL(rule.default_reward_value) : '—'} pra usar
-            como desconto na próxima parcela ou tratamento.
+            como desconto na próxima parcela ou tratamento.</>}
           </p>
         </div>
         <button
@@ -154,7 +158,7 @@ function ReferralsPageInner() {
           <StatCard
             label="Aguardando"
             value={stats.byStatus.PENDING?.count || 0}
-            bottomLabel="pacientes ainda não fecharam"
+            bottomLabel={lab ? LAB_INDICACAO.aindaNaoFecharam : 'pacientes ainda não fecharam'}
             cls="text-amber-600"
           />
           <StatCard
@@ -217,7 +221,7 @@ function ReferralsPageInner() {
           <p className="text-sm text-muted-foreground">
             {statusFilter
               ? 'Nenhuma indicação com esse status.'
-              : 'Nenhuma indicação registrada ainda. Quando um paciente novo for cadastrado com "indicado por outro paciente" no formulário, aparece aqui.'}
+              : (lab ? LAB_INDICACAO.vazio : 'Nenhuma indicação registrada ainda. Quando um paciente novo for cadastrado com "indicado por outro paciente" no formulário, aparece aqui.')}
           </p>
         </div>
       ) : (
@@ -271,7 +275,7 @@ function ReferralsPageInner() {
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       <div>Indicação em {new Date(r.created_at).toLocaleDateString('pt-BR')}</div>
-                      {r.earned_at && <div>Plano fechado em {new Date(r.earned_at).toLocaleDateString('pt-BR')}</div>}
+                      {r.earned_at && <div>{lab ? LAB_INDICACAO.planoFechadoEm : 'Plano fechado em'} {new Date(r.earned_at).toLocaleDateString('pt-BR')}</div>}
                       {r.paid_at && <div>Pago em {new Date(r.paid_at).toLocaleDateString('pt-BR')}</div>}
                       {!r.earned_at && r.expires_at && (
                         <div className="text-amber-600">
@@ -329,6 +333,7 @@ function StatCard({
 function RuleModal({
   rule, onClose, onSaved,
 }: { rule: Rule; onClose: () => void; onSaved: () => void }) {
+  const lab = isLab(useBusinessType());
   const [enabled, setEnabled] = useState(rule.enabled);
   const [reward, setReward] = useState(rule.default_reward_value);
   const [expirationDays, setExpirationDays] = useState(rule.expiration_days);
@@ -399,12 +404,12 @@ function RuleModal({
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Valor que o indicador ganha quando o paciente novo fecha um plano.
+              {lab ? LAB_INDICACAO.valorDica : 'Valor que o indicador ganha quando o paciente novo fecha um plano.'}
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">Validade (dias após o plano fechar)</label>
+            <label className="block text-xs font-medium mb-1">{lab ? LAB_INDICACAO.validadeLabel : 'Validade (dias após o plano fechar)'}</label>
             <input
               type="number"
               min="1"

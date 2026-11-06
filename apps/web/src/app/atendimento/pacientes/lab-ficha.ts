@@ -8,14 +8,15 @@
  *   - Financeiro: junto com as telas do financeiro do laboratório, isto é, quando as
  *     rotas do financeiro estiverem na lista de rotas do laboratório (ALLOWED_LAB_ROUTES);
  *   - Orçamento, Propostas e Trabalhos: abrem junto com o painel de orçamentos
- *     ('/atendimento/orcamentos' na lista de rotas do laboratório, bloco F6a).
+ *     ('/atendimento/orcamentos' na lista de rotas do laboratório, bloco F6a);
+ *   - Afiliado: junto com a tela Afiliados ('/atendimento/afiliados' na lista de rotas).
  */
 import { labAllowsRoute } from '@crm/shared';
 
 /** Id da aba Orçamento da ficha do laboratório (a tela de montar o orçamento de trabalho). */
 export const ABA_ORCAMENTO_DO_LAB = 'orcamento' as const;
 
-export const ABAS_DA_FICHA_NO_LAB = ['overview', ABA_ORCAMENTO_DO_LAB, 'proposals', 'treatment', 'financial', 'timeline'] as const;
+export const ABAS_DA_FICHA_NO_LAB = ['overview', ABA_ORCAMENTO_DO_LAB, 'proposals', 'treatment', 'financial', 'affiliate', 'timeline'] as const;
 
 /** Abas que abrem junto com o painel de orçamentos. */
 const ABAS_DO_ORCAMENTO: readonly string[] = [ABA_ORCAMENTO_DO_LAB, 'proposals', 'treatment'];
@@ -26,6 +27,7 @@ export function abasProntasNoLab(): string[] {
   const orcamentoAberto = labAllowsRoute('/atendimento/orcamentos');
   return ABAS_DA_FICHA_NO_LAB.filter((aba) => {
     if (aba === 'financial') return financeiroAberto;
+    if (aba === 'affiliate') return labAllowsRoute('/atendimento/afiliados');
     if (ABAS_DO_ORCAMENTO.includes(aba)) return orcamentoAberto;
     return true;
   });

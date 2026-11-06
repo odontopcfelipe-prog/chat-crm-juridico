@@ -3,13 +3,14 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Logger,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { ModuleRef } from '@nestjs/core';
-import { isLabTenant } from '@crm/shared';
+import { chipDoLabComIa, contaDoLabPodeEnviar, getLabTenantIds, isLabTenant, primeiroNomeSemTitulo } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
@@ -39,9 +40,11 @@ import {
   descricaoDaReceitaDoLaboratorio,
   descricaoParaClienteDoLaboratorio,
   semVariaveis,
+  situacaoDaCobrancaDaParcela,
   temVocabularioDeClinica,
 } from './cobranca-laboratorio';
 import { negarLaboratorio } from '../common/lab-gate.util';
+import { LAB_COBRANCA_AVULSA } from '../leads/lab-cobranca-avulsa-textos';
 
 // Mapeamento de status Asaas → interno
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -271,14 +274,21 @@ export class PaymentGatewayService {
     });
     if (!charge) return null;
     if (charge.transaction_id) return charge.transaction_id; // já lançado
-    // Jurídico (LeadHonorarioPayment) tem caixa próprio — não duplica aqui.
-    if (charge.lead_honorario_payment_id) return null;
     // F5 — laboratório: a receita sai com o texto do laboratório. Lido FORA da
     // transação (cache de 60 s), para não segurar a trava.
     const lab = await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m));
+    // Jurídico (LeadHonorarioPayment) tem caixa próprio — não duplica aqui. No laboratório a
+    // parcela da cobrança avulsa entra no caixa por aqui, como as outras cobranças dele.
+    if (charge.lead_honorario_payment_id && !lab) return null;
+    const parcelaDoLab = lab && charge.lead_honorario_payment_id
+      ? await this.prisma.leadHonorarioPayment.findUnique({
+          where: { id: charge.lead_honorario_payment_id },
+          select: { id: true, lead_honorario: { select: { lead_id: true, lead: { select: { name: true } } } } },
+        })
+      : null;
 
     const now = new Date();
-    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || (lab ? NOME_PADRAO_DO_CLIENTE : 'Paciente');
+    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || parcelaDoLab?.lead_honorario?.lead?.name || (lab ? NOME_PADRAO_DO_CLIENTE : 'Paciente');
     const method = opts?.paymentMethod || this.mapBillingToCaixaMethod(charge.billing_type);
     const inClinic = !!opts?.receivedInClinic;
     // Maquineta parcelada: só INFO (a adquirente faz o split; não gera cobrança).
@@ -303,11 +313,27 @@ export class PaymentGatewayService {
         select: { transaction_id: true },
       });
       if (fresh?.transaction_id) return { id: fresh.transaction_id, created: false };
+      if (parcelaDoLab) {
+        await tx.leadHonorarioPayment.updateMany({
+          where: { id: parcelaDoLab.id, status: { not: 'PAGO' } },
+          data: { status: 'PAGO', paid_at: charge.paid_at ?? now, payment_method: method },
+        });
+        // A parcela já tem lançamento (baixa à mão antes do boleto): liga a ele, sem outro.
+        const lancada = await tx.financialTransaction.findUnique({
+          where: { lead_honorario_payment_id: parcelaDoLab.id },
+          select: { id: true },
+        });
+        if (lancada) {
+          await tx.paymentGatewayCharge.update({ where: { id: charge.id }, data: { transaction_id: lancada.id } });
+          return { id: lancada.id, created: false };
+        }
+      }
       const created = await tx.financialTransaction.create({
         data: {
           tenant_id: charge.tenant_id,
           type: 'RECEITA',
           category: 'PROCEDIMENTO',
+          ...(parcelaDoLab ? { lead_honorario_payment_id: parcelaDoLab.id } : {}),
           description: lab
             ? descricaoDaReceitaDoLaboratorio({ inClinic, nome: patientName, descricao: charge.description ?? '', parcelaSuffix })
             : `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
@@ -325,7 +351,7 @@ export class PaymentGatewayService {
           // CLIENTE na tela de Entradas: amarra a receita ao paciente (via Lead) — antes
           // o nome só ia na descrição e a coluna Cliente ficava "—". Fallback pro
           // paciente direto (boleto importado do Asaas, sem treatment_plan).
-          lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null,
+          lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? parcelaDoLab?.lead_honorario?.lead_id ?? null,
           reference_id: charge.external_id,
           notes: inClinic
             ? (lab ? NOTAS_DA_RECEITA_DO_LABORATORIO.caixa : 'Venda/atendimento recebido na clínica (fechamento de caixa)')
@@ -521,12 +547,6 @@ export class PaymentGatewayService {
    */
   private async releaseCommissionsForPlan(tenantId: string | null, treatmentPlanId: string | null, now: Date) {
     if (!tenantId || !treatmentPlanId) return;
-    // Laboratório: comissão é regra da clínica (não nasce no laboratório) — nem procura.
-    // Clínica: só a leitura da lista de laboratórios (cache de 60 s).
-    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] comissao — plano ${treatmentPlanId} é de laboratório: sem liberação de comissão`);
-      return;
-    }
     try {
       // Onda 17.67 — libera por ITEM do plano (comissão de execução) E por QUOTE do
       // plano (comissão de VENDA, que não tem treatment_plan_item_id). Sem o segundo
@@ -1144,6 +1164,7 @@ export class PaymentGatewayService {
     leadHonorarioPaymentId: string,
     billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
     tenantId?: string,
+    parcelaDoLab?: { descricao: string; vencimento: Date },
   ) {
     const existingCharge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { lead_honorario_payment_id: leadHonorarioPaymentId },
@@ -1181,18 +1202,27 @@ export class PaymentGatewayService {
     }
     const customer = await this.ensureCustomer(lead.id, tenantId || honTenant);
 
-    const dueDate = payment.due_date ? new Date(payment.due_date) : new Date();
+    const dueDate = parcelaDoLab?.vencimento ?? (payment.due_date ? new Date(payment.due_date) : new Date());
     const dueDateStr = dueDate.toISOString().slice(0, 10);
     const honType = (payment as any).lead_honorario?.type || '';
     const typeLabels: Record<string, string> = { CONTRATUAL: 'Contratuais', ENTRADA: 'Entrada', ACORDO: 'Acordo' };
 
     const effectiveTenantId = tenantId || honTenant;
-    const asaasCharge = await this.asaas.createCharge({
+    // Laboratório: a cobrança avulsa sai com o nome dela ("Cobrança avulsa - <cliente>"), não com
+    // o de honorário. Clínica: a mesma descrição de antes; só a leitura da lista de laboratórios.
+    const labAvulsa = await isLabTenant(this.prisma, effectiveTenantId, (m) => this.logger.warn(m));
+    // Parcela do laboratório: uma tentativa anterior pode ter criado o boleto no Asaas e
+    // caído antes de gravar aqui. O boleto em aberto com a referência desta parcela é
+    // adotado em vez de nascer outro.
+    const jaNoAsaas = parcelaDoLab ? await this.boletoEmAbertoDaParcelaNoAsaas(leadHonorarioPaymentId, effectiveTenantId) : null;
+    const asaasCharge = jaNoAsaas ?? await this.asaas.createCharge({
       customer: customer.external_id,
       billingType,
       value: Number(payment.amount),
       dueDate: dueDateStr,
-      description: `Honorário ${typeLabels[honType] || honType} - Lead ${lead.name || 'Sem nome'}`.trim(),
+      description: labAvulsa
+        ? parcelaDoLab?.descricao ?? LAB_COBRANCA_AVULSA.descricao(honType, lead.name)
+        : `Honorário ${typeLabels[honType] || honType} - Lead ${lead.name || 'Sem nome'}`.trim(),
       externalReference: leadHonorarioPaymentId,
     }, effectiveTenantId);
 
@@ -1239,12 +1269,9 @@ export class PaymentGatewayService {
   private async sendPaymentOverdueEmail(charge: any): Promise<void> {
     try {
       if (!charge?.installment_id || !charge?.tenant_id) return;
-      // F2 [LAB-GATE] — "pagamento em atraso" é toque automático de cobrança (= régua,
-      // decisão do dono): cobrança de laboratório não manda. Clínica: só a leitura da lista.
-      if (await isLabTenant(this.prisma, charge.tenant_id, (m) => this.logger.warn(m))) {
-        this.logger.log(`[LAB-GATE] atraso-email — cobrança ${charge.id ?? '?'} é de laboratório: e-mail não sai`);
-        return;
-      }
+      // Laboratório: o e-mail "pagamento atrasado" só sai se a PRÓPRIA conta o ligou — quem
+      // confere é o EmailAutomationService.dispatch (conta de laboratório sem a linha do
+      // e-mail ligada não envia).
       const inst = await this.prisma.installment.findUnique({
         where: { id: charge.installment_id },
         select: { patient: { select: { name: true, email: true } } },
@@ -1477,6 +1504,169 @@ export class PaymentGatewayService {
     return { local: charge, gateway: asaasData };
   }
 
+  // ─── Cobrança avulsa do laboratório: uma cobrança por parcela ─
+
+  /**
+   * Cada parcela pendente da cobrança avulsa vira uma cobrança própria no Asaas, da conta
+   * do próprio laboratório, ligada à sua LeadHonorarioPayment: o pagamento de uma baixa
+   * só aquela parcela e a parcela paga ou cancelada não mexe nas outras. Só cria para a
+   * parcela sem cobrança viva, então gerar de novo completa o que faltou. Parou numa
+   * falha: devolve o que já saiu e o motivo; sem nada gerado, lança. Nada é enviado ao
+   * cliente daqui (o envio é ação do usuário).
+   */
+  private async gerarCobrancasDaAvulsaDoLab(
+    honorario: { id: string; type: string; lead: { id: string; name: string | null }; payments: Array<{ id: string; due_date: Date | null }> },
+    billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+    tenantId: string,
+  ) {
+    const cliente = await this.prisma.paymentGatewayCustomer.findFirst({
+      where: { lead_id: honorario.lead.id, gateway: 'ASAAS', tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!cliente) {
+      const doc = await this.prisma.lead.findUnique({ where: { id: honorario.lead.id }, select: { cpf_cnpj: true } });
+      if (!doc?.cpf_cnpj) throw new BadRequestException(LAB_COBRANCA_AVULSA.contatoSemDocumento);
+    }
+
+    // A numeração "parcela 2/3" conta todas, inclusive as já pagas.
+    const todas = await this.prisma.leadHonorarioPayment.findMany({
+      where: { lead_honorario_id: honorario.id },
+      orderBy: { due_date: 'asc' },
+      select: { id: true },
+    });
+    const ordem = new Map(todas.map((p, i) => [p.id, i + 1]));
+    // O Asaas não aceita vencimento no passado: parcela atrasada ou sem data vence hoje.
+    const hoje = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+
+    const parcelas: Array<{ id: string; criada: boolean; status: string; boleto_url: string | null; invoice_url: string | null }> = [];
+    let erro: string | null = null;
+    for (const p of honorario.payments) {
+      const venceEm = p.due_date ? new Date(p.due_date).toISOString().slice(0, 10) : '';
+      try {
+        const { charge, criada } = await this.cobrancaDaParcelaDoLab(p.id, billingType, tenantId, {
+          descricao: LAB_COBRANCA_AVULSA.descricaoDaParcela(honorario.type, honorario.lead.name, ordem.get(p.id) ?? 1, todas.length),
+          vencimento: new Date(`${venceEm >= hoje ? venceEm : hoje}T12:00:00.000Z`),
+        });
+        parcelas.push({ id: p.id, criada, status: charge.status, boleto_url: charge.boleto_url ?? null, invoice_url: charge.invoice_url ?? null });
+      } catch (e: any) {
+        const falha = e instanceof HttpException ? e : new BadRequestException(LAB_COBRANCA_AVULSA.erroNoAsaas(String(e?.message ?? e)));
+        if (!parcelas.length) throw falha;
+        erro = falha.message;
+        break;
+      }
+    }
+    return { criadas: parcelas.filter((p) => p.criada).length, parcelas, erro };
+  }
+
+  /**
+   * A cobrança de UMA parcela, com trava por parcela (clique duplo, duas abas, duas réplicas):
+   * a segunda chamada espera a primeira e devolve a cobrança dela. A transação existe só
+   * para segurar a trava, com o prazo acima do pior caso do Asaas; as leituras e gravações
+   * vão pelo cliente normal, para ficarem visíveis assim que a trava soltar. A cobrança
+   * ENCERRADA sai do vínculo (o registro e o rastro ficam) para a parcela ganhar outra.
+   */
+  private cobrancaDaParcelaDoLab(
+    paymentId: string,
+    billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+    tenantId: string,
+    dados: { descricao: string; vencimento: Date },
+  ): Promise<{ charge: any; criada: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${paymentId}), 2)`;
+      const atual = await this.prisma.paymentGatewayCharge.findUnique({ where: { lead_honorario_payment_id: paymentId } });
+      if (atual && situacaoDaCobrancaDaParcela(atual) !== 'ENCERRADA') return { charge: atual, criada: false };
+      if (atual) await this.prisma.paymentGatewayCharge.update({ where: { id: atual.id }, data: { lead_honorario_payment_id: null } });
+      const charge = await this.createChargeForLeadPayment(paymentId, billingType, tenantId, dados);
+      return { charge, criada: true };
+    }, { maxWait: 10_000, timeout: 120_000 });
+  }
+
+  /** O boleto em aberto com a referência desta parcela no Asaas da conta, se houver. */
+  private async boletoEmAbertoDaParcelaNoAsaas(paymentId: string, tenantId?: string | null): Promise<any | null> {
+    const r = await this.asaas.listCharges({ externalReference: paymentId }, tenantId);
+    const lista: any[] = Array.isArray(r?.data) ? r.data : [];
+    return lista.find((c) => !c.deleted && (c.status === 'PENDING' || c.status === 'OVERDUE')) ?? null;
+  }
+
+  /**
+   * A parcela do laboratório acompanha a cobrança dela (webhook e reconciliação passam por
+   * aqui): paga, atrasada ou, com a cobrança apagada ou estornada, aberta de novo. Não
+   * derruba o webhook: se falhar, a receita (ensureChargeReceita) ainda marca a parcela.
+   */
+  private async acompanharCobrancaNaParcelaDoLab(charge: any, status: string, paymentData: any): Promise<void> {
+    const id: string = charge.lead_honorario_payment_id;
+    try {
+      if (status === 'RECEIVED' || status === 'CONFIRMED') {
+        await this.prisma.leadHonorarioPayment.updateMany({
+          where: { id, status: { not: 'PAGO' } },
+          data: {
+            status: 'PAGO',
+            paid_at: paymentData?.paymentDate ? new Date(paymentData.paymentDate) : new Date(),
+            payment_method: this.mapBillingToCaixaMethod(charge.billing_type),
+          },
+        });
+      } else if (status === 'OVERDUE') {
+        await this.prisma.leadHonorarioPayment.updateMany({ where: { id, status: 'PENDENTE' }, data: { status: 'ATRASADO' } });
+      } else if (status === 'DELETED' || status === 'REFUNDED') {
+        const parcela = await this.prisma.leadHonorarioPayment.findUnique({ where: { id }, select: { due_date: true } });
+        const vencida = !!parcela?.due_date && new Date(parcela.due_date) < new Date();
+        await this.prisma.leadHonorarioPayment.updateMany({
+          where: { id, status: 'PAGO' },
+          data: { status: vencida ? 'ATRASADO' : 'PENDENTE', paid_at: null, payment_method: null },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`[WEBHOOK] Falha ao atualizar a parcela ${id} da cobrança avulsa: ${e?.message}`);
+    }
+  }
+
+  /**
+   * Cancela no Asaas, com rastro, a cobrança em aberto da parcela. Só segue sem erro se o
+   * Asaas confirmou (ou já não tinha a cobrança): quem exclui a parcela depois não deixa
+   * boleto vivo para trás. Sem cobrança ou com ela já encerrada, não faz nada.
+   */
+  async cancelarCobrancaDaParcelaDoLab(
+    paymentId: string,
+    tenantId: string,
+    opts: { userId?: string | null; reason: string },
+  ): Promise<void> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({ where: { lead_honorario_payment_id: paymentId } });
+    if (!charge || situacaoDaCobrancaDaParcela(charge) === 'ENCERRADA') return;
+    if (situacaoDaCobrancaDaParcela(charge) === 'PAGA') throw new BadRequestException(LAB_COBRANCA_AVULSA.boletoJaPago);
+    await this.deleteCharge(charge.external_id, tenantId, { ...opts, exigirConfirmacaoDoAsaas: true });
+  }
+
+  /**
+   * Parcela com boleto em aberto marcada como paga por fora: dá baixa no boleto no Asaas
+   * (sem isso o cliente ainda poderia pagá-lo) e lança a receita pelo caminho de sempre,
+   * que também marca a parcela. Se o Asaas não responder, nada muda aqui. Já pago lá: só
+   * reflete o pagamento (webhook perdido).
+   */
+  async baixarCobrancaDaParcelaDoLab(
+    paymentId: string,
+    tenantId: string,
+    opts: { userId?: string | null; paymentMethod?: string },
+  ): Promise<void> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({ where: { lead_honorario_payment_id: paymentId } });
+    if (!charge) throw new NotFoundException(LAB_COBRANCA_AVULSA.parcelaNaoEncontrada);
+    await this.assertClinicReceiptAllowed(charge.external_id);
+    const remoto = await this.asaas.getCharge(charge.external_id, tenantId);
+    const bloqueio = motivoBloqueioBaixa({ status: remoto?.status, deleted: remoto?.deleted });
+    if (bloqueio) throw new BadRequestException(bloqueio);
+    const mapeado = ASAAS_STATUS_MAP[remoto.status] || remoto.status;
+    if (mapeado === 'RECEIVED' || mapeado === 'CONFIRMED') {
+      await this.handleWebhook({ event: 'PAYMENT_' + remoto.status, payment: remoto }, { silent: true });
+      return;
+    }
+    const hoje = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+    await this.asaas.receiveInCash(charge.external_id, hoje, Number(remoto.value ?? charge.amount), tenantId);
+    await this.registerClinicReceipt(charge.external_id, {
+      paymentMethod: opts.paymentMethod,
+      userId: opts.userId ?? undefined,
+      origem: 'cobranca-avulsa',
+    });
+  }
+
   // ─── Cobrança parcelada (Asaas installment) ────────────
 
   async createInstallmentCharge(
@@ -1496,12 +1686,21 @@ export class PaymentGatewayService {
       },
     });
 
+    // Laboratório: mesma cobrança, com os nomes e a conta Asaas dele (só a leitura da lista de
+    // laboratórios para a clínica).
+    const labAvulsa = await isLabTenant(this.prisma, tenantId ?? honorario?.tenant_id, (m) => this.logger.warn(m));
+
     // Anti-IDOR: honorário (ou, no legado sem tenant, o lead) de outra clínica → 404.
     if (!honorario || deOutraClinica(honorario.tenant_id ?? honorario.lead?.tenant_id, tenantId)) {
-      throw new NotFoundException('Honorário negociado não encontrado');
+      throw new NotFoundException(labAvulsa ? LAB_COBRANCA_AVULSA.naoEncontrada : 'Honorário negociado não encontrado');
     }
-    if (!honorario.lead?.id) throw new BadRequestException('Lead não vinculado');
-    if (honorario.payments.length === 0) throw new BadRequestException('Nenhuma parcela pendente');
+    if (labAvulsa && !tenantId) throw new NotFoundException(LAB_COBRANCA_AVULSA.naoEncontrada);
+    if (!honorario.lead?.id) throw new BadRequestException(labAvulsa ? LAB_COBRANCA_AVULSA.contatoNaoEncontrado : 'Lead não vinculado');
+    if (honorario.payments.length === 0) {
+      throw new BadRequestException(labAvulsa ? LAB_COBRANCA_AVULSA.semParcelaPendente : 'Nenhuma parcela pendente');
+    }
+    // Laboratório: uma cobrança por parcela (sem carnê).
+    if (labAvulsa) return this.gerarCobrancasDaAvulsaDoLab(honorario, billingType, tenantId as string);
 
     // Verificar se já existem cobranças para essas parcelas
     const paymentIds = honorario.payments.map(p => p.id);
@@ -1509,7 +1708,9 @@ export class PaymentGatewayService {
       where: { lead_honorario_payment_id: { in: paymentIds } },
     });
     if (existingCharges.length > 0) {
-      throw new BadRequestException(`Já existem ${existingCharges.length} cobrança(s) gerada(s) para este honorário`);
+      throw new BadRequestException(
+        `Já existem ${existingCharges.length} cobrança(s) gerada(s) para este honorário`,
+      );
     }
 
     // Garantir customer no Asaas
@@ -1813,6 +2014,11 @@ export class PaymentGatewayService {
           : {}),
       },
     });
+
+    // Laboratório: a parcela da cobrança avulsa acompanha o status gravado acima.
+    if (lab && charge.lead_honorario_payment_id) {
+      await this.acompanharCobrancaNaParcelaDoLab(charge, updatedCharge.status, paymentData);
+    }
 
     // Onda 18.x — CORREÇÃO: o dinheiro só entra no CAIXA quando o Asaas
     // efetivamente COMPENSA/RECEBE (status RECEIVED), NÃO em CONFIRMED. Pro
@@ -2235,7 +2441,7 @@ export class PaymentGatewayService {
   async deleteCharge(
     externalId: string,
     callerTenantId?: string | null,
-    opts?: { userId?: string | null; reason?: string | null },
+    opts?: { userId?: string | null; reason?: string | null; exigirConfirmacaoDoAsaas?: boolean },
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
@@ -2336,6 +2542,17 @@ export class PaymentGatewayService {
             throw new BadRequestException(
               'Esta cobrança consta PAGA no Asaas — não pode ser apagada (o valor já entrou).',
             );
+          }
+          // Parcela da cobrança avulsa do laboratório: o boleto não pode ficar vivo no Asaas
+          // com a parcela excluída aqui. Sem a confirmação, desfaz e recusa.
+          if (opts?.exigirConfirmacaoDoAsaas) {
+            await this.prisma.paymentGatewayCharge.update({
+              where: { id: charge.id },
+              data: alreadyCancelled
+                ? { status: charge.status }
+                : { status: charge.status, cancelled_at: null, cancelled_by_user_id: null, cancelled_by_name: null, cancel_reason: null },
+            });
+            throw new BadRequestException(LAB_COBRANCA_AVULSA.asaasNaoConfirmouCancelamento);
           }
           asaasSynced = false;
           this.logger.warn(
@@ -2483,6 +2700,13 @@ export class PaymentGatewayService {
         lead_honorario_payment_id: null,
         paid_at: { gte: since },
       };
+      // Laboratório: a parcela da cobrança avulsa tem a receita por este caminho, então
+      // entra na cura. Sem laboratório o where é o de sempre.
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) {
+        delete where.lead_honorario_payment_id;
+        where.OR = [{ lead_honorario_payment_id: null }, { tenant_id: { in: [...labs] } }];
+      }
       const count = await this.prisma.paymentGatewayCharge.count({ where });
       if (count === 0) return;
       // Offset rotativo (igual reconcile): se um lote falha sempre (dado ruim / getCharge
@@ -2962,12 +3186,13 @@ export class PaymentGatewayService {
             instance_name: finInstance ?? null,
             tenant_id: tenantId,
             last_message_at: new Date(),
-            ...(nasceDeLab ? { ai_mode: false } : {}),
+            // Laboratório: IA ligada só com o chip Financeiro ligado na conta.
+            ...(nasceDeLab ? { ai_mode: await chipDoLabComIa(this.prisma, tenantId, 'FINANCEIRO') } : {}),
           },
           select: { id: true, instance_name: true },
         });
         if (nasceDeLab) {
-          this.logger.log(`[LAB-GATE] financeiro — conversa ${created.id} de laboratório nasce com ai_mode=false`);
+          this.logger.log(`[LAB-GATE] financeiro — conversa ${created.id} de laboratório nasceu`);
         }
         this.logger.log(`[FINANCEIRO] Conversa própria criada pro lead ${leadId}: ${created.id}`);
         return created;
@@ -3027,6 +3252,11 @@ export class PaymentGatewayService {
     // Laboratório: a confirmação sai igual (texto neutro), só sem palavra de clínica
     // na descrição. Clínica: só a leitura da lista de laboratórios (cache de 60 s).
     const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    // Conta de laboratório suspensa ou congelada: a baixa e o caixa seguem; o aviso não sai.
+    if (lab && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) {
+      this.logger.log(`[WEBHOOK] Conta de laboratório ${tenantId} suspensa — confirmação de pagamento não sai`);
+      return;
+    }
     if (tenantId) {
       const flag = await this.prisma.globalSetting.findUnique({
         where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` },
@@ -3038,7 +3268,9 @@ export class PaymentGatewayService {
     }
 
     const lead = gatewayCustomer.lead;
-    const firstName = (lead.name || 'Cliente').split(' ')[0];
+    const firstName = lab
+      ? primeiroNomeSemTitulo(lead.name) || NOME_PADRAO_DO_CLIENTE
+      : (lead.name || 'Cliente').split(' ')[0];
     const valor = Number(paymentData.value || charge?.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     // A descrição vem do Asaas — e é a NOSSA, que carrega a tag interna
     // [plan:{uuid}] pra ligar cobrança↔plano. Sem limpar, o paciente lia
@@ -3222,7 +3454,14 @@ export class PaymentGatewayService {
       (charge as any)?.tenant_id || (lead as any)?.tenant_id || null,
       (m) => this.logger.warn(m),
     );
-    const firstName = (lead.name || 'Cliente').split(' ')[0];
+    // Conta de laboratório suspensa ou congelada: o aviso não sai.
+    if (lab && !(await contaDoLabPodeEnviar(this.prisma, (charge as any)?.tenant_id || (lead as any)?.tenant_id))) {
+      this.logger.log(`[WEBHOOK] Conta de laboratório suspensa — aviso de ${status} não sai (customer ${customerId})`);
+      return;
+    }
+    const firstName = lab
+      ? primeiroNomeSemTitulo(lead.name) || NOME_PADRAO_DO_CLIENTE
+      : (lead.name || 'Cliente').split(' ')[0];
     const valor = Number(paymentData.value || charge.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     // Mesma limpeza da confirmação: a tag [plan:{uuid}] é interna, não vai pro paciente.
     const { stripInternalTags } = await import('@crm/shared');
@@ -3302,8 +3541,8 @@ export class PaymentGatewayService {
             instance_name: finInstance ?? null,
             last_message_at: new Date(),
             ...(notifyTenantId ? { tenant_id: notifyTenantId } : {}),
-            // Laboratório: nasce com a IA desligada, como a do Financeiro acima.
-            ...(lab ? { ai_mode: false } : {}),
+            // Laboratório: a mesma regra da conversa do Financeiro acima.
+            ...(lab ? { ai_mode: await chipDoLabComIa(this.prisma, notifyTenantId, 'FINANCEIRO') } : {}),
           },
         });
         lastConvo = { id: newConvo.id, instance_name: finInstance ?? null };

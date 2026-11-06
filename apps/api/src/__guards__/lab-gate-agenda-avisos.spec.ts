@@ -118,6 +118,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -176,6 +179,19 @@ describe('Resumo diário do dentista (cron) — o laboratório recebe o resumo d
     const m = montar([LAB]);
     await m.svc.checkDentistDailySummary();
     expect(m.agenda.sendDentistDailySummaryNow.mock.calls).toEqual([[CLINICA], [LAB], [OUTRA_CLINICA]]);
+  });
+
+  it('laboratório com a conta suspensa: o resumo dele não sai; as clínicas seguem', async () => {
+    const b = banco([LAB], {
+      'globalSetting.findMany': () => [
+        { key: `DENTIST_DAILY_SUMMARY_${CLINICA}`, value: cfg },
+        { key: `DENTIST_DAILY_SUMMARY_${LAB}`, value: cfg },
+      ],
+      'conta.status': () => 'SUSPENDED',
+    });
+    const agenda = { sendDentistDailySummaryNow: jest.fn(async () => ({ total: 1, results: [] })) };
+    await new CalendarCronService(b.prisma, {} as any, agenda as any).checkDentistDailySummary();
+    expect(agenda.sendDentistDailySummaryNow.mock.calls).toEqual([[CLINICA]]);
   });
 
   it('laboratório com o resumo desligado (o padrão gravado): não é disparado', async () => {
@@ -328,6 +344,23 @@ describe('Aniversário (cron) — laboratório só manda a mensagem clássica', 
       ['envia', CLINICA, 1],
       ['marca', OUTRA_CLINICA, { last_run_date: '2026-10-21' }],
       ['envia', OUTRA_CLINICA, 1],
+    ]);
+  });
+
+  it('laboratório com a conta suspensa: não envia nem marca a data do dia; as clínicas seguem', async () => {
+    const b = banco([LAB], {
+      'globalSetting.findMany': () => [CLINICA, LAB].map((t) => ({ key: `BIRTHDAY_GREETING_${t}`, value: cfg })),
+      'conta.status': () => 'DELETED',
+    });
+    const chamadas: any[] = [];
+    const agenda = {
+      setBirthdayGreetingConfig: jest.fn(async (...a: any[]) => chamadas.push(['marca', ...a])),
+      sendBirthdayGreetingsNow: jest.fn(async (...a: any[]) => chamadas.push(['envia', ...a])),
+    };
+    await new CalendarCronService(b.prisma, {} as any, agenda as any).checkBirthdayGreetings();
+    expect(chamadas).toEqual([
+      ['marca', CLINICA, { last_run_date: '2026-10-21' }],
+      ['envia', CLINICA, 1],
     ]);
   });
 

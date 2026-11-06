@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { excludeLabWhere, getLabTenantIds, isLabTenant, type Prisma } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { FollowupService } from '../followup/followup.service';
-import { negarLaboratorio } from '../common/lab-gate.util';
+import { LAB_AUTOMACAO_ERROS } from './lab-automacoes-textos';
 
 /**
  * Regra de uma clínica só age nas conversas dela; regra global (sem tenant) vale
@@ -40,30 +40,55 @@ export class AutomationsService {
   }
 
   async create(data: { name: string; trigger: string; action: string; action_value: string; tenant_id?: string }) {
+    await this.conferirSequencia(data.action, data.action_value, data.tenant_id);
     return this.prisma.automationRule.create({ data });
   }
 
   async update(id: string, data: { name?: string; trigger?: string; action?: string; action_value?: string; enabled?: boolean }, tenantId?: string) {
-    await this.recusarRegraDeClinica(id, tenantId);
-    return this.prisma.automationRule.update({ where: { id }, data });
+    const regra = await this.regraDaConta(id, tenantId);
+    // Ligar e desligar não passa pela conferência: só muda o alvo quem muda ação ou valor.
+    if (data.action !== undefined || data.action_value !== undefined) {
+      await this.conferirSequencia(data.action ?? regra.action, data.action_value ?? regra.action_value, tenantId);
+    }
+    // Lista fechada: conta e id da regra não mudam por esta rota.
+    const { name, trigger, action, action_value, enabled } = data;
+    return this.prisma.automationRule.update({ where: { id }, data: { name, trigger, action, action_value, enabled } });
   }
 
   async remove(id: string, tenantId?: string) {
-    await this.recusarRegraDeClinica(id, tenantId);
+    await this.regraDaConta(id, tenantId);
     await this.prisma.automationRule.delete({ where: { id } });
     return { ok: true };
   }
 
   /**
-   * F2 [LAB-GATE] — ADMIN de laboratório só edita/apaga regra da própria conta: a
-   * global (sem conta) e a de outra conta são de clínica. Clínica: só a leitura
-   * cacheada, nada mais é lido.
+   * A regra que quem chama pode editar ou apagar: a da própria conta e, na clínica, a
+   * global (é a que a tela lista). Regra de outra conta responde como inexistente; no
+   * laboratório a global também (ela é das clínicas).
    */
-  private async recusarRegraDeClinica(id: string, tenantId?: string): Promise<void> {
+  private async regraDaConta(id: string, tenantId?: string) {
+    const regra = await this.prisma.automationRule.findUnique({
+      where: { id },
+      select: { tenant_id: true, action: true, action_value: true },
+    });
+    if (!regra) throw new NotFoundException('Regra de automação não encontrada');
+    const globalNaClinica = !regra.tenant_id && !(await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)));
+    if (tenantId && regra.tenant_id !== tenantId && !globalNaClinica) throw new NotFoundException('Regra de automação não encontrada');
+    return regra;
+  }
+
+  /**
+   * A regra que inicia sequência aponta para sequência da própria conta. Clínica: também
+   * vale a global; valor que não é sequência conhecida segue como antes (o envio ignora).
+   */
+  private async conferirSequencia(action: string, actionValue: string, tenantId?: string): Promise<void> {
+    if (action !== 'ENROLL_FOLLOWUP' || !tenantId) return;
+    const seq = await this.prisma.followupSequence.findUnique({ where: { id: actionValue }, select: { tenant_id: true } });
     if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-      const regra = await this.prisma.automationRule.findUnique({ where: { id }, select: { tenant_id: true } });
-      if (regra?.tenant_id !== tenantId) throw negarLaboratorio('Regra de automação de clínica');
+      if (seq?.tenant_id !== tenantId) throw new BadRequestException(LAB_AUTOMACAO_ERROS.sequenciaDeOutraConta);
+      return;
     }
+    if (seq?.tenant_id && seq.tenant_id !== tenantId) throw new BadRequestException('Escolha uma sequência de follow-up desta clínica.');
   }
 
   /**
@@ -248,18 +273,33 @@ export class AutomationsService {
       where: { trigger: 'NO_RESPONSE_48H', enabled: true },
     });
 
-    // F2 [LAB-GATE] — conversa de laboratório não entra (ENROLL_FOLLOWUP poria o contato
-    // numa sequência que envia mensagem; tarefa, nota e etapa são de clínica). Olha a
-    // conversa E o contato dela (a conversa legada pode não ter conta). Clínica: sem
-    // laboratório o where é o mesmo objeto; com laboratório, a conversa sem conta
-    // (tenant_id NULL) de contato de clínica continua entrando.
+    // Laboratório: a conversa dele só entra se a PRÓPRIA conta tem regra ligada para o
+    // gatilho (a regra é o opt-in; ENROLL_FOLLOWUP ainda exige sequência da conta e
+    // ligada). Conversa de laboratório sem regra própria não entra. Regra de laboratório
+    // vale só na conversa dele; regra global ou de outra conta nunca atinge conversa de
+    // laboratório. Clínica: sem laboratório o where é o mesmo objeto; com laboratório, a
+    // conversa sem conta (tenant_id NULL) de contato de clínica continua entrando.
     const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (labs.size) this.logger.log(`[LAB-GATE] no-response — ${labs.size} laboratório(s) fora da busca`);
+    const comRegraPropria = new Set<string>();
+    for (const r of [...rules24, ...rules48]) if (r.tenant_id && labs.has(r.tenant_id)) comRegraPropria.add(r.tenant_id);
+    const labsFora: ReadonlySet<string> = comRegraPropria.size ? new Set([...labs].filter((id) => !comRegraPropria.has(id))) : labs;
+    if (labsFora.size) this.logger.log(`[LAB] no-response — ${labsFora.size} laboratório(s) sem regra própria fora da busca`);
     const foraDoLab = (where: Prisma.ConversationWhereInput): Prisma.ConversationWhereInput =>
-      labs.size ? excludeLabWhere('conversation', { ...where, lead: excludeLabWhere('lead', {}, labs) }, labs) : where;
-    // Regra de laboratório só vale na conversa DELE — nunca na legada sem conta.
-    const vale = (rule: { tenant_id?: string | null }, conv: { tenant_id?: string | null }) =>
-      regraValeParaConversa(rule, conv) && !(rule.tenant_id && labs.has(rule.tenant_id) && conv.tenant_id !== rule.tenant_id);
+      labsFora.size ? excludeLabWhere('conversation', { ...where, lead: excludeLabWhere('lead', {}, labsFora) }, labsFora) : where;
+    // A conta da conversa: a dela e, na legada sem conta, a do contato.
+    const contaDaConversa = async (conv: { tenant_id?: string | null; lead_id?: string | null }): Promise<string | null> => {
+      if (conv.tenant_id) return conv.tenant_id;
+      if (!labs.size || !conv.lead_id) return null;
+      return (await this.prisma.lead.findUnique({ where: { id: conv.lead_id }, select: { tenant_id: true } }))?.tenant_id ?? null;
+    };
+    const vale = async (rule: { tenant_id?: string | null }, conv: { tenant_id?: string | null; lead_id?: string | null }) => {
+      if (!regraValeParaConversa(rule, conv)) return false;
+      // Sem laboratório com regra própria, nenhum laboratório está na busca: nada a conferir.
+      if (!comRegraPropria.size) return true;
+      const conta = await contaDaConversa(conv);
+      if (rule.tenant_id && labs.has(rule.tenant_id)) return conta === rule.tenant_id;
+      return !(conta && labs.has(conta));
+    };
 
     if (rules24.length > 0) {
       // Conversations last active between 25h and 24h ago (1-hour window to avoid re-triggering)
@@ -272,7 +312,7 @@ export class AutomationsService {
       });
       for (const conv of convs) {
         for (const rule of rules24) {
-          if (!vale(rule, conv)) continue;
+          if (!(await vale(rule, conv))) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }
@@ -289,7 +329,7 @@ export class AutomationsService {
       });
       for (const conv of convs) {
         for (const rule of rules48) {
-          if (!vale(rule, conv)) continue;
+          if (!(await vale(rule, conv))) continue;
           await this.executeAction(rule, { conversationId: conv.id, leadId: conv.lead_id ?? undefined });
         }
       }

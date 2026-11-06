@@ -339,7 +339,7 @@ export default function ProceduresSettingsPage() {
                           onPriceUpdate={load}
                           onEdit={() => setEditing(p)}
                           onDelete={() => handleDelete(p)}
-                          onMateriais={lab ? undefined : () => setMateriaisDe(p)}
+                          onMateriais={() => setMateriaisDe(p)}
                         />
                       ))}
                     </tbody>
@@ -394,7 +394,7 @@ function ProcedureRow({
   onPriceUpdate: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  /** Abre "Materiais" (estoque que o procedimento gasta). Ausente = sem o botão (laboratório). */
+  /** Abre "Materiais" (estoque que o procedimento gasta). Ausente = sem o botão. */
   onMateriais?: () => void;
 }) {
   const qtdMateriais = p._count?.consumables ?? 0;

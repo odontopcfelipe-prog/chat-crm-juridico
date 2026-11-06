@@ -6,11 +6,13 @@
  * pelo tipo de negócio e repassa as mesmas props (mais o endereço da ficha).
  *
  * Mostra nome e e-mail (editáveis), telefone, atendente, notas internas e histórico.
+ * Seção "Cobranças avulsas" (LabCobrancaAvulsa): o valor combinado com o cliente, em
+ * parcelas, que vira boleto na conta Asaas do próprio laboratório.
  * Ações: "Ver ficha do cliente" (quando o contato já tem cadastro), "Tornar cliente"
  * (cadastra em Dentistas com a regra do cadastro manual: sem etapa, setor, IA nem
  * mensagem), "Abrir no chat" e "Excluir contato" (só administrador).
  * Fica de fora o que é da clínica: memória da IA, banco de documentos e pasta do
- * Drive, honorários, ficha trabalhista, casos jurídicos e cobrança parcelada.
+ * Drive, ficha trabalhista e casos jurídicos.
  *
  * Só o laboratório monta este componente, então todo texto visível vem de
  * lab-contato-textos.ts. O spec lab-arquivos-do-lab confere que nenhum texto daqui
@@ -42,8 +44,9 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { formatPhone } from '@/lib/utils';
-import { CRM_STAGES } from '@/lib/crmStages';
+import { rotuloEtapaLab } from '@/lib/lab-etapa';
 import { LAB_CONTATO } from '@/app/atendimento/components/lab-contato-textos';
+import { LabCobrancaAvulsa } from '@/components/LabCobrancaAvulsa';
 
 export interface LabClientPanelProps {
   leadId: string;
@@ -114,7 +117,7 @@ function conversaMaisRecente(conversas?: ConversaDoContato[]): ConversaDoContato
 /** Nome da etapa como o chat mostra (crmStages); valor desconhecido aparece como veio. */
 function rotuloDaEtapa(etapa?: string | null): string {
   if (!etapa) return '';
-  return CRM_STAGES.find((s) => s.id === etapa)?.label ?? etapa;
+  return rotuloEtapaLab(etapa);
 }
 
 function dataCurta(iso: string): string {
@@ -634,6 +637,9 @@ export function LabClientPanel({
                 </div>
               )}
             </Secao>
+
+            {/* Cobranças avulsas */}
+            <LabCobrancaAvulsa leadId={leadId} />
           </div>
         )}
 

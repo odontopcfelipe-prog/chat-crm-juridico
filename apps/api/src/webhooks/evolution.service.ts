@@ -10,11 +10,13 @@ import { InboxesService } from '../inboxes/inboxes.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { FollowupService } from '../followup/followup.service';
 import { AdminBotService } from '../admin-bot/admin-bot.service';
+import { LAB_MOTIVO_CONTATO_RESPONDEU } from '../followup/lab-followup-textos';
 import { MediaDownloadService } from '../media/media-download.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { PostCareService } from '../post-care/post-care.service';
 import {
   aiEnabledKey,
+  contaDoLabLiberaIa,
   aiProfileKey,
   isAiChipPurpose,
   normalizeAiChipProfile,
@@ -26,6 +28,9 @@ import {
   NAO_PACIENTE_ANEXO_JANELA_MS,
   getLabTenantIds,
   algumLab,
+  chipDoLabComIa,
+  contaDoLabPodeEnviar,
+  contaUnicaDaConversa,
 } from '@crm/shared';
 import { clinicTransferBlockReason } from '../leads/clinic-transfer-guard';
 import { lerConfigDaClinica } from '../settings/config-da-clinica';
@@ -241,19 +246,28 @@ export class EvolutionService implements OnApplicationBootstrap {
         const sessionKey = `${instanceName}:${phone}`;
         if (this.adminBotService.isAdminCommand(sessionKey, messageContentCheck)) {
           const adminUser = await this.adminBotService.findAdminByPhone(phone, effectiveTenantId);
-          // F2 [LAB-GATE] — laboratório não tem robô de admin: a mensagem segue como a
-          // de qualquer contato (igual ao robô desligado).
+          // Laboratório: o robô só atende ADMIN da própria conta (dona do chip), com o
+          // texto e as ferramentas de laboratório, e só com a conta ativa (a chave da IA é
+          // compartilhada). Quem mais escrever segue como contato.
           const roboDeLab = !!adminUser && (await this.contaDeLaboratorio([effectiveTenantId, adminUser.tenant_id]));
-          if (roboDeLab) this.logger.log(`[LAB-GATE] admin-bot — mensagem de ${phone} em laboratório segue como contato`);
-          if (adminUser && instanceName && !roboDeLab) {
+          const roboBarrado =
+            roboDeLab &&
+            (!(effectiveTenantId && adminUser.tenant_id === effectiveTenantId && adminUser.roles?.includes('ADMIN')) ||
+              !(await contaDoLabLiberaIa(this.prisma, effectiveTenantId)));
+          if (roboBarrado) this.logger.log(`[LAB-GATE] admin-bot — mensagem de ${phone} em laboratório segue como contato`);
+          if (adminUser && instanceName && !roboBarrado) {
             this.logger.log(`[ADMIN-BOT] Comando do admin ${phone} interceptado: "${messageContentCheck.substring(0, 60)}"`);
-            await this.adminBotService.handle(
+            await (roboDeLab
+              ? this.adminBotService.handle(instanceName, phone, messageContentCheck, adminUser.id, adminUser.tenant_id, {
+                  laboratorio: true,
+                })
+              : this.adminBotService.handle(
               instanceName,
               phone,
               messageContentCheck,
               adminUser.id,
               adminUser.tenant_id,
-            ).catch((err) => this.logger.error(`[ADMIN-BOT] Erro ao processar comando: ${err.message}`));
+            )).catch((err) => this.logger.error(`[ADMIN-BOT] Erro ao processar comando: ${err.message}`));
             continue; // Não processar como mensagem de cliente
           }
         }
@@ -413,14 +427,16 @@ export class EvolutionService implements OnApplicationBootstrap {
         //    duplicar (ou quebrar o webhook), o PERDEDOR da corrida (P2002) REUSA a
         //    conversa que o outro acabou de criar. É o fim do "2 conversas same-instance".
         if (!conv) {
-          // F5 [LAB-GATE] — conversa nova de laboratório nasce com a IA desligada
-          // (ai_mode=false): lá a IA não responde, e com ai_mode=true a conversa
-          // aparecia como do robô, fora das filas Minhas/Espera da equipe. Clínica:
-          // a conta não está na lista de laboratórios (cache de 60 s) e o create
-          // leva os mesmos campos de antes (ai_mode fica no padrão do banco).
+          // F5 [LAB-GATE] — conversa nova de laboratório só nasce com a IA ligada se o chip
+          // dela está ligado na conta (e a conta em ACTIVE). Clínica: a conta não está na
+          // lista de laboratórios (cache de 60 s) e o create leva os mesmos campos de
+          // antes (ai_mode fica no padrão do banco).
           const nasceDeLab = await this.contaDeLaboratorio([effectiveTenantId, lead.tenant_id]);
+          const iaNaConversaDeLab = nasceDeLab
+            ? await chipDoLabComIa(this.prisma, effectiveTenantId || lead.tenant_id, (inbox as any)?.purpose)
+            : false;
           if (nasceDeLab) {
-            this.logger.log(`[LAB-GATE] conversa-nova — contato ${lead.id} de laboratório: conversa nasce com ai_mode=false`);
+            this.logger.log(`[LAB-GATE] conversa-nova — contato ${lead.id} de laboratório: conversa nasce com ai_mode=${iaNaConversaDeLab}`);
           }
           try {
             conv = await this.prisma.conversation.create({
@@ -432,7 +448,7 @@ export class EvolutionService implements OnApplicationBootstrap {
                 inbox_id: inboxId,
                 instance_name: instanceName,
                 tenant_id: effectiveTenantId || lead.tenant_id,
-                ...(nasceDeLab ? { ai_mode: false } : {}),
+                ...(nasceDeLab ? { ai_mode: iaNaConversaDeLab } : {}),
               },
             });
           } catch (e: any) {
@@ -808,11 +824,15 @@ export class EvolutionService implements OnApplicationBootstrap {
             }
           }
         }
-        // F2 [LAB-GATE] — laboratório não tem IA, seja qual for a chave. Clínica: nenhum
-        // id casa e vale a decisão acima.
+        // Laboratório: vale só a chave do chip na própria conta, com a conta em ACTIVE; a
+        // herança da global não entra. Clínica: nenhum id casa e vale a decisão acima.
         if (aiEnabled && (await this.contaDeLaboratorio([convTenantId, conv.tenant_id, lead.tenant_id, chipTenantId]))) {
-          aiEnabled = false;
-          this.logger.log(`[LAB-GATE] ai — conv ${conv.id} é de laboratório: a IA não responde`);
+          aiEnabled = await chipDoLabComIa(
+            this.prisma,
+            contaUnicaDaConversa([convTenantId, conv.tenant_id, lead.tenant_id, chipTenantId]),
+            chipPurpose,
+          );
+          if (!aiEnabled) this.logger.log(`[LAB-GATE] ai — conv ${conv.id} é de laboratório sem a IA ligada: não responde`);
         }
         if (!aiEnabled) {
           this.logger.log(
@@ -989,6 +1009,8 @@ export class EvolutionService implements OnApplicationBootstrap {
 
     const toggle = await this.prisma.globalSetting.findUnique({ where: { key: naoPacienteTriageKey(tenantId) } });
     if (toggle?.value !== 'true') return;
+    // Conta de laboratório suspensa ou congelada: o arquivo fica na conversa e não é encaminhado.
+    if ((await this.contaDeLaboratorio([tenantId])) && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) return;
 
     // Quem recebe: números da Central + ADMs com "Contato não-paciente" ligado no
     // cadastro da equipe, menos quem desligou (regra única do @crm/shared).
@@ -1254,6 +1276,15 @@ export class EvolutionService implements OnApplicationBootstrap {
       orderBy: { enrolled_at: 'desc' },
     });
     if (!enrollment) return;
+    // Laboratório: sem a análise da resposta (prompt de outro ramo e gasto da chave compartilhada).
+    // O contato respondeu: a sequência para e a conversa fica com a equipe.
+    if (await this.contaDeLaboratorio([enrollment.lead?.tenant_id])) {
+      await this.prisma.followupEnrollment.update({
+        where: { id: enrollment.id },
+        data: { status: 'PAUSADO', paused_reason: LAB_MOTIVO_CONTATO_RESPONDEU },
+      });
+      return;
+    }
 
     this.logger.log(
       `[FOLLOWUP-LISTENER] Resposta recebida do lead ${leadId} em sequência "${enrollment.sequence.name}"`,
@@ -1859,12 +1890,15 @@ export class EvolutionService implements OnApplicationBootstrap {
             },
           });
         } else {
-          // F5 [LAB-GATE] — conversa nova do resync de um chip de laboratório nasce com
-          // ai_mode=false, como a do webhook de mensagem. Clínica: a conta não está na
-          // lista de laboratórios (cache de 60 s) e o create leva os mesmos campos.
+          // F5 [LAB-GATE] — conversa nova do resync de um chip de laboratório: a mesma regra
+          // da conversa nova do webhook. Clínica: a conta não está na lista de laboratórios
+          // (cache de 60 s) e o create leva os mesmos campos.
           const nasceDeLab = await this.contaDeLaboratorio([tenantId, lead.tenant_id]);
+          const iaNaConversaDeLab = nasceDeLab
+            ? await chipDoLabComIa(this.prisma, tenantId || lead.tenant_id, (inbox as any)?.purpose)
+            : false;
           if (nasceDeLab) {
-            this.logger.log(`[LAB-GATE] resync — contato ${lead.id} de laboratório: conversa nasce com ai_mode=false`);
+            this.logger.log(`[LAB-GATE] resync — contato ${lead.id} de laboratório: conversa nasce com ai_mode=${iaNaConversaDeLab}`);
           }
           try {
             conv = await this.prisma.conversation.create({
@@ -1877,7 +1911,7 @@ export class EvolutionService implements OnApplicationBootstrap {
                 instance_name: instanceName,
                 tenant_id: tenantId,
                 last_message_at: lastMsgTs ? new Date(lastMsgTs) : new Date(),
-                ...(nasceDeLab ? { ai_mode: false } : {}),
+                ...(nasceDeLab ? { ai_mode: iaNaConversaDeLab } : {}),
               },
             });
           } catch (e: any) {

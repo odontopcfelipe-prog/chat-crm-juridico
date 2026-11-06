@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import type { DashboardData, LeadFunnelData, TimeSeriesPoint } from '../types';
+import { LAB_PAINEL } from '../lab-painel-textos';
 
 /* ─── Stat Card inline (evita dependencia circular) ─── */
 
@@ -65,6 +66,8 @@ interface Props {
   data: DashboardData;
   aggressive?: boolean;
   funnel?: LeadFunnelData | null;
+  /** Laboratório: sem o cartão "Processos" (contagem do painel de escritório). */
+  lab?: boolean;
 }
 
 /* ─── Helpers ─── */
@@ -77,14 +80,14 @@ function conversionColor(rate: number): string {
 
 /* ─── Component ─── */
 
-export function StatsGrid({ data, aggressive, funnel }: Props) {
+export function StatsGrid({ data, aggressive, funnel, lab }: Props) {
   // Default grid for roles without aggressive dashboard
   if (!aggressive) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <AggressiveCard
           icon={UserCheck}
-          label="Leads em Atendimento"
+          label={lab ? LAB_PAINEL.contatosEmAtendimento : 'Leads em Atendimento'}
           value={data.leadsInService}
           color="text-blue-500 bg-blue-500/10"
           trendColor="#3b82f6"
@@ -123,7 +126,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
       {/* Row 1 */}
       <AggressiveCard
         icon={UserCheck}
-        label="Leads em Atendimento"
+        label={lab ? LAB_PAINEL.contatosEmAtendimento : 'Leads em Atendimento'}
         value={data.leadsInService}
         color="text-blue-400 bg-blue-500/10"
         trendColor="#60a5fa"
@@ -131,7 +134,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
       />
       <AggressiveCard
         icon={Users}
-        label="Leads Geral"
+        label={lab ? LAB_PAINEL.contatosGeral : 'Leads Geral'}
         value={data.leadsTotal}
         color="text-indigo-400 bg-indigo-500/10"
         trendColor="#818cf8"
@@ -139,7 +142,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
       />
       <AggressiveCard
         icon={UserCheck}
-        label="Leads Convertidos"
+        label={lab ? LAB_PAINEL.contatosConvertidos : 'Leads Convertidos'}
         value={funnel?.totalClients ?? 0}
         color="text-emerald-400 bg-emerald-500/10"
         trendColor="#34d399"
@@ -147,7 +150,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
       />
       <AggressiveCard
         icon={UserX}
-        label="Leads Perdidos"
+        label={lab ? LAB_PAINEL.contatosPerdidos : 'Leads Perdidos'}
         value={data.leadsLost}
         color="text-rose-400 bg-rose-500/10"
         trendColor="#fb7185"
@@ -173,6 +176,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
         large
         sub={data.tasks.overdue > 0 ? 'requer atencao!' : 'tudo em dia'}
       />
+      {!lab && (
       <AggressiveCard
         icon={BookOpen}
         label="Processos"
@@ -181,6 +185,7 @@ export function StatsGrid({ data, aggressive, funnel }: Props) {
         trendColor="#2dd4bf"
         sub={`${data.legalCases.total} em prepara\u00e7\u00e3o`}
       />
+      )}
     </div>
   );
 }

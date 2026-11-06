@@ -63,6 +63,9 @@ function banco(labs: string[], respostas: Record<string, (a: any) => any> = {}) 
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -98,7 +101,7 @@ function zap() {
 
 describe('Venda feita (aviso interno) — o laboratório com os nomes dele; a clínica igual', () => {
   const ITENS_SEM_NOME = [{ quantity: 2, procedure: null }, { quantity: 1, procedure: { name: 'Clareamento dental' } }];
-  function montar(conta: string, labs: string[], o: { ligado?: boolean; nomeConta?: string | null; itens?: any[] } = {}) {
+  function montar(conta: string, labs: string[], o: { ligado?: boolean; nomeConta?: string | null; itens?: any[]; status?: string } = {}) {
     const b = banco(labs, {
       'globalSetting.findUnique': ({ where }) =>
         where.key === `VENDA_FEITA_ENABLED_${conta}`
@@ -110,6 +113,7 @@ describe('Venda feita (aviso interno) — o laboratório com os nomes dele; a cl
       'treatmentPlanItem.findMany': () => o.itens ?? ITENS_SEM_NOME,
       'user.findFirst': () => ({ name: 'Vendedora Exemplo' }),
       'instance.findMany': () => [{ name: 'chip-fin', purpose: 'FINANCEIRO' }],
+      'conta.status': () => o.status,
     });
     const z = zap();
     const svc: any = new QuotesService(b.prisma, {} as any, z.whatsapp as any);
@@ -188,6 +192,12 @@ describe('Venda feita (aviso interno) — o laboratório com os nomes dele; a cl
       'auditLog.findFirst',
       { where: { entity: 'VENDA_FEITA', entity_id: `plano-${LAB}` }, select: { id: true } },
     ]);
+  });
+
+  it.each(['SUSPENDED', 'DELETED'])('laboratório %s: o aviso de venda não sai', async (status) => {
+    const m = montar(LAB, [LAB], { status });
+    await vender(m, LAB, 'Dr. Carlos Lima');
+    expect(m.envios).toEqual([]);
   });
 
   it('laboratório com nomes: o nome da conta e o do cliente como estão no cadastro', async () => {
@@ -304,7 +314,7 @@ describe('Resumo do dia (aviso interno) — o laboratório com os nomes dele; a 
   });
 
   describe('cron (todo minuto, no horário de cada conta)', () => {
-    function montarCron(labs: string[], contas: string[]) {
+    function montarCron(labs: string[], contas: string[], statusDaConta?: string) {
       const b = banco(labs, {
         'globalSetting.findMany': ({ where }) =>
           where.key?.startsWith === 'DAILY_SUMMARY_TIME_' ? contas.map((t) => ({ key: `DAILY_SUMMARY_TIME_${t}`, value: '12:00' })) : [],
@@ -315,6 +325,7 @@ describe('Resumo do dia (aviso interno) — o laboratório com os nomes dele; a 
               ? { value: NUMERO_DA_CENTRAL }
               : null,
         'instance.findMany': ({ where }) => [{ name: `chip-${where.tenant_id}`, purpose: 'FINANCEIRO' }],
+        'conta.status': () => statusDaConta,
       });
       const z = zap();
       const svc: any = new QuotesService(b.prisma, {} as any, z.whatsapp as any);
@@ -331,6 +342,13 @@ describe('Resumo do dia (aviso interno) — o laboratório com os nomes dele; a 
       expect(depois.envios).toEqual(antes.envios);
       expect(antes.envios).toEqual([{ tel: NUMERO_DA_CENTRAL, texto: `resumo de ${CLINICA}`, inst: `chip-${CLINICA}` }]);
       expect(depois.montarTexto.mock.calls).toEqual([[CLINICA, expect.any(Date), expect.any(Date), '20/10/2026', false]]);
+    });
+
+    it('laboratório com a conta suspensa: o resumo dele não sai; o da clínica segue', async () => {
+      const m = montarCron([LAB], [CLINICA, LAB], 'SUSPENDED');
+      await m.svc.cronDailySummary();
+      expect(m.montarTexto.mock.calls).toEqual([[CLINICA, expect.any(Date), expect.any(Date), '20/10/2026', false]]);
+      expect(m.envios.map((e) => e.inst)).toEqual([`chip-${CLINICA}`]);
     });
 
     it('laboratório: a mesma dedup do dia e o mesmo registro da clínica; o texto sai com lab = true', async () => {

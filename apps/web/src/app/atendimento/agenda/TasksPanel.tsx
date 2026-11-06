@@ -16,6 +16,7 @@ import { useRole } from '@/lib/useRole';
 // F7 do laboratório — a sugestão de próxima ação por IA não existe no laboratório.
 import { isLab } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_TAREFAS } from './lab-tarefas-textos';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ export function TasksPanel() {
     </head><body>
       <h1>Relatório de Tarefas</h1>
       <p>Gerado em ${new Date().toLocaleString('pt-BR')} · Total: ${stats.total} · A Fazer: ${stats.a_fazer} · Em Progresso: ${stats.em_progresso} · Concluídas: ${stats.concluida} · Vencidas: ${stats.vencidas}</p>
-      <table><thead><tr><th>Título</th><th>Status</th><th>Prazo</th><th>Responsável</th><th>Lead</th></tr></thead><tbody>${rows}</tbody></table>
+      <table><thead><tr><th>Título</th><th>Status</th><th>Prazo</th><th>Responsável</th><th>${lab ? LAB_TAREFAS.colunaContato : 'Lead'}</th></tr></thead><tbody>${rows}</tbody></table>
     </body></html>`);
     win.document.close();
     win.print();

@@ -16,6 +16,12 @@
 import type { MENSAGENS_API_CLINICA, MOLDES_API_CLINICA } from './mensagens-api-clinica';
 
 export const LAB_API_MESSAGES = Object.freeze({
+  iaTesteSemMensagem: 'Mande ao menos uma mensagem do contato no teste.',
+  iaTesteUltimaMensagem: 'A última mensagem do teste precisa ser do contato.',
+  iaTesteSemResposta: 'A IA não respondeu. Tente de novo em instantes.',
+  iaUsuarioSemConta: 'Usuário sem laboratório',
+  iaContaNaoEncontrada: 'Laboratório não encontrado',
+  iaNomeVazio: 'O nome do laboratório não pode ficar vazio.',
   pacienteNaoEncontrado: 'Cliente não encontrado',
   pacienteNaoEncontradoSemAcento: 'Cliente não encontrado',
   pacienteForaDaCarteira: 'Cliente fora da sua carteira',
@@ -89,6 +95,17 @@ export const LAB_API_MESSAGES = Object.freeze({
 
   tipoInvalidoDto: 'Tipo de agendamento inválido. Use Coleta, Prova, Entrega, Tarefa, Outro ou Bloqueio.',
   testeSemChip: 'Nenhum WhatsApp conectado neste laboratório. Conecte o WhatsApp primeiro.',
+
+  afiliadoSaqueNaoAfiliado: 'Este cliente não é afiliado ativo',
+  afiliadoNaoMarcado: 'Este cliente não está marcado como afiliado (use "Adicionar afiliado" na tela de Afiliados)',
+  afiliadoIndicadoNaoEncontrado: 'Cliente indicado não encontrado',
+  afiliadoPropostaOutroPaciente: 'Orçamento não encontrado para este cliente',
+  afiliadoSemValorAcertado: 'Informe o valor acertado do trabalho (sem juros)',
+  indicacaoOutraConta: 'Indicador e indicado devem ser clientes do mesmo laboratório',
+  indicadorInvalido: 'Cliente indicador inválido',
+  ga4SoAdmin: 'Configurar o Google Analytics — somente o administrador do laboratório.',
+  afiliadoVendaJaAceita: 'Orçamento já aceito — a comissão de indicação já foi creditada e não pode ser trocada',
+  afiliadoDaPropriaVenda: 'O cliente não pode ser afiliado da própria venda',
 } satisfies Record<keyof typeof MENSAGENS_API_CLINICA, string>);
 
 export const LAB_API_MOLDES = Object.freeze({
@@ -104,4 +121,7 @@ export const LAB_API_MOLDES = Object.freeze({
   devedorNaAgenda: 'Cliente com {1} boleto(s) em atraso ({2}). Regularize no Financeiro ou peça a um administrador para liberar.',
   edicaoSoStatus: 'Sem permissão para alterar: {1}. O protético pode mudar apenas o status do próprio evento.',
   testeNaoEnviou: 'Não enviou: {1}. Verifique se o WhatsApp do laboratório está conectado.',
+  afiliadoVendaNaoMarcado: '{1} não está marcado como afiliado (use "Adicionar afiliado" na tela de Afiliados)',
+  funilComContatos: 'Não é possível excluir: {1} contato(s) vinculado(s). Mova-os para outro funil primeiro.',
+  etapaComContatos: 'Não é possível excluir: {1} contato(s) nesta etapa. Mova-os para outra primeiro.',
 } satisfies Record<keyof typeof MOLDES_API_CLINICA, string>);

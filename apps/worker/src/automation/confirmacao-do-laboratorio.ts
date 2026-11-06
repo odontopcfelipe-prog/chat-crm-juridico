@@ -19,6 +19,7 @@ import {
   LAB_AGENDA_TEXTOS,
   TIPOS_AVISO_LAB,
   aplicarTextoDoLaboratorio,
+  contaDoLabPodeEnviar,
   enderecoDoCliente,
   tipoSoDoLaboratorio,
 } from '@crm/shared';
@@ -88,6 +89,7 @@ export async function agendarConfirmacoesDoLaboratorio(
   });
 
   const ligadaPorConta = new Map<string, boolean>();
+  const podeEnviarPorConta = new Map<string, boolean>();
   const textoPorConta = new Map<string, string>();
   const nomePorConta = new Map<string, string>();
 
@@ -102,6 +104,18 @@ export async function agendarConfirmacoesDoLaboratorio(
     }
     const telefone: string = ev.patient?.phone || ev.lead?.phone || '';
     if (!telefone) {
+      puladas++;
+      continue;
+    }
+
+    // Conta suspensa ou congelada: nem cria a confirmação. O evento de amanhã de uma conta
+    // que voltou a ficar ativa entra na rodada seguinte.
+    let podeEnviar = podeEnviarPorConta.get(conta);
+    if (podeEnviar === undefined) {
+      podeEnviar = await contaDoLabPodeEnviar(prisma, conta);
+      podeEnviarPorConta.set(conta, podeEnviar);
+    }
+    if (!podeEnviar) {
       puladas++;
       continue;
     }

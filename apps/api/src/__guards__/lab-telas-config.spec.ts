@@ -355,7 +355,7 @@ describe('telas de Ajustes — o laboratório vê o dele e o da plataforma, no m
 
   it('(c) laboratório: o dele ou o padrão do código; nada da configuração global das clínicas', async () => {
     const clinica = await telas([], ADMIN_CLINICA);
-    // o laboratório tem até um liga/desliga próprio: a IA dele segue desligada
+    // chave própria ligada, mas a conta aqui não está em ACTIVE: a IA dele segue desligada
     const { t, clicksign } = await telas([LAB], ADMIN_LAB, { [`${LAB}|AI_ENABLED_COMERCIAL`]: 'true' });
     expect(t.crm).toEqual({ saida: { stagnationDays: 3 }, ops: [gs(daConta('CRM_CONFIG', LAB))] });
     expect(t.respostas).toEqual({ saida: [], ops: [gs(daConta('CANNED_RESPONSES', LAB))] });
@@ -371,30 +371,31 @@ describe('telas de Ajustes — o laboratório vê o dele e o da plataforma, no m
       apiKey: null, isConfigured: true, isAdminKeyConfigured: true, isAnthropicKeyConfigured: true,
       defaultModel: 'gpt-4.1', djenModel: 'gpt-4.1-mini',
       djenPrompt: '', djenPromptIsCustom: false, djenNotifyTemplate: '', djenNotifyTemplateIsCustom: false,
-      adminBotEnabled: true, whatsappAiEnabled: false,
+      adminBotEnabled: false, whatsappAiEnabled: false,
       aiChip: { COMERCIAL: false, CLINICA: false, FINANCEIRO: false },
       cooldownSeconds: 8,
+      labIa: { contaAtiva: false },
     });
-    expect(t.ia.ops).toEqual([
+    expect(t.ia.ops.filter(([o]) => o === 'gs.ler')).toEqual([
       gs('OPENAI_API_KEY'), gs('OPENAI_ADMIN_KEY'), gs('ANTHROPIC_API_KEY'), gs('OPENAI_DEFAULT_MODEL'), gs('DJEN_AI_MODEL'),
       gs(daConta('ADMIN_BOT_ENABLED', LAB)), gs(daConta('AI_COOLDOWN_SECONDS', LAB)),
     ]);
     // perfil da IA: os dados da conta dele; chips desligados e o tempo dele (padrão)
     expect(t.perfil.saida.defaults).toEqual({ cooldownSeconds: 8 });
     for (const c of Object.values(t.perfil.saida.chips) as any[]) expect(c.enabled).toBe(false);
-    expect(lidas(t.perfil.ops)).toEqual([daConta('AI_COOLDOWN_SECONDS', LAB)]);
+    expect(lidas(t.perfil.ops).filter((k) => !k.startsWith('LAB_FREEZE'))).toEqual([daConta('AI_COOLDOWN_SECONDS', LAB)]);
     expect(t.perfil.ops.filter(([o]) => o === 'ts.lerVarias')).toEqual([['ts.lerVarias', `${LAB}|${PERFIL_CHAVES.join(',')}`]]);
     // ClickSign: não configurado e a global nem é consultada
     expect(t.clicksign.saida).toEqual({ baseUrl: 'https://sandbox.clicksign.com', apiToken: null, webhookToken: null, isConfigured: false });
     expect(clicksign).toEqual([]);
     // nenhuma tela leu configuração global de clínica (só a plataforma e as chaves dele)
     for (const [k, v] of Object.entries(t)) {
-      const fora = lidas(v.ops).filter((c) => !daPlataformaOuDoLab(c) && !(k === 'contrato' && c === 'CONTRACT_CONFIG'));
+      const fora = lidas(v.ops).filter((c) => !daPlataformaOuDoLab(c) && c !== 'LAB_FREEZE' && !(k === 'contrato' && c === 'CONTRACT_CONFIG'));
       expect([k, fora]).toEqual([k, []]);
     }
     // mesmo formato da clínica, tela a tela
     for (const k of ['crm', 'contrato', 'tts', 'ia', 'clicksign'] as const) {
-      expect([k, Object.keys(t[k].saida).sort()]).toEqual([k, Object.keys(clinica.t[k].saida).sort()]);
+      expect([k, Object.keys(t[k].saida).filter((c) => c !== 'labIa').sort()]).toEqual([k, Object.keys(clinica.t[k].saida).sort()]);
     }
     expect(Object.keys(t.perfil.saida)).toEqual(Object.keys(clinica.t.perfil.saida));
     expect(Array.isArray(t.respostas.saida)).toBe(true);
@@ -429,7 +430,7 @@ describe('telas de Ajustes — o laboratório vê o dele e o da plataforma, no m
     expect(t.clicksign.saida).toEqual({ baseUrl: 'https://sandbox.clicksign.com', apiToken: null, webhookToken: null, isConfigured: false });
     expect(clicksign).toEqual([]);
     for (const [k, v] of Object.entries(t)) {
-      const fora = lidas(v.ops).filter((c) => !daPlataformaOuDoLab(c) && !(k === 'contrato' && c === 'CONTRACT_CONFIG'));
+      const fora = lidas(v.ops).filter((c) => !daPlataformaOuDoLab(c) && c !== 'LAB_FREEZE' && !(k === 'contrato' && c === 'CONTRACT_CONFIG'));
       expect([k, fora]).toEqual([k, []]);
     }
   });
@@ -445,11 +446,14 @@ describe('telas de Ajustes — o laboratório vê o dele e o da plataforma, no m
     expect(m.perfis).not.toHaveBeenCalled();
   });
 
-  it('salvar o perfil de um chip no laboratório devolve a IA desligada, sem ler a global', async () => {
+  it('salvar o perfil de um chip no laboratório: ligar fora de ACTIVE é recusado; a IA segue desligada, sem ler a global', async () => {
     const m = montarSettings({ labs: [LAB], global: GLOBAL });
-    const r = await m.ctl.saveAiProfileChip(req(ADMIN_LAB), 'COMERCIAL', { enabled: true });
+    await expect(m.ctl.saveAiProfileChip(req(ADMIN_LAB), 'COMERCIAL', { enabled: true })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LAB_IA_SEM_ASSINATURA' }),
+    });
+    const r = await m.ctl.saveAiProfileChip(req(ADMIN_LAB), 'COMERCIAL', { enabled: false });
     expect(r.enabled).toBe(false);
-    expect(m.ops.filter(([o]) => o.startsWith('gs.'))).toEqual([]);
+    expect(m.ops.filter(([o]) => o.startsWith('gs.ler') && o !== 'gs.lerVarias')).toEqual([]);
     // na clínica, como antes: o liga/desliga dela
     limparCaches();
     const c = montarSettings({ labs: [LAB], global: GLOBAL });

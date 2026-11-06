@@ -14,8 +14,8 @@ const LAB = '00000000-0000-0000-0000-00000000a001';
 const MODELOS_CONTADOS = [
   'odontogram', 'toothRecord', 'anamnesis', 'medicalRecord', 'clinicalNote', 'clinicalImage', 'radiographyExam',
   'patientAllergy', 'patientMedication', 'estheticApplication', 'adverseReaction', 'contractSignature', 'contract',
-  'treatmentPlan', 'maintenanceTask', 'returnAlert', 'postCareSurvey', 'portalToken', 'smileSimulation', 'referral',
-  'affiliateReferral', 'waitlistEntry', 'aiUsage', 'memory', 'leadProfile', 'commission', 'message', 'conversation', 'calendarEvent', 'paymentGatewayCharge',
+  'treatmentPlan', 'maintenanceTask', 'returnAlert', 'postCareSurvey', 'portalToken', 'smileSimulation',
+  'waitlistEntry', 'aiUsage', 'memory', 'leadProfile', 'message', 'conversation', 'calendarEvent', 'paymentGatewayCharge', 'dispatchLog',
 ];
 
 function prismaFalso(opcoes: {
@@ -24,6 +24,7 @@ function prismaFalso(opcoes: {
   chips?: string[];
   chipsDeOutrasContas?: string[];
   chaveAsaas?: string | null;
+  chavesDaRegua?: Array<{ key: string; value: string; updated_at: Date }>;
   superAdmins?: string[];
   diaJaReivindicado?: boolean;
 } = {}) {
@@ -41,6 +42,7 @@ function prismaFalso(opcoes: {
     },
     tenantSetting: { findUnique: jest.fn(async () => (opcoes.chaveAsaas ? { value: opcoes.chaveAsaas } : null)) },
     globalSetting: {
+      findMany: jest.fn(async () => opcoes.chavesDaRegua ?? []),
       updateMany: jest.fn(async (args: any) => ({ count: args.data.value === '' ? 1 : opcoes.diaJaReivindicado ? 0 : 1 })),
       create: jest.fn(async () => {
         if (opcoes.diaJaReivindicado) throw new Error('P2002');
@@ -112,6 +114,14 @@ describe('com laboratório', () => {
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it('contrato: conta só o que não é do tipo LABORATORIO, sempre na conta dele', async () => {
+    const prisma = prismaFalso({ labs: [{ tenant_id: LAB }] });
+    await contarForaDoLugar(prisma, LAB);
+    expect(prisma.contract.count).toHaveBeenCalledWith({
+      where: { quote: { patient: { tenant_id: LAB } }, template_type: { not: 'LABORATORIO' } },
+    });
+  });
+
   it('acima de zero: AuditLog LAB_SENTINEL na conta e e-mail aos SUPER_ADMIN com a lista', async () => {
     const prisma = prismaFalso({
       labs: [{ tenant_id: LAB, tenant: { name: 'Lab <Teste>' } }],
@@ -128,10 +138,10 @@ describe('com laboratório', () => {
       entity_id: LAB,
       action: 'LAB_SENTINEL',
     });
-    expect(prisma.auditLog.create.mock.calls[0][0].data.meta_json.contagens).toEqual({ Odontograma: 1, 'Uso de IA': 2 });
+    expect(prisma.auditLog.create.mock.calls[0][0].data.meta_json.contagens).toEqual({ Odontograma: 1, 'Uso de IA fora do atendimento': 2 });
     expect(mail.send.mock.calls.map((c: any) => c[0].to).sort()).toEqual(['dono@exemplo.test', 'outro@exemplo.test']);
     const html = mail.send.mock.calls[0][0].html as string;
-    expect(html).toContain('Uso de IA: <b>2</b>');
+    expect(html).toContain('Uso de IA fora do atendimento: <b>2</b>');
     expect(html).toContain('Lab &lt;Teste&gt;');
     expect(prisma.globalSetting.updateMany.mock.calls[0][0]).toEqual({
       where: { key: 'LAB_SENTINEL_DIA', value: { not: '2026-10-27' } },
@@ -250,6 +260,59 @@ describe('contarForaDoLugar — cada contagem olha só a conta do laboratório',
     const r2 = await contarForaDoLugar(sem, LAB);
     expect(sem.paymentGatewayCharge.count).toHaveBeenCalledWith({ where: { tenant_id: LAB, gateway: 'ASAAS' } });
     expect(r2['Cobrança Asaas sem a chave do próprio laboratório']).toBe(4);
+  });
+
+  describe('régua de cobrança: só sai na conta que ligou o aviso', () => {
+    const ONZE = [
+      'boleto_1d_antes', 'boleto_no_dia', 'boleto_atraso_1d', 'boleto_atraso_2d', 'boleto_atraso_3d',
+      'boleto_atraso_15d', 'boleto_atraso_30d', 'boleto_atrasado', 'boleto_intro', 'boleto_delivery',
+    ];
+    const NOME = 'Cobrança automática enviada com o aviso desligado';
+    const ligada = (type: string) => ({
+      key: `${type.toUpperCase()}${type === 'boleto_intro' || type === 'boleto_delivery' ? '_ENABLED' : ''}_${LAB}`,
+      value: 'true',
+      updated_at: new Date('2026-10-01T00:00:00.000Z'),
+    });
+
+    it('sem chave: conta o que saiu de cada aviso em qualquer data; falha de envio não conta', async () => {
+      const prisma = prismaFalso({ contagens: { dispatchLog: 2 } });
+      const r = await contarForaDoLugar(prisma, LAB);
+      expect(r[NOME]).toBe(2);
+      expect(prisma.dispatchLog.count).toHaveBeenCalledWith({
+        where: { tenant_id: LAB, status: { not: 'FAILED' }, OR: ONZE.map((type) => ({ type })) },
+      });
+    });
+
+    it('desligada depois de ligada: só o que saiu depois de desligar', async () => {
+      const desligadaEm = new Date('2026-10-10T00:00:00.000Z');
+      const prisma = prismaFalso({ chavesDaRegua: [{ ...ligada('boleto_no_dia'), value: 'false', updated_at: desligadaEm }] });
+      await contarForaDoLugar(prisma, LAB);
+      const or = prisma.dispatchLog.count.mock.calls[0][0].where.OR;
+      expect(or).toContainEqual({ type: 'boleto_no_dia', sent_at: { gt: desligadaEm } });
+      expect(or).toHaveLength(10);
+    });
+
+    it('ligada: o envio é o esperado e sai da conta; todas ligadas nem consulta o log', async () => {
+      const umaLigada = prismaFalso({ chavesDaRegua: [ligada('boleto_atrasado')] });
+      await contarForaDoLugar(umaLigada, LAB);
+      const or = umaLigada.dispatchLog.count.mock.calls[0][0].where.OR;
+      expect(or.map((x: any) => x.type)).not.toContain('boleto_atrasado');
+      expect(or).toHaveLength(9);
+
+      const todas = prismaFalso({ chavesDaRegua: ONZE.map(ligada) });
+      const r = await contarForaDoLugar(todas, LAB);
+      expect(todas.dispatchLog.count).not.toHaveBeenCalled();
+      expect(r[NOME]).toBe(0);
+    });
+
+    it('a leitura das chaves é só da conta', async () => {
+      const prisma = prismaFalso();
+      await contarForaDoLugar(prisma, LAB);
+      const chaves = prisma.globalSetting.findMany.mock.calls[0][0].where.key.in as string[];
+      expect(chaves).toHaveLength(10);
+      expect(chaves.every((k) => k.endsWith(`_${LAB}`))).toBe(true);
+      expect(chaves).toEqual(expect.arrayContaining([`BOLETO_INTRO_ENABLED_${LAB}`, `BOLETO_DELIVERY_ENABLED_${LAB}`, `BOLETO_ATRASADO_${LAB}`]));
+    });
   });
 
   it('foraDoLugar deixa só o que passou de zero', () => {

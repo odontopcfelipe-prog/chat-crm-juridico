@@ -6,9 +6,9 @@
     "socket": 12,
     "globais": 14,
     "produtores": 24,
-    "controllers": 91,
-    "handlers": 972,
-    "@Public": 31
+    "controllers": 92,
+    "handlers": 975,
+    "@Public": 33
   },
   "automatismos": [
     { "tipo": "@Cron", "arquivo": "agenda-extended/retorno-disparos.service.ts", "alvo": "RetornoDisparosService.tick", "detalhe": "'*/1 9-17 * * 1-6', { timeZone: 'America/Maceio' }" },
@@ -549,6 +549,16 @@
         { "metodo": "CommercialController.sendContractWhatsapp", "verbo": "POST", "path": "contracts/:id/send-whatsapp", "rota": "POST /contracts/:id/send-whatsapp", "acesso": ["@RequiresPermission('manage_proposals')", "@Throttle({ default: { ttl: 60000, limit: 10 } })"] },
         { "metodo": "CommercialController.previewContractPdf", "verbo": "GET", "path": "contracts/:id/preview-pdf", "rota": "GET /contracts/:id/preview-pdf", "acesso": [] },
         { "metodo": "CommercialController.previewContractTemplate", "verbo": "GET", "path": "contract-templates/:docId/pdf", "rota": "GET /contract-templates/:docId/pdf", "acesso": [] }
+      ]
+    },
+    {
+      "arquivo": "commercial/proposta-online-laboratorio.controller.ts",
+      "classe": "PropostaOnlineLaboratorioController",
+      "path": "",
+      "acesso": [],
+      "handlers": [
+        { "metodo": "PropostaOnlineLaboratorioController.ver", "verbo": "GET", "path": "portal/proposta/:token", "rota": "GET /portal/proposta/:token", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 30, getTracker: quemEnvia } })"] },
+        { "metodo": "PropostaOnlineLaboratorioController.aceitar", "verbo": "POST", "path": "portal/proposta/:token/aceitar", "rota": "POST /portal/proposta/:token/aceitar", "acesso": ["@Public()", "@Throttle({ default: { ttl: 60000, limit: 10, getTracker: quemEnvia } })"] }
       ]
     },
     {
@@ -1136,6 +1146,7 @@
       "handlers": [
         { "metodo": "NotaFiscalController.findAll", "verbo": "GET", "path": "", "rota": "GET /nota-fiscal", "acesso": [] },
         { "metodo": "NotaFiscalController.getConfig", "verbo": "GET", "path": "config", "rota": "GET /nota-fiscal/config", "acesso": [] },
+        { "metodo": "NotaFiscalController.saveConfigLab", "verbo": "PUT", "path": "config", "rota": "PUT /nota-fiscal/config", "acesso": ["@RequiresPermission('manage_financial')"] },
         { "metodo": "NotaFiscalController.findOne", "verbo": "GET", "path": ":id", "rota": "GET /nota-fiscal/:id", "acesso": [] },
         { "metodo": "NotaFiscalController.emit", "verbo": "POST", "path": "emit", "rota": "POST /nota-fiscal/emit", "acesso": ["@RequiresPermission('manage_financial')"] },
         { "metodo": "NotaFiscalController.cancel", "verbo": "POST", "path": ":id/cancel", "rota": "POST /nota-fiscal/:id/cancel", "acesso": ["@RequiresPermission('manage_financial')"] }

@@ -72,6 +72,11 @@ function montar(conta: string, labs: string[], opts: { quote?: any; pdf?: 'ok' |
       update: jest.fn(async (a: any) => (ops.push(['quote.update', a]), { ...quote, ...a.data })),
     },
     tenant: { findUnique: jest.fn(async (a: any) => (ops.push(['tenant.findUnique', a]), { name: conta === LAB ? 'Laboratório Exemplo' : 'Clínica Exemplo' })) },
+    portalToken: {
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async (a: any) => ({ id: 'tk-1', ...a.data })),
+      update: jest.fn(async (a: any) => ({ id: 'tk-1', ...a.data })),
+    },
   };
   const whatsapp = { sendText: jest.fn(), sendMedia: jest.fn() };
   const portal = { createMagicLink: jest.fn(async () => ({ link: 'https://portal.exemplo.test/p/token' })) };
@@ -105,11 +110,15 @@ function montar(conta: string, labs: string[], opts: { quote?: any; pdf?: 'ok' |
 }
 
 describe('envio do orçamento de trabalho pelo WhatsApp (F6)', () => {
-  it('laboratório: PDF anexado, legenda do laboratório, sem link do portal; vira SENT com a versão SEND', async () => {
+  it('laboratório: PDF anexado, legenda do laboratório com o link de aceite (sem portal do cliente); vira SENT com a versão SEND', async () => {
     const m = montar(LAB, [LAB]);
     const r = await m.svc.sendByWhatsapp('orc-1', LAB, USER);
 
-    expect(r).toEqual({ ok: true, link: null, sent_to: '5582900000001', status: 'SENT', conversationId: 'conversa-1' });
+    expect(r).toEqual({ ok: true, link: expect.stringMatching(/\/proposta\/[\w-]{40,}$/), sent_to: '5582900000001', status: 'SENT', conversationId: 'conversa-1' });
+    // O link vem de um token novo, ligado a ESTE orçamento e a esta conta; nada do portal do cliente.
+    expect(m.prisma.portalToken.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ tenant_id: LAB, patient_id: 'cli-1', channel: 'LAB_PROPOSTA:orc-1', expires_at: expect.any(Date) }),
+    });
     expect(m.portal.createMagicLink).not.toHaveBeenCalled();
     expect(m.messages.sendPatientText).not.toHaveBeenCalled();
     expect(m.whatsapp.sendText).not.toHaveBeenCalled();
@@ -131,7 +140,8 @@ describe('envio do orçamento de trabalho pelo WhatsApp (F6)', () => {
       file: { buffer: PDF, mimetype: 'application/pdf', originalname: 'orcamento-42.pdf', size: PDF.length },
     });
     const legenda: string = envio.caption;
-    expect(legenda).not.toMatch(/https?:|portal/i);
+    expect(legenda).toContain((r as any).link);
+    expect(legenda).not.toMatch(/portal|area-paciente/i);
     expect(legenda).not.toMatch(/na cl[ií]nica \*/i);
     expect(temPalavraDeClinica(legenda)).toBe(false);
     expect(legenda).toContain('Oi, Clínica Parceira Exemplo! 👋');
@@ -152,6 +162,24 @@ describe('envio do orçamento de trabalho pelo WhatsApp (F6)', () => {
     await m.svc.sendByWhatsapp('orc-1', LAB, USER);
     expect(m.prisma.quote.update).toHaveBeenCalledWith({ where: { id: 'orc-1' }, data: { whatsapp_message_id: 'wamid-2' } });
     expect(m.versions.createSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('laboratório, reenvio: reaproveita o link que ainda vale (não cria outro)', async () => {
+    const m = montar(LAB, [LAB], { quote: orcamento(LAB, { status: 'SENT', sent_at: new Date('2026-10-20T12:00:00Z') }) });
+    m.prisma.portalToken.findFirst.mockResolvedValue({ token: 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG' });
+    const r: any = await m.svc.sendByWhatsapp('orc-1', LAB, USER);
+    expect(m.prisma.portalToken.create).not.toHaveBeenCalled();
+    expect(r.link).toMatch(/\/proposta\/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG$/);
+  });
+
+  it('laboratório, o link não pôde ser criado: o PDF sai sozinho, sem link na legenda', async () => {
+    const m = montar(LAB, [LAB]);
+    m.prisma.portalToken.create.mockRejectedValue(new Error('banco fora'));
+    const r: any = await m.svc.sendByWhatsapp('orc-1', LAB, USER);
+    expect(r.link).toBeNull();
+    const [envio] = m.messages.sendPatientFile.mock.calls[0] as any[];
+    expect(envio.caption).not.toMatch(/https?:/);
+    expect(m.prisma.quote.update).toHaveBeenCalled();
   });
 
   it.each([

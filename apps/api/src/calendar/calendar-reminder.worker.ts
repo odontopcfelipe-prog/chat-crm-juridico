@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { enviarAnexosDoDisparo } from '../disparo-anexos/disparo-anexos-envio';
-import { lembreteClinicoIdFor, algumLab, getLabTenantIds, LAB_AGENDA_TEXTOS } from '@crm/shared';
+import { lembreteClinicoIdFor, algumLab, contaDoLabPodeEnviar, getLabTenantIds, LAB_AGENDA_TEXTOS } from '@crm/shared';
 import { SettingsService } from '../settings/settings.service';
 import {
   enviarLembreteDoLaboratorio,
@@ -340,6 +340,12 @@ export class CalendarReminderWorker extends WorkerHost {
     const doLab = algumLab(labs, [event.tenant_id, event.lead?.tenant_id, event.patient?.tenant_id]);
     if (doLab && !lembreteDoLaboratorioSai(event, channel, reminder.minutes_before, labs)) {
       this.logger.log(`[LAB-GATE] calendar-reminder — evento ${eventId} é de laboratório: lembrete ${reminderId} não sai`);
+      return;
+    }
+    // Conta de laboratório suspensa ou congelada: sai do mesmo jeito (sem reivindicar e sem
+    // last_error). O próximo evento de uma conta que voltou a ficar ativa envia normalmente.
+    if (doLab && !(await contaDoLabPodeEnviar(this.prisma, event.tenant_id))) {
+      this.logger.log(`[LAB] calendar-reminder — conta ${event.tenant_id} suspensa: lembrete ${reminderId} não sai`);
       return;
     }
 

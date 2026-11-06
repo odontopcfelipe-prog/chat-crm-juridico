@@ -8,8 +8,9 @@
  *  - follow-up legado de 5 dias, fila das sequências (cron e processador com IA) e
  *    disparo em massa legado;
  *  - recall de revisão (marca-passo);
- *  - régua de cobrança inteira: marcos, atrasados recorrente, apresentação D+1 e a
- *    âncora que libera o carnê automático D+2;
+ *  - a BUSCA das clínicas na régua de cobrança: marcos, atrasados recorrente,
+ *    apresentação D+1 e a âncora do carnê D+2 (o laboratório tem a raia dele, só na
+ *    conta que ligou: payment/regua-laboratorio.spec.ts);
  *  - pesquisa pós-atendimento (varredura e envio).
  *
  * Na F7, a coleta, a prova e a entrega do laboratório passam a ter o aviso aos ADMs
@@ -153,8 +154,10 @@ describe('Aviso de agendamento aos ADMs — laboratório: só coleta, prova e en
     const prisma: any = {
       tenantBusinessProfile: perfis(labs),
       globalSetting: {
-        findMany: jest.fn(async () => linhas),
+        // A consulta das chaves de congelamento (where.key.in) não acha nada.
+        findMany: jest.fn(async ({ where }: any) => (where?.key?.in ? [] : linhas)),
       },
+      tenant: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
       calendarEvent: {
         findMany: jest.fn(async ({ where }: any) => {
           const tipo = where.tenant_id === LAB ? tipoDoLab : 'CONSULTA';
@@ -230,6 +233,16 @@ describe('Aviso de agendamento aos ADMs — laboratório: só coleta, prova e en
     expect(e.envio.some((c) => c[0] === LAB)).toBe(false);
   });
 
+  it('laboratório com a conta suspensa: nem busca nem reivindica; as clínicas seguem', async () => {
+    const { svc, prisma } = montar([LAB], 'COLETA');
+    prisma.tenant.findUnique.mockResolvedValue({ status: 'SUSPENDED' });
+    expect(await svc.processar(AGORA)).toBe(2);
+    const e = efeitos(prisma);
+    expect(e.busca.map((w: any) => w.where.tenant_id)).toEqual([CLINICA, OUTRA_CLINICA]);
+    expect(e.claim.map((w: any) => w.tenant_id)).toEqual([CLINICA, OUTRA_CLINICA]);
+    expect(e.envio.map((c) => c[0])).toEqual([CLINICA, OUTRA_CLINICA]);
+  });
+
   it('laboratório, COLETA marcada pela equipe: reivindica e avisa com o texto do laboratório', async () => {
     const { svc, prisma } = montar([LAB], 'COLETA');
     expect(await svc.processar(AGORA)).toBe(3);
@@ -303,10 +316,10 @@ describe('Confirmação 24 h (agendador) — evento de laboratório fica fora da
     const prisma: any = {
       tenantBusinessProfile: perfis(labs),
       calendarEvent: { findMany: jest.fn(async ({ where }: any) => comoBanco(eventos, where, (e) => e.tenant_id)) },
-      globalSetting: { findUnique: jest.fn(async () => null) },
+      globalSetting: { findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) },
       eventReminder: { findFirst: jest.fn(async () => null) },
       appointmentConfirmation: { findFirst: jest.fn(async () => null) },
-      tenant: { findUnique: jest.fn(async () => null) },
+      tenant: { findUnique: jest.fn(async (a: any) => (a?.select?.status ? { status: 'ACTIVE' } : null)) },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
     return { svc: new AppointmentConfirmationSchedulerService(prisma), prisma, criadas };
@@ -455,7 +468,8 @@ describe('Confirmação 24 h (envio) — a de laboratório só sai em coleta, pr
         updateMany: jest.fn(async () => ({ count: 1 })),
         update: jest.fn(async () => ({})),
       },
-      globalSetting: { findUnique: jest.fn(async () => null) },
+      globalSetting: { findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      tenant: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
       instance: { findMany: jest.fn(async () => CHIPS) },
     };
     return { svc: new AppointmentConfirmationDispatcherService(prisma, SETTINGS), prisma };
@@ -492,6 +506,18 @@ describe('Confirmação 24 h (envio) — a de laboratório só sai em coleta, pr
     const doLab = prisma.appointmentConfirmation.update.mock.calls.filter((c: any[]) => c[0].where.id === `conf-${LAB}`);
     expect(doLab).toHaveLength(1);
     expect(doLab[0][0].data.delivery_status).toBe('FAILED');
+  });
+
+  it('laboratório com a conta suspensa: a confirmação não sai, não reivindica e sai da fila; a clínica segue', async () => {
+    const coleta = { ...pendente(LAB), appointment: { ...pendente(LAB).appointment, type: 'COLETA' } };
+    const { svc, prisma } = montar([LAB], [coleta, pendente(CLINICA)]);
+    prisma.tenant.findUnique.mockResolvedValue({ status: 'SUSPENDED' });
+    await svc.dispatchPending();
+    expect(postsPara(TEL[LAB])).toHaveLength(0);
+    expect(postsPara(TEL[CLINICA])).toHaveLength(1);
+    expect(prisma.appointmentConfirmation.updateMany.mock.calls.some((c: any[]) => c[0].where.id === coleta.id)).toBe(false);
+    const doLab = prisma.appointmentConfirmation.update.mock.calls.filter((c: any[]) => c[0].where.id === coleta.id);
+    expect(doLab[0][0].data).toMatchObject({ delivery_status: 'FAILED', message_text: '[ERRO: Laboratório: conta suspensa]' });
   });
 
   // F7 — coleta, prova e entrega do laboratório saem pelo mesmo caminho.
@@ -713,10 +739,10 @@ describe('Sequências de follow-up (cron) — inscrição de laboratório não e
     });
   });
 
-  it('laboratório: a inscrição dele não é enfileirada', async () => {
+  it('laboratório: a inscrição entra depois da clínica, sem ocupar o take dela; quem decide é o processador', async () => {
     const { svc, fila } = montar([LAB], [inscricao(LAB), inscricao(CLINICA)]);
     await svc.processEnrollments();
-    expect(fila.add.mock.calls.map((c: any[]) => c[1].enrollment_id)).toEqual([`enr-${CLINICA}`]);
+    expect(fila.add.mock.calls.map((c: any[]) => c[1].enrollment_id)).toEqual([`enr-${CLINICA}`, `enr-${LAB}`]);
   });
 });
 
@@ -738,6 +764,8 @@ describe('Sequências de follow-up (processador) — laboratório não gera text
       followupEnrollment: { findUnique: jest.fn(async () => enrollment), update: jest.fn(async () => ({})) },
       followupMessage: { count: jest.fn(async () => 0), create: jest.fn(async (a: any) => ({ id: 'fm-1', ...a.data })) },
       conversation: { findFirst: jest.fn(async () => null) },
+      tenant: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
+      globalSetting: { findMany: jest.fn(async () => []) },
     };
     const followup: any = {
       buildDossie: jest.fn(async () => ({ resumo: 'dossiê' })),
@@ -807,6 +835,8 @@ describe('Disparo em massa legado — o de laboratório não sai nem chama a IA'
       lead: { findUnique: jest.fn(async () => ({ id: 'lead-1', tenant_id: contato, name: 'Maria Exemplo', phone: TEL[contato] })) },
       conversation: { findFirst: jest.fn(async () => ({ id: 'conv-1', instance_name: 'chip-comercial' })), update: jest.fn(async () => ({})) },
       message: { create: jest.fn(async () => ({})) },
+      tenant: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
+      globalSetting: { findMany: jest.fn(async () => []) },
     };
     const proc: any = new FollowupProcessor(prisma, SETTINGS, {} as any);
     proc.generateBroadcastMessage = jest.fn(async () => 'Texto da IA');
@@ -838,18 +868,23 @@ describe('Disparo em massa legado — o de laboratório não sai nem chama a IA'
     }
   });
 
-  it('laboratório: não envia, não chama a IA, o item fica como falha e o disparo é concluído', async () => {
-    for (const prompt of ['Oi {{nome}}!', undefined]) {
-      const m = montar([LAB], LAB);
-      await m.proc.process(job(prompt));
-      expect(axios.post).not.toHaveBeenCalled();
-      expect(m.proc.generateBroadcastMessage).not.toHaveBeenCalled();
-      expect(m.prisma.broadcastItem.update.mock.calls.map((c: any[]) => c[0].data.status)).toEqual(['FALHOU']);
-      expect(m.prisma.broadcastItem.update.mock.calls[0][0].data.error).toBe('Laboratório: sem disparo em massa');
-      const disparo = m.prisma.broadcastJob.update.mock.calls.map((c: any[]) => c[0].data);
-      expect(disparo[0]).toEqual({ failed_count: { increment: 1 } });
-      expect(disparo[1]).toMatchObject({ status: 'CONCLUIDO' });
-    }
+  it('laboratório: comunicado com texto fixo da própria conta sai, sem IA', async () => {
+    const m = montar([LAB], LAB);
+    await m.proc.process(job('Oi {{nome}}!'));
+    expect(postsDe()).toEqual([[`${EVO}/message/sendText/chip-comercial`, { number: TEL[LAB], text: 'Oi Maria!' }]]);
+    expect(m.proc.generateBroadcastMessage).not.toHaveBeenCalled();
+  });
+
+  it('laboratório: sem texto fixo (geraria pela IA) não envia, o item fica como falha e o disparo é concluído', async () => {
+    const m = montar([LAB], LAB);
+    await m.proc.process(job(undefined));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(m.proc.generateBroadcastMessage).not.toHaveBeenCalled();
+    expect(m.prisma.broadcastItem.update.mock.calls.map((c: any[]) => c[0].data.status)).toEqual(['FALHOU']);
+    expect(m.prisma.broadcastItem.update.mock.calls[0][0].data.error).toBe('Laboratório: o disparo em massa é só o comunicado com texto fixo');
+    const disparo = m.prisma.broadcastJob.update.mock.calls.map((c: any[]) => c[0].data);
+    expect(disparo[0]).toEqual({ failed_count: { increment: 1 } });
+    expect(disparo[1]).toMatchObject({ status: 'CONCLUIDO' });
   });
 
   it('disparo sem conta com contato do laboratório: não sai nem chama a IA', async () => {
@@ -988,7 +1023,7 @@ function prismaRegua(labs: string[], extra: Record<string, any>) {
   } as any;
 }
 
-describe('Régua — marcos: cobrança de laboratório fica fora da busca', () => {
+describe('Régua (raia das clínicas) — marcos: cobrança de laboratório fica fora da busca', () => {
   const WHERE_DE_ANTES = {
     status: { in: ['PENDING', 'OVERDUE'] },
     received_in_cash: false,
@@ -1023,7 +1058,7 @@ describe('Régua — marcos: cobrança de laboratório fica fora da busca', () =
     expect(pickAntes).toMatchObject({ chargeId: 'ch-cli', tenantId: CLINICA });
   });
 
-  it('laboratório: a cobrança dele não é escolhida (nem a configuração dele é lida)', async () => {
+  it('laboratório: nesta busca a cobrança dele não é escolhida (nem a configuração dele é lida)', async () => {
     const { svc, prisma } = montar([LAB], [cobranca(LAB, 'ch-lab', '2026-10-20'), cobranca(CLINICA, 'ch-cli', '2026-10-20')]);
     const pick = await svc.findNextCharge();
     expect(pick).toMatchObject({ chargeId: 'ch-cli', tenantId: CLINICA });
@@ -1031,7 +1066,7 @@ describe('Régua — marcos: cobrança de laboratório fica fora da busca', () =
   });
 });
 
-describe('Régua — cobrar atrasados (recorrente): laboratório sai do conjunto', () => {
+describe('Régua (raia das clínicas) — cobrar atrasados (recorrente): laboratório sai do conjunto', () => {
   function montar(labs: string[], ligados: string[], cobrancas: any[]) {
     const prisma = prismaRegua(labs, {
       paymentGatewayCharge: { findMany: jest.fn(async ({ where }: any) => comoBanco(cobrancas, where, (c) => c.tenant_id)) },
@@ -1071,7 +1106,7 @@ describe('Régua — cobrar atrasados (recorrente): laboratório sai do conjunto
   });
 });
 
-describe('Régua — apresentação D+1 e âncora do carnê D+2: venda de laboratório fica fora', () => {
+describe('Régua (raia das clínicas) — apresentação D+1 e âncora do carnê D+2: venda de laboratório fica fora', () => {
   const todayStartUtcMs = Date.UTC(2026, 9, 21) + 3 * 3_600_000;
   const WHERE_DE_ANTES = {
     billing_type: 'BOLETO',
@@ -1135,7 +1170,7 @@ describe('Régua — apresentação D+1 e âncora do carnê D+2: venda de labora
     expect(ancoras(antes.prisma)).toEqual([`plan-${CLINICA}`]);
   });
 
-  it('laboratório: sem apresentação, sem âncora (sem carnê D+2) e sem ler a configuração dele', async () => {
+  it('laboratório: nesta busca, sem apresentação, sem âncora e sem ler a configuração dele', async () => {
     const ligado = montar([LAB], [venda(LAB), venda(CLINICA)], { [LAB]: [true, true], [CLINICA]: [true, true] });
     expect(await ligado.svc.findNextIntro()).toMatchObject({ planId: `plan-${CLINICA}`, tenantId: CLINICA });
     expect(contasLidas(ligado.prisma).some((k: string) => k.endsWith(LAB))).toBe(false);

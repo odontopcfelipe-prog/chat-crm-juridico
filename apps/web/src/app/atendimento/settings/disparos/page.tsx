@@ -21,8 +21,8 @@ import {
 } from './disparos.config';
 import { isDisparoComAnexo, isLab } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
-import { catalogoDoLaboratorio, categoriasDoLaboratorio, setoresDoLaboratorio, travadoNoLaboratorio } from './catalogo-laboratorio';
-import { EditorDoLaboratorio, SeloDaReguaDoLaboratorio } from './EditorDoLaboratorio';
+import { catalogoDoLaboratorio, categoriasDoLaboratorio, setoresDoLaboratorio } from './catalogo-laboratorio';
+import { EditorDoLaboratorio } from './EditorDoLaboratorio';
 import { LAB_CENTRAL } from './lab-disparos-textos';
 import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
@@ -626,8 +626,7 @@ export default function CentralDisparosPage() {
     );
   }
 
-  // No laboratório a régua de cobrança (travada) fica fora da contagem.
-  const configuraveis = catalogo.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null) && !(lab && travadoNoLaboratorio(d)));
+  const configuraveis = catalogo.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null));
   // Disparos de ortô em fluxo sem a regra "ordem de chegada" ligada não têm efeito
   // (a ortô da clínica é por hora marcada) — não contam como ligados.
   const ortoFluxoOn = !!(op as any)?.orto_ordem_chegada?.enabled;
@@ -744,7 +743,7 @@ export default function CentralDisparosPage() {
                     <p className="text-[11px] text-muted-foreground mt-0.5">{setor.nota}</p>
                   </div>
                   {/* Campanha manual: o ADM monta um envio avulso (público + texto + fotos/áudio) por este chip. */}
-                  {!lab && isAdmin && setor.id !== 'equipe' && (
+                  {isAdmin && setor.id !== 'equipe' && (
                     <Link
                       href={`/atendimento/settings/disparos/campanhas?setor=${setor.id.toUpperCase()}`}
                       className="ml-auto shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border bg-card hover:bg-accent transition-colors"
@@ -804,7 +803,6 @@ export default function CentralDisparosPage() {
                                 Em breve
                               </span>
                             )}
-                            {lab && travadoNoLaboratorio(d) && <SeloDaReguaDoLaboratorio />}
                             {semEfeito(d) && (
                               <span
                                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-600 dark:text-slate-300"
@@ -853,9 +851,9 @@ export default function CentralDisparosPage() {
                             type="button"
                             role="switch"
                             aria-checked={on}
-                            disabled={savingThis || !isAdmin || (lab && travadoNoLaboratorio(d) && !on)}
+                            disabled={savingThis || !isAdmin}
                             onClick={(e) => { e.stopPropagation(); toggle(d, !on); }}
-                            title={lab && travadoNoLaboratorio(d) && !on ? LAB_CENTRAL.reguaTitulo : !isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
+                            title={!isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
                             className={`relative w-9 h-5 rounded-full shrink-0 transition-colors focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-muted'} ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                           >
                             <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white border border-border transition-transform ${on ? 'translate-x-4' : ''}`} />

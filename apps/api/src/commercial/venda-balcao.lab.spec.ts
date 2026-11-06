@@ -11,7 +11,7 @@
  *   - cobrança local CASH "Trabalho de prótese — … (recebido no laboratório) [plan:<id>]",
  *     marcador -AVISTA-/-CARTAO- e a chave da venda como sempre;
  *   - a receita entra 1 vez (registerClinicReceipt), o trabalho se auto-libera;
- *   - o TCLE é recusado (VERTICAL_DENIED) e só vira log [LAB-GATE]; sem comissão de venda.
+ *   - o TCLE é recusado (VERTICAL_DENIED) e só vira log [LAB-GATE]; a comissão de venda segue a regra do vendedor.
  * Clínica: plano PENDING_SIGNATURE → ACTIVE, notas "Venda rapida — recebido na clinica:
  * Espécie" e o contrato disparado 1 vez, igual a hoje.
  *
@@ -214,7 +214,7 @@ const dto = (over: Record<string, unknown> = {}): any => ({
 });
 
 describe('venda de balcão no laboratório (F5) — de ponta a ponta no servidor', () => {
-  it('(a) cliente PJ e Protético: notas "Venda rapida", trabalho ACTIVE, cobrança local do laboratório, 1 receita, sem TCLE nem comissão', async () => {
+  it('(a) cliente PJ e Protético: notas "Venda rapida", trabalho ACTIVE, cobrança local do laboratório, 1 receita, sem TCLE', async () => {
     const m = montar(LAB, [LAB]);
     const r: any = await m.service.vendaBalcao(LAB, USER, dto());
     await drenar();
@@ -251,8 +251,8 @@ describe('venda de balcão no laboratório (F5) — de ponta a ponta no servidor
     expect(registrou('log', '[LAB-GATE] tcle')).toBe(true);
     expect(registrou('warn', '[ACCEPT→CLICKSIGN]')).toBe(false);
 
-    // Sem comissão de venda (o gate do laboratório sai antes de gravar).
-    expect(registrou('log', '[LAB-GATE] comissao-venda')).toBe(true);
+    // Comissão de venda: a regra é a do cadastro do vendedor (aqui sem regra), igual à clínica; nada grava.
+    expect(registrou('log', '[LAB-GATE] comissao-venda')).toBe(false);
     expect(m.de('commission.create')).toEqual([]);
     expect(m.comissao).toHaveBeenCalledTimes(1);
 

@@ -3,12 +3,11 @@
  *
  * É o catálogo da clínica (disparos.config.ts, que não muda) filtrado pela lista
  * permitida do @crm/shared, na mesma ordem, com os nomes e gatilhos do laboratório
- * (lab-disparos-textos.ts). Os cards da régua de cobrança aparecem sem editor e com o
- * liga/desliga travado: o servidor só aceita desligar.
+ * (lab-disparos-textos.ts).
  *
  * A clínica nunca passa por aqui: a tela usa DISPAROS, SETORES e CATEGORIAS como hoje.
  */
-import { DISPAROS_VISIVEIS_NO_LABORATORIO, REGUA_DO_LABORATORIO } from '@crm/shared';
+import { DISPAROS_VISIVEIS_NO_LABORATORIO } from '@crm/shared';
 import { CATEGORIAS, DISPAROS, SETORES, type DisparoItem } from './disparos.config';
 import { LAB_CATEGORIAS, LAB_DISPAROS_CARDS, LAB_SETORES } from './lab-disparos-textos';
 
@@ -18,11 +17,6 @@ type CategoriaDaCentral = (typeof CATEGORIAS)[number];
 let catalogo: DisparoItem[] | null = null;
 let setores: SetorDaCentral[] | null = null;
 let categorias: CategoriaDaCentral[] | null = null;
-
-/** Card da régua de cobrança: aparece, mas no laboratório só desliga. */
-export function travadoNoLaboratorio(d: { id: string }): boolean {
-  return REGUA_DO_LABORATORIO.has(d.id);
-}
 
 /** Os cards do laboratório, na ordem da clínica, com os textos do laboratório. */
 export function catalogoDoLaboratorio(): DisparoItem[] {
@@ -35,8 +29,6 @@ export function catalogoDoLaboratorio(): DisparoItem[] {
       ...(t?.gatilho !== undefined ? { gatilho: t.gatilho } : {}),
       ...(t?.descricao !== undefined ? { descricao: t.descricao } : {}),
       ...(t?.tags !== undefined ? { tags: [...t.tags] } : {}),
-      // Régua: sem editor (o card não abre) até o envio em fila por chip chegar.
-      ...(travadoNoLaboratorio(d) ? { editor: undefined } : {}),
     };
   });
   return catalogo;

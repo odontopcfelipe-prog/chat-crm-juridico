@@ -59,7 +59,6 @@ const GRAVAM_CONFIG_DA_PLATAFORMA: readonly string[] = [
   'SettingsController.saveSmtp',
   'SettingsController.saveDjenLawyers',
   'SettingsController.setWhatsAppConfig',
-  'SettingsController.setAiConfig',
   'SettingsController.setAiPriceTable',
   'SettingsController.setClicksign',
   'SettingsController.setContract',

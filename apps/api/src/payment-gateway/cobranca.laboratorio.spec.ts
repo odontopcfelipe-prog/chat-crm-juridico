@@ -5,8 +5,8 @@
  * O laboratório recebe igual à clínica: a cobrança é baixada, a receita entra no caixa,
  * a parcela vira PAGA, o fluxo da entrada (sinal) continua e a confirmação de pagamento
  * sai pelo chip Financeiro com texto neutro. O que NÃO roda no laboratório (log
- * `[LAB-GATE] ...`): pagou → paciente (IA pós-venda, setor Clínica), liberação de
- * comissão, cancelou tudo → volta a lead, regravar o
+ * `[LAB-GATE] ...`): pagou → paciente (IA pós-venda, setor Clínica), cancelou tudo →
+ * volta a lead, regravar o
  * telefone do cliente, importar clientes do Asaas como clientes prontos e e-mail com
  * texto de clínica. A descrição da cobrança que volta ao cliente sai sem palavra de
  * clínica ("Plano de tratamento odontológico" vira "Trabalho de prótese"), e a que vai
@@ -161,6 +161,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -258,7 +261,7 @@ function webhook(labs: string[], charge: any) {
 }
 
 describe('webhook do Asaas (e reconcile) — cobrança de laboratório', () => {
-  it('parcela paga: baixa, receita no caixa, parcela PAGA, confirmação e o aviso de venda adiado (F7) saem; comissão não', async () => {
+  it('parcela paga: baixa, receita no caixa, parcela PAGA, confirmação e o aviso de venda adiado (F7) saem; a comissão do plano é liberada como na clínica', async () => {
     const c = cobranca(LAB, { installment_id: 'parc-1' });
     const m = webhook([LAB], c);
     await m.svc.handleWebhook(evento(c, 'RECEIVED'));
@@ -274,12 +277,11 @@ describe('webhook do Asaas (e reconcile) — cobrança de laboratório', () => {
     expect(m.promove.mock.calls).toEqual([[c.id, LAB, 'parcela paga (Asaas)']]);
     // F7: o aviso de venda adiado vale também para o laboratório (o texto sai do envio).
     expect(m.vendas.notifyVendaFeitaOnPaid.mock.calls).toEqual([[c.id]]);
-    // Ganchos de clínica: não rodam.
-    expect(m.nomes()).not.toContain('commission.findMany');
-    expect(m.nomes()).not.toContain('commission.updateMany');
-    expect(m.nomes()).not.toContain('treatmentPlan.findUnique');
+    // Comissão do profissional: libera DEVIDA → DISPONIVEL como na clínica (só existe se a conta cadastrou regra).
+    expect(m.nomes()).toContain('commission.findMany');
+    expect(m.nomes()).toContain('commission.updateMany');
     expect(registrou('venda-feita')).toBe(false);
-    expect(registrou('comissao')).toBe(true);
+    expect(registrou('comissao')).toBe(false);
   });
 
   it('pagamento confirmado sem parcela: promove o contato como na clínica (sem efeito de clínica no laboratório)', async () => {
@@ -316,7 +318,7 @@ describe('webhook do Asaas (e reconcile) — cobrança de laboratório', () => {
     expect(m.de('financialTransaction.create')).toHaveLength(1);
     expect(m.confirma).not.toHaveBeenCalled();
     expect(m.promove.mock.calls).toEqual([[c.id, LAB, 'parcela paga (Asaas)']]);
-    expect(m.nomes()).not.toContain('commission.findMany');
+    expect(m.nomes()).toContain('commission.findMany');
   });
 });
 
@@ -358,7 +360,7 @@ describe('webhook do Asaas — clínica igual com e sem outra conta de laborató
 });
 
 describe('baixa na recepção (registerClinicReceipt) — o mesmo freio do pagamento', () => {
-  it('laboratório: marca recebida, lança a receita e promove o contato, sem liberar comissão', async () => {
+  it('laboratório: marca recebida, lança a receita, promove o contato e libera a comissão como na clínica', async () => {
     const c = cobranca(LAB);
     const m = webhook([LAB], c);
     const r = await m.svc.registerClinicReceipt(c.external_id, { userId: 'u-recep', origem: 'receive-in-cash' });
@@ -366,7 +368,7 @@ describe('baixa na recepção (registerClinicReceipt) — o mesmo freio do pagam
     expect(m.de('paymentGatewayCharge.update')[0].data).toMatchObject({ received_in_cash: true, status: 'RECEIVED' });
     expect(m.de('financialTransaction.create')).toHaveLength(1);
     expect(m.promove.mock.calls).toEqual([[c.id, LAB, 'pagamento na clínica']]);
-    expect(m.nomes()).not.toContain('commission.findMany');
+    expect(m.nomes()).toContain('commission.findMany');
   });
 
   it('clínica: mesmas operações e a mesma promoção com e sem outra conta de laboratório', async () => {
@@ -572,7 +574,7 @@ describe('"Enviar boleto do mês" no laboratório (F5) — respostas falam de cl
     const m = boletoDoMes([LAB], LAB, { telefone: TEL });
     expect(await m.svc.sendCurrentBoleto(PLANO, LAB)).toEqual({ ok: true, detail: `Boleto enviado ao cliente (${TEL}).` });
     const legenda = (m.whatsapp.sendMedia.mock.calls[0] as unknown[])[3] as string;
-    expect(legenda).toContain('Oi Dr.!');
+    expect(legenda).toContain('Oi Exemplo!'); // primeiro nome sem Dr./Dra.
     expect(legenda).not.toMatch(PALAVRAS_DE_CLINICA);
   });
 
@@ -660,7 +662,7 @@ describe('confirmação de pagamento ao cliente (texto neutro, descrição sem c
     expect(chip).toBe('chip-financeiro');
     expect(para).toBe(TEL.slice(0, 4) + TEL.slice(5));
     expect(texto).toContain('Pagamento Confirmado');
-    expect(texto).toContain('Olá, Dr.!');
+    expect(texto).toContain('Olá, Exemplo!'); // primeiro nome sem Dr./Dra.
     expect(texto).toContain(` via PIX no valor de *${(350).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}* ${comoLe}.`);
     expect(texto).not.toMatch(PALAVRAS_DE_CLINICA);
     expect(texto).not.toContain('[plan:');
@@ -746,6 +748,35 @@ describe('confirmação de pagamento ao cliente (texto neutro, descrição sem c
     expect(depois.ops).toEqual(antes.ops);
     // A clínica continua lendo a descrição dela, sem troca de palavras.
     expect(depois.envios[0].texto).toContain(descricao.replace(` [plan:${PLANO}]`, ''));
+  });
+});
+
+describe('conta de laboratório suspensa ou congelada: a baixa segue, o aviso não sai', () => {
+  const DESCRICAO = `Parcela 2/3 — Dr. Exemplo [plan:${PLANO}]`;
+
+  it('confirmação de pagamento e cobrança cancelada não saem', async () => {
+    const m = avisos([LAB], LAB, { 'conta.status': () => 'SUSPENDED' });
+    await (m.svc as any).notifyClientPaymentReceived(pagamento(LAB, DESCRICAO), { tenant_id: LAB, amount: 350, billing_type: 'PIX' });
+    await (m.svc as any).notifyClientChargeDeleted(pagamento(LAB, DESCRICAO), { tenant_id: LAB, amount: 350 }, 'DELETED');
+    expect(m.envios).toEqual([]);
+  });
+
+  it('sem cobrança local (só o cliente do Asaas): vale a conta do contato', async () => {
+    const m = avisos([LAB], LAB, { 'conta.status': () => 'DELETED' });
+    await (m.svc as any).notifyClientPaymentReceived(pagamento(LAB, DESCRICAO), { amount: 350 });
+    expect(m.envios).toEqual([]);
+  });
+
+  it('conta em teste continua avisando', async () => {
+    const m = avisos([LAB], LAB, { 'conta.status': () => 'TRIAL' });
+    await (m.svc as any).notifyClientPaymentReceived(pagamento(LAB, DESCRICAO), { tenant_id: LAB, amount: 350, billing_type: 'PIX' });
+    expect(m.envios).toHaveLength(1);
+  });
+
+  it('a clínica não lê o status da conta', async () => {
+    const m = avisos([LAB], CLINICA, { 'conta.status': () => 'SUSPENDED' });
+    await (m.svc as any).notifyClientPaymentReceived(pagamento(CLINICA, DESCRICAO), { tenant_id: CLINICA, amount: 350, billing_type: 'PIX' });
+    expect(m.envios).toHaveLength(1);
   });
 });
 
@@ -937,23 +968,22 @@ const varsDe = (key: string) =>
   Object.fromEntries(EMAIL_EVENTS.find((e) => e.key === key)!.variables.filter((v) => v.name !== 'clinica_nome').map((v) => [v.name, v.sample]));
 
 describe('e-mails automáticos na conta de laboratório', () => {
-  it('cobrança (gerada, vence amanhã, paga, atrasada): texto neutro, sai igual', async () => {
+  it('cobrança gerada e pagamento confirmado: saem sem a conta ligar; o texto é neutro', async () => {
     const m = correio([LAB]);
-    for (const key of ['cobranca_criada', 'vencimento_proximo', 'pagamento_confirmado', 'pagamento_atrasado']) {
+    for (const key of ['cobranca_criada', 'pagamento_confirmado']) {
       await expect(m.svc.dispatch(key, LAB, 'cliente@exemplo.test', varsDe(key))).resolves.toBe(true);
     }
-    expect(m.mail.send).toHaveBeenCalledTimes(4);
+    expect(m.mail.send).toHaveBeenCalledTimes(2);
     for (const [envio] of m.mail.send.mock.calls as any[]) {
       expect(semVariaveis(envio.subject)).not.toMatch(PALAVRAS_DE_CLINICA);
     }
   });
 
-  it.each(['agendamento_criado', 'agendamento_remarcado'])('%s (texto de consulta): não sai', async (key) => {
+  it.each(['vencimento_proximo', 'pagamento_atrasado', 'agendamento_criado', 'agendamento_remarcado'])('%s: sem a conta ligar, não sai', async (key) => {
     const m = correio([LAB]);
     await expect(m.svc.dispatch(key, LAB, 'cliente@exemplo.test', varsDe(key))).resolves.toBe(false);
     expect(m.mail.send).not.toHaveBeenCalled();
     expect(m.mail.renderTemplate).not.toHaveBeenCalled();
-    expect(registrou('email')).toBe(true);
   });
 
   it('texto salvo com palavra de clínica num e-mail de cobrança: não sai', async () => {

@@ -608,7 +608,7 @@ export default function Dashboard() {
   // Sync aiMode when conversation changes
   useEffect(() => {
     const conv = conversations.find(c => c.id === selectedId);
-    if (conv) setAiMode(!lab && !!conv.aiMode);
+    if (conv) setAiMode(!!conv.aiMode);
     // NÃO fechar o dropdown aqui — conversations muda via socket e fecharia prematuramente
   }, [selectedId, conversations, lab]);
 
@@ -2230,9 +2230,9 @@ export default function Dashboard() {
       fetchConversations(selectedInboxIdRef.current, true);
       fetchAdiadoConversations(selectedInboxIdRef.current);
       showSuccess(newMode ? 'IA ativada' : 'IA desativada');
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao alterar modo IA', e);
-      showError('Falha ao alterar modo IA');
+      showError((lab && e?.response?.data?.message) || 'Falha ao alterar modo IA');
     }
   };
 
@@ -2551,9 +2551,9 @@ export default function Dashboard() {
     try {
       const res = await api.post(`/messages/${msgId}/transcribe`);
       setMessages(prev => prev.map((m: any) => m.id === msgId ? { ...m, text: res.data.transcription } : m));
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao transcrever áudio', e);
-      showError('Falha ao transcrever áudio');
+      showError((lab && e?.response?.data?.message) || 'Falha ao transcrever áudio');
     } finally {
       setTranscribing(prev => ({ ...prev, [msgId]: false }));
     }
@@ -2962,7 +2962,7 @@ export default function Dashboard() {
                         onEdit={handleEditMessage}
                         onSetEditing={setEditingMsg}
                         onDelete={handleDeleteMessage}
-                        onTranscribe={lab ? undefined : handleTranscribe}
+                        onTranscribe={handleTranscribe}
                         onLightbox={setLightbox}
                         onDocPreview={setDocPreview}
                         onImageDownload={handleImageDownload}
@@ -3216,7 +3216,7 @@ export default function Dashboard() {
                   </section>
 
                   {/* IA Toggle */}
-                  {!lab && isRealConvo && (
+                  {isRealConvo && (
                     <section>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Assistente IA</p>
                       <button
@@ -3547,7 +3547,7 @@ export default function Dashboard() {
                               setSlashMenuIndex(0); // reset seleção ao digitar
 
                               // ── Auto-disable AI upon typing ──
-                              if (!lab && aiMode && val.trim().length > 0 && selectedId) {
+                              if (aiMode && val.trim().length > 0 && selectedId) {
                                 setAiMode(false); // Optimistic UI previne chamadas duplicadas
                                 (async () => {
                                   try {
@@ -3601,7 +3601,7 @@ export default function Dashboard() {
                           {isRealConvo && (
                             <div className="h-[52px] flex items-center shrink-0">
                               {/* SophIA (correção/tom) — só faz sentido com texto */}
-                              {!lab && text.trim() && (
+                              {text.trim() && (
                                 <SophIAButton text={text} onResult={handleSophIAResult} compact menuAlign="right" />
                               )}
                               {/* Notas da conversa — visíveis para a equipe */}
@@ -3846,7 +3846,7 @@ export default function Dashboard() {
             setUnreadCounts(prev => { const n = { ...prev }; delete n[id]; return n; });
             setCommandPaletteOpen(false);
           }}
-          onToggleAI={lab ? undefined : handleToggleAiMode}
+          onToggleAI={handleToggleAiMode}
           onOpenTransferModal={handleOpenTransferModal}
           onCloseConversation={handleClose}
         />

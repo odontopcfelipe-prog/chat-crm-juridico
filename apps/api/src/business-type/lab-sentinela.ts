@@ -2,13 +2,16 @@
  * F2 parte 4 do laboratório — o que a vigia diária conta em cada laboratório.
  *
  * Tudo aqui tem de ser ZERO numa conta de laboratório: entidade clínica (I2),
- * uso ou memória de IA, comissão de profissional, agenda de clínica, chip de
- * outra conta, cobrança Asaas sem a chave do próprio laboratório. Qualquer valor acima de zero vira e-mail ao SUPER_ADMIN
+ * memória de IA e uso de IA fora do atendimento dele (a conversa, a transcrição e a
+ * correção são permitidas; memória e skill da plataforma, não), agenda de clínica, chip de
+ * outra conta, cobrança Asaas sem a chave do próprio laboratório, régua de cobrança
+ * saindo com o aviso desligado. Qualquer valor acima de zero vira e-mail ao SUPER_ADMIN
  * (lab-sentinel.service.ts).
  *
  * Função pura com o Prisma por parâmetro (tipada pelo client: o tsc confere os
  * campos de cada where). Só lê.
  */
+import { REGUA_DO_LABORATORIO } from '@crm/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import { TIPOS_DE_AGENDA_DO_LABORATORIO } from './agenda-do-laboratorio';
 
@@ -18,6 +21,31 @@ export { TIPOS_DE_AGENDA_DO_LABORATORIO };
 const POR_VEZ = 4;
 
 export type ContagemDaVigia = Record<string, number>;
+
+/** Chave do liga/desliga de cada aviso da régua (DispatchLog.type → GlobalSetting). */
+const chaveDoAviso = (tipo: string, labId: string) =>
+  `${tipo.toUpperCase()}${tipo === 'boleto_intro' || tipo === 'boleto_delivery' ? '_ENABLED' : ''}_${labId}`;
+
+/**
+ * Régua de cobrança: só sai na conta que ligou o aviso. Conta o que saiu (DispatchLog) com
+ * o aviso desligado: depois de a chave ser desligada ou, sem a chave, em qualquer data.
+ * Com a chave em 'true' o envio é o esperado e não conta.
+ */
+async function reguaSemLigar(prisma: PrismaService, labId: string): Promise<number> {
+  const avisos = [...REGUA_DO_LABORATORIO];
+  const chaves = await prisma.globalSetting.findMany({
+    where: { key: { in: avisos.map((t) => chaveDoAviso(t, labId)) } },
+    select: { key: true, value: true, updated_at: true },
+  });
+  const porChave = new Map(chaves.map((c) => [c.key, c]));
+  const desligados = avisos.flatMap((type) => {
+    const c = porChave.get(chaveDoAviso(type, labId));
+    if (c?.value === 'true') return [];
+    return [c ? { type, sent_at: { gt: c.updated_at } } : { type }];
+  });
+  if (!desligados.length) return 0;
+  return prisma.dispatchLog.count({ where: { tenant_id: labId, status: { not: 'FAILED' }, OR: desligados } });
+}
 
 /** Conta, num laboratório, tudo o que não pode existir nele. */
 export async function contarForaDoLugar(prisma: PrismaService, labId: string): Promise<ContagemDaVigia> {
@@ -54,7 +82,11 @@ export async function contarForaDoLugar(prisma: PrismaService, labId: string): P
       'Assinatura de contrato',
       () => prisma.contractSignature.count({ where: { OR: [{ lead: { tenant_id: labId } }, daConversa] } }),
     ],
-    ['Contrato odontológico', () => prisma.contract.count({ where: { quote: doPaciente } })],
+    // O contrato do laboratório (template_type LABORATORIO) é dele: não conta.
+    [
+      'Contrato odontológico',
+      () => prisma.contract.count({ where: { quote: doPaciente, template_type: { not: 'LABORATORIO' } } }),
+    ],
     [
       'Plano ligado a contrato',
       () => prisma.treatmentPlan.count({ where: { ...doPaciente, contract_signature_id: { not: null } } }),
@@ -62,15 +94,22 @@ export async function contarForaDoLugar(prisma: PrismaService, labId: string): P
     ['Retorno / manutenção', () => prisma.maintenanceTask.count({ where: { tenant_id: labId } })],
     ['Alerta de retorno', () => prisma.returnAlert.count({ where: { tenant_id: labId } })],
     ['Pesquisa pós-atendimento', () => prisma.postCareSurvey.count({ where: { tenant_id: labId } })],
-    ['Acesso ao portal do paciente', () => prisma.portalToken.count({ where: { tenant_id: labId } })],
+    // O link de aceite on-line da proposta é do laboratório (channel LAB_PROPOSTA:<id>): não conta.
+    [
+      'Acesso ao portal do paciente',
+      () =>
+        prisma.portalToken.count({
+          where: { tenant_id: labId, NOT: { channel: { startsWith: 'LAB_PROPOSTA:' } } },
+        }),
+    ],
     ['Simulação de sorriso', () => prisma.smileSimulation.count({ where: { tenant_id: labId } })],
-    ['Indicação', () => prisma.referral.count({ where: { tenant_id: labId } })],
-    ['Comissão de afiliado', () => prisma.affiliateReferral.count({ where: { tenant_id: labId } })],
     ['Lista de espera', () => prisma.waitlistEntry.count({ where: { tenant_id: labId } })],
-    ['Uso de IA', () => prisma.aiUsage.count({ where: { tenant_id: labId } })],
+    [
+      'Uso de IA fora do atendimento',
+      () => prisma.aiUsage.count({ where: { tenant_id: labId, OR: [{ call_type: 'memory' }, { skill_id: { not: null } }] } }),
+    ],
     ['Memória da IA', () => prisma.memory.count({ where: { tenant_id: labId } })],
     ['Perfil do contato feito pela IA', () => prisma.leadProfile.count({ where: { tenant_id: labId } })],
-    ['Comissão de profissional', () => prisma.commission.count({ where: { tenant_id: labId } })],
     [
       'Mensagem enviada pela IA',
       () => prisma.message.count({ where: { ...daConversa, direction: 'out', skill_id: { not: null } } }),
@@ -102,6 +141,7 @@ export async function contarForaDoLugar(prisma: PrismaService, labId: string): P
         ? Promise.resolve(0)
         : prisma.paymentGatewayCharge.count({ where: { tenant_id: labId, gateway: 'ASAAS' } }),
     ],
+    ['Cobrança automática enviada com o aviso desligado', () => reguaSemLigar(prisma, labId)],
   ];
 
   const resultado: ContagemDaVigia = {};

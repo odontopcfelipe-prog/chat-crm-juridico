@@ -6,8 +6,12 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { soDoLaboratorio } from '../common/lab-gate.util';
+import { clinicSettingStorageKey, validarValorChaveClinica } from '../settings/settings-scope';
+import { LAB_NFSE } from './lab-nota-fiscal-textos';
 
 @Injectable()
 export class NotaFiscalService {
@@ -158,9 +162,16 @@ export class NotaFiscalService {
       );
     }
 
+    // Laboratório: sem valor de reserva — o código do serviço (CNAE), a alíquota e o
+    // CNPJ são os que o laboratório preencheu; a descrição padrão é a dele.
+    const lab = await isLabTenant(this.prisma, conta, (m) => this.logger.warn(m));
+    if (lab && (!cnpj || !cnaeCode || !issRate)) {
+      throw new BadRequestException(LAB_NFSE.faltaDados);
+    }
+
     const resolvedCnae = cnaeCode || '6911-7/01';
     const resolvedIss = issRate || '5.00';
-    const resolvedDescricao = servicoDescricao || 'Servicos advocaticios';
+    const resolvedDescricao = servicoDescricao || (lab ? LAB_NFSE.descricaoPadrao : 'Servicos advocaticios');
 
     const lead = (transaction as any).lead;
     const valor = Number(transaction.amount);
@@ -268,17 +279,73 @@ export class NotaFiscalService {
         this.nfse('nfse_servico_descricao', tenantId),
       ]);
 
+    // Laboratório: o que ele não preencheu volta vazio (sem CNAE nem alíquota de reserva)
+    // e a descrição padrão é a do laboratório.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     return {
       configured: !!(provider && apiKey && cnpj),
       provider: provider || null,
       has_api_key: !!apiKey,
       cnpj: cnpj || null,
       inscricao_municipal: inscricaoMunicipal || null,
-      cnae_code: cnaeCode || '6911-7/01',
-      default_iss_rate: issRate || '5.00',
+      cnae_code: cnaeCode || (lab ? null : '6911-7/01'),
+      default_iss_rate: issRate || (lab ? null : '5.00'),
       auto_emit: autoEmit === 'true',
-      servico_descricao: servicoDescricao || 'Servicos advocaticios',
+      servico_descricao: servicoDescricao || (lab ? LAB_NFSE.descricaoPadrao : 'Servicos advocaticios'),
     };
+  }
+
+  // ─── Salvar a configuração (laboratório) ──────────────
+
+  /**
+   * Grava a configuração de NFS-e DA CONTA do laboratório (`nfse_*_<conta>`, a mesma
+   * chave que a leitura usa). A clínica continua gravando pela tela, em PUT /settings;
+   * este caminho é só do laboratório. Chave da API em branco = manter a atual.
+   */
+  async saveConfigLab(
+    tenantId: string,
+    body: {
+      provider?: string;
+      api_key?: string;
+      cnpj?: string;
+      inscricao_municipal?: string;
+      cnae_code?: string;
+      default_iss_rate?: string;
+      auto_emit?: boolean;
+      servico_descricao?: string;
+    },
+  ) {
+    if (!tenantId || !(await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) {
+      throw soDoLaboratorio();
+    }
+    const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const provider = texto(body.provider).toLowerCase();
+    if (provider && !['enotas', 'nfeio', 'focusnfe'].includes(provider)) {
+      throw new BadRequestException(LAB_NFSE.provedorInvalido);
+    }
+    const cnpj = texto(body.cnpj).replace(/\D/g, '');
+    if (cnpj && cnpj.length !== 14) throw new BadRequestException(LAB_NFSE.cnpjInvalido);
+    const aliquota = texto(body.default_iss_rate).replace(',', '.');
+    if (aliquota) {
+      const n = Number(aliquota);
+      if (!Number.isFinite(n) || n < 0 || n > 100) throw new BadRequestException(LAB_NFSE.aliquotaInvalida);
+    }
+    const pares: Array<[string, string]> = [
+      ['nfse_provider', provider],
+      ['nfse_cnpj', cnpj],
+      ['nfse_inscricao_municipal', texto(body.inscricao_municipal)],
+      ['nfse_cnae_code', texto(body.cnae_code)],
+      ['nfse_default_iss_rate', aliquota],
+      ['nfse_auto_emit', body.auto_emit === true ? 'true' : 'false'],
+      ['nfse_servico_descricao', texto(body.servico_descricao)],
+    ];
+    const chave = texto(body.api_key);
+    if (chave) pares.push(['nfse_api_key', chave]);
+    for (const [k, v] of pares) {
+      if (v.length > 500) throw new BadRequestException(LAB_NFSE.valorLongoDemais(k));
+      await this.settings.upsert(clinicSettingStorageKey(k, tenantId), validarValorChaveClinica(k, v));
+    }
+    return this.getConfig(tenantId);
   }
 
   // ─── Auto-emit if enabled ─────────────────────────────

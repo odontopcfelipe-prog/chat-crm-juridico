@@ -54,6 +54,7 @@ import ChatPane from '../../split/components/ChatPane';
 import { formatCpfCnpj, isLab, labAllowsRoute } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 import { LAB_FICHA } from '../lab-dentistas-textos';
+import { LAB_AFILIADO_ABA } from '../../afiliados/lab-afiliados-textos';
 import { LAB_FICHA_AGENDA } from '@/lib/lab-casca-textos';
 import { ABA_ORCAMENTO_DO_LAB, abasProntasNoLab, ordemNoLab } from '../lab-ficha';
 // F6 do laboratório — aba Orçamento (só o laboratório monta) e o nome das abas que mudam.
@@ -551,14 +552,14 @@ function PacienteFichaInner() {
               Onda 5e v37: o botao "Tornar Afiliado" foi removido daqui —
               ativacao agora so pelo modal Editar > Programa de Afiliado
               (toggle), pra manter o header da ficha enxuto. */}
-          {!lab && patient.status !== 'ARCHIVED' && patient.is_affiliate && canSeeValues && (
+          {patient.status !== 'ARCHIVED' && patient.is_affiliate && canSeeValues && (
             <button
               onClick={() => {
                 router.replace(`/atendimento/pacientes/${patient.id}?tab=affiliate`);
                 setTab('affiliate');
               }}
               className="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-3 py-2 rounded-lg flex items-center gap-1.5 font-bold shadow-sm"
-              title="Paciente é afiliado — ver saldo e indicações"
+              title={lab ? LAB_AFILIADO_ABA.eAfiliado : 'Paciente é afiliado — ver saldo e indicações'}
             >
               <HandCoins size={14} /> Afiliado
             </button>

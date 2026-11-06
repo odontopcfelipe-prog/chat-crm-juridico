@@ -10,6 +10,7 @@
  * Antes o agrupado tinha texto próprio com a lista de links e nunca buscava o PDF
  * no Asaas — saía "Acesse pelos links abaixo" fora do padrão.
  */
+import { LAB_REGUA } from '@crm/shared';
 
 /** Uma cobrança dentro do aviso agrupado. */
 export interface GroupMember {
@@ -67,12 +68,16 @@ export function buildGroupMessage(
   clinica: string,
   total: number,
   plan: GroupPlan,
+  /** Conta de laboratório: a abertura fala do laboratório (sem o "na" antes do nome). */
+  lab = false,
 ): string {
   const n = plan.pdfs.length + plan.pix.length + plan.links.length;
   // "boletos" só quando todas são boleto com PDF; com PIX/link no meio, "cobranças".
   const oque = plan.pix.length || plan.links.length ? 'cobranças' : 'boletos';
   const partes: string[] = [
-    `Olá ${firstName}, você tem ${n} ${oque} em aberto na ${clinica}, no total de *${brl(total)}*.`,
+    lab
+      ? LAB_REGUA.grupoAbertura(firstName, n, oque, clinica, brl(total))
+      : `Olá ${firstName}, você tem ${n} ${oque} em aberto na ${clinica}, no total de *${brl(total)}*.`,
   ];
   if (plan.pdfs.length) {
     partes.push(plan.pdfs.length === 1 ? '📎 Segue o boleto em anexo.' : '📎 Seguem os boletos em anexo.');

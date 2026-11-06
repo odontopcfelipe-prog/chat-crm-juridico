@@ -8,9 +8,11 @@ import {
   campanhaMidiaTipo,
   estimativaCampanha,
   isCampanhaSetor,
+  isLabTenant,
   normalizarFiltros,
   type CampanhaFiltros,
 } from '@crm/shared';
+import { LAB_CAMPANHAS_CONTATO_TESTE, LAB_CAMPANHAS_ERROS, LAB_CAMPANHAS_NOME_PADRAO } from './lab-campanhas-textos';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { CampanhasEnvioService } from './campanhas-envio.service';
@@ -127,6 +129,8 @@ export class CampanhasService {
   /** Quem entra com estes filtros (agora) e quem fica de fora — prévia e base do iniciar. */
   async publico(tenantId: string, filtrosBrutos: any, agora = new Date()) {
     const f: CampanhaFiltros = normalizarFiltros(filtrosBrutos);
+    // Laboratório: o dentista responsável da clínica não existe no cadastro dele; o filtro é ignorado.
+    if (f.dentistaId && (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) delete f.dentistaId;
     let pacientes = (await this.prisma.patient.findMany({
       where: wherePublico(tenantId, f, agora),
       select: {
@@ -218,10 +222,13 @@ export class CampanhasService {
     if (num.length < 10) throw new BadRequestException('Telefone inválido — use DDD + número');
     const media = await this.validarConteudo(c, id);
     const chip = await this.envio.chipDoSetor(tenantId, c.setor);
-    if (!chip) throw new BadRequestException('Este setor não tem chip de WhatsApp conectado nesta clínica');
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (!chip) throw new BadRequestException(lab ? LAB_CAMPANHAS_ERROS.semChipTeste : 'Este setor não tem chip de WhatsApp conectado nesta clínica');
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
     const r = await this.envio.enviarPara(tenantId, chip, num, c.text, media, {
-      nome: 'Felipe (teste)', nome_completo: 'Felipe Passos (teste)', clinica: tenant?.name || 'a clínica',
+      nome: lab ? LAB_CAMPANHAS_CONTATO_TESTE : 'Felipe (teste)',
+      nome_completo: lab ? LAB_CAMPANHAS_CONTATO_TESTE : 'Felipe Passos (teste)',
+      clinica: tenant?.name || (lab ? LAB_CAMPANHAS_NOME_PADRAO : 'a clínica'),
     });
     if (!r.saiu) {
       throw new BadRequestException(
@@ -236,8 +243,9 @@ export class CampanhasService {
     const c = await this.daClinica(tenantId, id);
     this.exigeRascunho(c);
     await this.validarConteudo(c, id);
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     if (!(await this.envio.chipDoSetor(tenantId, c.setor))) {
-      throw new BadRequestException('Este setor não tem chip de WhatsApp conectado nesta clínica — conecte antes de iniciar');
+      throw new BadRequestException(lab ? LAB_CAMPANHAS_ERROS.semChipIniciar : 'Este setor não tem chip de WhatsApp conectado nesta clínica — conecte antes de iniciar');
     }
     const quando = agendarPara ? new Date(agendarPara) : null;
     if (quando && Number.isNaN(quando.getTime())) throw new BadRequestException('Data de agendamento inválida');
@@ -245,7 +253,11 @@ export class CampanhasService {
     const r = await this.publico(tenantId, c.filters_json || {}, agora);
     if (!r.recebem.length) throw new BadRequestException('Ninguém recebe com estes filtros');
     if (r.recebem.length > CAMPANHA_MAX_DESTINATARIOS) {
-      throw new BadRequestException(`São ${r.recebem.length} pacientes — o máximo por campanha é ${CAMPANHA_MAX_DESTINATARIOS}. Refine os filtros.`);
+      throw new BadRequestException(
+        lab
+          ? LAB_CAMPANHAS_ERROS.acimaDoLimite.replace('{n}', String(r.recebem.length)).replace('{max}', String(CAMPANHA_MAX_DESTINATARIOS))
+          : `São ${r.recebem.length} pacientes — o máximo por campanha é ${CAMPANHA_MAX_DESTINATARIOS}. Refine os filtros.`,
+      );
     }
     const agendada = !!quando && quando.getTime() > agora.getTime() + 60_000;
     await this.prisma.$transaction(async (tx) => {

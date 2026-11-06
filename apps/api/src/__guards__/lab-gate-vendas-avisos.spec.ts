@@ -91,6 +91,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -118,13 +121,21 @@ function banco(labs: string[], respostas: Respostas = {}) {
 describe('Fechamento deferido (fila fechamento-jobs e fallback) — o laboratório recebe com o texto dele', () => {
   const TERMOS = { entrada: 500, parcelas: 10, valorParcela: 250, total: 3000, forma: 'BOLETO' };
   const PACIENTE = { name: 'Maria Exemplo', phone: TEL[CLINICA] };
-  function montar(labs: string[]) {
-    const b = banco(labs, { 'treatmentPlan.findUnique': () => ({ patient: PACIENTE }) });
+  function montar(labs: string[], statusDaConta?: string) {
+    const b = banco(labs, { 'treatmentPlan.findUnique': () => ({ patient: PACIENTE }), 'conta.status': () => statusDaConta });
     const svc = new QuotesService(b.prisma, {} as any, {} as any, {} as any);
     const negociacao = jest.spyOn(svc as any, 'sendNegociacaoAprovada').mockImplementation(async () => undefined);
     const entrada = jest.spyOn(svc as any, 'sendEntradaCobranca').mockImplementation(async () => undefined);
     return { svc, negociacao, entrada, processor: new FechamentoProcessor(svc), ...b };
   }
+
+  it('laboratório com a conta suspensa depois do fechamento: nem a negociação nem a entrada saem', async () => {
+    const m = montar([LAB], 'SUSPENDED');
+    await m.svc.runFechamentoDeferido({ tenantId: LAB, planId: 'plano-lab', terms: TERMOS });
+    expect(m.ops).toEqual([]);
+    expect(m.negociacao).not.toHaveBeenCalled();
+    expect(m.entrada).not.toHaveBeenCalled();
+  });
 
   it('sem laboratório cadastrado: mesma consulta e os dois envios, como antes', async () => {
     const m = montar([]);

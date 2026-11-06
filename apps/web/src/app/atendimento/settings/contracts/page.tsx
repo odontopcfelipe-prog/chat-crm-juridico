@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import ContratosDoLaboratorio from './ContratosDoLaboratorio';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,12 @@ const DEFAULT_CONTRACT: ContractConfig = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ContractsSettingsPage() {
+  // Laboratório: tela própria (modelo do contrato, sem a ClickSign da plataforma).
+  const lab = isLab(useBusinessType());
+  return lab ? <ContratosDoLaboratorio /> : <ContratosDaClinica />;
+}
+
+function ContratosDaClinica() {
   // ClickSign e a URL pública da API são da PLATAFORMA (uma conta para todas):
   // só o administrador do sistema troca. A clínica vê o status e edita os dados
   // fixos dos contratos DELA.

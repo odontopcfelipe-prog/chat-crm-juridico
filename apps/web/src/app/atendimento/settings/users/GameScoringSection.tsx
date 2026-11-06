@@ -9,6 +9,7 @@
  */
 
 import { RotateCcw, Trophy } from 'lucide-react';
+import { LAB_PONTUACAO } from './lab-equipe-textos';
 
 export type ScoringPointKey = 'procedimento' | 'atendimento' | 'avaliacao' | 'conversao' | 'missao';
 export type ScoringLevelKey = 'prata' | 'ouro' | 'diamante';
@@ -88,7 +89,14 @@ export function draftIsEmpty(d: ScoringDraft): boolean {
   return [...Object.values(d.pontos), ...Object.values(d.niveis)].every((v) => v.trim() === '');
 }
 
-export function GameScoringSection({ value, onChange }: { value: ScoringDraft; onChange: (d: ScoringDraft) => void }) {
+export function GameScoringSection({ value, onChange, lab = false }: { value: ScoringDraft; onChange: (d: ScoringDraft) => void; lab?: boolean }) {
+  // Laboratório: sem 'Atendimento confirmado', que não pontua lá, e com os nomes dele.
+  const linhasDePontos = lab
+    ? POINT_ROWS.flatMap((r) => {
+        const texto = LAB_PONTUACAO.pontos[r.key as keyof typeof LAB_PONTUACAO.pontos];
+        return texto ? [{ ...r, ...texto }] : [];
+      })
+    : POINT_ROWS;
   const inputCls =
     'w-20 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums text-right focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none placeholder:text-muted-foreground/50';
   const personalizado = !draftIsEmpty(value);
@@ -110,7 +118,7 @@ export function GameScoringSection({ value, onChange }: { value: ScoringDraft; o
         )}
       </div>
       <div className="space-y-2.5 p-3 rounded-xl border border-border bg-background/40">
-        {POINT_ROWS.map((r) => (
+        {linhasDePontos.map((r) => (
           <div key={r.key} className="flex items-center gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-semibold text-foreground">{r.label}</p>

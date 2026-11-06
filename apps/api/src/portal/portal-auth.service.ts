@@ -7,6 +7,7 @@ import { SettingsService } from '../settings/settings.service';
 import { evolutionSendFailed } from '../whatsapp/whatsapp.service';
 import { escolherChipPaciente, chipPacienteOuLegado, soTemChipFinanceiro, isLabTenant } from '@crm/shared';
 import { negarLaboratorio } from '../common/lab-gate.util';
+import { PREFIXO_DO_CANAL } from '../commercial/proposta-online-laboratorio';
 
 @Injectable()
 export class PortalAuthService {
@@ -264,7 +265,8 @@ export class PortalAuthService {
         patient: { select: { id: true, name: true, tenant_id: true, status: true } },
       },
     });
-    if (!row) throw new UnauthorizedException('Token nao encontrado');
+    // O link de aceite do orçamento do laboratório nunca vira sessão do portal.
+    if (!row || row.channel?.startsWith(PREFIXO_DO_CANAL)) throw new UnauthorizedException('Token nao encontrado');
     if (row.consumed_at) throw new GoneException('Token ja foi usado — solicite novo link');
     if (row.expires_at < new Date()) throw new GoneException('Token expirado — solicite novo link');
     if (row.patient.status === 'ARCHIVED') {

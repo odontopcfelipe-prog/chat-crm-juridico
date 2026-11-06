@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isLabTenant } from '@crm/shared';
 import { lerConfigDaClinica } from '../settings/config-da-clinica';
+import { registrarUsoDoLaboratorio } from '../settings/lab-ia-conta';
+import { LAB_ROBO, LAB_ROBO_FERRAMENTAS } from './lab-robo-textos';
 import { ADMIN_BOT_KEY, adminBotEfetivo } from '../settings/ia-config';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { TasksService } from '../tasks/tasks.service';
@@ -23,6 +26,8 @@ interface AdminBotSession {
   tenantId: string | null;
   messages: BotMessage[];
   lastActivity: Date;
+  /** Conta de laboratório: prompt e ferramentas de lab-robo-textos.ts. */
+  laboratorio?: boolean;
 }
 
 // ─── Admin Bot Service ────────────────────────────────────────────────────────
@@ -122,7 +127,9 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
       return guardado.value;
     }
     const raw = await lerConfigDaClinica(this.prisma, ADMIN_BOT_KEY, conta || null, (m) => this.logger.warn(m));
-    const value = adminBotEfetivo(raw); // padrão: habilitado
+    // Laboratório: o robô só liga com a chave da conta em 'true' (nasce desligado).
+    const deLab = !!conta && (await isLabTenant(this.prisma, conta, (m) => this.logger.warn(m)));
+    const value = deLab ? raw === 'true' : adminBotEfetivo(raw); // padrão: habilitado
     this.enabledCache.set(conta, { value, expiry: now + 60_000 });
     return value;
   }
@@ -152,6 +159,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
     text: string,
     userId: string,
     tenantId: string | null,
+    opcoes?: { laboratorio?: boolean },
   ): Promise<void> {
     if (!this.openai) return;
 
@@ -168,7 +176,13 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
     // Obter ou criar sessão
     let session = this.sessions.get(sessionKey);
     if (!session) {
-      session = { userId, tenantId, messages: [], lastActivity: new Date() };
+      session = {
+        userId,
+        tenantId,
+        messages: [],
+        lastActivity: new Date(),
+        ...(opcoes?.laboratorio ? { laboratorio: true } : {}),
+      };
       this.sessions.set(sessionKey, session);
     }
     session.lastActivity = new Date();
@@ -209,7 +223,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
 
   private async runAgentLoop(session: AdminBotSession): Promise<string> {
     const messages: any[] = [
-      { role: 'system', content: this.buildSystemPrompt() },
+      { role: 'system', content: session.laboratorio ? this.buildSystemPromptDoLaboratorio() : this.buildSystemPrompt() },
       ...session.messages,
     ];
 
@@ -220,11 +234,19 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
       const completion = await this.openai!.chat.completions.create({
         model: 'gpt-4.1-mini',
         messages,
-        tools: this.getTools(),
+        tools: session.laboratorio ? LAB_ROBO_FERRAMENTAS : this.getTools(),
         tool_choice: 'auto',
         max_tokens: 600,
         temperature: 0.2,
       });
+      if (session.laboratorio && session.tenantId) {
+        await registrarUsoDoLaboratorio(this.prisma, {
+          tenantId: session.tenantId,
+          model: 'gpt-4.1-mini',
+          callType: 'chat',
+          usage: completion.usage,
+        });
+      }
 
       const choice = completion.choices[0];
       const msg = choice.message;
@@ -243,6 +265,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
             JSON.parse(tc.function.arguments),
             session.userId,
             session.tenantId,
+            session.laboratorio,
           );
           return {
             role: 'tool' as const,
@@ -260,6 +283,14 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ─── System Prompt ────────────────────────────────────────────────────────
+
+  private buildSystemPromptDoLaboratorio(): string {
+    const now = new Date();
+    return LAB_ROBO.prompt(
+      now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' }),
+      now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }),
+    );
+  }
 
   private buildSystemPrompt(): string {
     const now = new Date();
@@ -553,8 +584,15 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
     args: any,
     userId: string,
     tenantId: string | null,
+    laboratorio?: boolean,
   ): Promise<any> {
     this.logger.log(`[AdminBot] Tool: ${name} | args: ${JSON.stringify(args)}`);
+
+    // Laboratório: só as ferramentas oferecidas a ele, sempre com a conta dele.
+    if (laboratorio && (!tenantId || !LAB_ROBO_FERRAMENTAS.some((f) => f.function.name === name))) {
+      return { error: LAB_ROBO.ferramentaFechada };
+    }
+    if (laboratorio) args = this.argumentosDoLaboratorio(name, args);
 
     try {
       switch (name) {
@@ -569,7 +607,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
             take: 6,
           });
           if (!leads.length) {
-            return { found: false, message: 'Nenhum cliente encontrado com esse nome.' };
+            return { found: false, message: laboratorio ? LAB_ROBO.semCliente : 'Nenhum cliente encontrado com esse nome.' };
           }
           return { found: true, count: leads.length, leads };
         }
@@ -591,7 +629,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_task': {
-          const fora = await this.foraDaClinica(tenantId, args);
+          const fora = await this.foraDaClinica(tenantId, args, laboratorio);
           if (fora) return { error: fora };
           const task = await this.tasksService.create({
             title: args.title,
@@ -615,7 +653,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_calendar_event': {
-          const fora = await this.foraDaClinica(tenantId, args);
+          const fora = await this.foraDaClinica(tenantId, args, laboratorio);
           if (fora) return { error: fora };
           const startAt = new Date(args.start_at);
           const endAt = args.end_at
@@ -721,7 +759,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'create_revenue': {
-          const fora = await this.foraDaClinica(tenantId, args);
+          const fora = await this.foraDaClinica(tenantId, args, laboratorio);
           if (fora) return { error: fora };
           const tx = await this.financeiroService.createTransaction({
             type: 'RECEITA',
@@ -763,6 +801,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
   private async foraDaClinica(
     tenantId: string | null,
     args: { assigned_user_id?: string; lead_id?: string },
+    laboratorio?: boolean,
   ): Promise<string | null> {
     if (!tenantId) return null;
     if (args.assigned_user_id) {
@@ -770,16 +809,23 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         where: { id: args.assigned_user_id, tenant_id: tenantId },
         select: { id: true },
       });
-      if (!u) return 'Responsável não encontrado nesta clínica.';
+      if (!u) return laboratorio ? LAB_ROBO.responsavelFora : 'Responsável não encontrado nesta clínica.';
     }
     if (args.lead_id) {
       const l = await this.prisma.lead.findFirst({
         where: { id: args.lead_id, tenant_id: tenantId },
         select: { id: true },
       });
-      if (!l) return 'Cliente não encontrado nesta clínica.';
+      if (!l) return laboratorio ? LAB_ROBO.clienteFora : 'Cliente não encontrado nesta clínica.';
     }
     return null;
+  }
+
+  /** Agenda do laboratório é naive-UTC: a hora de Maceió sem fuso vira o mesmo número em UTC. */
+  private argumentosDoLaboratorio(name: string, args: any): any {
+    if (name !== 'create_calendar_event' || typeof args?.start_at !== 'string') return args;
+    const semFuso = !/(z|[+-]\d{2}:?\d{2})$/i.test(args.start_at.trim());
+    return semFuso ? { ...args, start_at: `${args.start_at.trim()}Z` } : args;
   }
 
   private async sendReply(instanceName: string, jid: string, text: string): Promise<void> {

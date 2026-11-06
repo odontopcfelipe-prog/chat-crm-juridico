@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Param,
   Body,
   Query,
@@ -11,7 +12,7 @@ import {
 import { NotaFiscalService } from './nota-fiscal.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
-import { EmitNotaFiscalDto } from './nota-fiscal.dto';
+import { EmitNotaFiscalDto, SaveNotaFiscalConfigLabDto } from './nota-fiscal.dto';
 
 @UseGuards(JwtAuthGuard)
 // Onda 17.61 (segurança/RBAC-06) — NF era emitível/cancelável por qualquer papel.
@@ -41,6 +42,13 @@ export class NotaFiscalController {
   @Get('config')
   getConfig(@Request() req: any) {
     return this.service.getConfig(req.user.tenant_id);
+  }
+
+  /** Salva a configuração de NFS-e da conta de laboratório (a clínica grava por PUT /settings). */
+  @RequiresPermission('manage_financial')
+  @Put('config')
+  saveConfigLab(@Body() body: SaveNotaFiscalConfigLabDto, @Request() req: any) {
+    return this.service.saveConfigLab(req.user.tenant_id, body);
   }
 
   @Get(':id')

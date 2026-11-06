@@ -5,6 +5,9 @@ import { Banknote, Loader2, Wallet, CheckCircle, Clock, AlertCircle, Gamepad2 } 
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import ModoJogoView from './ModoJogoView';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_COMISSOES } from './lab-comissoes-textos';
 
 interface SummaryRow {
   professional_user_id: string;
@@ -51,6 +54,7 @@ function KindBadge({ kind }: { kind?: string }) {
 }
 
 export default function ComissoesPage() {
+  const lab = isLab(useBusinessType());
   // Onda 17.62 — abre no "Resumo mensal" (mostra a equipe) em vez de "A pagar" (vazio até
   // ter algo pago). Evita a impressão de "não aparece nada" numa clínica começando.
   const [view, setView] = useState<'summary' | 'payable' | 'jogo'>('summary');
@@ -110,8 +114,12 @@ export default function ComissoesPage() {
           <Banknote size={26} className="text-primary" /> Comissoes
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Comissoes geradas pela execucao de procedimentos. Fluxo:
-          DEVIDA &rarr; DISPONIVEL (paciente paga) &rarr; PAGA (clinica liquida).
+          {lab ? LAB_COMISSOES.subtitulo : (
+            <>
+              Comissoes geradas pela execucao de procedimentos. Fluxo:
+              DEVIDA &rarr; DISPONIVEL (paciente paga) &rarr; PAGA (clinica liquida).
+            </>
+          )}
         </p>
       </div>
 

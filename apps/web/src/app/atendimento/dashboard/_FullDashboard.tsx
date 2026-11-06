@@ -5,6 +5,9 @@ import {
   LayoutDashboard, Scale, BarChart2, Wallet, Users, Download,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_PAINEL } from './lab-painel-textos';
 import { exportDashboardPdf } from './exportDashboardPdf';
 import { useDashboardData } from './hooks/useDashboardData';
 import { usePeriodFilter } from './hooks/usePeriodFilter';
@@ -51,7 +54,11 @@ import { ResponseTimeWidget } from './components/charts/ResponseTimeWidget';
 export default function DashboardPage() {
   const roleInfo = useRole();
   const { isAdmin } = roleInfo;
-  const sections = visibleSections(roleInfo);
+  const lab = isLab(useBusinessType());
+  // Laboratório: só Visão Geral e Comercial. Receita e aging do painel de clínica vêm zerados
+  // (os dados financeiros ficam no Financeiro) e Estagiários é papel de escritório.
+  const sectionsLab = visibleSections(roleInfo).filter((s) => !lab || s === 'geral' || s === 'comercial');
+  const sections = lab && sectionsLab.length === 0 ? (['geral'] as typeof sectionsLab) : sectionsLab;
 
   const { period, setPeriod, setCustomRange } = usePeriodFilter('30d');
   const { data, loading } = useDashboardData(period);
@@ -79,17 +86,21 @@ export default function DashboardPage() {
   const tasksComercial = useTaskCompletion(period, showComercial ? 'comercial' : undefined);
 
   // === Financeiro — scope=financeiro ===
-  const revenue = useRevenueTrend(12, showFinanceiro ? 'financeiro' : undefined);
-  const aging = useFinancialAging(showFinanceiro ? 'financeiro' : undefined);
+  const revenue = useRevenueTrend(12, showFinanceiro ? 'financeiro' : undefined, !lab);
+  const aging = useFinancialAging(showFinanceiro ? 'financeiro' : undefined, !lab);
 
   // === Estagiários — scope=estagiarios ===
   const tasksEstagiarios = useTaskCompletion(period, showEstagiarios ? 'estagiarios' : undefined);
 
   // === AI Usage (admin-only) ===
-  const aiUsage = useAiUsage(6, isAdmin);
+  const aiUsage = useAiUsage(6, isAdmin && !lab);
 
   // === Comparisons (só carrega se Geral estiver visível) ===
   const comparisons = useComparisons(period, showGeral);
+  // Laboratório: sem as comparações de "Casos Ativos" e "Processos" (contagens do painel de escritório).
+  const comparisonsData = lab && comparisons.data
+    ? { ...comparisons.data, metrics: comparisons.data.metrics.filter((m) => m.key !== 'activeCases' && m.key !== 'trackingCases') }
+    : comparisons.data;
 
   // === Export PDF ===
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -118,11 +129,11 @@ export default function DashboardPage() {
 
   // === TeamPerformance: uma instância por contexto ===
   // Geral: sem scope (agrega todos os papéis)
-  const teamPerfGeral = useTeamPerformance(period, showGeral);
+  const teamPerfGeral = useTeamPerformance(period, showGeral && !lab);
   // Comercial: scope=comercial (ranking dos comerciais)
-  const teamPerfComercial = useTeamPerformance(period, showComercial && !showGeral, 'comercial');
+  const teamPerfComercial = useTeamPerformance(period, showComercial && !showGeral && !lab, 'comercial');
   // Estagiários: scope=estagiarios (ranking dos estagiários supervisionados)
-  const teamPerfEstagiarios = useTeamPerformance(period, showEstagiarios && !showGeral, 'estagiarios');
+  const teamPerfEstagiarios = useTeamPerformance(period, showEstagiarios && !showGeral && !lab, 'estagiarios');
 
   // Full-page loading
   if (loading && !data) {
@@ -163,9 +174,9 @@ export default function DashboardPage() {
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0 flex-1">
-                <DashboardHeader data={data} isAdmin={isAdmin} />
+                <DashboardHeader data={data} isAdmin={isAdmin} lab={lab} />
               </div>
-              {showGeral && (
+              {showGeral && !lab && (
                 <button
                   onClick={handleExportPdf}
                   disabled={exportingPdf}
@@ -191,7 +202,7 @@ export default function DashboardPage() {
             <DashboardSection
               id="geral"
               title="Visão Geral"
-              subtitle="KPIs consolidados do escritório"
+              subtitle={lab ? LAB_PAINEL.geralSubtitulo : 'KPIs consolidados do escritório'}
               icon={<LayoutDashboard size={20} strokeWidth={2} />}
             >
               <div id="pdf-stats-grid">
@@ -199,11 +210,12 @@ export default function DashboardPage() {
                   data={data}
                   aggressive={true}
                   funnel={funnelOverview.data}
+                  lab={lab}
                 />
               </div>
 
               <div id="pdf-comparisons">
-                <ComparisonsBoard data={comparisons.data} loading={comparisons.loading} />
+                <ComparisonsBoard data={comparisonsData} loading={comparisons.loading} />
               </div>
 
               {data.inboxStats && (
@@ -215,15 +227,18 @@ export default function DashboardPage() {
                 />
               )}
 
-              <div id="pdf-team-perf">
-                <TeamPerformanceBoard data={teamPerfGeral.data} loading={teamPerfGeral.loading} />
-              </div>
+              {/* Laboratório: o ranking da equipe traz colunas de escritório (taxa de êxito, petições, prazos). */}
+              {!lab && (
+                <div id="pdf-team-perf">
+                  <TeamPerformanceBoard data={teamPerfGeral.data} loading={teamPerfGeral.loading} />
+                </div>
+              )}
 
-              {isAdmin && <AiUsageChart data={aiUsage.data} loading={aiUsage.loading} />}
+              {isAdmin && !lab && <AiUsageChart data={aiUsage.data} loading={aiUsage.loading} />}
 
               {/* Onda 5e v18 (Fase C.2) — metricas de saude da agenda
                   (% confirmacao, % no-show, aguardando confirmacao). */}
-              <AgendaMetricsCards daysBack={30} />
+              {!lab && <AgendaMetricsCards daysBack={30} />}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <UpcomingEvents events={data.upcomingEvents} />
@@ -237,7 +252,7 @@ export default function DashboardPage() {
             <DashboardSection
               id="comercial"
               title="Comercial"
-              subtitle="Leads, conversão e atendimento"
+              subtitle={lab ? LAB_PAINEL.comercialSubtitulo : 'Leads, conversão e atendimento'}
               icon={<BarChart2 size={20} strokeWidth={2} />}
             >
               <OperatorPerformanceStrip
@@ -247,8 +262,9 @@ export default function DashboardPage() {
               />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <LeadFunnelChart data={funnelComercial.data} loading={funnelComercial.loading} />
-                <LeadSourcesChart data={sourcesComercial.data} loading={sourcesComercial.loading} />
+                {/* Laboratório: o funil real é o Funil comercial; este gráfico usa as etapas da clínica. */}
+                {!lab && <LeadFunnelChart data={funnelComercial.data} loading={funnelComercial.loading} />}
+                <LeadSourcesChart data={sourcesComercial.data} loading={sourcesComercial.loading} lab={lab} />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -256,11 +272,11 @@ export default function DashboardPage() {
                 <ConversionVelocityWidget data={velocityComercial.data} loading={velocityComercial.loading} />
               </div>
 
-              <LeadPipeline pipeline={data.leadPipeline} />
+              {!lab && <LeadPipeline pipeline={data.leadPipeline} />}
 
               {/* Ranking dos comerciais — exibido apenas quando o usuário não vê
                   a Geral (onde o TeamPerformanceBoard consolidado já aparece). */}
-              {!showGeral && (
+              {!showGeral && !lab && (
                 <TeamPerformanceBoard data={teamPerfComercial.data} loading={teamPerfComercial.loading} />
               )}
             </DashboardSection>
@@ -302,19 +318,27 @@ export default function DashboardPage() {
         </div>
 
         {/* Tarefas do dia (Fase 9) — agrega retornos + confirmacoes + comissoes + metas */}
-        <MotionWidget delay={0.05}>
-          <TodaysTasks />
-        </MotionWidget>
+        {/* Laboratório: retornos, confirmações de consulta e revisitas são da clínica, e os atalhos
+            do Início já estão no menu e na tela inicial dele. */}
+        {!lab && (
+          <MotionWidget delay={0.05}>
+            <TodaysTasks />
+          </MotionWidget>
+        )}
 
         {/* Onda 5.5 (Fase 25) — revisitas atrasadas (auto-some se vazio) */}
-        <MotionWidget delay={0.07}>
-          <MaintenanceRecallWidget />
-        </MotionWidget>
+        {!lab && (
+          <MotionWidget delay={0.07}>
+            <MaintenanceRecallWidget />
+          </MotionWidget>
+        )}
 
         {/* Ações rápidas no rodapé (sempre) */}
-        <MotionWidget delay={0.1}>
-          <QuickActions roleInfo={roleInfo} />
-        </MotionWidget>
+        {!lab && (
+          <MotionWidget delay={0.1}>
+            <QuickActions roleInfo={roleInfo} />
+          </MotionWidget>
+        )}
       </div>
     </div>
   );

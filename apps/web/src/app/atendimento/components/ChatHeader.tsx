@@ -394,7 +394,7 @@ export function ChatHeader({
         )}
         {/* Botões de ação — desktop only */}
         <div className="hidden md:flex gap-2 items-center flex-wrap justify-end">
-          {!lab && isRealConvo && (
+          {isRealConvo && (
             <button
               onClick={onToggleAiMode}
               title={aiMode ? 'Desativar IA' : 'Ativar IA'}

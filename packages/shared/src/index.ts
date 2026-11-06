@@ -52,6 +52,7 @@ export * from './documento-br';
 // F4 do laboratório: textos do laboratório (setores, cargos e função do chip)
 export * from './lab-textos';
 export * from './lab-tenants';
+export * from './lab-ia';
 // F3 do laboratório: o que a conta de laboratório recebe ao nascer (catálogo, finanças, funil, chaves desligadas)
 export * from './lab-defaults';
 // Configuração por conta na GlobalSetting: reserva na global antiga só para contas legadas
@@ -64,6 +65,7 @@ export * from './agenda-laboratorio';
 export * from './lab-agenda-textos';
 export * from './lab-disparos';
 export * from './lab-disparos-textos';
+export * from './lab-vocabulario';
 // F8 do laboratório: fichas do cliente, do serviço e do caso (limites, datas e regras puras)
 export * from './lab-fichas';
 // Versão em vigor dos termos de uso e da política de privacidade (páginas e aceite do cadastro)

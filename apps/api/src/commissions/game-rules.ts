@@ -16,6 +16,7 @@
  * (executed_at, created_at, accepted_at) são instantes reais → mês de Maceió = UTC+3h.
  */
 import type { PrismaService } from '../prisma/prisma.service';
+import { LAB_DEFAULT_MISSIONS, LAB_JOGO_CONQUISTAS, LAB_JOGO_FONTES, LAB_JOGO_METAS } from './lab-jogo-textos';
 
 // ─── Missões (config por clínica; a recompensa em texto é da visão do admin) ──
 export type MissionDef = { id: string; titulo: string; metrica: string; alvo: number; recompensa: string };
@@ -31,15 +32,17 @@ export const DEFAULT_MISSIONS: MissionsConfig = {
   ],
 };
 
-export async function readMissionsConfig(prisma: PrismaService, tenantId: string): Promise<MissionsConfig> {
+export async function readMissionsConfig(prisma: PrismaService, tenantId: string, lab = false): Promise<MissionsConfig> {
+  const padrao = lab ? LAB_DEFAULT_MISSIONS : DEFAULT_MISSIONS;
   try {
     const row = await prisma.globalSetting.findUnique({ where: { key: `COMMISSION_MISSIONS_${tenantId}` } });
-    if (!row?.value) return DEFAULT_MISSIONS;
+    if (!row?.value) return padrao;
     const parsed = JSON.parse(row.value);
-    if (!parsed || !Array.isArray(parsed.missions)) return DEFAULT_MISSIONS;
-    return { enabled: parsed.enabled !== false, missions: parsed.missions };
+    if (!parsed || !Array.isArray(parsed.missions)) return padrao;
+    const missions: MissionDef[] = lab ? parsed.missions.filter((m: MissionDef) => m?.metrica !== 'zero_faltas') : parsed.missions;
+    return { enabled: parsed.enabled !== false, missions };
   } catch {
-    return DEFAULT_MISSIONS;
+    return padrao;
   }
 }
 
@@ -277,6 +280,7 @@ export async function computeMonthPoints(
   prisma: PrismaService, tenantId: string, userId: string, month: string, missions: MissionsConfig,
   scoring: GameScoring = DEFAULT_SCORING,
   now = Date.now(),
+  lab = false,
 ) {
   const P = scoring.pontos;
   const b = monthBounds(month);
@@ -292,7 +296,8 @@ export async function computeMonthPoints(
         treatment_plan: { patient: { tenant_id: tenantId } },
       },
     }),
-    prisma.calendarEvent.count({
+    // Laboratório: não há "atendimento confirmado" (a validação da consulta é da clínica).
+    lab ? Promise.resolve(0) : prisma.calendarEvent.count({
       where: {
         tenant_id: tenantId, assigned_user_id: userId, validated_at: { not: null },
         type: { in: CLINICAL_TYPES }, start_at: { gte: b.naiveStart, lte: b.naiveEnd },
@@ -326,13 +331,20 @@ export async function computeMonthPoints(
     }
   }
 
-  const fontes = [
+  const fontesDaClinica = [
     { chave: 'procedimentos', emoji: '🦷', label: 'Procedimentos executados', qtd: procedimentos, cada: P.procedimento },
     { chave: 'atendimentos', emoji: '✅', label: 'Atendimentos confirmados', qtd: atendimentos, cada: P.atendimento },
     { chave: 'avaliacoes', emoji: '📋', label: 'Avaliações montadas', qtd: avaliacoes, cada: P.avaliacao },
     { chave: 'conversoes', emoji: '🤝', label: 'Avaliações que viraram tratamento', qtd: conversoes, cada: P.conversao },
     { chave: 'missoes', emoji: '🎯', label: 'Missões da semana cumpridas', qtd: missoesCumpridas, cada: P.missao },
-  ].map((f) => ({ ...f, pontos: f.qtd * f.cada }));
+  ];
+  const fontesDoLab = [
+    { chave: 'procedimentos', ...LAB_JOGO_FONTES.procedimentos, qtd: procedimentos, cada: P.procedimento },
+    { chave: 'avaliacoes', ...LAB_JOGO_FONTES.avaliacoes, qtd: avaliacoes, cada: P.avaliacao },
+    { chave: 'conversoes', ...LAB_JOGO_FONTES.conversoes, qtd: conversoes, cada: P.conversao },
+    { chave: 'missoes', ...LAB_JOGO_FONTES.missoes, qtd: missoesCumpridas, cada: P.missao },
+  ];
+  const fontes = (lab ? fontesDoLab : fontesDaClinica).map((f) => ({ ...f, pontos: f.qtd * f.cada }));
 
   return { pontos: fontes.reduce((s, f) => s + f.pontos, 0), fontes };
 }
@@ -354,6 +366,7 @@ export async function computeMyGame(
   prisma: PrismaService, tenantId: string, userId: string, month: string, missions: MissionsConfig,
   scoring: GameScoring = DEFAULT_SCORING,
   now = Date.now(),
+  lab = false,
 ) {
   const [y, m] = month.split('-').map(Number);
   const prevMonth = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
@@ -361,8 +374,8 @@ export async function computeMyGame(
   const isCurrent = month === maceioMonthKey(now);
 
   const [atual, anterior, goals] = await Promise.all([
-    computeMonthPoints(prisma, tenantId, userId, month, missions, scoring, now),
-    computeMonthPoints(prisma, tenantId, userId, prevMonth, missions, scoring, now),
+    computeMonthPoints(prisma, tenantId, userId, month, missions, scoring, now, lab),
+    computeMonthPoints(prisma, tenantId, userId, prevMonth, missions, scoring, now, lab),
     prisma.goal.findMany({
       where: {
         tenant_id: tenantId, active: true, scope: 'PROFESSIONAL', professional_user_id: userId,
@@ -382,7 +395,9 @@ export async function computeMyGame(
     const porcento = g.metric.endsWith('_PCT');
     return {
       id: g.id,
-      label: g.metric === 'CUSTOM' ? (g.notes?.trim() || 'Meta da clínica') : (GOAL_LABEL[g.metric] ?? 'Meta da clínica'),
+      label: lab
+        ? (g.metric === 'CUSTOM' ? (g.notes?.trim() || LAB_JOGO_METAS.padrao) : ((LAB_JOGO_METAS as Record<string, string>)[g.metric] ?? LAB_JOGO_METAS.padrao))
+        : g.metric === 'CUSTOM' ? (g.notes?.trim() || 'Meta da clínica') : (GOAL_LABEL[g.metric] ?? 'Meta da clínica'),
       limite,
       // Produção (R$) sai só em %: o profissional vê o quanto andou, não valores.
       atual: dinheiro ? null : valor,
@@ -421,7 +436,14 @@ export async function computeMyGame(
   const lv = levelFor(atual.pontos, scoring.niveis);
   const ouro = scoring.niveis.find((n) => n.nome === 'Ouro')?.min ?? GAME_LEVELS[2].min;
   const qtd = (k: string) => atual.fontes.find((f) => f.chave === k)?.qtd ?? 0;
-  const conquistas = [
+  const conquistas = lab ? [
+    { emoji: '🦷', label: LAB_JOGO_CONQUISTAS.primeiro, desbloqueada: qtd('procedimentos') >= 1 },
+    { emoji: '🔟', label: LAB_JOGO_CONQUISTAS.dez, desbloqueada: qtd('procedimentos') >= 10 },
+    { emoji: '💯', label: LAB_JOGO_CONQUISTAS.cinquenta, desbloqueada: qtd('procedimentos') >= 50 },
+    { emoji: '🤝', label: LAB_JOGO_CONQUISTAS.conversao, desbloqueada: qtd('conversoes') >= 1 },
+    { emoji: '🎯', label: LAB_JOGO_CONQUISTAS.meta, desbloqueada: metas.some((x) => x.concluida) },
+    { emoji: '🥇', label: LAB_JOGO_CONQUISTAS.ouro, desbloqueada: atual.pontos >= ouro },
+  ] : [
     { emoji: '🦷', label: 'Primeiro procedimento do mês', desbloqueada: qtd('procedimentos') >= 1 },
     { emoji: '🔟', label: '10 procedimentos', desbloqueada: qtd('procedimentos') >= 10 },
     { emoji: '💯', label: '50 procedimentos', desbloqueada: qtd('procedimentos') >= 50 },

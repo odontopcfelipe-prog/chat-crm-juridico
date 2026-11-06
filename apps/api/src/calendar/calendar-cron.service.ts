@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { getLabTenantIds } from '@crm/shared';
+import { contaDoLabPodeEnviar, getLabTenantIds } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { CalendarService } from './calendar.service';
@@ -151,6 +151,11 @@ export class CalendarCronService {
           continue;
         }
         if (labs.has(tenantId)) {
+          // Conta suspensa ou congelada: o resumo não sai; volta no dia seguinte a ela voltar.
+          if (!(await contaDoLabPodeEnviar(this.prisma, tenantId))) {
+            this.logger.log(`[LAB-AGENDA] resumo do dia — conta ${tenantId} suspensa: não sai`);
+            continue;
+          }
           this.logger.log(`[LAB-AGENDA] resumo do dia — conta ${tenantId} é laboratório: coleta, prova e entrega`);
         }
 
@@ -197,6 +202,8 @@ export class CalendarCronService {
           : s.key.replace(/^BIRTHDAY_GREETING_/, '');
         if (!tenantId) continue; // aniversario e sempre por-tenant
         const lab = labs.has(tenantId);
+        // Conta de laboratório suspensa ou congelada: nem marca a data do dia.
+        if (lab && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) continue;
 
         // Onda 17.61 — TRÊS mensagens separadas no dia (clássica, o desejo, o
         // presente), cada uma no seu horario e com dedup proprio.

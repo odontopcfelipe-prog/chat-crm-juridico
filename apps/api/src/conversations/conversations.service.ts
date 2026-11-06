@@ -3,7 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { Prisma, Conversation, isLabTenant } from '@crm/shared';
+import { Prisma, Conversation, chipDoLabComIa, contaDoLabLiberaIa, isLabTenant } from '@crm/shared';
+import { semAssinaturaParaIa } from '../settings/lab-ia-conta';
+import { LAB_IA_API } from '../settings/lab-ia-api-textos';
 import { effectiveRole } from '../common/utils/permissions.util';
 import { clinicTransferBlockReason, workStageAfterDemotion } from '../leads/clinic-transfer-guard';
 import { isChipAiEnabled } from '../settings/chip-ai-enabled.util';
@@ -623,7 +625,27 @@ export class ConversationsService {
     });
   }
 
-  async setAiMode(id: string, ai_mode: boolean): Promise<Conversation> {
+  async setAiMode(id: string, ai_mode: boolean, tenantId?: string | null): Promise<Conversation> {
+    // Conta de laboratório: só as conversas dela, e ligar só com o chip ligado na conta.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      const daConta = await this.prisma.conversation.findFirst({
+        where: { id, tenant_id: tenantId as string },
+        select: { instance_name: true },
+      });
+      if (!daConta) throw new NotFoundException(LAB_IA_API.conversaNaoEncontrada);
+      if (ai_mode) {
+        if (!(await contaDoLabLiberaIa(this.prisma, tenantId))) throw semAssinaturaParaIa();
+        const chip = daConta.instance_name
+          ? await this.prisma.instance.findFirst({
+              where: { name: daConta.instance_name, tenant_id: tenantId as string },
+              select: { purpose: true },
+            })
+          : null;
+        if (!(await chipDoLabComIa(this.prisma, tenantId, chip?.purpose))) {
+          throw new BadRequestException(LAB_IA_API.chipDesligado);
+        }
+      }
+    }
     // Toggle do operador SEMPRE marca como MANUAL — protege a conversa do
     // cron AfterHours, que só mexe em entradas sem origem manual.
     const conv = await this.prisma.conversation.update({

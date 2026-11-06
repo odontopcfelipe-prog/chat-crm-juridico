@@ -4,6 +4,9 @@ import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Shield, Check, X, ChevronDown, Loader2, Users } from 'lucide-react';
 import api from '@/lib/api';
+import { isLab, LAB_ROLE_LABELS } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_PERMISSOES_MATRIZ } from './lab-permissoes-textos';
 
 // ─── Matriz de permissões ─────────────────────────────────────────────────────
 
@@ -124,6 +127,10 @@ function PermIcon({ p }: { p: Permission }) {
 }
 
 export default function PermissionsSettingsPage() {
+  // Laboratório: nomes dos perfis e linhas da matriz próprios (a clínica segue igual).
+  const lab = isLab(useBusinessType());
+  const matrix: readonly MatrixRow[] = lab ? LAB_PERMISSOES_MATRIZ : MATRIX;
+  const roleLabel = (r: Role): string => (lab && LAB_ROLE_LABELS[r]) || ROLE_LABELS[r];
   const [users, setUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -236,14 +243,14 @@ export default function PermissionsSettingsPage() {
                     {ROLES.map(role => (
                       <th key={role} className="px-4 py-3.5 text-center w-32">
                         <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${ROLE_COLORS[role]}`}>
-                          {ROLE_LABELS[role]}
+                          {roleLabel(role)}
                         </span>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {MATRIX.map((row, i) => (
+                  {matrix.map((row, i) => (
                     <tr key={row.label} className={`border-b border-border/50 hover:bg-muted/20 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
                       <td className="px-5 py-3.5">
                         <div className="font-semibold text-foreground text-[13px]">{row.label}</div>
@@ -296,7 +303,7 @@ export default function PermissionsSettingsPage() {
                 <div key={role} className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
                   <div className={`px-5 py-3.5 border-b border-border flex items-center gap-3`}>
                     <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${ROLE_COLORS[role]}`}>
-                      {ROLE_LABELS[role]}
+                      {roleLabel(role)}
                     </span>
                     <span className="text-[12px] text-muted-foreground">
                       {roleUsers.length} {roleUsers.length === 1 ? 'usuário' : 'usuários'}
@@ -332,7 +339,7 @@ export default function PermissionsSettingsPage() {
                                 ? <Loader2 size={12} className="animate-spin" />
                                 : <Shield size={12} className="text-muted-foreground shrink-0" />
                               }
-                              <span className="truncate">{getUserRoles(user).map(r => ROLE_LABELS[r as Role] || r).join(', ') || 'Sem perfil'}</span>
+                              <span className="truncate">{getUserRoles(user).map(r => (ROLES.includes(r as Role) ? roleLabel(r as Role) : r)).join(', ') || 'Sem perfil'}</span>
                               <ChevronDown size={12} className="text-muted-foreground shrink-0" />
                             </button>
                           </div>
@@ -432,7 +439,7 @@ export default function PermissionsSettingsPage() {
                   <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${isActive ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
                     {isActive && <Check size={10} className="text-primary-foreground" />}
                   </div>
-                  {ROLE_LABELS[r]}
+                  {roleLabel(r)}
                 </button>
               );
             })}

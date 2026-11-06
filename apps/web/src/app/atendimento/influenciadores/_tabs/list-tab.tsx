@@ -16,6 +16,9 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import ModalBase from '@/components/ModalBase';
 import { inputCls, Field, formatBRL } from './ui-shared';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_INFLUENCIADORES } from '../lab-influenciadores-textos';
 
 type Platform = 'INSTAGRAM' | 'TIKTOK' | 'YOUTUBE' | 'OUTRO';
 type CommissionType = 'PERCENTUAL' | 'FIXO' | 'PERMUTA';
@@ -89,6 +92,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export function ListTab() {
+  const lab = isLab(useBusinessType());
   const [items, setItems] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<Status | ''>('');
@@ -179,7 +183,7 @@ export function ListTab() {
         const { data: created } = await api.post<Influencer>('/influencers', payload);
         showSuccess(
           created?.patient
-            ? `Influenciador cadastrado e vinculado ao paciente "${created.patient.name}" (afiliado)`
+            ? (lab ? LAB_INFLUENCIADORES.cadastrado(created.patient.name) : `Influenciador cadastrado e vinculado ao paciente "${created.patient.name}" (afiliado)`)
             : 'Influenciador cadastrado',
         );
       }
@@ -334,7 +338,7 @@ export function ListTab() {
                       href={`/atendimento/pacientes/${inf.patient.id}`}
                       className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline font-medium"
                     >
-                      <HeartPulse size={11} /> Ver ficha do paciente
+                      <HeartPulse size={11} /> {lab ? LAB_INFLUENCIADORES.verFicha : 'Ver ficha do paciente'}
                     </Link>
                   </div>
                 )}
@@ -395,18 +399,32 @@ export function ListTab() {
               <span className="text-base leading-none mt-0.5">🤝</span>
               <div>
                 <p className="font-bold mb-0.5">
-                  Influenciador também vira paciente da clínica
+                  {lab ? LAB_INFLUENCIADORES.avisoTitulo : 'Influenciador também vira paciente da clínica'}
                 </p>
-                <p>
-                  Ao cadastrar, criamos automaticamente um <strong>Patient</strong>{' '}
-                  com o mesmo nome/telefone/email, marcado como{' '}
-                  <strong>Afiliado ativo</strong> (3% por indicação fechada). O
-                  cupom configurado abaixo vira o <em>código de afiliado</em>.
-                </p>
-                <p className="mt-1 opacity-80">
-                  Se já existe paciente com o mesmo telefone, ele é vinculado
-                  (não duplica).
-                </p>
+                {lab ? (
+                  <>
+                    <p>
+                      {LAB_INFLUENCIADORES.avisoCriamos} <strong>{LAB_INFLUENCIADORES.avisoCliente}</strong>{' '}
+                      {LAB_INFLUENCIADORES.avisoComMesmo}{' '}
+                      <strong>{LAB_INFLUENCIADORES.avisoAfiliado}</strong> {LAB_INFLUENCIADORES.avisoResto}{' '}
+                      <em>{LAB_INFLUENCIADORES.avisoCodigo}</em>.
+                    </p>
+                    <p className="mt-1 opacity-80">{LAB_INFLUENCIADORES.avisoJaExiste}</p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      Ao cadastrar, criamos automaticamente um <strong>Patient</strong>{' '}
+                      com o mesmo nome/telefone/email, marcado como{' '}
+                      <strong>Afiliado ativo</strong> (3% por indicação fechada). O
+                      cupom configurado abaixo vira o <em>código de afiliado</em>.
+                    </p>
+                    <p className="mt-1 opacity-80">
+                      Se já existe paciente com o mesmo telefone, ele é vinculado
+                      (não duplica).
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -426,7 +444,7 @@ export function ListTab() {
                 <input
                   value={form.handle}
                   onChange={e => setForm({ ...form, handle: e.target.value })}
-                  placeholder="ex: anaodonto"
+                  placeholder={lab ? LAB_INFLUENCIADORES.handleExemplo : 'ex: anaodonto'}
                   className={inputCls}
                 />
               </Field>
@@ -481,7 +499,7 @@ export function ListTab() {
               <input
                 value={form.niche}
                 onChange={e => setForm({ ...form, niche: e.target.value })}
-                placeholder="ex: odonto, lifestyle, fitness, beleza"
+                placeholder={lab ? LAB_INFLUENCIADORES.nichoExemplo : 'ex: odonto, lifestyle, fitness, beleza'}
                 className={inputCls}
               />
             </Field>
@@ -517,7 +535,7 @@ export function ListTab() {
             </div>
             <Field
               label="Cupom de desconto associado (opcional)"
-              hint="Útil para rastrear conversões. Único por clínica."
+              hint={lab ? LAB_INFLUENCIADORES.cupomDica : 'Útil para rastrear conversões. Único por clínica.'}
             >
               <input
                 value={form.coupon_code}

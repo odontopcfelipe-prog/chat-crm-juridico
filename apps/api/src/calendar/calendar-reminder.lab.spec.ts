@@ -88,6 +88,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
               if (typeof metodo !== 'string' || metodo === 'then') return undefined;
               return async (args: any) => {
                 const op = `${modelo}.${metodo}`;
+                // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+                if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+                if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
                 ops.push([op, args]);
                 const r = respostas[op];
                 if (r) return r(args);
@@ -148,6 +151,7 @@ interface Opcoes {
   config?: string | null;
   chips?: { name: string; purpose: string }[];
   cadastro?: any;
+  status?: string;
 }
 
 function montar(ev: any, o: Opcoes = {}) {
@@ -169,6 +173,7 @@ function montar(ev: any, o: Opcoes = {}) {
       where.tenant_id === LAB ? (o.chips ?? CHIPS_DO_LAB) : [{ name: `chip-${where.tenant_id}`, purpose: 'CLINICA' }],
     'conversation.findFirst': ({ select }) => (select?.instance_name && !select?.id ? null : { id: 'conv-1', instance_name: null }),
     'user.findMany': () => [{ id: 'adm-1' }],
+    'conta.status': () => o.status,
   });
   const whatsapp = {
     sendText: jest.fn(async (tel: string, ..._resto: any[]) => ({ key: { id: `wamid-${tel}` }, data: { key: { id: `wamid-${tel}` } } })),
@@ -189,6 +194,20 @@ const TEXTO_48H_COLETA =
 const TEXTO_24H_PROVA =
   'Oi Ana! Lembrete do laboratório: amanhã, *23/10* às *14:30*, passamos no consultório para a prova do seu trabalho.\n' +
   `📍 ${ENDERECO}`;
+
+describe('Lembretes do laboratório — conta suspensa ou congelada', () => {
+  it('não envia e não reivindica; a mesma fila volta a enviar quando a conta volta', async () => {
+    const m = montar(eventoDoLab(), { min: 2880, status: 'SUSPENDED' });
+    await m.worker.process(job());
+    expect(m.whatsapp.sendText).not.toHaveBeenCalled();
+    expect(m.de('eventReminder.updateMany')).toEqual([]);
+    expect(m.de('eventReminder.update')).toEqual([]);
+
+    const ativa = montar(eventoDoLab(), { min: 2880, status: 'TRIAL' });
+    await ativa.worker.process(job());
+    expect(ativa.whatsapp.sendText).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('Lembretes do laboratório (fila calendar-reminders) — coleta, prova e entrega', () => {
   it.each([

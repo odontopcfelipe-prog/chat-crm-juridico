@@ -10,6 +10,8 @@ import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { promoteLeadInBackground } from '../leads/clinic-transfer-guard';
 import { isVendaRapidaQuote } from '../commercial/venda-rapida.util';
+import { isLabTenant } from '@crm/shared';
+import { LAB_COBRANCA_AVULSA } from '../leads/lab-cobranca-avulsa-textos';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
 /**
@@ -691,13 +693,19 @@ export class FinanceiroService {
       });
     }
 
+    // Laboratório: o lançamento diz "Cobrança avulsa - <cliente>" (a categoria gravada não muda).
+    // Clínica: o mesmo texto de antes; só a leitura da lista de laboratórios.
+    const contaDoLancamento = tenantId || honorario?.tenant_id || lead?.tenant_id || null;
+    const labAvulsa = await isLabTenant(this.prisma, contaDoLancamento, (m) => this.logger.warn(m));
     return this.prisma.financialTransaction.create({
       data: {
         // Honorário sem conta herda a conta do contato (não nasce lançamento sem conta).
-        tenant_id: tenantId || honorario?.tenant_id || lead?.tenant_id || null,
+        tenant_id: contaDoLancamento,
         type: 'RECEITA',
         category: 'HONORARIO',
-        description: `Honorário ${typeLabel} - Lead ${lead?.name || 'Sem nome'}`.trim(),
+        description: labAvulsa
+          ? LAB_COBRANCA_AVULSA.descricao(honorario?.type, lead?.name)
+          : `Honorário ${typeLabel} - Lead ${lead?.name || 'Sem nome'}`.trim(),
         amount: payment.amount,
         date: payment.paid_at || payment.due_date || new Date(),
         paid_at: payment.paid_at,

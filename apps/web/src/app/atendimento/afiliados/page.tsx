@@ -28,6 +28,9 @@ import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
 import { showError, showSuccess } from '@/lib/toast';
 import AfiliadosJogoView from './AfiliadosJogoView';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AFILIADOS } from './lab-afiliados-textos';
 
 interface Affiliate {
   id: string;
@@ -92,6 +95,7 @@ function formatDate(iso: string) {
 export default function AfiliadosPage() {
   const router = useRouter();
   const role = useRole();
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Dashboard | null>(null);
   const [pending, setPending] = useState<PendingWithdrawal[]>([]);
@@ -186,7 +190,7 @@ export default function AfiliadosPage() {
             <div>
               <h1 className="text-xl font-bold text-foreground">Afiliados</h1>
               <p className="text-xs text-muted-foreground">
-                Pacientes parceiros — recebem 3% por indicação fechada
+                {lab ? LAB_AFILIADOS.subtitulo : 'Pacientes parceiros — recebem 3% por indicação fechada'}
               </p>
             </div>
           </div>
@@ -194,7 +198,7 @@ export default function AfiliadosPage() {
             <button
               onClick={() => setAddModalOpen(true)}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm"
-              title="Adicionar paciente como afiliado"
+              title={lab ? LAB_AFILIADOS.adicionarTitulo : 'Adicionar paciente como afiliado'}
             >
               <Plus size={14} strokeWidth={2.5} /> Adicionar afiliado
             </button>
@@ -311,7 +315,7 @@ export default function AfiliadosPage() {
                       <span className="text-xs font-medium">
                         {w.method === 'PIX' && `PIX (${w.pix_key})`}
                         {w.method === 'DINHEIRO' && 'Dinheiro'}
-                        {w.method === 'CREDITO_TRATAMENTO' && 'Crédito em tratamento'}
+                        {w.method === 'CREDITO_TRATAMENTO' && (lab ? LAB_AFILIADOS.creditoNoTrabalho : 'Crédito em tratamento')}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-bold text-amber-900 dark:text-amber-200">
@@ -403,8 +407,7 @@ export default function AfiliadosPage() {
               <HandCoins size={32} className="mx-auto mb-2 opacity-40" />
               <p className="text-sm font-medium">Nenhum afiliado ainda</p>
               <p className="text-xs mt-1">
-                Marque pacientes como afiliados pela ficha (botão verde no header
-                ou modal Editar).
+                {lab ? LAB_AFILIADOS.vazioDica : 'Marque pacientes como afiliados pela ficha (botão verde no header ou modal Editar).'}
               </p>
             </div>
           ) : (
@@ -498,6 +501,7 @@ function AddAffiliateModal({
   onClose: () => void;
   onSuccess: (patientId: string) => void;
 }) {
+  const lab = isLab(useBusinessType());
   // Onda 17.32.183 — modo "criar novo" REMOVIDO: cadastro de paciente
   // so pelo formulario COMPLETO (Pacientes → Novo paciente). Afiliado
   // e sempre um paciente ja cadastrado.
@@ -548,10 +552,12 @@ function AddAffiliateModal({
       return;
     }
     if (!confirm(
-      `Tornar ${p.name} um afiliado da clínica?\n\n` +
-      `• Recebe 3% por indicação fechada\n` +
-      `• Saldo acumula e pode ser sacado\n` +
-      `• Código: ${slugifyName(p.name) || '(definir depois)'}`,
+      lab
+        ? LAB_AFILIADOS.confirmarTornar(p.name, slugifyName(p.name) || '(definir depois)')
+        : `Tornar ${p.name} um afiliado da clínica?\n\n` +
+          `• Recebe 3% por indicação fechada\n` +
+          `• Saldo acumula e pode ser sacado\n` +
+          `• Código: ${slugifyName(p.name) || '(definir depois)'}`,
     )) return;
     setSubmitting(true);
     try {
@@ -587,7 +593,7 @@ function AddAffiliateModal({
           <>
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                  Buscar paciente
+                  {lab ? LAB_AFILIADOS.buscarCliente : 'Buscar paciente'}
                 </label>
                 <input
                   value={query}
@@ -606,19 +612,19 @@ function AddAffiliateModal({
                 )}
                 {!searching && query.trim() && results.length === 0 && (
                   <div className="text-center py-6 text-sm text-muted-foreground">
-                    Nenhum paciente encontrado pra <strong>{query}</strong>.
+                    {lab ? LAB_AFILIADOS.nenhumEncontrado : 'Nenhum paciente encontrado pra'} <strong>{query}</strong>.
                     <p className="text-xs mt-2">
-                      Afiliado precisa ser um paciente cadastrado —{' '}
+                      {lab ? LAB_AFILIADOS.precisaCadastro : 'Afiliado precisa ser um paciente cadastrado —'}{' '}
                       <a href="/atendimento/pacientes?new=1" className="font-bold text-emerald-600 underline">
-                        cadastre o paciente completo aqui
+                        {lab ? LAB_AFILIADOS.cadastrarCompleto : 'cadastre o paciente completo aqui'}
                       </a>{' '}
-                      e volte pra adicioná-lo.
+                      {lab ? LAB_AFILIADOS.eVolte : 'e volte pra adicioná-lo.'}
                     </p>
                   </div>
                 )}
                 {!searching && !query.trim() && (
                   <div className="text-center py-6 text-sm text-muted-foreground">
-                    Digite o nome ou telefone do paciente.
+                    {lab ? LAB_AFILIADOS.digiteNome : 'Digite o nome ou telefone do paciente.'}
                   </div>
                 )}
                 <div className="divide-y divide-border">

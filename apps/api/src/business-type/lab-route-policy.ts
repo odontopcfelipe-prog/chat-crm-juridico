@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (386). */
+/** Handlers que a conta de laboratório alcança (582). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // AuthController — dono do sistema volta de dentro do laboratório para a conta dele
   // (devolve só o login dele; quem não é o dono no banco leva 403)
@@ -454,50 +454,232 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'WhatsappController.reconnectMyNumber',
   'WhatsappController.deleteMyNumber',
   'WhatsappController.renameMyNumber',
+  // [F12] paridade com a clínica
+  // Serviços: grupos e materiais
+  'SpecialtiesController.create',
+  'SpecialtiesController.update',
+  'SpecialtiesController.remove',
+  'InventoryController.listConsumables',
+  'InventoryController.linkConsumable',
+  'InventoryController.unlinkConsumable',
+  // Relatórios e painéis
+  'ReportsController.dashboard',
+  'DashboardController.getDashboard',
+  'DashboardController.comparisons',
+  'DashboardController.leadFunnel',
+  'DashboardController.leadSources',
+  'DashboardController.responseTime',
+  'DashboardController.conversionVelocity',
+  'DashboardController.taskCompletion',
+  // Comissão, metas e pontos
+  'CommissionsController.createRule',
+  'CommissionsController.listRules',
+  'CommissionsController.updateRule',
+  'CommissionsController.archiveRule',
+  'CommissionsController.createCommission',
+  'CommissionsController.listCommissions',
+  'CommissionsController.summary',
+  'CommissionsController.payable',
+  'CommissionsController.gameView',
+  'CommissionsController.getTiers',
+  'CommissionsController.setTiers',
+  'CommissionsController.getCommission',
+  'CommissionsController.updateCommission',
+  'CommissionsController.releaseCommission',
+  'CommissionsController.payCommission',
+  'CommissionsController.createGoal',
+  'CommissionsController.listGoals',
+  'CommissionsController.activeGoals',
+  'CommissionsController.getGoal',
+  'CommissionsController.updateGoal',
+  'CommissionsController.deleteGoal',
+  'CommissionsController.recalculateGoal',
+  'CommissionsController.recalculateAll',
+  'MyCommissionsController.mineSummary',
+  'MyCommissionsController.minePayable',
+  'MyGameController.myGame',
+  'GameScoringController.get',
+  'GameScoringController.put',
+  'GameScoringController.reset',
+  // Proposta: opções, aceite sem cobrar, plano, parcelas e entrada
+  'CommercialController.quotesJourneyBoard',
+  'CommercialController.acceptQuoteNoCharge',
+  'CommercialController.duplicateAsOption',
+  'CommercialController.acceptPartialQuote',
+  'CommercialController.approveItems',
+  'CommercialController.unchooseQuoteAsProposal',
+  'CommercialController.unarchiveQuote',
+  'CommercialController.setAvistaDiscountConfig',
+  'CommercialController.listPlans',
+  'CommercialController.findPlan',
+  'CommercialController.updatePlan',
+  'CommercialController.updatePlanItem',
+  'CommercialController.activatePlan',
+  'CommercialController.pausePlan',
+  'CommercialController.finalizePlans',
+  'CommercialController.createInstallmentCharges',
+  'CommercialController.listPlanCharges',
+  'CommercialController.emitDownPayment',
+  // Contrato do laboratório (sem ClickSign)
+  'CommercialController.previewContractTemplate',
+  'CommercialController.getQuoteContract',
+  'CommercialController.createQuoteContract',
+  'CommercialController.getContractCompleteness',
+  'CommercialController.previewQuoteContractPdf',
+  'CommercialController.previewContractPdf',
+  'CommercialController.previewContractWhatsapp',
+  'CommercialController.sendContractWhatsapp',
+  'CommercialController.sendContract',
+  'CommercialController.signContractPatient',
+  'CommercialController.signContractClinic',
+  'CommercialController.cancelContract',
+  // Nota fiscal
+  'NotaFiscalController.findAll',
+  'NotaFiscalController.getConfig',
+  'NotaFiscalController.saveConfigLab',
+  'NotaFiscalController.findOne',
+  'NotaFiscalController.emit',
+  'NotaFiscalController.cancel',
+  // Cobrança avulsa pelo chat
+  'PaymentGatewayController.createInstallmentCharge',
+  'LeadHonorariosController.findAll',
+  'LeadHonorariosController.create',
+  'LeadHonorariosController.update',
+  'LeadHonorariosController.delete',
+  'LeadHonorariosController.addPayment',
+  'LeadHonorariosController.deletePayment',
+  'LeadHonorariosController.markPaid',
+  // Sequências, campanha manual, e-mails automáticos e regras de automação
+  'FollowupController.getStats',
+  'FollowupController.getDisparoHistory',
+  'FollowupController.listSequences',
+  'FollowupController.createSequence',
+  'FollowupController.updateSequence',
+  'FollowupController.deleteSequence',
+  'FollowupController.addStep',
+  'FollowupController.updateStep',
+  'FollowupController.deleteStep',
+  'FollowupController.listEnrollments',
+  'FollowupController.enrollLead',
+  'FollowupController.pauseEnrollment',
+  'FollowupController.resumeEnrollment',
+  'FollowupController.cancelEnrollment',
+  'FollowupController.markConverted',
+  'FollowupController.seedDefaultSequences',
+  'FollowupController.previewBroadcast',
+  'FollowupController.listBroadcasts',
+  'FollowupController.getBroadcast',
+  'FollowupController.createBroadcast',
+  'FollowupController.cancelBroadcast',
+  'FollowupController.listPendingApprovals',
+  'FollowupController.approveMessage',
+  'FollowupController.rejectMessage',
+  'CampanhasController.listar',
+  'CampanhasController.previa',
+  'CampanhasController.criar',
+  'CampanhasController.detalhe',
+  'CampanhasController.atualizar',
+  'CampanhasController.excluir',
+  'CampanhasController.anexar',
+  'CampanhasController.removerAnexo',
+  'CampanhasController.arquivo',
+  'CampanhasController.testar',
+  'CampanhasController.iniciar',
+  'CampanhasController.pausar',
+  'CampanhasController.retomar',
+  'CampanhasController.cancelar',
+  'CampanhasController.itens',
+  'EmailAutomationController.list',
+  'EmailAutomationController.update',
+  'EmailAutomationController.reset',
+  'EmailAutomationController.test',
+  'AutomationsController.findAll',
+  'AutomationsController.create',
+  'AutomationsController.update',
+  'AutomationsController.remove',
+  // Afiliados, indicação, influenciadores e analytics
+  'PatientsController.listAffiliatesDashboard',
+  'PatientsController.listPendingWithdrawals',
+  'PatientsController.getAffiliateTiers',
+  'PatientsController.setAffiliateTiers',
+  'PatientsController.affiliateGame',
+  'PatientsController.setAffiliateSeasonGoal',
+  'PatientsController.confirmAffiliateWithdrawalPaid',
+  'PatientsController.refuseAffiliateWithdrawal',
+  'PatientsController.getAffiliateDashboard',
+  'PatientsController.requestAffiliateWithdrawal',
+  'PatientsController.createManualReferral',
+  'PatientsController.cancelReferral',
+  'PatientsController.listAffiliateOptions',
+  'ReferralsController.list',
+  'ReferralsController.stats',
+  'ReferralsController.getRule',
+  'ReferralsController.updateRule',
+  'ReferralsController.findOne',
+  'ReferralsController.update',
+  'ReferralsController.markPaid',
+  'ReferralsController.remove',
+  'InfluencersController.list',
+  'InfluencersController.findOne',
+  'InfluencersController.create',
+  'InfluencersController.update',
+  'InfluencersController.remove',
+  'InfluencerMessagesController.list',
+  'InfluencerSchedulesController.list',
+  'InfluencerSchedulesController.findOne',
+  'InfluencerSchedulesController.create',
+  'InfluencerSchedulesController.update',
+  'InfluencerSchedulesController.remove',
+  'InfluencerSchedulesController.runNow',
+  'InfluencerTemplatesController.list',
+  'InfluencerTemplatesController.findOne',
+  'InfluencerTemplatesController.create',
+  'InfluencerTemplatesController.update',
+  'InfluencerTemplatesController.remove',
+  'AnalyticsController.getPages',
+  'AnalyticsController.getDetail',
+  'AnalyticsController.getGa4',
+  'AnalyticsController.getGa4Config',
+  'AnalyticsController.saveGa4Config',
+  // IA no atendimento: ajustes da própria conta, transcrição e correção
+  'MessagesController.correctText',
+  'MessagesController.transcribeAudio',
+  'SettingsController.getAiConfig',
+  'SettingsController.setAiConfig',
+  'SettingsController.aiTestChat',
+  'SettingsController.setAiChipToggle',
+  'SettingsController.getAiProfile',
+  'SettingsController.saveAiProfileClinic',
+  'SettingsController.saveAiProfileChip',
+  'SettingsController.getAiCosts',
+  // [/F12]
 ]);
 
-/** Controllers só de clínica/IA/plataforma (49): TODO handler deles (inclusive os novos) é negado. */
+/** Controllers só de clínica/IA/plataforma (33): TODO handler deles (inclusive os novos) é negado. */
 export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'AdverseReactionsController', // reação adversa (clínico)
   'AgendaExtendedController', // agenda de consulta: salas, retornos, marcadores
-  'AnalyticsController', // métricas das páginas da plataforma
   'AnamnesisController', // anamnese (clínico)
   'AudioDisparoController', // disparos (entram na fase F6b)
-  'AutomationsController', // regras de automação de clínica
-  'CampanhasController', // disparos (entram na fase F6b)
   'ClicksignController', // contrato e assinatura (clínica)
   'ClinicalRecordsController', // prontuário (clínico)
   'ClinicsController', // rede de unidades (fora do MVP)
-  'CommissionsController', // comissão e metas do profissional
-  'GameScoringController', // pontos do profissional
-  'MyCommissionsController', // comissão do profissional
-  'MyGameController', // pontos do profissional
   'ContractsController', // contrato (clínica)
-  'DashboardController', // painel de clínica
   'DisparoAnexosController', // disparos (entram na fase F6b)
-  'EmailAutomationController', // e-mails automáticos de clínica
   'EstheticApplicationsController', // estética (clínico)
   'GlobalAnamnesisController', // anamnese (clínico)
   'GoogleDriveController', // integração da plataforma
   'HomeHighlightsController', // início de clínica
-  'InfluencerMessagesController', // marketing de influenciador
-  'InfluencerSchedulesController', // marketing de influenciador
-  'InfluencerTemplatesController', // marketing de influenciador
-  'InfluencersController', // marketing de influenciador
   'InternController', // legado
-  'LeadHonorariosController', // legado
   'MaintenanceController', // retornos (clínico)
   'McpController', // integração externa (rota pública com token próprio)
   'MemoriesController', // memória da IA
-  'NotaFiscalController', // nota fiscal (decisão pendente)
   'OdontogramController', // odontograma (clínico)
   'DentistLinksController', // vínculo de dentista (clínico)
   'PortalController', // portal do paciente
   'PostCareController', // pós-atendimento (clínico)
   'RadiographyController', // radiografia (clínico)
   'ReactivationController', // reativação pela IA
-  'ReferralsController', // indicação (clínico)
-  'ReportsController', // relatórios de clínica
   'SmileDesignController', // simulação de sorriso (clínico)
   'TenantsController', // administração da plataforma
   'LabWaitlistController', // lista de espera do /cadastrar (plataforma; a inscrição é pública)
@@ -510,7 +692,7 @@ export const CONTROLLERS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'EvolutionAdminController', // manutenção de chip da plataforma
 ]);
 
-/** Handlers negados dentro de controllers que o laboratório também usa (227). */
+/** Handlers negados dentro de controllers que o laboratório também usa (154). */
 export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   // AuthController — sessão
   'AuthController.mcpToken',
@@ -553,7 +735,6 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CalendarController.migrateTasks',
   // CommercialController — propostas, venda rápida e trabalhos
   'CommercialController.quotesClosingBoard',
-  'CommercialController.quotesJourneyBoard',
   'CommercialController.quotesOrthoBoard',
   'CommercialController.orthoAlta',
   'CommercialController.orthoPausa',
@@ -561,44 +742,15 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'CommercialController.semAgendamentoTest',
   'CommercialController.semAgendamentoAdmins',
   'CommercialController.semAgendamentoSend',
-  'CommercialController.acceptQuoteNoCharge',
-  'CommercialController.acceptPartialQuote',
-  'CommercialController.approveItems',
   'CommercialController.simulateCreditCheck',
-  'CommercialController.setAvistaDiscountConfig',
-  'CommercialController.unchooseQuoteAsProposal',
-  'CommercialController.unarchiveQuote',
   'CommercialController.expireOldQuotes',
-  'CommercialController.duplicateAsOption',
-  'CommercialController.listPlans',
-  'CommercialController.findPlan',
-  'CommercialController.updatePlan',
   'CommercialController.sendPlanForSignature',
-  'CommercialController.createInstallmentCharges',
-  'CommercialController.listPlanCharges',
-  'CommercialController.emitDownPayment',
-  'CommercialController.activatePlan',
-  'CommercialController.pausePlan',
-  'CommercialController.finalizePlans',
-  'CommercialController.updatePlanItem',
-  'CommercialController.getQuoteContract',
-  'CommercialController.createQuoteContract',
-  'CommercialController.getContractCompleteness',
-  'CommercialController.previewQuoteContractPdf',
   'CommercialController.getContract',
   'CommercialController.updateContractDocuments',
   'CommercialController.setContractDentist',
-  'CommercialController.sendContract',
   'CommercialController.sendContractViaClickSign',
   'CommercialController.markContractOpened',
-  'CommercialController.signContractPatient',
-  'CommercialController.signContractClinic',
-  'CommercialController.cancelContract',
   'CommercialController.skipContract',
-  'CommercialController.previewContractWhatsapp',
-  'CommercialController.sendContractWhatsapp',
-  'CommercialController.previewContractPdf',
-  'CommercialController.previewContractTemplate',
   // ConversationsController — atendimento
   'ConversationsController.getOpenCount',
   'ConversationsController.transfer',
@@ -611,37 +763,10 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'FinanceiroController.partialPayment',
   'FinanceiroController.getSummary',
   // FollowupController — estatísticas, histórico, recall, sequências, inscrições, aprovações e broadcasts
-  'FollowupController.getStats',
-  'FollowupController.getDisparoHistory',
   'FollowupController.getRecallTemplate',
   'FollowupController.setRecallTemplate',
-  'FollowupController.listSequences',
-  'FollowupController.createSequence',
-  'FollowupController.updateSequence',
-  'FollowupController.deleteSequence',
-  'FollowupController.addStep',
-  'FollowupController.updateStep',
-  'FollowupController.deleteStep',
-  'FollowupController.listEnrollments',
-  'FollowupController.enrollLead',
-  'FollowupController.pauseEnrollment',
-  'FollowupController.resumeEnrollment',
-  'FollowupController.cancelEnrollment',
-  'FollowupController.markConverted',
-  'FollowupController.listPendingApprovals',
-  'FollowupController.approveMessage',
-  'FollowupController.rejectMessage',
   'FollowupController.regenerateMessage',
-  'FollowupController.previewBroadcast',
-  'FollowupController.listBroadcasts',
-  'FollowupController.getBroadcast',
-  'FollowupController.createBroadcast',
-  'FollowupController.cancelBroadcast',
-  'FollowupController.seedDefaultSequences',
   // InventoryController — estoque
-  'InventoryController.linkConsumable',
-  'InventoryController.listConsumables',
-  'InventoryController.unlinkConsumable',
   // LeadsController — contatos e funil
   'LeadsController.findPostAvaliacao',
   'LeadsController.summarize',
@@ -649,21 +774,12 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'LeadsController.resetMemory',
   'LeadsController.deduplicatePhones',
   // MessagesController — mensagens
-  'MessagesController.correctText',
-  'MessagesController.transcribeAudio',
   // PatientsController — cadastro do cliente
   'PatientsController.firstVisits',
   'PatientsController.findFunilClinica',
   'PatientsController.backfillVisitDates',
   'PatientsController.getBirthdays',
   'PatientsController.startAttending',
-  'PatientsController.listAffiliatesDashboard',
-  'PatientsController.listAffiliateOptions',
-  'PatientsController.listPendingWithdrawals',
-  'PatientsController.getAffiliateTiers',
-  'PatientsController.setAffiliateTiers',
-  'PatientsController.affiliateGame',
-  'PatientsController.setAffiliateSeasonGoal',
   'PatientsController.getWelcome',
   'PatientsController.updateCreditCheckData',
   'PatientsController.convertFromLead',
@@ -672,18 +788,11 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'PatientsController.addMedication',
   'PatientsController.removeMedication',
   'PatientsController.syncWhatsappAvatar',
-  'PatientsController.getAffiliateDashboard',
-  'PatientsController.createManualReferral',
-  'PatientsController.cancelReferral',
-  'PatientsController.requestAffiliateWithdrawal',
-  'PatientsController.confirmAffiliateWithdrawalPaid',
-  'PatientsController.refuseAffiliateWithdrawal',
   // PaymentGatewayController — boletos (Asaas da própria conta)
+  'PaymentGatewayController.createCharge',
   'PaymentGatewayController.testBoletoDelivery',
   'PaymentGatewayController.getChargeDetails',
-  'PaymentGatewayController.createCharge',
   'PaymentGatewayController.createBatchCharges',
-  'PaymentGatewayController.createInstallmentCharge',
   'PaymentGatewayController.importCustomers',
   // PipelinesController — funis
   'PipelinesController.seedDefaults',
@@ -699,15 +808,8 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'SettingsController.checkHealth',
   'SettingsController.getWhatsAppConfig',
   'SettingsController.setWhatsAppConfig',
-  'SettingsController.getAiConfig',
-  'SettingsController.setAiConfig',
   'SettingsController.getAiPriceTable',
   'SettingsController.setAiPriceTable',
-  'SettingsController.aiTestChat',
-  'SettingsController.setAiChipToggle',
-  'SettingsController.getAiProfile',
-  'SettingsController.saveAiProfileClinic',
-  'SettingsController.saveAiProfileChip',
   'SettingsController.getSkills',
   'SettingsController.toggleSkill',
   'SettingsController.resetSkillsToDefaults',
@@ -724,7 +826,6 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'SettingsController.updateSkillAsset',
   'SettingsController.deleteSkillAsset',
   'SettingsController.downloadSkillAsset',
-  'SettingsController.getAiCosts',
   'SettingsController.getClicksign',
   'SettingsController.setClicksign',
   'SettingsController.getContract',
@@ -732,10 +833,7 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'SettingsController.getTtsConfig',
   'SettingsController.setTtsConfig',
   // SpecialtiesController — grupos do catálogo
-  'SpecialtiesController.create',
   'SpecialtiesController.findOne',
-  'SpecialtiesController.update',
-  'SpecialtiesController.remove',
   'SpecialtiesController.addDentist',
   'SpecialtiesController.removeDentist',
   // TasksController — tarefas
@@ -759,6 +857,18 @@ export const ROTAS_SO_DE_CLINICA: ReadonlySet<string> = new Set<string>([
   'WhatsappController.fetchContacts',
   'WhatsappController.syncContacts',
   'WhatsappController.setInstanceSettings',
+  // Controllers abertos em parte na paridade: o resto continua negado
+  'ReportsController.catalog',
+  'DashboardController.revenueTrend',
+  'DashboardController.caseDuration',
+  'DashboardController.casesByArea',
+  'DashboardController.financialAging',
+  'DashboardController.aiUsage',
+  'DashboardController.getTeamPerformance',
+  'MyGameController.myProcedures',
+  'LeadHonorariosController.findPendingPayments',
+  'LeadHonorariosController.getSummary',
+  'AnalyticsController.track',
 ]);
 
 /** O handler está liberado para conta de laboratório? */

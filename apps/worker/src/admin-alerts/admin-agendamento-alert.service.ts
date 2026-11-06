@@ -5,6 +5,7 @@ import {
   isAiChipPurpose,
   normalizeAiChipProfile,
   DEFAULT_ASSISTANT_NAME,
+  contaDoLabPodeEnviar,
   getLabTenantIds,
   TIPOS_AVISO_LAB,
   type DestinatarioAviso,
@@ -96,6 +97,8 @@ export class AdminAgendamentoAlertService {
     for (const [tenantId, ligados] of togglesPorClinica(rows)) {
       const lab = labs.has(tenantId);
       try {
+        // Laboratório com a conta suspensa ou congelada: não busca nem reivindica.
+        if (lab && !(await contaDoLabPodeEnviar(this.prisma, tenantId))) continue;
         total += await this.processarClinica(tenantId, ligados, agora, lab);
       } catch (e: any) {
         this.logger.warn(`${LOG} clínica ${tenantId}: ${e?.message}`);

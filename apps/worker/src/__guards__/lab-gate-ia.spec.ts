@@ -1,10 +1,11 @@
 /**
- * F2 do laboratório — freio da IA no worker. Laboratório não tem IA em nenhuma
- * camada; a clínica segue EXATAMENTE como antes.
+ * F2 do laboratório — freio da IA no worker. Laboratório sem a chave do chip na própria
+ * conta (e a conta em ACTIVE) não tem IA em nenhuma camada; a clínica segue EXATAMENTE
+ * como antes. A IA ligada do laboratório está em ai/lab-ia.prompt.spec.ts.
  *
- *  - AiProcessor.process: todo job de IA (resposta, memory-op, 2ª tentativa, chat
- *    de teste) de conversa de laboratório para antes da transcrição e da OpenAI;
- *  - isChipAiEnabledForClinic: false para laboratório;
+ *  - AiProcessor.process: job de IA de conversa de laboratório sem a chave para antes
+ *    da transcrição e da OpenAI;
+ *  - isChipAiEnabledForClinic: false para laboratório sem a chave;
  *  - fora do expediente, religar após 24 h, memória noturna e perfil da
  *    organização: laboratório fica de fora.
  *

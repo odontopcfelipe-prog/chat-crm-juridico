@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LabIaPainel } from './LabIaPainel';
 import { AiPriceTableCard } from './AiPriceTableCard';
 import { AiClinicInfoCard } from './AiClinicInfoCard';
 import { AiChipProfileEditor } from './AiChipProfileEditor';
@@ -196,6 +199,11 @@ Nosso advogado já foi notificado e está acompanhando. Se tiver dúvidas, pode 
 André Lustosa Advogados`;
 
 export default function AiSettingsPage() {
+  // Laboratório tem tela própria: nenhum card daqui (skills, chaves, preços) é dele.
+  return isLab(useBusinessType()) ? <LabIaPainel /> : <AiSettingsDaClinica />;
+}
+
+function AiSettingsDaClinica() {
   // Chaves, modelo padrão e DJEN são da PLATAFORMA: só o administrador do sistema
   // vê e grava. Robô de comando e tempo de resposta são da clínica do usuário.
   const { isSuperAdmin } = useRole();

@@ -82,7 +82,11 @@ function montarWebhook(opts: {
   labs: string[];
   conta: string;
   ids?: IdsWebhook;
-  adminDoBot?: { id: string; tenant_id: string } | null;
+  adminDoBot?: { id: string; tenant_id: string; roles?: string[] } | null;
+  /** Status da conta e chaves dela (TenantSetting), para a IA do laboratório. */
+  conta_ia?: { status: string; chaves: Record<string, string> };
+  /** Sem conversa aberta: o webhook cria uma nova. */
+  semConversa?: boolean;
 }) {
   const { labs, conta } = opts;
   const id = (k: keyof IdsWebhook) => (opts.ids && k in opts.ids ? (opts.ids[k] ?? null) : conta);
@@ -97,8 +101,23 @@ function montarWebhook(opts: {
     assigned_user_id: 'u-1',
   };
   const prisma = prismaFalso(labs, {
-    conversation: { findFirst: jest.fn(async () => conv), findUnique: jest.fn(async () => conv) },
+    conversation: {
+      findFirst: jest.fn(async () => (opts.semConversa ? null : conv)),
+      findUnique: jest.fn(async () => conv),
+      create: jest.fn(async ({ data }: any) => ({ ...conv, ...data, id: 'conv-1' })),
+    },
     instance: { findFirst: jest.fn(async () => ({ purpose: 'COMERCIAL', tenant_id: id('chip'), name: 'chip-1' })) },
+    ...(opts.conta_ia
+      ? {
+          tenant: { findUnique: jest.fn(async () => ({ status: opts.conta_ia!.status })) },
+          tenantSetting: {
+            findUnique: jest.fn(async ({ where }: any) => {
+              const v = opts.conta_ia!.chaves[where.tenant_id_key.key];
+              return v === undefined ? null : { value: v };
+            }),
+          },
+        }
+      : {}),
     globalSetting: {
       findUnique: jest.fn(async ({ where }: any) => (where.key === 'AI_ENABLED_COMERCIAL' ? { value: 'true' } : null)),
     },
@@ -169,6 +188,55 @@ describe('webhook — a IA responde só na clínica', () => {
     expect(jobsDaIa(aiQueue)).toHaveLength(1);
   });
 
+  it('laboratório em ACTIVE com a chave do chip na conta: a IA é enfileirada', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      conta_ia: { status: 'ACTIVE', chaves: { AI_ENABLED_COMERCIAL: 'true' } },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(1);
+  });
+
+  it.each(['TRIAL', 'SUSPENDED', 'DELETED'])('laboratório em %s com a chave: não enfileira', async (status) => {
+    const { evo, aiQueue, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      conta_ia: { status, chaves: { AI_ENABLED_COMERCIAL: 'true' } },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
+
+  it('laboratório em ACTIVE sem a chave: não enfileira, com a global ligada', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: LAB, conta_ia: { status: 'ACTIVE', chaves: {} } });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
+
+  it('dado cruzado com a chave ligada: não enfileira', async () => {
+    const { evo, aiQueue, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      ids: { lead: CLINICA },
+      conta_ia: { status: 'ACTIVE', chaves: { AI_ENABLED_COMERCIAL: 'true' } },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(jobsDaIa(aiQueue)).toHaveLength(0);
+  });
+
+  it('conversa nova de laboratório: ai_mode só nasce true com o chip ligado e a conta em ACTIVE', async () => {
+    const criada = async (status: string, chaves: Record<string, string>) => {
+      __limparCacheLabTenants();
+      const { evo, prisma, payload } = montarWebhook({ labs: [LAB], conta: LAB, semConversa: true, conta_ia: { status, chaves } });
+      await evo.handleMessagesUpsert(payload);
+      return prisma.conversation.create.mock.calls[0][0].data.ai_mode;
+    };
+    expect(await criada('ACTIVE', { AI_ENABLED_COMERCIAL: 'true' })).toBe(true);
+    expect(await criada('ACTIVE', {})).toBe(false);
+    expect(await criada('TRIAL', { AI_ENABLED_COMERCIAL: 'true' })).toBe(false);
+  });
+
   it('conversa de laboratório: a IA não é enfileirada (mesmo com AI_ENABLED_COMERCIAL global ligado)', async () => {
     const { evo, aiQueue, payload } = montarWebhook({ labs: [LAB], conta: LAB });
     await evo.handleMessagesUpsert(payload);
@@ -218,11 +286,35 @@ describe('webhook — robô de admin', () => {
     expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
-  it('laboratório: o robô não atende e a mensagem segue como a de um contato', async () => {
+  it('laboratório, ADMIN da própria conta: o robô atende com o texto de laboratório', async () => {
     const { evo, adminBot, prisma, payload } = montarWebhook({
       labs: [LAB],
       conta: LAB,
-      adminDoBot: { id: 'adm-lab', tenant_id: LAB },
+      conta_ia: { status: 'ACTIVE', chaves: {} },
+      adminDoBot: { id: 'adm-lab', tenant_id: LAB, roles: ['ADMIN'] },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(adminBot.handle).toHaveBeenCalledWith('chip-1', '5582900000001', 'oi, tudo bem?', 'adm-lab', LAB, { laboratorio: true });
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['TRIAL', 'SUSPENDED', 'DELETED'])('laboratório em %s: o robô não atende, a mensagem segue como a de um contato', async (status) => {
+    const { evo, adminBot, prisma, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      conta_ia: { status, chaves: {} },
+      adminDoBot: { id: 'adm-lab', tenant_id: LAB, roles: ['ADMIN'] },
+    });
+    await evo.handleMessagesUpsert(payload);
+    expect(adminBot.handle).not.toHaveBeenCalled();
+    expect(prisma.message.create).toHaveBeenCalled();
+  });
+
+  it('laboratório, protético da própria conta: o robô não atende e a mensagem segue como a de um contato', async () => {
+    const { evo, adminBot, prisma, payload } = montarWebhook({
+      labs: [LAB],
+      conta: LAB,
+      adminDoBot: { id: 'prot-lab', tenant_id: LAB, roles: ['DENTIST'] },
     });
     await evo.handleMessagesUpsert(payload);
     expect(adminBot.handle).not.toHaveBeenCalled();
@@ -327,7 +419,30 @@ function prismaChaves(labs: string[], tenantVal: string | null, globalVal: strin
   };
 }
 
-describe('isChipAiEnabled — laboratório sempre desligado, clínica igual', () => {
+describe('isChipAiEnabled — laboratório só com a chave dele e a conta em ACTIVE, clínica igual', () => {
+  const comConta = (status: string, chave: string | null, global: string | null, kill: string | null) => ({
+    ...prismaChaves([LAB], chave, global, kill),
+    tenant: { findUnique: jest.fn(async () => ({ status })) },
+    globalSetting: {
+      findUnique: prismaChaves([LAB], chave, global, kill).globalSetting.findUnique,
+      findMany: jest.fn(async () => []),
+    },
+  });
+
+  it.each([
+    ['ACTIVE', 'true', null, null, true],
+    ['ACTIVE', 'true', 'false', 'false', true],
+    ['ACTIVE', 'false', 'true', 'true', false],
+    ['ACTIVE', null, 'true', 'true', false],
+    ['ACTIVE', 'TRUE', null, null, false],
+    ['TRIAL', 'true', 'true', 'true', false],
+    ['SUSPENDED', 'true', null, null, false],
+    ['DELETED', 'true', null, null, false],
+  ])('laboratório %s: chave=%s global=%s kill=%s → %s', async (status, t, g, k, esperado) => {
+    __limparCacheLabTenants();
+    expect(await isChipAiEnabled(comConta(status, t, g, k), LAB, 'COMERCIAL')).toBe(esperado);
+  });
+
   const casos: Array<[string | null, string | null, string | null, boolean]> = [
     // [TenantSetting, GlobalSetting AI_ENABLED_<P>, kill switch, resultado da clínica]
     [null, null, null, true],
@@ -342,7 +457,7 @@ describe('isChipAiEnabled — laboratório sempre desligado, clínica igual', ()
     expect(await isChipAiEnabled(prismaChaves([LAB], t, g, k), CLINICA, 'COMERCIAL')).toBe(esperado);
   });
 
-  it.each(casos)('laboratório: tenant=%s global=%s kill=%s → false', async (t, g, k) => {
+  it.each(casos)('laboratório sem conta ACTIVE legível: tenant=%s global=%s kill=%s → false', async (t, g, k) => {
     __limparCacheLabTenants();
     expect(await isChipAiEnabled(prismaChaves([LAB], t, g, k), LAB, 'COMERCIAL')).toBe(false);
   });

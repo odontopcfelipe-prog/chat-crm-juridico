@@ -36,9 +36,11 @@ import {
 // F6 do laboratório — o laboratório entra só com portão e texto importado.
 import { isLab } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AFILIADO_DA_VENDA } from '../../afiliados/lab-afiliados-textos';
+import ContratoLaboratorioCard from './ContratoLaboratorioCard';
 import {
   LAB_PROPOSTAS, LAB_PROPOSTAS_COBRANCA, LAB_PROPOSTAS_BOLETO, LAB_PROPOSTAS_PIX, LAB_PROPOSTAS_CARTAO,
-  LAB_PROPOSTAS_VERSOES, LAB_PROPOSTAS_ARQUIVAR, LAB_PROPOSTAS_RESULTADO,
+  LAB_PROPOSTAS_VERSOES, LAB_PROPOSTAS_ARQUIVAR, LAB_PROPOSTAS_RESULTADO, LAB_PROPOSTAS_SEM_COBRANCA, LAB_PROPOSTAS_CONTRAPROPOSTA,
 } from '../lab-propostas-textos';
 // Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
 // Onda 14.24.1 — Painel desativado (operador pediu pra remover). Componente
@@ -1540,10 +1542,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     if (!selectedDetail) return;
     const itemCount = selectedDetail.items?.length || 0;
     if (itemCount === 0) {
-      showError('A proposta nao tem procedimentos pra adicionar.');
+      showError(lab ? LAB_PROPOSTAS_SEM_COBRANCA.semServicos : 'A proposta nao tem procedimentos pra adicionar.');
       return;
     }
-    const confirmMsg =
+    const confirmMsg = lab ? LAB_PROPOSTAS_SEM_COBRANCA.confirmar(itemCount) :
       `Adicionar ao tratamento SEM gerar cobranca?\n\n` +
       `${itemCount} procedimento(s)\n\n` +
       `Isso vai:\n` +
@@ -1559,16 +1561,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     setApprovingBill(true);
     try {
       await api.post(`/quotes/${selectedDetail.id}/accept-no-charge`);
-      showSuccess('Procedimentos adicionados ao tratamento (sem cobranca) — na fila do Financeiro.');
+      showSuccess(lab ? LAB_PROPOSTAS_SEM_COBRANCA.adicionado : 'Procedimentos adicionados ao tratamento (sem cobranca) — na fila do Financeiro.');
       setSelectedId(null);
       load();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao adicionar ao tratamento sem cobranca');
+      showError(e?.response?.data?.message || (lab ? LAB_PROPOSTAS_SEM_COBRANCA.erro : 'Erro ao adicionar ao tratamento sem cobranca'));
     } finally {
       setApprovingBill(false);
     }
-  }, [selectedDetail, load]);
+  }, [selectedDetail, load, lab]);
 
   // Onda 13 — adiciona bônus de fechamento ao quote selecionado
   const addBonus = useCallback(async (payload: {
@@ -1957,7 +1959,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           }}
           onAddBonus={() => setBonusOpen(true)}
           onApproveAndBill={approveAndBill}
-          onAcceptNoCharge={lab ? undefined : acceptNoCharge}
+          onAcceptNoCharge={acceptNoCharge}
           // Onda 14.26 — toggle "exige consulta de credito" no card boleto
           onToggleRequiresCreditCheck={lab ? undefined : (value) => toggleRequiresCreditCheck(selectedId!, value)}
           // F6 do laboratório — conta Asaas própria (só o laboratório lê)
@@ -2045,6 +2047,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             ? `${activeOption.label} à vista`
             : activeOption.variant === 'cartao'
             ? `${activeOption.installments}x no cartão (${(activeOption.interestRate ?? 0) === 0 ? 'sem juros' : `juros PagBank ${activeOption.interestRate}%/mês`})`
+            : lab
+            ? LAB_PROPOSTAS_COBRANCA.parcelamentoProprio(activeOption.installments, activeOption.downPaymentPercent ?? 0, activeOption.interestRate ?? 0)
             : `${activeOption.installments}x no Financiamento Banco PASSOS (entrada ${activeOption.downPaymentPercent ?? 0}% + ${activeOption.interestRate}%/mês)`;
         // Onda 11.2 — finalValue agora reflete o que foi ofertado:
         // a vista = descontado / parcelado = total com juros
@@ -4144,6 +4148,7 @@ function AfiliadoDaVenda({
   readOnly: boolean;
   onChanged: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [options, setOptions] = useState<AffiliateOption[]>([]);
@@ -4240,7 +4245,7 @@ function AfiliadoDaVenda({
               <div className="p-2 text-[11px] text-muted-foreground">Buscando...</div>
             ) : options.length === 0 ? (
               <div className="p-2 text-[11px] text-muted-foreground">
-                Nenhum afiliado encontrado. Pra virar afiliado: Editar paciente → Programa de Afiliado.
+                {lab ? LAB_AFILIADO_DA_VENDA.nenhumEncontrado : 'Nenhum afiliado encontrado. Pra virar afiliado: Editar paciente → Programa de Afiliado.'}
               </div>
             ) : (
               options.map((o) => (
@@ -5032,7 +5037,6 @@ function PropostaPainel({
       */}
 
       {/* Afiliado SO desta venda (comissao de indicacao restrita a esta proposta) */}
-      {!lab && (
       <AfiliadoDaVenda
         quoteId={detail.id}
         status={detail.status}
@@ -5040,7 +5044,6 @@ function PropostaPainel({
         readOnly={readOnly}
         onChanged={() => onReload?.()}
       />
-      )}
 
       {/* Out/2026 — o plano desenhado no odontograma + resumo por item (só quando
           algum procedimento tem dente; sem dente a lista abaixo já basta). */}
@@ -5566,6 +5569,16 @@ function PropostaPainel({
         onOpenPatientChat={onOpenPatientChat}
       />
       )}
+      {/* Laboratório: o mesmo fluxo do contrato, com o contrato de prestação de serviços de prótese. */}
+      {lab && (
+      <ContratoLaboratorioCard
+        quoteId={detail.id}
+        rotuloDoOrcamento={cfg?.label || getQuoteDisplayName(detail) || undefined}
+        total={total}
+        readOnly={readOnly}
+        onOpenPatientChat={onOpenPatientChat}
+      />
+      )}
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
           "Ajustar" / "Salvar contraproposta" (pedido do operador).
@@ -5617,9 +5630,9 @@ function PropostaPainel({
             type="button"
             onClick={onAcceptNoCharge}
             className="text-xs px-3 py-2 rounded-lg border border-sky-500/50 bg-sky-500/5 text-sky-800 dark:text-sky-300 hover:bg-sky-500/15 flex items-center gap-1.5 font-semibold"
-            title="MIGRAÇÃO: adiciona os procedimentos ao tratamento SEM gerar cobrança (o paciente já tem os boletos importados do Asaas). Vai pra fila do Financeiro validar. Não gera boleto nem dívida nova."
+            title={lab ? LAB_PROPOSTAS_SEM_COBRANCA.botaoTitulo : 'MIGRAÇÃO: adiciona os procedimentos ao tratamento SEM gerar cobrança (o paciente já tem os boletos importados do Asaas). Vai pra fila do Financeiro validar. Não gera boleto nem dívida nova.'}
           >
-            Adicionar ao tratamento (sem cobrar)
+            {lab ? LAB_PROPOSTAS_SEM_COBRANCA.botao : <>Adicionar ao tratamento (sem cobrar)</>}
           </button>
         )}
         {/* Botao "Encaminhar ao financeiro": a proposta precisa estar SALVA
@@ -8655,6 +8668,7 @@ function CounterProposalDialog({
   onCancel: () => void;
   onSave: (note?: string) => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [note, setNote] = useState('');
   return (
     <div
@@ -8708,7 +8722,7 @@ function CounterProposalDialog({
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Ex: paciente vai pensar até sexta · pediu mais um desconto"
+              placeholder={lab ? LAB_PROPOSTAS_CONTRAPROPOSTA.notaExemplo : 'Ex: paciente vai pensar até sexta · pediu mais um desconto'}
               disabled={loading}
               rows={3}
               className="w-full text-xs px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none disabled:opacity-50"

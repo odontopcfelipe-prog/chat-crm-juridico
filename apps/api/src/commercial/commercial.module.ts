@@ -15,6 +15,7 @@ import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
 import { ContractPdfService } from './contract-pdf.service';
 import { CommercialController } from './commercial.controller';
+import { PropostaOnlineLaboratorioController } from './proposta-online-laboratorio.controller';
 import { ClicksignModule } from '../clicksign/clicksign.module';
 import { PaymentGatewayModule } from '../payment-gateway/payment-gateway.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -47,7 +48,7 @@ import { ContractWhatsappService } from './contract-whatsapp.service';
     MessagesModule,
     ConversationsModule,
   ],
-  controllers: [CommercialController],
+  controllers: [CommercialController, PropostaOnlineLaboratorioController],
   providers: [
     FechamentoProcessor,
     QuotesService,

@@ -24,6 +24,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_AFILIADO_ABA } from '../../afiliados/lab-afiliados-textos';
 
 interface Props {
   patientId: string;
@@ -182,13 +185,14 @@ function PagamentoCell({ ctx }: { ctx: ReferralContext | null }) {
 
 /** Coluna "Tratamento": andou ou parou? */
 function TratamentoCell({ ctx }: { ctx: ReferralContext | null }) {
+  const lab = isLab(useBusinessType());
   if (!ctx || ctx.tratamento.status === 'SEM_PLANO') {
-    return <span className="text-xs text-muted-foreground">sem plano</span>;
+    return <span className="text-xs text-muted-foreground">{lab ? LAB_AFILIADO_ABA.semPlano : 'sem plano'}</span>;
   }
   const t = ctx.tratamento;
   const LABEL: Record<string, string> = {
     PENDING_SIGNATURE: 'aguardando assinatura',
-    ACTIVE: 'em tratamento',
+    ACTIVE: lab ? LAB_AFILIADO_ABA.emAndamento : 'em tratamento',
     PAUSED: 'pausado',
     COMPLETED: 'concluído',
   };
@@ -212,6 +216,7 @@ function TratamentoCell({ ctx }: { ctx: ReferralContext | null }) {
 
 /** Coluna "Atendimento": quando veio, quando volta. */
 function AtendimentoCell({ ctx }: { ctx: ReferralContext | null }) {
+  const lab = isLab(useBusinessType());
   if (!ctx) return <span className="text-xs text-muted-foreground">—</span>;
   const a = ctx.atendimento;
   if (a.status === 'AGENDADO') {
@@ -227,15 +232,15 @@ function AtendimentoCell({ ctx }: { ctx: ReferralContext | null }) {
     );
   }
   if (a.status === 'NUNCA_VEIO') {
-    return <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Nunca veio</span>;
+    return <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{lab ? LAB_AFILIADO_ABA.nuncaVeio : 'Nunca veio'}</span>;
   }
   if (a.status === 'SUMIDO') {
     return (
       <div className="text-xs">
         <span className="font-semibold text-amber-700 dark:text-amber-400">
-          {a.dias_sem_vir} dias sem vir
+          {lab ? LAB_AFILIADO_ABA.diasSemVir(a.dias_sem_vir) : `${a.dias_sem_vir} dias sem vir`}
         </span>
-        <div className="text-[10px] text-muted-foreground">sem próxima consulta</div>
+        <div className="text-[10px] text-muted-foreground">{lab ? LAB_AFILIADO_ABA.semProximaVisita : 'sem próxima consulta'}</div>
       </div>
     );
   }
@@ -266,6 +271,7 @@ function NegociacaoCell({ ctx }: { ctx: ReferralContext | null }) {
 }
 
 export default function AfiliadoTab({ patientId, patientName, affiliateCode }: Props) {
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -326,8 +332,8 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
             Programa de Afiliado
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {patientName} recebe <strong>{COMMISSION_PCT}%</strong> do valor de cada
-            tratamento fechado por indicação dele.
+            {patientName} recebe <strong>{COMMISSION_PCT}%</strong> do valor de cada{' '}
+            {lab ? LAB_AFILIADO_ABA.fechouTrabalho : 'tratamento fechado por indicação dele.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -452,7 +458,7 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-sm font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors disabled:opacity-40 disabled:pointer-events-none"
         >
           <CheckCircle2 size={14} />
-          Usar como crédito em tratamento
+          {lab ? LAB_AFILIADO_ABA.usarComoCredito : 'Usar como crédito em tratamento'}
         </button>
       </div>
 
@@ -511,7 +517,7 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
             <p className="text-sm font-medium">Nenhuma indicação ainda</p>
             <p className="text-xs mt-1">
               Quando alguém se cadastrar usando o código <strong>{affiliateCode || '—'}</strong>
-              {' '}e fechar um tratamento, vai aparecer aqui.
+              {' '}{lab ? LAB_AFILIADO_ABA.eFechar : 'e fechar um tratamento, vai aparecer aqui.'}
             </p>
           </div>
         ) : (
@@ -519,12 +525,12 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 text-left font-bold">Paciente indicado</th>
+                <th className="px-4 py-2 text-left font-bold">{lab ? LAB_AFILIADO_ABA.clienteIndicado : 'Paciente indicado'}</th>
                 <th className="px-4 py-2 text-left font-bold">Situação</th>
                 <th className="px-4 py-2 text-left font-bold">Pagamentos</th>
-                <th className="px-4 py-2 text-left font-bold">Tratamento</th>
+                <th className="px-4 py-2 text-left font-bold">{lab ? LAB_AFILIADO_ABA.colTrabalho : 'Tratamento'}</th>
                 <th className="px-4 py-2 text-left font-bold">Atendimento</th>
-                <th className="px-4 py-2 text-right font-bold">Valor tratamento</th>
+                <th className="px-4 py-2 text-right font-bold">{lab ? LAB_AFILIADO_ABA.colValor : 'Valor tratamento'}</th>
                 <th className="px-4 py-2 text-right font-bold">Comissão ({COMMISSION_PCT}%)</th>
                 <th className="px-4 py-2 text-center font-bold">Status</th>
               </tr>
@@ -659,7 +665,7 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
                   <td className="px-4 py-2.5 text-muted-foreground">
                     {w.method === 'PIX' && 'PIX'}
                     {w.method === 'DINHEIRO' && 'Dinheiro'}
-                    {w.method === 'CREDITO_TRATAMENTO' && 'Crédito em tratamento'}
+                    {w.method === 'CREDITO_TRATAMENTO' && (lab ? LAB_AFILIADO_ABA.creditoEmTrabalho : 'Crédito em tratamento')}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums font-bold">
                     {brl(w.amount)}
@@ -681,9 +687,9 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
       <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-900 dark:text-blue-300 flex items-start gap-2">
         <Info size={14} className="shrink-0 mt-0.5" />
         <div>
-          <strong>Como funciona o crédito:</strong> em vez de sacar em dinheiro, o saldo
-          pode virar desconto em qualquer tratamento próprio do afiliado (vale como PIX
-          no fechamento). A escolha é feita no momento do saque.
+          <strong>Como funciona o crédito:</strong> em vez de sacar em dinheiro, o saldo{' '}
+          {lab ? LAB_AFILIADO_ABA.descontoEmTrabalho : 'pode virar desconto em qualquer tratamento próprio do afiliado (vale como PIX'}{' '}
+          {lab ? LAB_AFILIADO_ABA.noFechamento : 'no fechamento).'} A escolha é feita no momento do saque.
         </div>
       </div>
 
@@ -744,6 +750,7 @@ function LancarRetroativoModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [term, setTerm] = useState('');
   const [busca, setBusca] = useState<Array<{ id: string; name: string | null; phone: string | null }>>([]);
   const [buscando, setBuscando] = useState(false);
@@ -797,8 +804,8 @@ function LancarRetroativoModal({
   const comissao = +(valorNum * (pctNum / 100)).toFixed(2);
 
   const salvar = async () => {
-    if (!indicado) { showError('Escolha o paciente indicado'); return; }
-    if (!(valorNum > 0)) { showError('Informe o valor acertado do tratamento'); return; }
+    if (!indicado) { showError(lab ? LAB_AFILIADO_ABA.escolhaIndicado : 'Escolha o paciente indicado'); return; }
+    if (!(valorNum > 0)) { showError(lab ? LAB_AFILIADO_ABA.informeValor : 'Informe o valor acertado do tratamento'); return; }
     if (!(pctNum > 0)) { showError('Informe o percentual da comissão'); return; }
     setSalvando(true);
     try {
@@ -842,7 +849,7 @@ function LancarRetroativoModal({
         <div className="p-4 space-y-3">
           {/* 1. Paciente indicado */}
           <div>
-            <label className="block text-xs font-semibold mb-1">Paciente indicado</label>
+            <label className="block text-xs font-semibold mb-1">{lab ? LAB_AFILIADO_ABA.clienteIndicado : 'Paciente indicado'}</label>
             {indicado ? (
               <div className="flex items-center justify-between gap-2 p-2 rounded-lg border border-border bg-background">
                 <div className="text-sm min-w-0">
@@ -871,7 +878,7 @@ function LancarRetroativoModal({
                     {buscando ? (
                       <div className="p-2 text-[11px] text-muted-foreground">Buscando...</div>
                     ) : busca.length === 0 ? (
-                      <div className="p-2 text-[11px] text-muted-foreground">Nenhum paciente encontrado</div>
+                      <div className="p-2 text-[11px] text-muted-foreground">{lab ? LAB_AFILIADO_ABA.nenhumCliente : 'Nenhum paciente encontrado'}</div>
                     ) : (
                       busca.map((b) => (
                         <button
@@ -990,7 +997,7 @@ function LancarRetroativoModal({
               >
                 <option value="DINHEIRO">Dinheiro</option>
                 <option value="PIX">PIX</option>
-                <option value="CREDITO_TRATAMENTO">Crédito em tratamento</option>
+                <option value="CREDITO_TRATAMENTO">{lab ? LAB_AFILIADO_ABA.creditoEmTrabalho : 'Crédito em tratamento'}</option>
               </select>
             )}
           </div>
@@ -1071,6 +1078,7 @@ function WithdrawModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [amount, setAmount] = useState(available);
   const [method, setMethod] = useState<'PIX' | 'DINHEIRO' | 'CREDITO_TRATAMENTO'>('PIX');
   const [pixKey, setPixKey] = useState('');
@@ -1172,7 +1180,7 @@ function WithdrawModal({
           {method === 'CREDITO_TRATAMENTO' && (
             <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-3 text-xs text-blue-900 dark:text-blue-300 flex items-start gap-2">
               <Info size={13} className="shrink-0 mt-0.5" />
-              <span>O valor vai aparecer como desconto disponível no próximo orçamento criado pra esse paciente.</span>
+              <span>{lab ? LAB_AFILIADO_ABA.creditoAviso : 'O valor vai aparecer como desconto disponível no próximo orçamento criado pra esse paciente.'}</span>
             </div>
           )}
 

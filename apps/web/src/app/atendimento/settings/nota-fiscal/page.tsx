@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, Save, Loader2, Check, AlertTriangle, ExternalLink, ToggleLeft, ToggleRight } from 'lucide-react';
 import api from '@/lib/api';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import NotaFiscalDoLaboratorio from './NotaFiscalDoLaboratorio';
 
 const PROVIDERS = [
   { id: 'enotas', label: 'eNotas', url: 'https://enotas.com.br' },
@@ -12,6 +15,12 @@ const PROVIDERS = [
 ];
 
 export default function NotaFiscalSettingsPage() {
+  // Laboratório: tela própria, sem CNAE, alíquota nem descrição de reserva da clínica.
+  const lab = isLab(useBusinessType());
+  return lab ? <NotaFiscalDoLaboratorio /> : <NotaFiscalDaClinica />;
+}
+
+function NotaFiscalDaClinica() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

@@ -3,6 +3,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import api from '@/lib/api';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { showError } from '@/lib/toast';
+import { LAB_IA_CHAT } from '@/lib/lab-ia-chat-textos';
 
 const ACTIONS = [
   { key: 'corrigir', label: 'Corrigir ortografia', icon: '✏️' },
@@ -22,6 +26,7 @@ interface Props {
 }
 
 export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'left' }: Props) {
+  const lab = isLab(useBusinessType());
   const [open, setOpen] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,8 +49,10 @@ export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'l
       const res = await api.post('/messages/ai-correct', { text, action });
       onResult(res.data.result);
       setOpen(false);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao processar com SophIA', e);
+      // Laboratório: em conta sem assinatura a API explica; o botão mostra.
+      if (lab) showError(e?.response?.data?.message || LAB_IA_CHAT.erroEscrita);
     } finally {
       setLoadingAction(null);
     }
@@ -60,7 +67,7 @@ export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'l
         type="button"
         onClick={() => setOpen(v => !v)}
         disabled={disabled || !hasText}
-        title="SophIA — Assistente de Escrita"
+        title={lab ? LAB_IA_CHAT.tituloEscrita : "SophIA — Assistente de Escrita"}
         className={compact
           ? `p-1.5 rounded-lg transition-colors flex items-center ${
               open ? 'text-violet-400' : 'text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10'
@@ -77,7 +84,7 @@ export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'l
         ) : (
           <Sparkles size={compact ? 16 : 15} />
         )}
-        {!compact && <span>SophIA</span>}
+        {!compact && <span>{lab ? LAB_IA_CHAT.botaoEscrita : 'SophIA'}</span>}
       </button>
 
       {open && (
@@ -85,7 +92,7 @@ export function SophIAButton({ text, onResult, disabled, compact, menuAlign = 'l
           <div className="px-3 py-2 border-b border-border mb-0.5">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Sparkles size={10} className="text-violet-400" />
-              SophIA · Assistente IA
+              {lab ? LAB_IA_CHAT.tituloEscrita : 'SophIA · Assistente IA'}
             </p>
           </div>
           {ACTIONS.map(action => (

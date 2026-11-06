@@ -1826,7 +1826,11 @@ export class LeadsService {
     const daysInStage = (d: Date | string) =>
       Math.floor((Date.now() - new Date(d).getTime()) / msPerDay);
 
-    const header = ['Nome', 'Telefone', 'Email', 'Estágio', 'Especialidade', 'Dentista', 'Tags', 'Dias no Estágio', 'Criado em'];
+    // Laboratório: sem as colunas de especialidade e dentista (não existem lá).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    const header = lab
+      ? ['Nome', 'Telefone', 'Email', 'Etapa', 'Tags', 'Dias na etapa', 'Criado em']
+      : ['Nome', 'Telefone', 'Email', 'Estágio', 'Especialidade', 'Dentista', 'Tags', 'Dias no Estágio', 'Criado em'];
     const rows = leads.map(l => {
       const conv = (l as any).conversations?.[0];
       return [
@@ -1834,8 +1838,7 @@ export class LeadsService {
         escape(l.phone),
         escape(l.email),
         escape(l.stage),
-        escape(conv?.specialty),
-        escape(conv?.assigned_dentist?.name),
+        ...(lab ? [] : [escape(conv?.specialty), escape(conv?.assigned_dentist?.name)]),
         escape((l.tags || []).join('; ')),
         escape(String(daysInStage(l.stage_entered_at))),
         escape(new Date(l.created_at).toLocaleDateString('pt-BR')),

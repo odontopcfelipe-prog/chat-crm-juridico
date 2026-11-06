@@ -25,6 +25,13 @@ import { PostAvaliacaoView } from './PostAvaliacaoView';
 import { ClosingKanban } from './ClosingKanban';
 import { PacientesClinicaKanban } from './PacientesClinicaKanban';
 import { ReativacaoPanel } from './ReativacaoPanel';
+// Paridade do laboratório — o funil comercial também abre para o laboratório (contatos
+// em vez de leads, etapas do funil da conta, sem IA nem especialidade). A clínica segue igual.
+import { isLab } from '@crm/shared';
+import Link from 'next/link';
+import { rotuloEtapaLab } from '@/lib/lab-etapa';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_CRM } from './lab-crm-textos';
 
 interface CrmLead {
   id: string;
@@ -102,6 +109,9 @@ interface PipelineLite {
   stages: PipelineStageLite[];
 }
 
+/** Laboratório: etapa oferecida nos menus de mover (as do funil da conta + "Perdido"). */
+interface StageChoice { id: string; label: string; emoji: string; color: string }
+
 /** Seletor: "Geral — Leads" = todos os funis juntos, só quem AINDA é lead (Comercial).
  *  Mantém o valor antigo '__all__' (quem já usava o Funil geral cai aqui). */
 const ALL_PIPELINES = '__all__';
@@ -121,6 +131,21 @@ const LOST_COLOR = '#ef4444';
  */
 function isLostLead(l: { stage: string | null | undefined }): boolean {
   return normalizeStage(l.stage) === 'PERDIDO';
+}
+
+/**
+ * Selo de etapa do lead. Clínica: a etapa legada de sempre. Laboratório: a etapa do
+ * funil da própria conta (as legadas — "Reunião agendada", "Aguardando documentos" —
+ * não existem lá); sem etapa de funil, cai na legada.
+ */
+function stageBadgeOf(lead: CrmLead, lab: boolean): { label: string; emoji: string; color: string } {
+  const legacy = findStage(normalizeStage(lead.stage));
+  if (!lab || !lead.current_stage || isLostLead(lead)) return legacy;
+  return {
+    label: lead.current_stage.name,
+    emoji: lead.current_stage.emoji ?? '•',
+    color: lead.current_stage.color ?? '#6b7280',
+  };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -237,7 +262,7 @@ function getScoreFactors(lead: CrmLead): string[] {
 // dentista atribuído, então finalizar não exige os dois. Clínica: igual a antes.
 function validateStageTransition(lead: CrmLead, newStage: string, contaLaboratorio = false): string | null {
   const conv = lead.conversations?.[0];
-  if (newStage === 'REUNIAO_AGENDADA' && !conv?.specialty) {
+  if (newStage === 'REUNIAO_AGENDADA' && !contaLaboratorio && !conv?.specialty) {
     return 'Defina a especialidade antes de agendar reunião.';
   }
   if (newStage === 'FINALIZADO') {
@@ -277,8 +302,16 @@ function LeadCard({
   lockStage = false,
   funnels = [],
   onChangeFunnel,
+  lab = false,
+  labStages = [],
+  colKey = null,
 }: {
   lead: CrmLead;
+  // Laboratório: menus de mover usam as etapas do funil da conta (labStages) e
+  // colKey é a coluna em que o cartão está; sem reunião/especialidade/ficha.
+  lab?: boolean;
+  labStages?: StageChoice[];
+  colKey?: string | null;
   funnel?: { name: string; color: string | null } | null;
   // Geral — Clínica: paciente não se arrasta nem muda de etapa por aqui (sem
   // "Perdido"/"Finalizado" por engano — a etapa dele é automática).
@@ -317,7 +350,14 @@ function LeadCard({
   const stageOrder = CRM_STAGES.filter(s => s.id !== 'PERDIDO').map(s => s.id);
   const currentIdx = stageOrder.indexOf(normalizedStage as typeof stageOrder[number]);
   const nextStageId = currentIdx >= 0 && currentIdx < stageOrder.length - 1 ? stageOrder[currentIdx + 1] : null;
-  const nextStageInfo = nextStageId ? CRM_STAGES.find(s => s.id === nextStageId) : null;
+  const clinicNextStageInfo = nextStageId ? CRM_STAGES.find(s => s.id === nextStageId) : null;
+  // Laboratório: o "Avançar" segue as etapas do funil da conta (colKey = coluna do cartão).
+  const labWork = labStages.filter(s => s.id !== LOST_COLUMN);
+  const labIdx = colKey ? labWork.findIndex(s => s.id === colKey) : -1;
+  const labNext = labIdx >= 0 && labIdx < labWork.length - 1 ? labWork[labIdx + 1] : null;
+  const nextStageInfo = lab ? labNext : clinicNextStageInfo;
+  const stageMenu: StageChoice[] = lab ? labStages : CRM_STAGES.map(s => ({ id: s.id, label: s.label, emoji: s.emoji, color: s.color }));
+  const stageMenuCurrent = lab ? colKey : normalizedStage;
 
   // Fechar menu ao clicar fora
   useEffect(() => {
@@ -399,7 +439,7 @@ function LeadCard({
                 <MessageSquare size={12} />
                 <span>Enviar mensagem</span>
               </button>
-              {!lockStage && (
+              {!lockStage && !lab && (
               <button
                 onClick={(e) => { e.stopPropagation(); onStageChange('REUNIAO_AGENDADA'); setShowMenu(false); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2 text-muted-foreground"
@@ -431,12 +471,12 @@ function LeadCard({
               )}
               {!lockStage && <div className="border-t border-border my-1" />}
               {!lockStage && <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Mover para etapa</p>}
-              {!lockStage && CRM_STAGES.map(s => (
+              {!lockStage && stageMenu.map(s => (
                 <button
                   key={s.id}
                   onClick={(e) => { e.stopPropagation(); onStageChange(s.id); setShowMenu(false); }}
-                  className={`w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2 ${s.id === normalizedStage ? 'font-semibold' : ''}`}
-                  style={{ color: s.id === normalizedStage ? s.color : undefined }}
+                  className={`w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2 ${s.id === stageMenuCurrent ? 'font-semibold' : ''}`}
+                  style={{ color: s.id === stageMenuCurrent ? s.color : undefined }}
                 >
                   <span>{s.emoji}</span>
                   <span>{s.label}</span>
@@ -565,7 +605,7 @@ function LeadCard({
         </button>
 
         {/* Reunião rápida */}
-        {!lockStage && normalizedStage !== 'REUNIAO_AGENDADA' && normalizedStage !== 'FINALIZADO' && normalizedStage !== 'PERDIDO' && (
+        {!lockStage && !lab && normalizedStage !== 'REUNIAO_AGENDADA' && normalizedStage !== 'FINALIZADO' && normalizedStage !== 'PERDIDO' && (
           <button
             onClick={(e) => { e.stopPropagation(); onStageChange('REUNIAO_AGENDADA'); }}
             title="Agendar reunião"
@@ -585,6 +625,9 @@ function LeadCard({
 
             ⚠️ Card pai tem draggable=true. Sem onMouseDown.stopPropagation
             o browser pode iniciar drag do card mesmo durante click no botão. */}
+        {/* Laboratório: o ensure-patient do laboratório já cadastra o contato como cliente,
+            então "Visualizar" (que na clínica não gradua ninguém) não aparece lá. */}
+        {!lab && (
         <button
           draggable={false}
           onMouseDown={(e) => e.stopPropagation()}
@@ -597,6 +640,7 @@ function LeadCard({
           {attendLoading ? <Loader2 size={11} className="animate-spin" /> : <User size={11} />}
           Visualizar
         </button>
+        )}
 
         {/* Avançar etapa */}
         {!lockStage && nextStageInfo && normalizedStage !== 'FINALIZADO' && (
@@ -632,8 +676,16 @@ function LeadDetailPanel({
   onStageChange,
   onConvertToCase,
   convertingCase,
+  lab = false,
+  labStages = [],
+  colKey = null,
 }: {
   lead: CrmLead;
+  // Laboratório: sem briefing de IA, sem mensagem sugerida da clínica, sem
+  // especialidade/dentista e sem "caso"; mover usa as etapas do funil da conta.
+  lab?: boolean;
+  labStages?: StageChoice[];
+  colKey?: string | null;
   onClose: () => void;
   onOpenChat: () => void;
   onStageChange: (stage: string) => void;
@@ -642,7 +694,10 @@ function LeadDetailPanel({
 }) {
   const conv = lead.conversations?.[0];
   const normalizedStage = normalizeStage(lead.stage);
-  const stageInfo = findStage(normalizedStage);
+  const stageInfo = stageBadgeOf(lead, lab);
+  const moveOptions: StageChoice[] = lab
+    ? labStages.filter(s => s.id !== colKey)
+    : CRM_STAGES.filter(s => s.id !== normalizedStage).map(s => ({ id: s.id, label: s.label, emoji: s.emoji, color: s.color }));
   const days = daysInStage(lead.stage_entered_at);
   const score = computeLeadScore(lead);
   const isNew = (Date.now() - new Date(lead.created_at).getTime()) < 3_600_000;
@@ -753,13 +808,13 @@ function LeadDetailPanel({
                 <span className="truncate">{lead.email}</span>
               </div>
             )}
-            {conv?.specialty && (
+            {!lab && conv?.specialty && (
               <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                 <Scale size={12} className="shrink-0" />
                 <span>{conv.specialty}</span>
               </div>
             )}
-            {conv?.assigned_dentist && (
+            {!lab && conv?.assigned_dentist && (
               <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                 <UserCheck size={12} className="shrink-0" />
                 <span>{conv.assigned_dentist.name}</span>
@@ -811,7 +866,8 @@ function LeadDetailPanel({
             </div>
           )}
 
-          {/* Resumo IA */}
+          {/* Resumo IA — o laboratório ainda não tem IA (POST /leads/:id/summary é negado lá). */}
+          {!lab && (
           <div className="bg-accent/40 border border-border rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Briefing IA</p>
@@ -829,9 +885,10 @@ function LeadDetailPanel({
               : <p className="text-[11px] text-muted-foreground/50 italic">Clique em "Resumir com IA" para gerar um briefing automático do lead.</p>
             }
           </div>
+          )}
 
-          {/* Template de mensagem */}
-          {STAGE_TEMPLATES[normalizedStage] && (
+          {/* Template de mensagem (texto da clínica: não aparece no laboratório) */}
+          {!lab && STAGE_TEMPLATES[normalizedStage] && (
             <div className="bg-accent/50 border border-border rounded-xl p-3">
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">
                 Mensagem sugerida — {STAGE_TEMPLATES[normalizedStage]!.label}
@@ -850,7 +907,7 @@ function LeadDetailPanel({
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Mover para etapa</p>
             <div className="grid grid-cols-2 gap-1.5">
-              {CRM_STAGES.filter(s => s.id !== normalizedStage).map(s => (
+              {moveOptions.map(s => (
                 <button
                   key={s.id}
                   onClick={() => { onStageChange(s.id); onClose(); }}
@@ -870,7 +927,7 @@ function LeadDetailPanel({
               onClick={loadTimeline}
               className="flex items-center justify-between w-full text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-foreground transition-colors"
             >
-              <span>Histórico da Jornada</span>
+              <span>{lab ? LAB_CRM.historico : 'Histórico da Jornada'}</span>
               <ChevronDown size={13} className={`transition-transform ${timelineOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -897,7 +954,7 @@ function LeadDetailPanel({
                         if (item.type === 'stage_change') {
                           icon = '🏷️';
                           iconBg = 'bg-blue-500/15';
-                          label = item.to_stage || '';
+                          label = lab ? rotuloEtapaLab(item.to_stage, labStages) : (item.to_stage || '');
                           sub = item.actor?.name ? `por ${item.actor.name}` : '';
                         } else if (item.type === 'case_stage') {
                           icon = '⚖️';
@@ -953,7 +1010,7 @@ function LeadDetailPanel({
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-border shrink-0 space-y-2">
-          {normalizedStage === 'FINALIZADO' && (
+          {!lab && normalizedStage === 'FINALIZADO' && (
             <button
               onClick={onConvertToCase}
               disabled={convertingCase}
@@ -986,8 +1043,11 @@ function LeadListView({
   selectedLeads,
   onToggleSelect,
   selectionMode,
+  lab = false,
 }: {
   leads: CrmLead[];
+  // Laboratório: sem as colunas de área e dentista (não existem lá) e a etapa do funil da conta.
+  lab?: boolean;
   onOpenDetail: (lead: CrmLead) => void;
   onOpenChat: (lead: CrmLead) => void;
   onStageChange: (leadId: string, stage: string) => void;
@@ -998,7 +1058,7 @@ function LeadListView({
   if (leads.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground/50 text-sm">
-        Nenhum lead encontrado com os filtros aplicados.
+        {lab ? LAB_CRM.listaVazia : 'Nenhum lead encontrado com os filtros aplicados.'}
       </div>
     );
   }
@@ -1009,12 +1069,12 @@ function LeadListView({
         <thead>
           <tr className="text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border">
             <th className="pb-2 pr-3 w-6" />
-            <th className="pb-2 pr-4">Lead</th>
+            <th className="pb-2 pr-4">{lab ? LAB_CRM.listaColunaContato : 'Lead'}</th>
             <th className="pb-2 pr-4">Etapa</th>
             <th className="pb-2 pr-4">Score</th>
             <th className="pb-2 pr-4">Tempo</th>
-            <th className="pb-2 pr-4">Área</th>
-            <th className="pb-2 pr-4">Dentista</th>
+            {!lab && <th className="pb-2 pr-4">Área</th>}
+            {!lab && <th className="pb-2 pr-4">Dentista</th>}
             <th className="pb-2 pr-4">Última msg</th>
             <th className="pb-2" />
           </tr>
@@ -1022,7 +1082,7 @@ function LeadListView({
         <tbody className="divide-y divide-border">
           {leads.map(lead => {
             const normalizedStage = normalizeStage(lead.stage);
-            const stageInfo = findStage(normalizedStage);
+            const stageInfo = stageBadgeOf(lead, lab);
             const days = daysInStage(lead.stage_entered_at);
             const score = computeLeadScore(lead);
             const conv = lead.conversations?.[0];
@@ -1067,10 +1127,12 @@ function LeadListView({
                 <td className={`py-2.5 pr-4 font-bold text-[11px] ${agingColor(days)}`}>
                   {days > 0 ? `${days}d` : '—'}
                 </td>
-                <td className="py-2.5 pr-4 text-muted-foreground">{conv?.specialty || '—'}</td>
+                {!lab && <td className="py-2.5 pr-4 text-muted-foreground">{conv?.specialty || '—'}</td>}
+                {!lab && (
                 <td className="py-2.5 pr-4 text-muted-foreground truncate max-w-[120px]">
                   {conv?.assigned_dentist?.name?.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0] || '—'}
                 </td>
+                )}
                 <td className="py-2.5 pr-4 text-muted-foreground/60">{timeAgo(conv?.last_message_at)}</td>
                 <td className="py-2.5">
                   <button
@@ -1259,6 +1321,7 @@ export default function CrmPage() {
   const router = useRouter();
   const { socket } = useSocket();
   const { isLab: contaLaboratorio } = useRole();
+  const lab = isLab(useBusinessType());
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1313,6 +1376,7 @@ export default function CrmPage() {
 
   // CRM dinâmico (Fase 5) — funis/etapas configuráveis por tenant
   const [pipelines, setPipelines] = useState<PipelineLite[]>([]);
+  const [pipelinesLoaded, setPipelinesLoaded] = useState(false);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     return window.localStorage.getItem('crm_selected_pipeline_id');
@@ -1428,7 +1492,7 @@ export default function CrmPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      showError('Erro ao exportar leads.');
+      showError(lab ? LAB_CRM.erroExportar : 'Erro ao exportar leads.');
     } finally {
       setExporting(false);
     }
@@ -1531,14 +1595,14 @@ export default function CrmPage() {
     } catch {
       if (seq !== fetchSeq.current) return;
       if (!silent) setLoadError(true);
-      showError('Não foi possível carregar os leads. Tente novamente.');
+      showError(lab ? LAB_CRM.erroCarregarToast : 'Não foi possível carregar os leads. Tente novamente.');
     } finally {
       if (seq === fetchSeq.current) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [pipelineParam, fetchLost, publishLeads]);
+  }, [pipelineParam, fetchLost, publishLeads, lab]);
 
   // Carrega os funis configurados e garante um selectedPipelineId válido.
   useEffect(() => {
@@ -1546,6 +1610,7 @@ export default function CrmPage() {
       .then(r => {
         const list: PipelineLite[] = r.data || [];
         setPipelines(list);
+        setPipelinesLoaded(true);
         setSelectedPipelineId(prev => {
           if (prev && list.some(p => p.id === prev)) return prev;
           if ((prev === ALL_PIPELINES || prev === ALL_CLINIC) && list.length > 0) return prev;
@@ -1553,7 +1618,7 @@ export default function CrmPage() {
           return def?.id ?? null;
         });
       })
-      .catch(() => { /* mantém view legada se /pipelines falhar */ });
+      .catch(() => { setPipelinesLoaded(true); /* mantém view legada se /pipelines falhar */ });
   }, []);
 
   useEffect(() => {
@@ -1720,7 +1785,7 @@ export default function CrmPage() {
       setLeads(cur => cur.map(l =>
         l.id === leadId ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead.stage_entered_at } : l
       ));
-      showError('Erro ao mover lead. Tente novamente.');
+      showError(lab ? LAB_CRM.erroMover : 'Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
     }
@@ -1759,7 +1824,7 @@ export default function CrmPage() {
       setLeads(cur => cur.map(l => l.id === leadId
         ? { ...l, stage_id: prevStageId, stage: prevStage, stage_entered_at: lead.stage_entered_at }
         : l));
-      showError('Erro ao mover lead. Tente novamente.');
+      showError(lab ? LAB_CRM.erroMover : 'Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
     }
@@ -1814,7 +1879,7 @@ export default function CrmPage() {
     const lead = leads.find(l => l.id === leadId);
     // Perdido solto em qualquer coluna = reativar, mesmo que o stage_id já "caia" nela.
     if (!lead || (!isLostLead(lead) && leadGeneralKey(lead) === key)) return;
-    const label = GENERAL_STAGES.find(g => g.key === key)?.label ?? key;
+    const label = lab ? LAB_CRM.colunasGerais[key] : (GENERAL_STAGES.find(g => g.key === key)?.label ?? key);
     const pipe = pipelines.find(p => p.id === lead.pipeline_id);
     if (!pipe) {
       const legacy: Partial<Record<GeneralStageKey, string>> = {
@@ -1835,6 +1900,8 @@ export default function CrmPage() {
     }
     return moveLeadToStageId(leadId, target);
   };
+
+  const lossReasons: readonly string[] = lab ? LAB_CRM.motivosPerda : LOSS_REASONS;
 
   const confirmLoss = async () => {
     if (!lossModal || !lossReason.trim()) return;
@@ -1860,7 +1927,7 @@ export default function CrmPage() {
           ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead?.stage_entered_at ?? l.stage_entered_at, loss_reason: lead?.loss_reason ?? null }
           : l
       ));
-      showError('Erro ao mover lead. Tente novamente.');
+      showError(lab ? LAB_CRM.erroMover : 'Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
     }
@@ -1886,7 +1953,7 @@ export default function CrmPage() {
     } catch {
       // Volta pro stage de antes (perdido barrado pelo guard volta pra Perdidos, não pra "Novo").
       setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage: prev ?? 'INICIAL', stage_entered_at: lead.stage_entered_at } : l));
-      showError('Erro ao mover lead. Tente novamente.');
+      showError(lab ? LAB_CRM.erroMover : 'Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
     }
@@ -1916,12 +1983,19 @@ export default function CrmPage() {
     setBulkMoving(true);
     const ids = [...selectedLeads];
     // Otimismo: atualiza todos de vez
+    // Laboratório: move pela etapa do funil da conta (stage_id); clínica: pela etapa legada.
     setLeads(prev => prev.map(l =>
-      ids.includes(l.id) ? { ...l, stage: bulkTargetStage, stage_entered_at: new Date().toISOString() } : l
+      ids.includes(l.id)
+        ? (lab
+            ? { ...l, stage_id: bulkTargetStage, stage_entered_at: new Date().toISOString() }
+            : { ...l, stage: bulkTargetStage, stage_entered_at: new Date().toISOString() })
+        : l
     ));
     try {
-      await Promise.all(ids.map(id => api.patch(`/leads/${id}/stage`, { stage: bulkTargetStage })));
-      showSuccess(`${ids.length} lead(s) movidos para ${findStage(bulkTargetStage)?.label ?? bulkTargetStage}.`);
+      await Promise.all(ids.map(id => api.patch(`/leads/${id}/stage`, lab ? { stage_id: bulkTargetStage } : { stage: bulkTargetStage })));
+      showSuccess(lab
+        ? LAB_CRM.movidos(ids.length, bulkChoices.find(c => c.id === bulkTargetStage)?.label ?? bulkTargetStage)
+        : `${ids.length} lead(s) movidos para ${findStage(bulkTargetStage)?.label ?? bulkTargetStage}.`);
       clearSelection();
       // Rebusca sempre: o quadro é remontado de activeRef/lostRef (busca/"Mostrar mais"
       // dos perdidos) — sem isso os cards movidos voltavam pra coluna antiga.
@@ -1929,7 +2003,7 @@ export default function CrmPage() {
     } catch {
       // Rollback parcial — rebusca do servidor
       fetchLeads(true);
-      showError('Erro ao mover alguns leads. A lista foi atualizada.');
+      showError(lab ? LAB_CRM.erroMoverVarios : 'Erro ao mover alguns leads. A lista foi atualizada.');
     } finally {
       setBulkMoving(false);
     }
@@ -2073,6 +2147,33 @@ export default function CrmPage() {
     return normalizeStage(l.stage);
   };
 
+  // Laboratório: o menu ⋮, o painel e o "Avançar" movem pela etapa do funil da conta
+  // (a etapa legada da clínica não existe lá). Visão geral: colunas gerais; funil: etapas
+  // de trabalho + a de ganho; sempre "Perdido" no fim.
+  const labStages: StageChoice[] = [];
+  if (lab) {
+    if (isGeneralView) {
+      for (const g of GENERAL_STAGES) {
+        if (g.visible) labStages.push({ id: g.key, label: LAB_CRM.colunasGerais[g.key], emoji: g.emoji, color: g.color });
+      }
+    } else if (selectedPipeline) {
+      const doFunil = [...selectedWorkStages, ...selectedPipeline.stages.filter(s => s.is_won)];
+      for (const s of doFunil) labStages.push({ id: s.id, label: s.name, emoji: s.emoji ?? '•', color: s.color ?? '#6b7280' });
+    }
+    labStages.push({ id: LOST_COLUMN, label: LAB_CRM.colunasGerais.perdido, emoji: '❌', color: LOST_COLOR });
+  }
+  const moveLeadByChoice = (leadId: string, choice: string) => {
+    if (choice === LOST_COLUMN) return moveLeadToStage(leadId, 'PERDIDO');
+    if (isGeneralView) return moveLeadToGeneralStage(leadId, choice as GeneralStageKey);
+    const st = selectedPipeline?.stages.find(s => s.id === choice);
+    if (st) return moveLeadToStageId(leadId, st);
+  };
+  // Mover em massa: clínica pela etapa legada; laboratório pelas etapas de trabalho do funil
+  // escolhido (na visão geral não há funil único, então não há o que oferecer).
+  const bulkChoices: StageChoice[] = lab
+    ? (isGeneralView ? [] : selectedWorkStages.map(s => ({ id: s.id, label: s.name, emoji: s.emoji ?? '•', color: s.color ?? '#6b7280' })))
+    : CRM_STAGES.filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO').map(s => ({ id: s.id, label: s.label, emoji: s.emoji, color: s.color }));
+
   const lostTime = (l: CrmLead) => new Date(l.stage_entered_at || l.updated_at || 0).getTime() || 0;
 
   const getStageLeads = (stageKey: string) =>
@@ -2124,7 +2225,7 @@ export default function CrmPage() {
         <header className="px-6 py-5 border-b border-border shrink-0 flex items-center gap-4">
           <div className="shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-foreground tracking-tight">CRC Pipeline</h1>
+              <h1 className="text-xl font-bold text-foreground tracking-tight">{lab ? LAB_CRM.titulo : 'CRC Pipeline'}</h1>
               {pipelines.length > 0 && (
                 <div className="relative">
                   <select
@@ -2133,8 +2234,8 @@ export default function CrmPage() {
                     className="appearance-none pl-3 pr-8 py-1.5 text-[13px] font-semibold bg-primary/10 text-primary border border-primary/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
                     title="Funil ativo"
                   >
-                    <option value={ALL_PIPELINES}>Geral — Leads (Comercial)</option>
-                    <option value={ALL_CLINIC}>Geral — Clínica (pacientes)</option>
+                    <option value={ALL_PIPELINES}>{lab ? LAB_CRM.geralContatos : 'Geral — Leads (Comercial)'}</option>
+                    <option value={ALL_CLINIC}>{lab ? LAB_CRM.geralClientes : 'Geral — Clínica (pacientes)'}</option>
                     {pipelines.map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
@@ -2144,7 +2245,7 @@ export default function CrmPage() {
               )}
               {/* Régua de reativação (follow-up do chip Comercial) — só pra LEAD:
                   some na visão "Geral — Clínica" (paciente não entra na régua). */}
-              {!isClinicView && (
+              {!isClinicView && !lab && (
                 <button
                   onClick={() => setShowReativacao(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-accent/50 text-foreground hover:bg-accent transition-colors"
@@ -2156,11 +2257,13 @@ export default function CrmPage() {
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {isClinicView
-                ? `${filteredLeads.length} paciente${filteredLeads.length !== 1 ? 's' : ''}`
-                : `${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''}`}{' '}
+                ? (lab ? LAB_CRM.clientes(filteredLeads.length) : `${filteredLeads.length} paciente${filteredLeads.length !== 1 ? 's' : ''}`)
+                : (lab
+                  ? LAB_CRM.contatos(filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length)
+                  : `${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead${filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''}`)}{' '}
               {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
               {showLostColumn && lostCountLabel !== '0' && (
-                <span className="text-red-400/80" title="Leads marcados como perdidos (coluna Perdidos) — fora do total">
+                <span className="text-red-400/80" title={lab ? LAB_CRM.perdidosTitulo : 'Leads marcados como perdidos (coluna Perdidos) — fora do total'}>
                   {' '}· {lostCountLabel} perdido{lostCountLabel === '1' ? '' : 's'}
                 </span>
               )}
@@ -2184,7 +2287,7 @@ export default function CrmPage() {
           {/* Filtros */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Filtro por área */}
-            {allAreas.length > 0 && (
+            {!lab && allAreas.length > 0 && (
               <div className="relative">
                 <select
                   value={areaFilter}
@@ -2199,7 +2302,7 @@ export default function CrmPage() {
             )}
 
             {/* Filtro por dentista */}
-            {allDentists.length > 0 && (
+            {!lab && allDentists.length > 0 && (
               <div className="relative">
                 <select
                   value={dentistFilter}
@@ -2250,7 +2353,7 @@ export default function CrmPage() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Buscar lead…"
+                placeholder={lab ? LAB_CRM.buscar : 'Buscar lead…'}
                 className="pl-8 pr-3 py-1.5 text-[12px] bg-accent/50 border border-border rounded-lg placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 w-44"
               />
             </div>
@@ -2269,12 +2372,13 @@ export default function CrmPage() {
               >
                 <option value="message">💬 Mensagem mais recente</option>
                 <option value="activity">📅 Próximo evento</option>
-                <option value="score">⭐ Score do lead</option>
+                <option value="score">{lab ? LAB_CRM.ordenarScore : '⭐ Score do lead'}</option>
               </select>
               <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
             </div>
 
-            {/* Analytics */}
+            {/* Analytics — construído sobre as etapas legadas da clínica: o laboratório não tem */}
+            {!lab && (
             <button
               onClick={() => setShowAnalytics(v => !v)}
               className={`p-1.5 rounded-lg transition-all ${showAnalytics ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
@@ -2282,6 +2386,7 @@ export default function CrmPage() {
             >
               <BarChart2 size={14} />
             </button>
+            )}
 
             {/* Toggle visualização kanban / lista / pos-avaliacao */}
             <div className="flex items-center border border-border rounded-lg overflow-hidden">
@@ -2310,7 +2415,7 @@ export default function CrmPage() {
               onClick={downloadCsv}
               disabled={exporting}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-              title="Exportar leads para CSV"
+              title={lab ? LAB_CRM.exportar : 'Exportar leads para CSV'}
             >
               <Download size={14} className={exporting ? 'animate-pulse' : ''} />
             </button>
@@ -2342,7 +2447,7 @@ export default function CrmPage() {
             <div className="mx-6 mt-3 mb-1 flex items-center gap-3 px-4 py-2.5 bg-amber-100 dark:bg-amber-500/15 border border-amber-400 dark:border-amber-500/40 rounded-xl">
               <AlertCircle size={15} className="text-amber-700 dark:text-amber-300 shrink-0" />
               <p className="flex-1 text-[12px] text-amber-900 dark:text-amber-200">
-                <span className="font-bold">{stagnant.length} lead{stagnant.length !== 1 ? 's' : ''}</span> sem atividade há mais de {stagnationDays} dia{stagnationDays !== 1 ? 's' : ''}:{' '}
+                <span className="font-bold">{lab ? LAB_CRM.parados(stagnant.length) : `${stagnant.length} lead${stagnant.length !== 1 ? 's' : ''}`}</span> sem atividade há mais de {stagnationDays} dia{stagnationDays !== 1 ? 's' : ''}:{' '}
                 <span className="text-amber-800 dark:text-amber-200/80">{stagnant.slice(0, 3).map(l => l.name || l.phone).join(', ')}{stagnant.length > 3 ? ` e mais ${stagnant.length - 3}` : ''}</span>
               </p>
               <button onClick={() => setDismissedStagnation(true)} className="p-1 rounded-md text-amber-700/70 dark:text-amber-300/70 hover:text-amber-900 dark:hover:text-amber-200 hover:bg-amber-200/60 dark:hover:bg-amber-500/20 transition-colors shrink-0">
@@ -2355,11 +2460,11 @@ export default function CrmPage() {
         {/* Board / Lista */}
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-muted-foreground text-sm animate-pulse">Carregando leads…</div>
+            <div className="text-muted-foreground text-sm animate-pulse">{lab ? LAB_CRM.carregando : 'Carregando leads…'}</div>
           </div>
         ) : loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <p className="text-muted-foreground text-sm">Erro ao carregar leads.</p>
+            <p className="text-muted-foreground text-sm">{lab ? LAB_CRM.erroCarregar : 'Erro ao carregar leads.'}</p>
             <button onClick={() => fetchLeads()} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors">
               Tentar novamente
             </button>
@@ -2386,6 +2491,7 @@ export default function CrmPage() {
             selectedLeads={selectedLeads}
             onToggleSelect={toggleSelect}
             selectionMode={selectedLeads.size > 0}
+            lab={lab}
           />
         ) : (
           <div
@@ -2418,7 +2524,9 @@ export default function CrmPage() {
                     .map(g => ({
                       key: g.key,
                       slug: g.key,
-                      label: isClinicView && g.key === 'ganho' ? 'Virou paciente' : g.label,
+                      label: lab
+                        ? (isClinicView && g.key === 'ganho' ? LAB_CRM.virouCliente : LAB_CRM.colunasGerais[g.key])
+                        : (isClinicView && g.key === 'ganho' ? 'Virou paciente' : g.label),
                       color: g.color,
                       emoji: g.emoji,
                       generalKey: g.key,
@@ -2433,7 +2541,7 @@ export default function CrmPage() {
                       emoji: s.emoji ?? '•',
                       dynamicStage: s,
                     }))
-                : CRM_STAGES
+                : (lab ? [] : CRM_STAGES
                     .filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO')
                     .map(s => ({
                       key: s.id,
@@ -2442,7 +2550,7 @@ export default function CrmPage() {
                       color: s.color,
                       emoji: s.emoji,
                       legacyId: s.id,
-                    }));
+                    })));
               // Perdidos: SEMPRE a última coluna (Geral — Leads, cada funil e o modo
               // legado). No funil ela faz o papel da etapa [perdido] dele; funil sem essa
               // etapa mostra os perdidos pelo stage legado PERDIDO. Soltar aqui = modal de
@@ -2450,6 +2558,23 @@ export default function CrmPage() {
               const cols: Col[] = showLostColumn
                 ? [...baseCols, { key: LOST_COLUMN, slug: 'perdido', label: 'Perdidos', color: LOST_COLOR, emoji: '❌', lost: true }]
                 : baseCols;
+
+              // Laboratório sem funil (lista vazia, falha ou ainda carregando): nada de colunas da clínica.
+              if (lab && !isGeneralView && !selectedPipeline) {
+                return (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="max-w-sm text-center">
+                      <p className="text-sm font-bold text-foreground">{pipelinesLoaded ? LAB_CRM.semFunilTitulo : LAB_CRM.carregando}</p>
+                      {pipelinesLoaded && (
+                        <>
+                          <p className="mt-1.5 text-sm text-muted-foreground">{LAB_CRM.semFunilTexto}</p>
+                          <Link href="/atendimento/settings/pipelines" className="mt-4 inline-flex h-9 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">{LAB_CRM.semFunilLink}</Link>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <div className="flex h-full gap-4" style={{ minWidth: `${cols.length * 272}px` }}>
@@ -2484,7 +2609,7 @@ export default function CrmPage() {
                           if (!id) return;
                           if (col.lost) moveLeadToStage(id, 'PERDIDO'); // modal de motivo (já perdido = nada)
                           else if (col.generalKey === 'fechamento' || col.generalKey === 'ganho') {
-                            showError('Essa etapa é automática (orçamento criado / compareceu ou pagou).');
+                            showError(lab ? LAB_CRM.etapaAutomatica : 'Essa etapa é automática (orçamento criado / compareceu ou pagou).');
                           } else if (col.generalKey) moveLeadToGeneralStage(id, col.generalKey);
                           else if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
                           else if (col.legacyId) moveLeadToStage(id, col.legacyId);
@@ -2505,7 +2630,7 @@ export default function CrmPage() {
                             {agingCount > 0 && (
                               <span
                                 className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold bg-red-500/20 text-red-400"
-                                title={`${agingCount} lead(s) parado(s) há mais de 5 dias`}
+                                title={lab ? LAB_CRM.paradosTitulo(agingCount) : `${agingCount} lead(s) parado(s) há mais de 5 dias`}
                               >
                                 {agingCount}
                               </span>
@@ -2536,7 +2661,10 @@ export default function CrmPage() {
                               onOpen={() => openInChat(lead)}
                               onOpenDetail={() => openDetail(lead)}
                               onOpenPatient={() => handleOpenPatient(lead.id)}
-                              onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
+                              onStageChange={(newStage) => (lab ? moveLeadByChoice(lead.id, newStage) : moveLeadToStage(lead.id, newStage))}
+                              lab={lab}
+                              labStages={labStages}
+                              colKey={columnOf(lead)}
                               attendLoading={attendingLeadId === lead.id}
                               isSelected={selectedLeads.has(lead.id)}
                               onToggleSelect={() => toggleSelect(lead.id)}
@@ -2569,12 +2697,12 @@ export default function CrmPage() {
                               ) : (
                                 col.lost ? (
                                   <>
-                                    <p className="text-[11px] font-medium">Nenhum lead perdido</p>
+                                    <p className="text-[11px] font-medium">{lab ? LAB_CRM.vazioPerdidos : 'Nenhum lead perdido'}</p>
                                     <p className="text-[10px] mt-1 opacity-70">Arraste um card aqui pra marcar como perdido (pede o motivo)</p>
                                   </>
                                 ) : (
                                   <>
-                                    <p className="text-[11px] font-medium">Nenhum lead aqui</p>
+                                    <p className="text-[11px] font-medium">{lab ? LAB_CRM.vazioColuna : 'Nenhum lead aqui'}</p>
                                     <p className="text-[10px] mt-1 opacity-70">Arraste cards ou use o menu ⋮</p>
                                   </>
                                 )
@@ -2595,9 +2723,10 @@ export default function CrmPage() {
         {selectedLeads.size > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-card border border-border rounded-2xl shadow-2xl shadow-black/30 backdrop-blur-sm">
             <span className="text-[13px] font-semibold text-foreground">
-              {selectedLeads.size} lead{selectedLeads.size !== 1 ? 's' : ''} selecionado{selectedLeads.size !== 1 ? 's' : ''}
+              {lab ? LAB_CRM.selecionados(selectedLeads.size) : `${selectedLeads.size} lead${selectedLeads.size !== 1 ? 's' : ''} selecionado${selectedLeads.size !== 1 ? 's' : ''}`}
             </span>
-            <div className="w-px h-5 bg-border" />
+            {bulkChoices.length > 0 && <div className="w-px h-5 bg-border" />}
+            {bulkChoices.length > 0 && (
             <div className="flex items-center gap-2">
               <select
                 value={bulkTargetStage}
@@ -2605,7 +2734,7 @@ export default function CrmPage() {
                 className="appearance-none pl-3 pr-7 py-1.5 text-[12px] bg-accent border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
               >
                 <option value="">Mover para…</option>
-                {CRM_STAGES.filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO').map(s => (
+                {bulkChoices.map(s => (
                   <option key={s.id} value={s.id}>{s.emoji} {s.label}</option>
                 ))}
               </select>
@@ -2617,6 +2746,7 @@ export default function CrmPage() {
                 {bulkMoving ? 'Movendo…' : 'Mover'}
               </button>
             </div>
+            )}
             <button
               onClick={clearSelection}
               className="ml-1 w-7 h-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -2658,9 +2788,11 @@ export default function CrmPage() {
                 <p className={`text-sm font-bold leading-tight transition-colors ${
                   dragOverFinalizado ? 'text-emerald-400' : 'text-foreground'
                 }`}>
-                  {dragOverFinalizado ? 'Soltar para Finalizar' : 'Arraste aqui → Finalizado'}
+                  {dragOverFinalizado
+                    ? (lab ? LAB_CRM.zonaFecharSoltar : 'Soltar para Finalizar')
+                    : (lab ? LAB_CRM.zonaFecharTitulo : 'Arraste aqui → Finalizado')}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Lead convertido com sucesso ✅</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{lab ? LAB_CRM.zonaFecharSub : 'Lead convertido com sucesso ✅'}</p>
               </div>
             </div>
 
@@ -2704,10 +2836,16 @@ export default function CrmPage() {
         {finalizedModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
-              <h3 className="text-lg font-bold text-foreground mb-1">Finalizar lead?</h3>
+              <h3 className="text-lg font-bold text-foreground mb-1">{lab ? LAB_CRM.fecharTitulo : 'Finalizar lead?'}</h3>
+              {lab ? (
+              <p className="text-sm text-muted-foreground mb-5">
+                {LAB_CRM.fecharAntes}<strong>{finalizedModal.leadName}</strong>{LAB_CRM.fecharMeio}<span className="text-emerald-400 font-semibold">{LAB_CRM.fecharDestaque}</span>{LAB_CRM.fecharDepois}
+              </p>
+              ) : (
               <p className="text-sm text-muted-foreground mb-5">
                 Deseja marcar <strong>{finalizedModal.leadName}</strong> como <span className="text-emerald-400 font-semibold">Finalizado</span>? Essa etapa indica que o lead foi convertido com sucesso.
               </p>
+              )}
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setFinalizedModal(null)}
@@ -2732,10 +2870,12 @@ export default function CrmPage() {
             <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
               <h3 className="text-lg font-bold text-foreground mb-1">Marcar como Perdido</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Por que o lead <strong>{lossModal.leadName}</strong> foi perdido?
+                {lab
+                  ? <>{LAB_CRM.perdaAntes}<strong>{lossModal.leadName}</strong>{LAB_CRM.perdaDepois}</>
+                  : <>Por que o lead <strong>{lossModal.leadName}</strong> foi perdido?</>}
               </p>
               <div className="space-y-2 mb-4">
-                {LOSS_REASONS.map(reason => (
+                {lossReasons.map(reason => (
                   <button
                     key={reason}
                     onClick={() => setLossReason(reason)}
@@ -2751,7 +2891,7 @@ export default function CrmPage() {
               </div>
               <input
                 type="text"
-                value={LOSS_REASONS.includes(lossReason) ? '' : lossReason}
+                value={lossReasons.includes(lossReason) ? '' : lossReason}
                 onChange={e => setLossReason(e.target.value)}
                 placeholder="Outro motivo..."
                 className="w-full px-3 py-2 text-sm bg-accent/50 border border-border rounded-lg placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 mb-4"
@@ -2782,9 +2922,12 @@ export default function CrmPage() {
           lead={leads.find(l => l.id === detailLead.id) ?? detailLead}
           onClose={() => setDetailLead(null)}
           onOpenChat={() => { openInChat(detailLead); setDetailLead(null); }}
-          onStageChange={(stage) => moveLeadToStage(detailLead.id, stage)}
+          onStageChange={(stage) => (lab ? moveLeadByChoice(detailLead.id, stage) : moveLeadToStage(detailLead.id, stage))}
           onConvertToCase={() => convertLeadToCase(detailLead)}
           convertingCase={convertingCase}
+          lab={lab}
+          labStages={labStages}
+          colKey={columnOf(detailLead)}
         />
       )}
 
@@ -2795,7 +2938,7 @@ export default function CrmPage() {
       )}
 
       {/* Régua de reativação de leads (Previstos / Enviados ✓) */}
-      {showReativacao && (
+      {!lab && showReativacao && (
         <ReativacaoPanel onClose={() => setShowReativacao(false)} />
       )}
 

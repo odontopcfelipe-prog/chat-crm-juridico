@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Percent, Loader2, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_COMISSAO_REGRAS } from '../../comissoes/lab-comissoes-textos';
 
 interface CommissionRule {
   id: string;
@@ -37,6 +40,7 @@ const fmtMoney = (v: string | null) =>
   v ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(v)) : '—';
 
 export default function CommissionRulesSettingsPage() {
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState<CommissionRule[]>([]);
   const [editing, setEditing] = useState<CommissionRule | null>(null);
@@ -75,8 +79,12 @@ export default function CommissionRulesSettingsPage() {
             <Percent size={26} className="text-primary" /> Regras de comissao
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Define como cada profissional ganha comissao por procedimento executado.
-            Prioridade: regra por procedimento {'>'}por categoria {'>'}sem escopo (geral).
+            {lab ? LAB_COMISSAO_REGRAS.subtitulo : (
+              <>
+                Define como cada profissional ganha comissao por procedimento executado.
+                Prioridade: regra por procedimento {'>'}por categoria {'>'}sem escopo (geral).
+              </>
+            )}
           </p>
         </div>
         <button
@@ -115,10 +123,10 @@ export default function CommissionRulesSettingsPage() {
                   <td className="px-3 py-2 font-medium">{r.professional?.name || '—'}</td>
                   <td className="px-3 py-2 text-xs">
                     {r.procedure_id && (
-                      <span className="text-primary">Procedimento especifico</span>
+                      <span className="text-primary">{lab ? LAB_COMISSAO_REGRAS.servicoEspecifico : 'Procedimento especifico'}</span>
                     )}
                     {!r.procedure_id && r.procedure_category && (
-                      <span>Categoria: <span className="text-primary">{r.procedure_category}</span></span>
+                      <span>{lab ? LAB_COMISSAO_REGRAS.grupo : 'Categoria: '}<span className="text-primary">{r.procedure_category}</span></span>
                     )}
                     {!r.procedure_id && !r.procedure_category && (
                       <span className="text-muted-foreground">Geral (todos)</span>
@@ -130,9 +138,9 @@ export default function CommissionRulesSettingsPage() {
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {r.trigger === 'ON_PAYMENT' ? (
-                      <span className="text-green-700">Quando paciente paga</span>
+                      <span className="text-green-700">{lab ? LAB_COMISSAO_REGRAS.quandoClientePaga : 'Quando paciente paga'}</span>
                     ) : (
-                      <span className="text-amber-700">Na execucao</span>
+                      <span className="text-amber-700">{lab ? LAB_COMISSAO_REGRAS.naExecucao : 'Na execucao'}</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs">
@@ -183,6 +191,7 @@ export default function CommissionRulesSettingsPage() {
 function RuleModal({
   rule, onClose, onSaved,
 }: { rule: CommissionRule | null; onClose: () => void; onSaved: () => void }) {
+  const lab = isLab(useBusinessType());
   const [saving, setSaving] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
@@ -295,8 +304,8 @@ function RuleModal({
             <div className="grid grid-cols-3 gap-2">
               {[
                 { v: 'GENERAL', l: 'Geral' },
-                { v: 'CATEGORY', l: 'Por categoria' },
-                { v: 'PROCEDURE', l: 'Procedimento' },
+                { v: 'CATEGORY', l: lab ? LAB_COMISSAO_REGRAS.escopoGrupo : 'Por categoria' },
+                { v: 'PROCEDURE', l: lab ? LAB_COMISSAO_REGRAS.escopoServico : 'Procedimento' },
               ].map((o) => (
                 <button
                   type="button"
@@ -314,13 +323,13 @@ function RuleModal({
 
           {scope === 'CATEGORY' && (
             <div>
-              <label className="block text-xs font-medium mb-1">Categoria do procedimento</label>
+              <label className="block text-xs font-medium mb-1">{lab ? LAB_COMISSAO_REGRAS.grupoDoServico : 'Categoria do procedimento'}</label>
               <input
                 type="text"
                 value={procedureCategory}
                 onChange={(e) => setProcedureCategory(e.target.value)}
                 list="proc-categories"
-                placeholder="HOF, ORTODONTIA, IMPLANTE..."
+                placeholder={lab ? LAB_COMISSAO_REGRAS.grupoExemplo : 'HOF, ORTODONTIA, IMPLANTE...'}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
               <datalist id="proc-categories">
@@ -331,7 +340,7 @@ function RuleModal({
 
           {scope === 'PROCEDURE' && (
             <div>
-              <label className="block text-xs font-medium mb-1">Procedimento especifico</label>
+              <label className="block text-xs font-medium mb-1">{lab ? LAB_COMISSAO_REGRAS.servico : 'Procedimento especifico'}</label>
               <select
                 value={procedureId}
                 onChange={(e) => setProcedureId(e.target.value)}
@@ -375,19 +384,19 @@ function RuleModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">Quando libera comissao</label>
+            <label className="block text-xs font-medium mb-1">{lab ? LAB_COMISSAO_REGRAS.quandoLibera : 'Quando libera comissao'}</label>
             <select
               value={trigger}
               onChange={(e) => setTrigger(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
-              <option value="ON_PAYMENT">Quando o paciente paga (recomendado)</option>
-              <option value="ON_EXECUTION">Na execucao do procedimento</option>
+              <option value="ON_PAYMENT">{lab ? LAB_COMISSAO_REGRAS.opcaoClientePaga : 'Quando o paciente paga (recomendado)'}</option>
+              <option value="ON_EXECUTION">{lab ? LAB_COMISSAO_REGRAS.opcaoExecucao : 'Na execucao do procedimento'}</option>
             </select>
             <p className="text-xs text-muted-foreground mt-1">
               {trigger === 'ON_PAYMENT'
-                ? 'Alinha incentivo do profissional a saude financeira da clinica.'
-                : 'Comissao gerada imediatamente — usa quando confianca total no recebimento.'}
+                ? (lab ? LAB_COMISSAO_REGRAS.dicaClientePaga : 'Alinha incentivo do profissional a saude financeira da clinica.')
+                : (lab ? LAB_COMISSAO_REGRAS.dicaExecucao : 'Comissao gerada imediatamente — usa quando confianca total no recebimento.')}
             </p>
           </div>
 

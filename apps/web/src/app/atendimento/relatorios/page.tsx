@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_RELATORIOS } from './lab-relatorios-textos';
 
 interface DashboardData {
   period: { start: string; end: string; preset: string };
@@ -43,6 +46,7 @@ const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 export default function RelatoriosPage() {
+  const lab = isLab(useBusinessType());
   const [period, setPeriod] = useState('month');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -52,18 +56,19 @@ export default function RelatoriosPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Laboratório: só o resumo; o catálogo de relatórios é da clínica.
       const [dash, cat] = await Promise.all([
         api.get<DashboardData>(`/reports/dashboard?period=${period}`),
-        api.get<CatalogItem[]>('/reports/catalog'),
+        lab ? Promise.resolve(null) : api.get<CatalogItem[]>('/reports/catalog'),
       ]);
       setData(dash.data);
-      setCatalog(cat.data);
+      if (cat) setCatalog(cat.data);
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao carregar relatorios');
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, lab]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -82,7 +87,7 @@ export default function RelatoriosPage() {
             <BarChart3 size={26} className="text-primary" /> Relatorios
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Hub agregado de KPIs + catalogo de {catalog.length} relatorios disponiveis.
+            {lab ? LAB_RELATORIOS.subtitulo : `Hub agregado de KPIs + catalogo de ${catalog.length} relatorios disponiveis.`}
           </p>
         </div>
         <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
@@ -122,7 +127,7 @@ export default function RelatoriosPage() {
             />
             <KPICard
               icon={<Calendar size={14} />}
-              label="Consultas"
+              label={lab ? LAB_RELATORIOS.visitas : 'Consultas'}
               value={data.schedule.total.toString()}
               subValue={`${data.schedule.confirmed} confirmadas`}
               extra={`${data.schedule.misses_pct.toFixed(1)}% faltas`}
@@ -150,9 +155,9 @@ export default function RelatoriosPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
             <KPICard
               icon={<Users size={14} />}
-              label="Novos pacientes"
+              label={lab ? LAB_RELATORIOS.clientesNovos : 'Novos pacientes'}
               value={data.patients.new.toString()}
-              subValue={`${data.patients.first_consultations} primeiras consultas`}
+              subValue={lab ? undefined : `${data.patients.first_consultations} primeiras consultas`}
               color="text-green-700"
             />
             <KPICard
@@ -175,7 +180,7 @@ export default function RelatoriosPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
             <div className="bg-card border border-border rounded-xl p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
-                <Sparkles size={11} /> Top procedimentos
+                <Sparkles size={11} /> {lab ? LAB_RELATORIOS.principaisServicos : 'Top procedimentos'}
               </h3>
               {data.top_procedures.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-3 text-center">Sem dados no periodo.</p>
@@ -204,7 +209,7 @@ export default function RelatoriosPage() {
 
             <div className="bg-card border border-border rounded-xl p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
-                <Users size={11} /> Origem dos pacientes (leads)
+                <Users size={11} /> {lab ? LAB_RELATORIOS.origemClientes : 'Origem dos pacientes (leads)'}
               </h3>
               {data.patient_origins.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-3 text-center">Sem leads no periodo.</p>
@@ -234,6 +239,7 @@ export default function RelatoriosPage() {
       )}
 
       {/* Catalogo */}
+      {!lab && (
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">Catalogo de relatorios</h2>
@@ -273,6 +279,7 @@ export default function RelatoriosPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

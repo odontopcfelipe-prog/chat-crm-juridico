@@ -9,7 +9,10 @@ import { Plus, Loader2, Pencil, Trash2, FileText, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import ModalBase from '@/components/ModalBase';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
 import { inputCls, Field } from './ui-shared';
+import { LAB_INFLUENCIADORES } from '../lab-influenciadores-textos';
 
 export interface MessageTemplate {
   id: string;
@@ -35,13 +38,14 @@ const EXAMPLE_PREVIEW = {
   nicho: 'odonto',
 };
 
-function interpolatePreview(body: string): string {
+function interpolatePreview(body: string, lab = false): string {
   return body.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
-    return (EXAMPLE_PREVIEW as any)[key] ?? '';
+    return ((lab ? { ...EXAMPLE_PREVIEW, handle: LAB_INFLUENCIADORES.previewHandle, nicho: LAB_INFLUENCIADORES.previewNicho } : EXAMPLE_PREVIEW) as any)[key] ?? '';
   });
 }
 
 export function TemplatesTab() {
+  const lab = isLab(useBusinessType());
   const [items, setItems] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -247,7 +251,7 @@ export function TemplatesTab() {
                 <Eye size={12} /> Pré-visualização (exemplo: Ana Silva)
               </p>
               <div className="bg-background border border-border rounded-lg p-3 text-sm text-foreground whitespace-pre-wrap">
-                {interpolatePreview(body)}
+                {interpolatePreview(body, lab)}
               </div>
             </div>
           )}

@@ -45,9 +45,13 @@ const PACIENTE_DO_CASO = /\bpatient_ref\b/;
 const TABELA_DO_CASO = /\b(?:quoteLabCase|lab_case)\b/;
 const QUALQUER_DO_CASO = /\b(?:patient_ref|quoteLabCase|QuoteLabCase|lab_case)\b/;
 
+/** Aceite on-line: compara a referência entre opções do mesmo cliente e não devolve o campo. */
+const COMPARA_SEM_DEVOLVER = (arq: string) => arq === 'apps/api/src/commercial/proposta-online-laboratorio.ts';
+
 /** Onde 'patient_ref' pode aparecer. */
 const PODE_TER_PACIENTE_DO_CASO = (arq: string) =>
   DAS_ROTAS_DE_FICHAS(arq) ||
+  COMPARA_SEM_DEVOLVER(arq) ||
   arq === 'packages/shared/src/lab-fichas.ts' ||
   arq === 'apps/web/src/app/atendimento/pacientes/components/LabFichaDoCaso.tsx';
 
@@ -70,7 +74,7 @@ describe('F8 — o paciente do caso não sai das fichas', () => {
 
   it("a tabela do caso ('quoteLabCase' e 'lab_case') só é lida nas rotas de fichas", () => {
     const fora = todos
-      .filter((a) => TABELA_DO_CASO.test(a.src) && !DAS_ROTAS_DE_FICHAS(a.arq))
+      .filter((a) => TABELA_DO_CASO.test(a.src) && !DAS_ROTAS_DE_FICHAS(a.arq) && !COMPARA_SEM_DEVOLVER(a.arq))
       .map((a) => a.arq);
     expect(fora).toEqual([]);
   });

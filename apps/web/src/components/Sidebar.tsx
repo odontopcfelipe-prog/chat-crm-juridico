@@ -111,6 +111,10 @@ export function Sidebar() {
   useEffect(() => { applyTenantTheme(tenant); }, [tenant]);
   const bt = useBusinessType();
   const lab = isLab(bt);
+  // Laboratório: a aba do navegador mostra o nome da conta, não o título padrão do site.
+  useEffect(() => {
+    if (lab && tenant?.name) document.title = tenant.name;
+  }, [lab, tenant?.name, pathname]);
   // Laboratório: item fora da lista de rotas dele some (e o grupo vazio junto).
   const navOk = (href: string) => !lab || labAllowsRoute(href);
 
@@ -599,7 +603,7 @@ export function Sidebar() {
     },
     crm: {
       // Onda 5e v8 — encurtado de "Leads & CRM" pra "CRM"
-      label: 'CRC',
+      label: lab ? LAB_MENU.funil : 'CRC',
       href: '/atendimento/crm',
       icon: <Briefcase size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/crm'),
@@ -728,7 +732,7 @@ export function Sidebar() {
       href: '/atendimento/referrals',
       icon: <Trophy size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/referrals'),
-      show: true,
+      show: lab ? hasPermission('view_marketing') : true,
     },
     estoque: {
       label: 'Estoque',
@@ -749,14 +753,14 @@ export function Sidebar() {
       href: '/atendimento/comissoes',
       icon: <Banknote size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/comissoes'),
-      show: true,
+      show: lab ? hasPermission('view_financial') : true,
     },
     metas: {
       label: 'Metas',
       href: '/atendimento/metas',
       icon: <Target size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/metas'),
-      show: true,
+      show: lab ? hasPermission('view_financial') : true,
     },
     relatorios: {
       label: 'Relatórios',
@@ -943,7 +947,7 @@ export function Sidebar() {
       : []),
     {
       id: 'crm',
-      label: 'CRC',
+      label: lab ? LAB_MENU.grupoComercial : 'CRC',
       defaultExpanded: true,
       icon: <Network size={14} strokeWidth={2.5} />,
       items: [
@@ -972,6 +976,7 @@ export function Sidebar() {
         // allItems.orcamentos,           // Avaliação (orcamentos)
         // Laboratório: "Orçamentos de trabalho" entra no menu (na clínica segue comentado acima).
         ...(lab ? [allItems.orcamentos] : []),
+        ...(lab ? [allItems.financeiroVisaoGeral] : []), // Laboratório: Visão Geral fica no menu
         allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
         allItems.boletos,              // Boletos (cobranças / PaymentGatewayCharge)
@@ -1001,6 +1006,7 @@ export function Sidebar() {
       items: [
         allItems.influencers,  // Cadastro de influenciadores
         allItems.afiliados,    // Dashboard de afiliados
+        ...(lab ? [allItems.referrals] : []), // Laboratório: indicação entra no menu
       ].filter(i => i.show && navOk(i.href)),
     },
     {

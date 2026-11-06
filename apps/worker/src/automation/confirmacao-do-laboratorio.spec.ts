@@ -47,7 +47,7 @@ const visita = (over: Record<string, any> = {}, paciente: Record<string, any> = 
   ...over,
 });
 
-function montar(eventos: any[], chaves: Record<string, string> = {}, opcoes: { existente?: boolean; dupNaTransacao?: boolean } = {}) {
+function montar(eventos: any[], chaves: Record<string, string> = {}, opcoes: { existente?: boolean; dupNaTransacao?: boolean; status?: string } = {}) {
   const criadas: any[] = [];
   const tx: any = {
     $executeRaw: jest.fn(async () => 0),
@@ -61,9 +61,14 @@ function montar(eventos: any[], chaves: Record<string, string> = {}, opcoes: { e
   };
   const prisma: any = {
     calendarEvent: { findMany: jest.fn(async () => eventos) },
-    globalSetting: { findUnique: jest.fn(async ({ where }: any) => (where.key in chaves ? { value: chaves[where.key] } : null)) },
+    globalSetting: {
+      findUnique: jest.fn(async ({ where }: any) => (where.key in chaves ? { value: chaves[where.key] } : null)),
+      findMany: jest.fn(async ({ where }: any) => where.key.in.filter((k: string) => chaves[k] === 'true').map(() => ({ value: 'true' }))),
+    },
     appointmentConfirmation: { findFirst: jest.fn(async () => (opcoes.existente ? { id: 'ja' } : null)) },
-    tenant: { findUnique: jest.fn(async () => ({ name: 'Laboratório Exemplo' })) },
+    tenant: {
+      findUnique: jest.fn(async (a: any) => (a.select.status ? { status: opcoes.status ?? 'ACTIVE' } : { name: 'Laboratório Exemplo' })),
+    },
     eventReminder: { findFirst: jest.fn(async () => ({ id: 'r-48h' })) },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
@@ -106,6 +111,27 @@ describe('Confirmação 24 h do laboratório (agendarConfirmacoesDoLaboratorio)'
     expect(criadas[0].message_text).toBe(TEXTO('coleta', SEM_ENDERECO).replace('Oi Ana,', 'Oi Bruno,'));
   });
 
+  it.each([
+    ['SUSPENDED', {}, 'SUSPENDED'],
+    ['DELETED', {}, 'DELETED'],
+    ['LAB_FREEZE', { LAB_FREEZE: 'true' }, 'ACTIVE'],
+    ['LAB_FREEZE_<conta>', { [`LAB_FREEZE_${LAB}`]: 'true' }, 'ACTIVE'],
+  ])('conta %s: não cria a confirmação nem lê o texto', async (_n, chaves, status) => {
+    const { prisma, criadas } = montar([visita()], chaves as any, { status: status as string });
+    expect(await agendarConfirmacoesDoLaboratorio(prisma, new Set([LAB]), JANELA, LOGGER)).toEqual({ criadas: 0, puladas: 1 });
+    expect(criadas).toHaveLength(0);
+    expect(prisma.globalSetting.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('conta em teste ou que voltou a ficar ativa: cria', async () => {
+    const trial = montar([visita()], {}, { status: 'TRIAL' });
+    expect((await agendarConfirmacoesDoLaboratorio(trial.prisma, new Set([LAB]), JANELA, LOGGER)).criadas).toBe(1);
+    const m = montar([visita()], {}, { status: 'SUSPENDED' });
+    expect((await agendarConfirmacoesDoLaboratorio(m.prisma, new Set([LAB]), JANELA, LOGGER)).criadas).toBe(0);
+    m.prisma.tenant.findUnique.mockImplementation(async (a: any) => (a.select.status ? { status: 'ACTIVE' } : { name: 'Laboratório Exemplo' }));
+    expect((await agendarConfirmacoesDoLaboratorio(m.prisma, new Set([LAB]), JANELA, LOGGER)).criadas).toBe(1);
+  });
+
   it('contato ou cadastro de outra conta: pula sem ler chave', async () => {
     const a = montar([{ ...visita(), patient: null, lead: { name: 'Dr. Bruno Lima', phone: TEL, tenant_id: OUTRO_LAB } }]);
     expect(await agendarConfirmacoesDoLaboratorio(a.prisma, new Set([LAB, OUTRO_LAB]), JANELA, LOGGER)).toEqual({ criadas: 0, puladas: 1 });
@@ -130,7 +156,7 @@ describe('Confirmação 24 h do laboratório (agendarConfirmacoesDoLaboratorio)'
     expect(PROIBIDOS.test(semAcento(criadas[0].message_text))).toBe(false);
     // Sem a conferência da 48 h e sem ler o nome do laboratório (o texto não usa {clinica}).
     expect(prisma.eventReminder.findFirst).not.toHaveBeenCalled();
-    expect(prisma.tenant.findUnique).not.toHaveBeenCalled();
+    expect(prisma.tenant.findUnique.mock.calls.filter((c: any[]) => c[0].select.name)).toEqual([]);
   });
 
   it('o local digitado no evento vale antes do cadastro; sem endereço a linha some', async () => {

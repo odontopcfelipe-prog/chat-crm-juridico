@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
 import { CreateCommissionRuleDto, UpdateCommissionRuleDto } from './dto/commission-rule.dto';
+import { recusarIdsDeOutraConta } from './ids-da-conta';
 
 @Injectable()
 export class CommissionRulesService {
@@ -15,6 +16,7 @@ export class CommissionRulesService {
     if (dto.percentage && dto.fixed_value) {
       throw new BadRequestException('Informe percentage OU fixed_value, nao ambos');
     }
+    await recusarIdsDeOutraConta(this.prisma, tenantId, dto);
 
     return this.prisma.commissionRule.create({
       data: {
@@ -62,6 +64,7 @@ export class CommissionRulesService {
 
   async update(tenantId: string, id: string, dto: UpdateCommissionRuleDto) {
     await this.findOne(tenantId, id);
+    await recusarIdsDeOutraConta(this.prisma, tenantId, dto);
     return this.prisma.commissionRule.update({
       where: { id },
       data: {

@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_METAS } from '../comissoes/lab-comissoes-textos';
 
 interface Goal {
   id: string;
@@ -46,7 +49,16 @@ const fmtMetric = (metric: string, value: number) => {
   return fn ? fn(value) : Math.round(value).toLocaleString('pt-BR');
 };
 
+// Laboratório: só as metas que existem para ele (sem consulta nem agenda de consultório).
+const METRIC_LABELS_LAB: Record<string, string> = {
+  SALES_VALUE:           'Vendas (R$)',
+  NEW_PATIENTS:          LAB_METAS.novosClientes,
+  CONVERSIONS:           LAB_METAS.conversao,
+  CUSTOM:                'Personalizada',
+};
+
 export default function MetasPage() {
+  const lab = isLab(useBusinessType());
   const [loading, setLoading] = useState(true);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [view, setView] = useState<'active' | 'all'>('active');
@@ -109,8 +121,12 @@ export default function MetasPage() {
             <Target size={26} className="text-primary" /> Metas
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Metas com projecao "no ritmo atual" — vendas, primeiras consultas,
-            faltas, ocupacao, novos pacientes, conversao.
+            {lab ? LAB_METAS.subtitulo : (
+              <>
+                Metas com projecao "no ritmo atual" — vendas, primeiras consultas,
+                faltas, ocupacao, novos pacientes, conversao.
+              </>
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -185,6 +201,7 @@ export default function MetasPage() {
 function GoalCard({
   goal, onRecalculate, onDelete,
 }: { goal: Goal; onRecalculate: () => void; onDelete: () => void }) {
+  const lab = isLab(useBusinessType());
   const target = Number(goal.target_value);
   const current = Number(goal.current_value || 0);
   const projected = Number(goal.projected_value || 0);
@@ -205,9 +222,9 @@ function GoalCard({
     <div className="bg-card border border-border rounded-xl p-4">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <h3 className="font-semibold text-foreground">{METRIC_LABELS[goal.metric] || goal.metric}</h3>
+          <h3 className="font-semibold text-foreground">{(lab ? METRIC_LABELS_LAB : METRIC_LABELS)[goal.metric] || goal.metric}</h3>
           <p className="text-xs text-muted-foreground">
-            {goal.scope === 'PROFESSIONAL' && goal.professional?.name ? `${goal.professional.name} · ` : 'Clinica · '}
+            {goal.scope === 'PROFESSIONAL' && goal.professional?.name ? `${goal.professional.name} · ` : (lab ? LAB_METAS.doLaboratorio : 'Clinica · ')}
             {new Date(goal.period_start).toLocaleDateString('pt-BR')} a {new Date(goal.period_end).toLocaleDateString('pt-BR')}
           </p>
         </div>
@@ -273,6 +290,7 @@ function GoalCard({
 }
 
 function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const lab = isLab(useBusinessType());
   const [saving, setSaving] = useState(false);
   const [metric, setMetric] = useState('SALES_VALUE');
   const [scope, setScope] = useState('CLINIC');
@@ -346,7 +364,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               onChange={(e) => setMetric(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
-              {Object.entries(METRIC_LABELS).map(([v, l]) => (
+              {Object.entries(lab ? METRIC_LABELS_LAB : METRIC_LABELS).map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
             </select>
@@ -360,7 +378,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 onChange={(e) => setScope(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
-                <option value="CLINIC">Clinica (todos)</option>
+                <option value="CLINIC">{lab ? LAB_METAS.escopoLaboratorio : 'Clinica (todos)'}</option>
                 <option value="PROFESSIONAL">Por profissional</option>
               </select>
             </div>

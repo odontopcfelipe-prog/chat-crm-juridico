@@ -667,6 +667,15 @@ export class PipelinesService {
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException('items vazio');
     }
+    // Laboratório: só etapas do próprio funil entram na reordenação (a clínica segue como sempre).
+    if (await isLabTenant(this.prisma, tenantId)) {
+      const ids = [...new Set(items.map((i) => i?.id))];
+      const doFunil = await this.stage.findMany({
+        where: { pipeline_id: pipelineId, id: { in: ids } },
+        select: { id: true },
+      });
+      if (doFunil.length !== ids.length) throw new NotFoundException('Etapa não encontrada neste funil');
+    }
     await this.prisma.$transaction(
       items.map(({ id, position }) =>
         this.stage.update({

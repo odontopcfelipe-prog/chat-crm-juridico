@@ -33,7 +33,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { __limparCacheLabTenants } from '@crm/shared';
 import { CODIGO_VERTICAL_NEGADA, negarLaboratorio } from '../common/lab-gate.util';
 import { TreatmentPlanContractService } from '../commercial/treatment-plan-contract.service';
@@ -51,6 +51,7 @@ import { LeadsService } from '../leads/leads.service';
 import { GoogleDriveController } from '../google-drive/google-drive.controller';
 import { ContractsService } from '../commercial/contracts.service';
 import { ContractWhatsappService } from '../commercial/contract-whatsapp.service';
+import { LAB_CONTRATO_MSG } from '../commercial/lab-contrato-textos';
 import { TenantsService } from '../tenants/tenants.service';
 import { GlobalAnamnesisService } from '../global-anamnesis/global-anamnesis.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
@@ -859,9 +860,9 @@ describe('Follow-up — laboratório: inscrição manual recusada, automática n
     expect(d.fila.add.mock.calls).toEqual(a.fila.add.mock.calls);
   });
 
-  it('inscrição manual, laboratório: recusa (VERTICAL_DENIED), nada inscrito', async () => {
+  it('inscrição manual, laboratório: a sequência global (das clínicas) não alcança o lead dele, nada inscrito', async () => {
     const m = montar([LAB], LAB);
-    expect(codigo(await erro(m.svc.enrollLead('lead-lab', 'seq-1')))).toBe(CODIGO_VERTICAL_NEGADA);
+    expect(await erro(m.svc.enrollLead('lead-lab', 'seq-1'))).toBeInstanceOf(NotFoundException);
     expect(m.de('followupEnrollment.upsert')).toEqual([]);
     expect(m.fila.add).not.toHaveBeenCalled();
   });
@@ -875,11 +876,11 @@ describe('Follow-up — laboratório: inscrição manual recusada, automática n
     expect(d.ops).toEqual(a.ops);
   });
 
-  it('auto-inscrição por etapa, laboratório: nem lê as sequências (nem as globais)', async () => {
+  it('auto-inscrição por etapa, laboratório: lê só as sequências da própria conta (nunca as globais) e não inscreve em sequência de clínica', async () => {
     const m = montar([LAB], LAB);
     await m.svc.autoEnrollByStage('lead-lab', 'NOVO');
-    expect(m.nomes()).toEqual(['lead.findUnique']);
-    expect(registrou('log', '[LAB-GATE] followup-auto')).toBe(true);
+    expect(m.de('followupSequence.findMany')[0].where).toEqual({ active: true, auto_enroll_stages: { has: 'NOVO' }, tenant_id: LAB });
+    expect(m.de('followupEnrollment.upsert')).toEqual([]);
   });
 });
 
@@ -973,17 +974,23 @@ describe('Regras de automação — as globais (de clínica) não agem em lead d
     expect(svc.remove).toHaveBeenCalledWith('regra-1', LAB);
   });
 
-  it('editar/apagar, clínica com OUTRA conta laboratório: como antes (sem leitura a mais)', async () => {
+  it('editar/apagar, clínica: a regra dela e a global seguem; a de outra conta responde 404', async () => {
     const a = montar([LAB]);
     await a.svc.update('global-NEW_LEAD', { enabled: false }, CLINICA);
     await a.svc.remove('global-NEW_LEAD', CLINICA);
-    expect(a.nomes()).toEqual(['automationRule.update', 'automationRule.delete']);
+    await a.svc.update('clinica-NEW_LEAD', { enabled: false }, CLINICA);
+    expect(a.de('automationRule.update')).toHaveLength(2);
+    expect(a.de('automationRule.delete')).toHaveLength(1);
+    expect(await erro(a.svc.update('lab-NEW_LEAD', { enabled: false }, CLINICA))).toBeInstanceOf(NotFoundException);
+    expect(await erro(a.svc.remove('lab-NEW_LEAD', CLINICA))).toBeInstanceOf(NotFoundException);
+    expect(a.de('automationRule.update')).toHaveLength(2);
+    expect(a.de('automationRule.delete')).toHaveLength(1);
   });
 
-  it('editar/apagar, laboratório: recusa regra global ou de outra conta (VERTICAL_DENIED); mexe na dele', async () => {
+  it('editar/apagar, laboratório: regra global ou de outra conta responde 404; mexe na dele', async () => {
     const lab = montar([LAB]);
-    expect(codigo(await erro(lab.svc.update('global-NEW_LEAD', { enabled: false }, LAB)))).toBe(CODIGO_VERTICAL_NEGADA);
-    expect(codigo(await erro(lab.svc.remove('clinica-NEW_LEAD', LAB)))).toBe(CODIGO_VERTICAL_NEGADA);
+    expect(await erro(lab.svc.update('global-NEW_LEAD', { enabled: false }, LAB))).toBeInstanceOf(NotFoundException);
+    expect(await erro(lab.svc.remove('clinica-NEW_LEAD', LAB))).toBeInstanceOf(NotFoundException);
     expect(lab.de('automationRule.update')).toEqual([]);
     expect(lab.de('automationRule.delete')).toEqual([]);
     await lab.svc.update('lab-NEW_LEAD', { enabled: false }, LAB);
@@ -1121,7 +1128,7 @@ describe('Pasta do lead no Google Drive (Drive global da clínica)', () => {
 // Contratos (odontológico e jurídico legado)
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('Contrato de tratamento odontológico — laboratório recusa criar e enviar', () => {
+describe('Contrato — clínica igual; laboratório cria e envia o contrato de prótese, sem a ClickSign', () => {
   function criar(labs: string[], conta: string) {
     const b = banco(labs, {
       'quote.findUnique': ({ where }) => ({ id: where.id, status: 'ACCEPTED', patient: { id: `pac-${conta}`, tenant_id: conta }, contract: null, items: [] }),
@@ -1141,10 +1148,12 @@ describe('Contrato de tratamento odontológico — laboratório recusa criar e e
     expect(d.pdf.assessCompleteness.mock.calls).toEqual(a.pdf.assessCompleteness.mock.calls);
   });
 
-  it('criar, laboratório: recusa (VERTICAL_DENIED) antes de montar o contrato', async () => {
+  it('criar, laboratório: confere os dados e recusa com o texto do laboratório (sem VERTICAL_DENIED)', async () => {
     const m = criar([LAB], LAB);
-    expect(codigo(await erro(m.svc.createForQuote('orc-lab', LAB, 'usuario-1')))).toBe(CODIGO_VERTICAL_NEGADA);
-    expect(m.pdf.assessCompleteness).not.toHaveBeenCalled();
+    const e = await erro(m.svc.createForQuote('orc-lab', LAB, 'usuario-1'));
+    expect(codigo(e)).not.toBe(CODIGO_VERTICAL_NEGADA);
+    expect(e.message).toBe(LAB_CONTRATO_MSG.faltamDados('CPF do paciente'));
+    expect(m.pdf.assessCompleteness).toHaveBeenCalledWith('orc-lab', LAB, undefined);
   });
 
   function enviar(labs: string[], conta: string, status: string) {
@@ -1171,12 +1180,21 @@ describe('Contrato de tratamento odontológico — laboratório recusa criar e e
     }
   });
 
-  it('enviar no WhatsApp / ClickSign, laboratório: recusa (VERTICAL_DENIED) antes de qualquer checagem de envio', async () => {
+  it('enviar no WhatsApp, laboratório: segue as mesmas checagens, com o texto do laboratório', async () => {
     const zap = enviar([LAB], LAB, 'DRAFT');
-    expect(codigo(await erro(zap.svc.send('contrato-lab', LAB, 'usuario-1', 'Segue o contrato')))).toBe(CODIGO_VERTICAL_NEGADA);
+    const e = await erro(zap.svc.send('contrato-lab', LAB, 'usuario-1', 'Segue o contrato'));
+    expect(codigo(e)).not.toBe(CODIGO_VERTICAL_NEGADA);
+    expect(e.message).toBe(LAB_CONTRATO_MSG.semChip);
+    expect(zap.messages.resolvePatientChips).toHaveBeenCalledWith(LAB, true);
+    const cancelado = enviar([LAB], LAB, 'CANCELLED');
+    expect((await erro(cancelado.svc.send('contrato-lab', LAB, 'usuario-1', 'Segue o contrato'))).message).toBe(LAB_CONTRATO_MSG.inativo);
+  });
+
+  it('ClickSign, laboratório: recusa (VERTICAL_DENIED) antes de qualquer checagem de envio (a conta é a da plataforma)', async () => {
     const cs = enviar([LAB], LAB, 'DRAFT');
-    expect(codigo(await erro(cs.svc.sendClickSign('contrato-lab', LAB, 'usuario-1')))).toBe(CODIGO_VERTICAL_NEGADA);
-    expect(zap.messages.resolvePatientChips).not.toHaveBeenCalled();
+    const e = await erro(cs.svc.sendClickSign('contrato-lab', LAB, 'usuario-1'));
+    expect(codigo(e)).toBe(CODIGO_VERTICAL_NEGADA);
+    expect(e.message).toBe(LAB_CONTRATO_MSG.clicksignIndisponivel);
     expect(cs.messages.resolvePatientChips).not.toHaveBeenCalled();
   });
 });
@@ -1392,27 +1410,53 @@ describe('Portal do paciente — link recusado e troca do token barrada no labor
   });
 });
 
-describe('F2 parte 4 — indicação, afiliado e comissão não nascem no laboratório', () => {
+describe('F2 parte 4 — indicação e afiliado no laboratório (paridade com a clínica); a comissão do profissional nasce pela regra da conta', () => {
   const pacientes = { 'patient.findUnique': ({ where }: any) => ({ tenant_id: where.id.startsWith('pac-lab') ? LAB : CLINICA }) };
+  const regraLigada = { 'referralRule.findUnique': () => ({ enabled: true, default_reward_value: 50, expiration_days: 180 }) };
 
-  it('indicação (createPending): laboratório não grava; clínica segue igual com ou sem laboratório', async () => {
+  it('indicação (createPending): laboratório nasce com o programa desligado e, ligado, grava na conta dele; clínica segue igual com ou sem laboratório', async () => {
     const lab = banco([LAB], pacientes);
     expect(await new ReferralsService(lab.prisma).createPending({ tenantId: LAB, referrerId: 'pac-lab-1', referredId: 'pac-lab-2' })).toBeNull();
-    expect(lab.nomes()).toEqual([]);
-    expect(logs.some((l) => l.msg.includes('[LAB-GATE] indicacao'))).toBe(true);
+    expect(lab.de('referralRule.create')[0].data).toEqual(expect.objectContaining({ tenant_id: LAB, enabled: false }));
+    expect(lab.nomes()).not.toContain('referral.create');
+    const ligado = banco([LAB], { ...pacientes, ...regraLigada });
+    await new ReferralsService(ligado.prisma).createPending({ tenantId: LAB, referrerId: 'pac-lab-1', referredId: 'pac-lab-2' });
+    expect(ligado.de('referral.create')[0].data).toEqual(expect.objectContaining({ tenant_id: LAB, referrer_id: 'pac-lab-1', referred_id: 'pac-lab-2', status: 'PENDING' }));
     const sem = banco([], pacientes);
     await new ReferralsService(sem.prisma).createPending({ tenantId: CLINICA, referrerId: 'pac-1', referredId: 'pac-2' });
     const com = banco([LAB], pacientes);
     await new ReferralsService(com.prisma).createPending({ tenantId: CLINICA, referrerId: 'pac-1', referredId: 'pac-2' });
     expect(com.ops).toEqual(sem.ops);
     expect(com.nomes()).toContain('patient.findUnique');
+    expect(sem.de('referralRule.create')[0].data).toEqual(expect.objectContaining({ enabled: true }));
   });
 
-  it('comissão de afiliado no aceite: laboratório não consulta nem grava; clínica igual', async () => {
+  it('indicação: indicador de outra conta é recusado também no laboratório', async () => {
+    const lab = banco([LAB], pacientes);
+    await expect(
+      new ReferralsService(lab.prisma).createPending({ tenantId: LAB, referrerId: 'pac-1', referredId: 'pac-lab-2' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(lab.nomes()).not.toContain('referral.create');
+  });
+
+  it('comissão de afiliado no aceite: laboratório credita na conta dele (só indicador da própria conta); clínica igual', async () => {
     const params = (t: string) => ({ quoteId: 'orc-1', patientId: 'pac-1', treatmentValue: 1000, tenantId: t });
-    const lab = banco([LAB]);
+    const indicado = {
+      'patient.findUnique': ({ where }: any) =>
+        where.id === 'afil-1'
+          ? { id: 'afil-1', is_affiliate: true, affiliate_commission_pct: 3, cpf: null, phone: null }
+          : { referred_by_id: 'afil-1', cpf: null, phone: null },
+      'quote.findUnique': () => ({ affiliate_referrer_id: null }),
+    };
+    const lab = banco([LAB], { ...indicado, 'patient.findFirst': () => ({ id: 'afil-1' }) });
     await new AffiliateService(lab.prisma).recordReferralFromAcceptedQuote(params(LAB));
-    expect(lab.nomes()).toEqual([]);
+    expect(lab.de('affiliateReferral.create')[0].data).toEqual(
+      expect.objectContaining({ tenant_id: LAB, referrer_id: 'afil-1', quote_id: 'orc-1', commission_value: 30, status: 'creditado' }),
+    );
+    expect(lab.de('patient.findFirst')[0].where).toEqual({ id: 'afil-1', tenant_id: LAB });
+    const deOutra = banco([LAB], { ...indicado, 'patient.findFirst': () => null });
+    await new AffiliateService(deOutra.prisma).recordReferralFromAcceptedQuote(params(LAB));
+    expect(deOutra.nomes()).not.toContain('affiliateReferral.create');
     const sem = banco([]);
     await new AffiliateService(sem.prisma).recordReferralFromAcceptedQuote(params(CLINICA));
     const com = banco([LAB]);
@@ -1421,8 +1465,11 @@ describe('F2 parte 4 — indicação, afiliado e comissão não nascem no labora
     expect(com.nomes()).toContain('affiliateReferral.findFirst');
   });
 
-  it('comissão de venda (aprovar e cobrar / balcão): laboratório não gera; clínica igual', async () => {
-    const vendedor = { 'user.findUnique': () => ({ commission_sale_type: 'PERCENT', commission_sale_value: 10 }) };
+  it('comissão de venda (aprovar e cobrar / balcão): laboratório gera pela regra do vendedor, na conta dele; clínica igual', async () => {
+    const vendedor = {
+      'user.findUnique': () => ({ commission_sale_type: 'PERCENT', commission_sale_value: 10 }),
+      'quoteItem.findMany': () => [{ unit_price: 1000, quantity: 1, procedure: { commissionable: true } }],
+    };
     const gerar = async (labs: string[], t: string) => {
       const b = banco(labs, vendedor);
       const svc = new QuotesService(b.prisma, { get: () => undefined } as any);
@@ -1430,27 +1477,30 @@ describe('F2 parte 4 — indicação, afiliado e comissão não nascem no labora
       return b;
     };
     const lab = await gerar([LAB], LAB);
-    expect(lab.nomes()).toEqual([]);
+    expect(lab.nomes()).toContain('commission.create');
+    expect(lab.de('commission.create')[0].data).toEqual(expect.objectContaining({ tenant_id: LAB, professional_user_id: 'vendedor-1', kind: 'VENDA' }));
     const sem = await gerar([], CLINICA);
     const com = await gerar([LAB], CLINICA);
     expect(com.ops).toEqual(sem.ops);
     expect(com.nomes()).toContain('commission.findFirst');
   });
 
-  it('comissão de execução (confirmar item): laboratório não gera; clínica igual', async () => {
+  it('comissão de execução (confirmar item): laboratório gera pela regra do protético, na conta dele; clínica igual', async () => {
     const item = {
       id: 'item-1', unit_price: 100, quantity: 1, procedure_id: 'proc-1',
       procedure: { id: 'proc-1', name: 'Serviço exemplo', category: null, commissionable: true },
       treatment_plan: { id: 'plano-1', patient_id: 'pac-1', quote_id: 'orc-1' },
     };
+    const executor = { 'user.findUnique': () => ({ commission_exec_type: 'FIXED', commission_exec_value: 30 }) };
     const gerar = async (labs: string[], t: string) => {
-      const b = banco(labs);
+      const b = banco(labs, executor);
       const svc = new TreatmentPlansService(b.prisma, {} as any, undefined, new MaintenanceService(b.prisma));
       await (svc as any).generateCommissionForItem(t, 'executor-1', item);
       return b;
     };
     const lab = await gerar([LAB], LAB);
-    expect(lab.nomes()).toEqual([]);
+    expect(lab.de('commissionRule.findMany')[0].where).toEqual(expect.objectContaining({ tenant_id: LAB, professional_user_id: 'executor-1' }));
+    expect(lab.de('commission.create')[0].data).toEqual(expect.objectContaining({ tenant_id: LAB, professional_user_id: 'executor-1', kind: 'EXECUCAO' }));
     const sem = await gerar([], CLINICA);
     const com = await gerar([LAB], CLINICA);
     expect(com.ops).toEqual(sem.ops);

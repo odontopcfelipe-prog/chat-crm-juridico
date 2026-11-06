@@ -1662,9 +1662,12 @@ export class CommercialController {
   @Get('contract-templates/:docId/pdf')
   async previewContractTemplate(
     @Param('docId') docId: string,
+    @Authenticated() user: AuthUser,
     @Res() res: Response,
   ) {
-    const buffer = await this.contractPdfService.readTemplatePdf(docId);
+    // docId MODELO_LABORATORIO: contrato de exemplo do laboratório (só conta de laboratório);
+    // qualquer outro id segue o caminho de sempre.
+    const buffer = await this.contractPdfService.readTemplatePdfParaConta(docId, user.tenant_id);
     this.sendPdf(res, buffer, `termo-${docId.toLowerCase()}.pdf`);
   }
 }

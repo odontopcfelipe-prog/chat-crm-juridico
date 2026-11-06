@@ -45,10 +45,11 @@ function withScope(params: Record<string, string>, scope?: Scope): Record<string
   return scope ? { ...params, scope } : params;
 }
 
-export function useRevenueTrend(months = 12, scope?: Scope) {
+export function useRevenueTrend(months = 12, scope?: Scope, enabled = true) {
   return useAnalyticsEndpoint<RevenueTrendData>(
     '/dashboard/revenue-trend',
     withScope({ months: String(months) }, scope),
+    enabled,
   );
 }
 
@@ -66,10 +67,11 @@ export function useTaskCompletion(period?: PeriodFilter, scope?: Scope) {
   );
 }
 
-export function useFinancialAging(scope?: Scope) {
+export function useFinancialAging(scope?: Scope, enabled = true) {
   return useAnalyticsEndpoint<FinancialAgingData>(
     '/dashboard/financial-aging',
     withScope({}, scope),
+    enabled,
   );
 }
 

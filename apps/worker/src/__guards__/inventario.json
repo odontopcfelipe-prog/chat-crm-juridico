@@ -5,7 +5,7 @@
     "automatismos": { "@Cron": 26, "@Processor": 5, "BullModule.registerQueue": 6, "onModuleInit": 3 },
     "socket": 0,
     "globais": 0,
-    "produtores": 6,
+    "produtores": 7,
     "controllers": 1,
     "handlers": 1,
     "@Public": 0
@@ -57,6 +57,7 @@
   "produtores": [
     { "tipo": "queue.add", "arquivo": "ai/ai.processor.ts", "alvo": "AiProcessor.createCalendarEvent", "detalhe": "this.reminderQueue  'send-reminder'" },
     { "tipo": "queue.add", "arquivo": "ai/ai.processor.ts", "alvo": "AiProcessor.scheduleSchedulingRetry", "detalhe": "this.aiQueue  'ai-scheduling-retry'" },
+    { "tipo": "queue.add", "arquivo": "ai/lab-ia.ts", "alvo": "marcarVisitaDoLaboratorio()", "detalhe": "params.reminderQueue  'send-reminder'" },
     { "tipo": "queue.add", "arquivo": "ai/tool-handlers/book-appointment.ts", "alvo": "BookAppointmentHandler.execute", "detalhe": "context.reminderQueue  'send-reminder'" },
     { "tipo": "queue.add", "arquivo": "followup/followup-cron.service.ts", "alvo": "FollowupCronService.processEnrollments", "detalhe": "this.followupQueue  'process-step'" },
     { "tipo": "queue.add", "arquivo": "memory/daily-memory-batch.processor.ts", "alvo": "DailyMemoryBatchProcessor.processTenantBatch", "detalhe": "this.memoryQueue  'consolidate-profiles-after-batch'" },

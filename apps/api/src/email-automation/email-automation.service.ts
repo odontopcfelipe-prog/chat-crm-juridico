@@ -1,11 +1,14 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { excludeLabWhere, getLabTenantIds, isLabTenant } from '@crm/shared';
+import { contaDoLabPodeEnviar, excludeLabWhere, getLabTenantIds, isLabTenant } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
+import { LimitePorConta } from '../common/limite-por-conta';
 import { EMAIL_EVENTS, getEmailEvent } from './email-events';
 // Laboratório de prótese — texto sem vocabulário de clínica (funções puras, sem DI).
 import { semVariaveis, temVocabularioDeClinica } from '../payment-gateway/cobranca-laboratorio';
+// Laboratório de prótese — catálogo dos e-mails com o texto do laboratório.
+import { LAB_EMAILS_LIGADOS_POR_PADRAO, LAB_EMAIL_ERROS, LAB_EMAIL_EVENTS } from './lab-email-events-textos';
 
 /**
  * Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
@@ -23,6 +26,14 @@ export interface DispatchVars {
   [key: string]: string | undefined;
 }
 
+/** E-mails de teste por conta de laboratório. */
+export const LIMITE_DE_TESTE_DO_LAB = new LimitePorConta(5, 86_400_000, LAB_EMAIL_ERROS.limiteDeTeste);
+
+/** Texto do evento no laboratório (null = evento sem versão de laboratório). */
+function eventoDoLaboratorio(key: string): (typeof LAB_EMAIL_EVENTS)[keyof typeof LAB_EMAIL_EVENTS] | null {
+  return (LAB_EMAIL_EVENTS as Record<string, (typeof LAB_EMAIL_EVENTS)[keyof typeof LAB_EMAIL_EVENTS]>)[key] ?? null;
+}
+
 @Injectable()
 export class EmailAutomationService {
   private readonly logger = new Logger(EmailAutomationService.name);
@@ -38,8 +49,24 @@ export class EmailAutomationService {
       where: { tenant_id: tenantId },
     });
     const byKey = new Map(overrides.map((o) => [o.event_key, o]));
+    // Laboratório: o texto e as variáveis do laboratório; um e-mail que a conta ainda não
+    // ligou aparece desligado. Clínica: só a leitura da lista de laboratórios (cache).
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     return EMAIL_EVENTS.map((def) => {
       const ov = byKey.get(def.key);
+      const labDef = lab ? eventoDoLaboratorio(def.key) : null;
+      if (labDef) {
+        return {
+          key: def.key,
+          label: labDef.label,
+          description: labDef.description,
+          variables: labDef.variables,
+          enabled: ov ? ov.enabled : LAB_EMAILS_LIGADOS_POR_PADRAO.has(def.key),
+          subject: ov ? ov.subject : labDef.defaultSubject,
+          body: ov ? ov.body : labDef.defaultBody,
+          is_customized: !!ov,
+        };
+      }
       return {
         key: def.key,
         label: def.label,
@@ -66,18 +93,26 @@ export class EmailAutomationService {
       where: { tenant_id_event_key: { tenant_id: tenantId, event_key: eventKey } },
     });
 
-    const subject = (data.subject ?? existing?.subject ?? def.defaultSubject).trim();
-    const body = (data.body ?? existing?.body ?? def.defaultBody).trim();
+    // Laboratório: parte do texto do laboratório e não aceita palavra de clínica; o e-mail
+    // ainda não ligado fica desligado até a conta ligar.
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    const labDef = lab ? eventoDoLaboratorio(eventKey) : null;
+    const subject = (data.subject ?? existing?.subject ?? labDef?.defaultSubject ?? def.defaultSubject).trim();
+    const body = (data.body ?? existing?.body ?? labDef?.defaultBody ?? def.defaultBody).trim();
     if (!subject) throw new BadRequestException('O assunto não pode ficar vazio.');
     if (!body) throw new BadRequestException('O conteúdo não pode ficar vazio.');
+    if (lab && temVocabularioDeClinica(semVariaveis(`${subject}\n${body}`))) {
+      throw new BadRequestException(LAB_EMAIL_ERROS.textoDeClinica);
+    }
+    const ligadoPadrao = lab ? LAB_EMAILS_LIGADOS_POR_PADRAO.has(eventKey) : true;
 
     const saved = await this.prisma.tenantEmailTemplate.upsert({
       where: { tenant_id_event_key: { tenant_id: tenantId, event_key: eventKey } },
-      update: { enabled: data.enabled ?? existing?.enabled ?? true, subject, body },
+      update: { enabled: data.enabled ?? existing?.enabled ?? ligadoPadrao, subject, body },
       create: {
         tenant_id: tenantId,
         event_key: eventKey,
-        enabled: data.enabled ?? true,
+        enabled: data.enabled ?? ligadoPadrao,
         subject,
         body,
       },
@@ -100,15 +135,21 @@ export class EmailAutomationService {
     const def = getEmailEvent(eventKey);
     if (!def) throw new BadRequestException(`Evento desconhecido: ${eventKey}`);
     const vars: DispatchVars = {};
-    for (const v of def.variables) vars[v.name] = v.sample;
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+    if (lab) LIMITE_DE_TESTE_DO_LAB.consumir(tenantId);
+    const labDef = lab ? eventoDoLaboratorio(eventKey) : null;
+    for (const v of labDef ? labDef.variables : def.variables) vars[v.name] = v.sample;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { name: true, email: true },
     });
     if (tenant?.name) vars.clinica_nome = tenant.name;
+    // Laboratório em teste grátis: o teste sai com o texto padrão, nunca com o editado.
+    const emTrial = lab && (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { status: true } }))?.status === 'TRIAL';
     const sent = await this.dispatch(eventKey, tenantId, toEmail, vars, {
       ctaUrl: def.ctaLabel ? 'https://sistema.institutoodontopassos.com.br' : undefined,
       ignoreDisabled: true,
+      ...(emTrial ? { soTextoPadrao: true } : {}),
     });
     if (!sent) {
       throw new BadRequestException('SMTP do sistema não configurado — fale com o suporte.');
@@ -126,7 +167,7 @@ export class EmailAutomationService {
     tenantId: string,
     toEmail: string | null | undefined,
     vars: DispatchVars,
-    opts?: { ctaUrl?: string; ignoreDisabled?: boolean },
+    opts?: { ctaUrl?: string; ignoreDisabled?: boolean; soTextoPadrao?: boolean },
   ): Promise<boolean> {
     try {
       const def = getEmailEvent(eventKey);
@@ -138,18 +179,33 @@ export class EmailAutomationService {
       if (override && !override.enabled && !opts?.ignoreDisabled) {
         return false; // tenant desligou esse e-mail
       }
+      const editado = opts?.soTextoPadrao ? null : override;
 
-      // Laboratório de prótese: e-mail com texto de clínica (consulta, paciente,
-      // tratamento…) não sai para o cliente do laboratório. Os de cobrança têm texto
-      // neutro e seguem iguais. Clínica: só a leitura da lista de laboratórios (cache).
-      if (
-        (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) &&
-        temVocabularioDeClinica(
-          semVariaveis(`${override?.subject ?? def.defaultSubject}\n${override?.body ?? def.defaultBody}`),
-        )
-      ) {
-        this.logger.log(`[LAB-GATE] email — ${eventKey} tem texto de clínica: não sai na conta de laboratório ${tenantId}`);
-        return false;
+      // Laboratório de prótese: usa o texto do laboratório; o e-mail que a conta ainda não
+      // ligou não sai (só cobrança criada e pagamento confirmado já saíam ligados); texto
+      // com palavra de clínica (consulta, paciente, tratamento…) também não sai.
+      // Clínica: só a leitura da lista de laboratórios (cache).
+      const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
+      const labDef = lab ? eventoDoLaboratorio(eventKey) : null;
+      if (lab) {
+        // Conta suspensa ou congelada: nenhum e-mail automático sai (o lembrete de vencimento
+        // só marca enviado quando sai de verdade, então não fica nada travado).
+        if (!(await contaDoLabPodeEnviar(this.prisma, tenantId))) {
+          this.logger.log(`[LAB] email — ${eventKey}: conta de laboratório ${tenantId} suspensa, não sai`);
+          return false;
+        }
+        if (!override && !opts?.ignoreDisabled && !LAB_EMAILS_LIGADOS_POR_PADRAO.has(eventKey)) {
+          this.logger.log(`[LAB] email — ${eventKey} desligado na conta de laboratório ${tenantId}: não sai`);
+          return false;
+        }
+        if (
+          temVocabularioDeClinica(
+            semVariaveis(`${editado?.subject ?? labDef?.defaultSubject ?? def.defaultSubject}\n${editado?.body ?? labDef?.defaultBody ?? def.defaultBody}`),
+          )
+        ) {
+          this.logger.log(`[LAB-GATE] email — ${eventKey} tem texto de clínica: não sai na conta de laboratório ${tenantId}`);
+          return false;
+        }
       }
 
       const tenant = await this.prisma.tenant.findUnique({
@@ -157,10 +213,11 @@ export class EmailAutomationService {
         select: { name: true, email: true },
       });
       const clinicName = tenant?.name || 'Odonto System';
-      const allVars: DispatchVars = { clinica_nome: clinicName, ...vars };
+      // No laboratório o cliente é {{cliente_nome}} (o gatilho de cobrança ainda manda paciente_nome).
+      const allVars: DispatchVars = { clinica_nome: clinicName, ...(lab ? { cliente_nome: vars.paciente_nome } : {}), ...vars };
 
-      const subject = this.render(override?.subject ?? def.defaultSubject, allVars);
-      const bodyText = this.render(override?.body ?? def.defaultBody, allVars);
+      const subject = this.render(editado?.subject ?? labDef?.defaultSubject ?? def.defaultSubject, allVars);
+      const bodyText = this.render(editado?.body ?? labDef?.defaultBody ?? def.defaultBody, allVars);
       const bodyHtml = this.escapeHtml(bodyText).replace(/\n/g, '<br>');
 
       const html = this.mail.renderTemplate({
@@ -208,11 +265,23 @@ export class EmailAutomationService {
       const start = new Date(tomorrowLocalMidnight + OFFSET_MS);
       const end = new Date(start.getTime() + DAY_MS);
 
-      // F2 [LAB-GATE] — toque automático de cobrança (= régua, decisão do dono): a
-      // cobrança do laboratório fica fora da busca. Clínica: sem laboratório o where é o
-      // mesmo objeto (com o `tenant_id not null` de sempre, o resultado é só o notIn).
-      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-      if (labs.size) this.logger.log(`[LAB-GATE] vencimento-email — ${labs.size} laboratório(s) fora da busca`);
+      // Laboratório: a cobrança dele só entra se a PRÓPRIA conta ligou o e-mail "vencimento
+      // amanhã" (linha da conta com enabled=true); sem isso fica fora da busca. Clínica:
+      // sem laboratório o where é o mesmo objeto (com o `tenant_id not null` de sempre, o
+      // resultado é só o notIn).
+      const todosLabs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      let labs: ReadonlySet<string> = todosLabs;
+      if (todosLabs.size) {
+        const ligados = await this.prisma.tenantEmailTemplate.findMany({
+          where: { event_key: 'vencimento_proximo', enabled: true, tenant_id: { in: [...todosLabs] } },
+          select: { tenant_id: true },
+        });
+        if (ligados.length) {
+          const optaram = new Set(ligados.map((l) => l.tenant_id));
+          labs = new Set([...todosLabs].filter((id) => !optaram.has(id)));
+        }
+      }
+      if (labs.size) this.logger.log(`[LAB] vencimento-email — ${labs.size} laboratório(s) sem o e-mail ligado, fora da busca`);
       const charges = await this.prisma.paymentGatewayCharge.findMany({
         where: excludeLabWhere('paymentGatewayCharge', {
           status: 'PENDING',

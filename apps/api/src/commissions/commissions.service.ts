@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@crm/shared';
+import { Prisma, isLabTenant } from '@crm/shared';
 import { readMissionsConfig, type MissionDef, type MissionsConfig } from './game-rules';
+import { LAB_JOGO_ADMIN } from './lab-jogo-textos';
+import { idForaDaConta, recusarIdsDeOutraConta } from './ids-da-conta';
 import {
   CreateCommissionDto, PayCommissionDto, UpdateCommissionDto,
 } from './dto/commission.dto';
@@ -73,6 +75,7 @@ export class CommissionsService {
       else if (dto.fixed_value) amount = dto.fixed_value;
       else throw new BadRequestException('Informe amount, percentage ou fixed_value');
     }
+    await recusarIdsDeOutraConta(this.prisma, tenantId, dto, (m) => this.logger.warn(m));
 
     return this.prisma.commission.create({
       data: {
@@ -155,6 +158,10 @@ export class CommissionsService {
       },
     });
     if (!commission) throw new NotFoundException('Comissao nao encontrada');
+    // Laboratório: comissão ligada a registro de outra conta não abre (os dados vêm junto).
+    if (await idForaDaConta(this.prisma, tenantId, commission, (m) => this.logger.warn(m))) {
+      throw new NotFoundException('Comissao nao encontrada');
+    }
     return commission;
   }
 
@@ -368,6 +375,7 @@ export class CommissionsService {
    */
   async gameView(tenantId: string, opts: { reference_month?: string } = {}) {
     const month = opts.reference_month || monthKey(new Date());
+    const lab = await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m));
     const rows = await this.summary(tenantId, { reference_month: month });
 
     const rules = await this.prisma.commissionRule.findMany({
@@ -439,7 +447,7 @@ export class CommissionsService {
     }
 
     // Fase 2b — MISSÕES da semana: tracking REAL (procedimentos executados + faltas/no-show).
-    const missionsCfg = await this.getMissions(tenantId);
+    const missionsCfg = await this.getMissions(tenantId, lab);
     const procByProf = new Map<string, number>();
     const faltasByProf = new Map<string, number>();
     try {
@@ -472,7 +480,7 @@ export class CommissionsService {
       const faixaPct = geral?.percentage != null ? Number(geral.percentage) : null;
       const faixaLabel =
         faixaPct != null ? `${faixaPct}% de comissão`
-        : profRules.length > 0 ? 'Comissão por procedimento'
+        : profRules.length > 0 ? (lab ? LAB_JOGO_ADMIN.faixaPorServico : 'Comissão por procedimento')
         : 'Sem regra cadastrada';
       const iniciais =
         r.professional_name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase()).join('') || '?';
@@ -553,7 +561,7 @@ export class CommissionsService {
   }
 
   /** Fase 2b — config de missões (GlobalSetting). Default: missões sugeridas, ON. */
-  async getMissions(tenantId: string): Promise<MissionsConfig> {
-    return readMissionsConfig(this.prisma, tenantId);
+  async getMissions(tenantId: string, lab = false): Promise<MissionsConfig> {
+    return readMissionsConfig(this.prisma, tenantId, lab);
   }
 }

@@ -138,6 +138,34 @@ export const ALLOWED_LAB_ROUTES: readonly LabRouteEntry[] = Object.freeze([
   // [F9a] Passos CAD: desenho de coroa no navegador do técnico
   '/atendimento/passos-cad',
   // [/F9a]
+  // [F12a] paridade com a clínica: funil, tarefas, gestão, propostas, contrato, nota, automações e marketing
+  '/atendimento/crm',
+  Object.freeze({ path: '/atendimento/settings/pipelines', exact: true as const }),
+  Object.freeze({ path: '/atendimento/tasks', exact: true as const }),
+  '/atendimento/settings/permissions',
+  '/atendimento/settings/specialties',
+  Object.freeze({ path: '/atendimento/relatorios', exact: true as const }),
+  Object.freeze({ path: '/atendimento/financeiro/dashboard', exact: true as const }),
+  Object.freeze({ path: '/atendimento/dashboard-completo', exact: true as const }),
+  Object.freeze({ path: '/atendimento/progresso', exact: true as const }),
+  Object.freeze({ path: '/atendimento/comissoes', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/commission-rules', exact: true as const }),
+  Object.freeze({ path: '/atendimento/metas', exact: true as const }),
+  Object.freeze({ path: '/atendimento/meu-jogo', exact: true as const }),
+  Object.freeze({ path: '/atendimento/minha-comissao', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/contracts', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/nota-fiscal', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/quote-coupons', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/quotes-trash', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/disparos/campanhas', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/emails-automaticos', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/automations', exact: true as const }),
+  Object.freeze({ path: '/atendimento/afiliados', exact: true as const }),
+  Object.freeze({ path: '/atendimento/referrals', exact: true as const }),
+  Object.freeze({ path: '/atendimento/influenciadores', exact: true as const }),
+  Object.freeze({ path: '/atendimento/marketing/analytics', exact: true as const }),
+  Object.freeze({ path: '/atendimento/settings/ai', exact: true as const }),
+  // [/F12a]
 ]);
 
 /** Caminho sem query/# e sem barra final ('/' continua '/'). */

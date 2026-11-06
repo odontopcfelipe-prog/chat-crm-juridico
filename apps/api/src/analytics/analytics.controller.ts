@@ -15,15 +15,15 @@ export class AnalyticsController {
   /** Protegido — lista todas as páginas com métricas agregadas */
   @UseGuards(JwtAuthGuard)
   @Get('pages')
-  getPages() {
-    return this.service.getPages();
+  getPages(@Request() req: any) {
+    return this.service.getPages(req.user?.tenant_id ?? null);
   }
 
   /** Protegido — detalhe de uma página específica */
   @UseGuards(JwtAuthGuard)
   @Get('detail')
-  getDetail(@Query('path') path: string) {
-    return this.service.getPageDetail(decodeURIComponent(path));
+  getDetail(@Request() req: any, @Query('path') path: string) {
+    return this.service.getPageDetail(decodeURIComponent(path), req.user?.tenant_id ?? null);
   }
 
   /**

@@ -438,7 +438,8 @@ describe('F6 — aba Orçamento do laboratório (LabOrcamentoTab)', () => {
 
   it('não chama rota só de clínica e não importa a aba de avaliação da clínica', () => {
     const src = ler(ABA);
-    const rotas = ['/odontogram', '/state-suggestions', '/duplicate-as-option', '/contract', '/credit-check', '/commercial/'];
+    // '/duplicate-as-option' saiu da lista: o laboratório também cria nova opção (botão Nova opção).
+    const rotas = ['/odontogram', '/state-suggestions', '/contract', '/credit-check', '/commercial/'];
     expect(rotas.filter((r) => src.includes(r))).toEqual([]);
     const imports = fonteTs(ABA).statements.filter(ts.isImportDeclaration).map((i) => (i.moduleSpecifier as ts.StringLiteral).text);
     expect(imports.filter((m) => /OdontogramaTab|OrcamentoTab|PropostasTab/.test(m))).toEqual([]);

@@ -5,8 +5,10 @@ import {
   CAMPANHA_HORA_INICIO,
   CAMPANHA_TETO_DIA,
   chipPacienteOuLegado,
+  contaDoLabPodeEnviar,
   escolherChipPaciente,
   findClinicHoliday,
+  isLabTenant,
   planejarEnvio,
   renderCampanhaTexto,
   type CampanhaMidiaTipo,
@@ -16,6 +18,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { chipForaDoAr, numeroSemWhatsapp, wasSent } from '../whatsapp/envio-resultado';
+// Laboratório de prótese: o chip de reserva da conta e os textos do laboratório.
+import { voltaDoChipNoLaboratorio } from '../whatsapp/chip-do-laboratorio';
+import { LAB_CAMPANHAS_MOTIVOS, LAB_CAMPANHAS_NOME_PADRAO } from './lab-campanhas-textos';
 
 const LOG = '[CAMPANHA]';
 const MACEIO_OFFSET_MS = 3 * 3600e3;
@@ -142,7 +147,16 @@ export class CampanhasEnvioService {
       orderBy: { created_at: 'asc' },
       select: { name: true, purpose: true },
     });
-    if (setor === 'FINANCEIRO') return chips.find((c) => (c.purpose || '').toUpperCase() === 'FINANCEIRO')?.name ?? null;
+    if (setor === 'FINANCEIRO') {
+      const financeiro = chips.find((c) => (c.purpose || '').toUpperCase() === 'FINANCEIRO')?.name ?? null;
+      if (financeiro || !(await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m)))) return financeiro;
+      // Laboratório: um número só faz tudo — sem Financeiro, o de Atendimento e depois o Comercial (da própria conta).
+      for (const funcao of voltaDoChipNoLaboratorio('FINANCEIRO')) {
+        const hit = chips.find((c) => (c.purpose || '').toUpperCase() === funcao);
+        if (hit) return hit.name;
+      }
+      return null;
+    }
     return chipPacienteOuLegado(escolherChipPaciente(chips, setor === 'COMERCIAL' ? 'COMERCIAL' : 'CLINICA'));
   }
 
@@ -173,11 +187,23 @@ export class CampanhasEnvioService {
     });
     if (hoje >= CAMPANHA_TETO_DIA) return;
 
-    const chip = await this.chipDoSetor(c.tenant_id, c.setor);
-    if (!chip) {
+    const lab = await isLabTenant(this.prisma, c.tenant_id, (m) => this.logger.warn(m));
+    // Laboratório com a conta suspensa ou congelada: a campanha pausa com o motivo e volta
+    // pelo Retomar, como a campanha sem chip; nenhum item é reivindicado.
+    if (lab && !(await contaDoLabPodeEnviar(this.prisma, c.tenant_id))) {
       await this.prisma.manualCampaign.updateMany({
         where: { id: c.id, status: 'ENVIANDO' },
-        data: { status: 'PAUSADA', pause_reason: `Sem chip ${c.setor === 'FINANCEIRO' ? 'Financeiro' : c.setor === 'COMERCIAL' ? 'Comercial' : 'da Clínica'} conectado — conecte e clique em Retomar` },
+        data: { status: 'PAUSADA', pause_reason: LAB_CAMPANHAS_MOTIVOS.contaSuspensa },
+      });
+      this.logger.log(`${LOG} campanha ${c.id}: conta de laboratório suspensa — pausada`);
+      return;
+    }
+    const chip = await this.chipDoSetor(c.tenant_id, c.setor);
+    if (!chip) {
+      const motivoLab = c.setor === 'FINANCEIRO' ? LAB_CAMPANHAS_MOTIVOS.semChipFinanceiro : c.setor === 'COMERCIAL' ? LAB_CAMPANHAS_MOTIVOS.semChipComercial : LAB_CAMPANHAS_MOTIVOS.semChipAtendimento;
+      await this.prisma.manualCampaign.updateMany({
+        where: { id: c.id, status: 'ENVIANDO' },
+        data: { status: 'PAUSADA', pause_reason: lab ? motivoLab : `Sem chip ${c.setor === 'FINANCEIRO' ? 'Financeiro' : c.setor === 'COMERCIAL' ? 'Comercial' : 'da Clínica'} conectado — conecte e clique em Retomar` },
       });
       this.logger.warn(`${LOG} campanha ${c.id}: sem chip pro setor ${c.setor} — pausada`);
       return;
@@ -207,7 +233,7 @@ export class CampanhasEnvioService {
           data: { status: 'ENVIANDO', claimed_at: agora },
         });
         if (claim.count === 0) continue;
-        desfecho = await this.enviarItem(c, item, chip, midias, tenant?.name || 'a clínica');
+        desfecho = await this.enviarItem(c, item, chip, midias, tenant?.name || (lab ? LAB_CAMPANHAS_NOME_PADRAO : 'a clínica'), lab);
         if (desfecho !== 'pulado') break;
       }
     } finally {
@@ -228,6 +254,7 @@ export class CampanhasEnvioService {
     chip: string,
     midias: MidiaCampanha[],
     clinica: string,
+    lab = false,
   ): Promise<'enviado' | 'falhou' | 'chip_caido' | 'pulado'> {
     const pular = async (motivo: string) => {
       await this.prisma.manualCampaignItem.update({ where: { id: item.id }, data: { status: 'PULADO', reason: motivo } });
@@ -242,7 +269,7 @@ export class CampanhasEnvioService {
         lead: { select: { contact_opt_out_at: true, whatsapp_invalid_at: true, non_patient_category: true } },
       },
     });
-    if (!p || p.status === 'ARCHIVED') return pular('paciente arquivado/removido');
+    if (!p || p.status === 'ARCHIVED') return pular(lab ? LAB_CAMPANHAS_MOTIVOS.clienteArquivado : 'paciente arquivado/removido');
     if (p.lead?.contact_opt_out_at || p.lead?.non_patient_category) return pular('pediu pra não receber');
     if (p.lead?.whatsapp_invalid_at) return pular('número sem WhatsApp');
     const phone = (p.phone || item.phone || '').trim();

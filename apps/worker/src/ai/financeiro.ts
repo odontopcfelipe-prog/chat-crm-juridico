@@ -50,6 +50,8 @@ export interface FinanceiroContext {
   resumoText: string;
   /** Cobranças em aberto do paciente (fonte dos reenvios — nunca de outra pessoa). */
   sendable: FinanceiroSendable[];
+  /** Parcelas pagas (o laboratório monta o resumo com o vocabulário dele). */
+  pagas?: number;
 }
 
 /** Ação financeira emitida pela Carla no JSON (espelha o scheduling_action). */
@@ -223,7 +225,7 @@ export async function loadFinanceiroContext(
     const txt = pagas > 0
       ? `RESUMO FINANCEIRO (dados reais DESTE paciente): nenhuma parcela em aberto — está tudo quitado (${pagas} paga(s)).`
       : 'RESUMO FINANCEIRO (dados reais DESTE paciente): nenhuma cobrança registrada no sistema.';
-    return { patientId: patient.id, resumoText: txt, sendable };
+    return { patientId: patient.id, resumoText: txt, sendable, pagas };
   }
 
   const linhas = sendable
@@ -239,7 +241,7 @@ export async function loadFinanceiroContext(
     'PARCELAS EM ABERTO (ordem de vencimento — o número é o "item" pra reenviar uma específica):\n' +
     linhas;
 
-  return { patientId: patient.id, resumoText, sendable };
+  return { patientId: patient.id, resumoText, sendable, pagas };
 }
 
 async function sendText(evo: { apiUrl: string; apiKey: string; instance: string }, phone: string, text: string): Promise<boolean> {

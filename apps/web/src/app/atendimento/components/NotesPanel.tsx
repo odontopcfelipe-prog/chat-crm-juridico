@@ -158,7 +158,7 @@ export function NotesPanel({ conversationId, currentUserId, onClose, socketRef }
     try {
       const res = await api.post('/messages/ai-correct', { text: text.replace(/\u200B/g, '').trim(), action: 'corrigir' });
       if (res.data?.result) { setText(res.data.result); showSuccess('Ortografia corrigida.'); }
-    } catch { showError('Erro ao corrigir com IA.'); }
+    } catch (e: any) { showError((lab && e?.response?.data?.message) || 'Erro ao corrigir com IA.'); }
     finally { setCorrecting(false); requestAnimationFrame(() => inputRef.current?.focus()); }
   };
 
@@ -309,7 +309,7 @@ export function NotesPanel({ conversationId, currentUserId, onClose, socketRef }
             </button>
           </div>
           <div className="flex items-center justify-between mt-2">
-            {lab ? <span /> : (
+            {(
             <button
               onClick={handleCorrectWithAI}
               disabled={!text.trim() || correcting}

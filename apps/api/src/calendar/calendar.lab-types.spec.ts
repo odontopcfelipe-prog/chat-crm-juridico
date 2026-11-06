@@ -97,6 +97,9 @@ function banco(labs: string[], respostas: Respostas = {}) {
           if (typeof metodo !== 'string' || metodo === 'then') return undefined;
           return async (args: any) => {
             const op = `${modelo}.${metodo}`;
+            // A leitura de contaDoLabPodeEnviar fica fora do rastro: conta ativa, sem congelamento.
+            if (op === 'tenant.findUnique' && args?.select?.status) return { status: (respostas as any)['conta.status']?.(args) ?? 'ACTIVE' };
+            if (op === 'globalSetting.findMany' && args?.where?.key?.in?.includes('LAB_FREEZE')) return [];
             ops.push([op, args]);
             if (respostas[op]) return respostas[op](args);
             if (metodo === 'findMany') return [];

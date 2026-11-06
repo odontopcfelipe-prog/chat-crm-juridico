@@ -22,6 +22,16 @@ import { PDFDocument as PDFLibDocument, StandardFonts, rgb, type PDFFont, type P
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { isLabTenant } from '@crm/shared';
+import { negarLaboratorio } from '../common/lab-gate.util';
+import {
+  avaliarCompletudeDoLaboratorio,
+  carregarPartesDoLaboratorio,
+  desenharContratoDoLaboratorio,
+  desenharModeloDoLaboratorio,
+  lerPrazosDosServicos,
+  marcaDoContrato,
+} from './contrato-laboratorio';
 
 /**
  * Onda 17.32.xx — Preenchimento dos termos oficiais (PDFs comprados, sem campos
@@ -162,6 +172,21 @@ export class ContractPdfService {
       const draw = (t: string) => page.drawText(t, { x, y: baseY, size: nameSize, font: boldFont, color: rgb(0.06, 0.30, 0.26) });
       try { draw(name); } catch { const safe = sanitize(name); if (safe) { try { draw(safe); } catch { /* desiste */ } } }
     }
+  }
+
+  /** Id (na rota de pré-visualização dos termos) do contrato de EXEMPLO do laboratório. */
+  static readonly MODELO_LABORATORIO = 'MODELO_LABORATORIO';
+
+  /**
+   * Pré-visualização de um termo pela conta: no laboratório, só o contrato de exemplo
+   * dele (os termos são da clínica); na clínica, o caminho de sempre (readTemplatePdf).
+   */
+  async readTemplatePdfParaConta(docId: string, tenantId: string): Promise<Buffer> {
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      if (docId !== ContractPdfService.MODELO_LABORATORIO) throw negarLaboratorio('Termos');
+      return desenharModeloDoLaboratorio(this.prisma, tenantId, (v) => this.valorPorExtenso(v));
+    }
+    return this.readTemplatePdf(docId);
   }
 
   /**
@@ -314,6 +339,11 @@ export class ContractPdfService {
    *  validado (tenant conferido pelo chamador) e monta o PDF (contrato
    *  principal + docs anexos mesclados). */
   private async buildPdf(contract: any, tenantId: string): Promise<Buffer> {
+    // Laboratório: contrato próprio de prestação de serviços de prótese dentária
+    // (contrato-laboratorio.ts), sem PDF fixo nem termos de procedimento da clínica.
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      return this.buildLabPdf(contract, tenantId);
+    }
     const contratado = await this.resolveContratado(tenantId);
     const tenantInfo = {
       name: contratado.nome, cnpj: contratado.cnpj || null, address: contratado.endereco || null,
@@ -382,6 +412,18 @@ export class ContractPdfService {
     // Fallback (sem o PDF desenhado, ou erro): comportamento antigo.
     if (docsWithAttachment.length === 0) return pdfkitBuf;
     return this.mergeWithAttachments(pdfkitBuf, docsWithAttachment, fillData, branding);
+  }
+
+  /** Contrato do laboratório: partes e prazos da conta do token, texto de lab-contrato-textos.ts. */
+  private async buildLabPdf(contract: any, tenantId: string): Promise<Buffer> {
+    const partes = await carregarPartesDoLaboratorio(this.prisma, tenantId, contract.quote.patient, contract.dentist);
+    const prazos = await lerPrazosDosServicos(this.prisma, tenantId, contract.quote.items || []);
+    const total = Number(contract.quote.total_value) || 0;
+    return desenharContratoDoLaboratorio(contract, partes, {
+      valorExtenso: total ? this.valorPorExtenso(total) : '',
+      prazos,
+      marca: marcaDoContrato(contract),
+    });
   }
 
   /** Lê os bytes de um PDF do diretório de templates (ou null se não existir). */
@@ -655,6 +697,9 @@ export class ContractPdfService {
     missing: string[];
     dentist: { name: string; cro: string };
   }> {
+    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
+      return this.assessCompletenessLab(quoteId, tenantId, dentistId);
+    }
     const quote = await this.prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
@@ -715,6 +760,33 @@ export class ContractPdfService {
       missing,
       dentist: { name: dentist.name, cro: dentist.croFull },
     };
+  }
+
+  /** Checklist do laboratório: cliente (ficha), laboratório (Identidade e perfil), responsável técnico e valor. */
+  private async assessCompletenessLab(quoteId: string, tenantId: string, dentistId?: string) {
+    const quote = await this.prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        patient: {
+          select: {
+            id: true, name: true, cpf: true, phone: true, email: true,
+            address: true, address_number: true, neighborhood: true,
+            city: true, state: true, zip_code: true, tenant_id: true,
+          },
+        },
+      },
+    });
+    if (!quote) throw new NotFoundException('Orcamento nao encontrado');
+    if (quote.patient.tenant_id !== tenantId) throw new ForbiddenException('Orcamento de outro tenant');
+    let escolhido: any = null;
+    if (dentistId) {
+      escolhido = await this.prisma.user.findFirst({
+        where: { id: dentistId, tenant_id: tenantId },
+        select: { name: true, cro_number: true, cro_uf: true },
+      });
+    }
+    const partes = await carregarPartesDoLaboratorio(this.prisma, tenantId, quote.patient, escolhido);
+    return avaliarCompletudeDoLaboratorio(partes, Number(quote.total_value) || 0);
   }
 
   /**

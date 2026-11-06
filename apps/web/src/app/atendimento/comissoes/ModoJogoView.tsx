@@ -15,6 +15,9 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
 import { Loader2, Coins, Star, Trophy } from 'lucide-react';
 import './comissoes-jogo.css';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_MODO_JOGO } from './lab-comissoes-textos';
 
 type Player = {
   professional_user_id: string;
@@ -50,6 +53,7 @@ function periodOfMonth(ym: string) {
 }
 
 export default function ModoJogoView() {
+  const lab = isLab(useBusinessType());
   const [players, setPlayers] = useState<Player[]>([]);
   const [month, setMonth] = useState('');
   const [loading, setLoading] = useState(true);
@@ -148,7 +152,7 @@ export default function ModoJogoView() {
   if (players.length === 0) {
     return (
       <div className="p-12 text-center text-sm text-muted-foreground">
-        Nenhum dentista cadastrado nesta clínica ainda. Cadastre a equipe e crie as regras em{' '}
+        {lab ? LAB_MODO_JOGO.semEquipe : 'Nenhum dentista cadastrado nesta clínica ainda. Cadastre a equipe e crie as regras em'}{' '}
         <strong>Configurações → Regras de Comissão</strong> pra o Modo Jogo ganhar vida.
       </div>
     );
@@ -231,12 +235,12 @@ export default function ModoJogoView() {
             <div className="cj-coin prod">
               <div className="cj-ct"><span className="dot" />Em produção <span className="cj-orig">· DEVIDA</span></div>
               <div className="cj-cv">{fmt(sel.carteira.devida)}</div>
-              <div className="cj-cs">Procedimentos feitos, aguardando o paciente pagar.</div>
+              <div className="cj-cs">{lab ? LAB_MODO_JOGO.prodAguardando : 'Procedimentos feitos, aguardando o paciente pagar.'}</div>
             </div>
             <div className="cj-coin disp">
               <div className="cj-ct"><span className="dot" />Pronto pra resgatar <span className="cj-orig">· DISPONÍVEL</span></div>
               <div className="cj-cv">{fmt(sel.carteira.disponivel)}</div>
-              <div className="cj-cs">Paciente já pagou — é do profissional.</div>
+              <div className="cj-cs">{lab ? LAB_MODO_JOGO.clientePagou : 'Paciente já pagou — é do profissional.'}</div>
               {sel.resgatavel.total > 0 ? (
                 <button className="cj-claim" onClick={resgatar} disabled={resgatando}>
                   {resgatando ? <Loader2 size={16} className="animate-spin" /> : <Coins size={16} />}
@@ -249,7 +253,7 @@ export default function ModoJogoView() {
             <div className="cj-coin pago">
               <div className="cj-ct"><span className="dot" />Resgatado no mês <span className="cj-orig">· PAGA</span></div>
               <div className="cj-cv">{fmt(sel.carteira.paga)}</div>
-              <div className="cj-cs">Já liquidado pela clínica.</div>
+              <div className="cj-cs">{lab ? LAB_MODO_JOGO.liquidado : 'Já liquidado pela clínica.'}</div>
             </div>
           </div>
 
@@ -312,7 +316,7 @@ export default function ModoJogoView() {
                 );
               })}
               <p className="text-[11px] text-muted-foreground mt-2">
-                Progresso real (procedimentos executados / faltas na semana). A recompensa é um bônus — o pagamento fica a critério da clínica.
+                {lab ? LAB_MODO_JOGO.missoesRodape : 'Progresso real (procedimentos executados / faltas na semana). A recompensa é um bônus — o pagamento fica a critério da clínica.'}
               </p>
             </div>
           )}

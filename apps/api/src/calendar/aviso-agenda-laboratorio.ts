@@ -17,6 +17,7 @@ import {
   LAB_AGENDA_TEXTOS,
   LAB_AGENDA_TIPO_FRASE,
   aplicarTextoDoLaboratorio,
+  contaDoLabPodeEnviar,
   enderecoDoCliente,
   horaCurtaNaive,
   tipoSoDoLaboratorio,
@@ -114,6 +115,11 @@ export async function avisarAgendaDoLaboratorio(
   try {
     const tipo = event?.type;
     if (!tenantId || !tipoSoDoLaboratorio(tipo)) return { sent: false, reason: 'tipo_fora_da_agenda_do_laboratorio' };
+
+    if (!(await contaDoLabPodeEnviar(deps.prisma, tenantId))) {
+      deps.logger.log(`[LAB-AGENDA] ${registro}: conta ${tenantId} suspensa — sem aviso (evento ${event?.id}).`);
+      return { sent: false, reason: 'conta_suspensa' };
+    }
 
     const realStartMs = new Date(event?.start_at ?? '').getTime() + MACEIO_OFFSET_MS;
     if (!Number.isFinite(realStartMs) || realStartMs < Date.now()) {

@@ -48,6 +48,13 @@ export const LAB_BALOES = Object.freeze({
   agenda: Object.freeze({ label: 'Agenda', desc: 'Coletas, provas e entregas nos consultórios.' }),
   avisos: Object.freeze({ label: 'Central de Disparos', desc: 'Avisos automáticos para os clientes e a equipe.' }),
   passosCad: Object.freeze({ label: 'Passos CAD', desc: 'Desenhe coroas unitárias sobre o escaneamento.' }),
+  funil: Object.freeze({ label: 'Funil comercial', desc: 'Acompanhe os dentistas e consultórios em captação.' }),
+  relatorios: Object.freeze({ label: 'Relatórios', desc: 'Números do laboratório no período.' }),
+  progresso: Object.freeze({ label: 'Progresso', desc: 'Acompanhe cada trabalho depois do orçamento fechado.' }),
+  comissoes: Object.freeze({ label: 'Comissões', desc: 'Comissões e Modo jogo da equipe.' }),
+  metas: Object.freeze({ label: 'Metas', desc: 'Metas e projeção do laboratório.' }),
+  pontuacao: Object.freeze({ label: 'Pontuação', desc: 'Seus pontos, nível, metas e missões do mês.' }),
+  afiliados: Object.freeze({ label: 'Afiliados', desc: 'Quem indica clientes para o laboratório.' }),
 });
 
 /** Nomes do menu: item da lista na barra lateral, nome do grupo dela e aba do celular. */
@@ -58,6 +65,8 @@ export const LAB_MENU = Object.freeze({
   orcamentos: 'Orçamentos de trabalho',
   passosCad: 'Passos CAD',
   grupoProducao: 'Produção',
+  funil: 'Funil comercial',
+  grupoComercial: 'Comercial',
 });
 
 /** "Localizar" do topo, pelo tipo de busca da seção (o mesmo de resolveSearchContext). */
@@ -86,6 +95,12 @@ export const LAB_BUSCA_AGENDA = Object.freeze({
 /** Subtítulo de um atalho do Ctrl+K pelo id do item (o que não está aqui fica igual). */
 export const LAB_ATALHOS_SUBLABEL: Readonly<Partial<Record<string, string>>> = Object.freeze({
   'nav-agenda': 'Coletas, provas e entregas',
+  'nav-crm': 'Dentistas e consultórios em captação',
+});
+
+/** Nome de um atalho do Ctrl+K pelo id do item (o que não está aqui fica igual). */
+export const LAB_ATALHOS_LABEL: Readonly<Partial<Record<string, string>>> = Object.freeze({
+  'nav-crm': 'Funil comercial',
 });
 
 /** Botão da ficha do cliente que abre a agenda com uma coleta nova. */

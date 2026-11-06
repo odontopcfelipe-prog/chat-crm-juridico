@@ -42,10 +42,11 @@ export class FollowupCronService {
   @Cron('0 * * * *', { timeZone: 'America/Maceio' })
   async processEnrollments() {
     const now = new Date();
-    // F2 [LAB-GATE] — inscrição de lead de laboratório não entra na fila (nem ocupa o
-    // take). O freio definitivo é o do FollowupProcessor.processStep (a API também
-    // enfileira). Clínica: sem laboratório o where é o mesmo de antes (lead é
-    // relação obrigatória: o filtro só entra quando há laboratório).
+    // A inscrição de laboratório não ocupa o take da clínica: ela vem numa busca própria, depois.
+    // Clínica: sem laboratório o where é o mesmo de antes (lead é relação obrigatória: o filtro
+    // só entra quando há laboratório). Quem decide se a do laboratório roda é o
+    // FollowupProcessor.processStep (só roda se a sequência é da própria conta e está ligada;
+    // senão a inscrição é pausada sem IA e sem envio).
     const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
     const base = { status: 'ATIVO', next_send_at: { lte: now } };
     const enrollments = await this.prisma.followupEnrollment.findMany({
@@ -56,7 +57,15 @@ export class FollowupCronService {
 
     this.logger.log(`[FOLLOWUP] ${enrollments.length} enrollment(s) prontos para processamento`);
 
-    for (const e of enrollments) {
+    const doLaboratorio = labs.size
+      ? await this.prisma.followupEnrollment.findMany({
+          where: { ...base, lead: { tenant_id: { in: [...labs] } } },
+          select: { id: true },
+          take: 50,
+        })
+      : [];
+
+    for (const e of [...enrollments, ...doLaboratorio]) {
       await this.followupQueue.add('process-step', { enrollment_id: e.id }, {
         jobId: `enroll-${e.id}-${Date.now()}`, removeOnComplete: true,
       });

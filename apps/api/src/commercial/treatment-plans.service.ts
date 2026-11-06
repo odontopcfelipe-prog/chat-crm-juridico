@@ -858,11 +858,6 @@ export class TreatmentPlansService implements OnModuleInit {
     if (!item.procedure_id || !item.procedure || !item.treatment_plan?.patient_id) return;
     // Onda 17.67 — procedimento marcado "não comissiona" → sem comissão de execução.
     if ((item.procedure as any).commissionable === false) return;
-    // F2 parte 4 [LAB-GATE] — comissão de profissional fica fora do laboratório.
-    if (await isLabTenant(this.prisma, tenantId, (m) => this.logger.warn(m))) {
-      this.logger.log(`[LAB-GATE] comissao-execucao — conta de laboratório, sem comissão no item ${item.id}`);
-      return;
-    }
 
     const now = new Date();
     const rules = await this.prisma.commissionRule.findMany({

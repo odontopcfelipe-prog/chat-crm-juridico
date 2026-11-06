@@ -4,29 +4,31 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 import { Globe } from 'lucide-react';
 import { WidgetCard } from '../WidgetCard';
 import type { LeadSourcesData } from '../../types';
+import { LAB_PAINEL } from '../../lab-painel-textos';
 
 interface Props {
   data: LeadSourcesData | null;
   loading: boolean;
+  lab?: boolean;
 }
 
 const COLORS = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
-const CustomTooltip = ({ active, payload }: any) => {
+const CustomTooltip = ({ active, payload, lab }: any) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="bg-card border border-border rounded-lg p-2.5 shadow-lg text-xs">
       <p className="font-bold text-foreground">{d.source}</p>
-      <p className="text-muted-foreground">{d.count} leads ({d.percentage}%)</p>
+      <p className="text-muted-foreground">{d.count} {lab ? LAB_PAINEL.origemUnidade : 'leads'} ({d.percentage}%)</p>
     </div>
   );
 };
 
-export function LeadSourcesChart({ data, loading }: Props) {
+export function LeadSourcesChart({ data, loading, lab }: Props) {
   return (
     <WidgetCard
-      title="Origem dos Leads"
+      title={lab ? LAB_PAINEL.origemTitulo : 'Origem dos Leads'}
       icon={<Globe size={15} className="text-primary" />}
       loading={loading}
     >
@@ -52,7 +54,7 @@ export function LeadSourcesChart({ data, loading }: Props) {
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip lab={lab} />} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
             </PieChart>
           </ResponsiveContainer>

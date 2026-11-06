@@ -94,20 +94,9 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
     const admin = temDoSetor('admin');
     for (const tela of [
       '/atendimento/minha-agenda',
-      '/atendimento/settings/disparos/campanhas',
-      '/atendimento/settings/emails-automaticos',
       '/atendimento/settings/appointment-markers',
       '/atendimento/settings/office',
-      '/atendimento/crm',
-      '/atendimento/settings/ai',
-      '/atendimento/settings/specialties',
-      '/atendimento/settings/quotes-trash',
-      '/atendimento/settings/quote-coupons',
       '/atendimento/fechamentos',
-      '/atendimento/progresso',
-      '/atendimento/financeiro/dashboard',
-      '/atendimento/relatorios',
-      '/atendimento/dashboard-completo',
     ]) {
       expect(canAccessRoute(tela, admin)).toBe(true); // na clínica o admin abre
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(false);
@@ -154,6 +143,34 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
       // [F9a]
       '/atendimento/passos-cad',
       // [/F9a]
+      // [F12a]
+      '/atendimento/crm',
+      '/atendimento/settings/pipelines',
+      '/atendimento/tasks',
+      '/atendimento/settings/permissions',
+      '/atendimento/settings/specialties',
+      '/atendimento/relatorios',
+      '/atendimento/financeiro/dashboard',
+      '/atendimento/dashboard-completo',
+      '/atendimento/progresso',
+      '/atendimento/comissoes',
+      '/atendimento/settings/commission-rules',
+      '/atendimento/metas',
+      '/atendimento/meu-jogo',
+      '/atendimento/minha-comissao',
+      '/atendimento/settings/contracts',
+      '/atendimento/settings/nota-fiscal',
+      '/atendimento/settings/quote-coupons',
+      '/atendimento/settings/quotes-trash',
+      '/atendimento/settings/disparos/campanhas',
+      '/atendimento/settings/emails-automaticos',
+      '/atendimento/settings/automations',
+      '/atendimento/afiliados',
+      '/atendimento/referrals',
+      '/atendimento/influenciadores',
+      '/atendimento/marketing/analytics',
+      '/atendimento/settings/ai',
+      // [/F12a]
     ]) {
       expect(canAccessRouteBt(tela, admin, BT_LABORATORIO)).toBe(true);
     }
@@ -183,8 +200,6 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
     ];
     for (const setor of ['financeiro', 'admin']) {
       for (const tela of telas) expect(canAccessRouteBt(tela, temDoSetor(setor), BT_LABORATORIO)).toBe(true);
-      // O painel /financeiro/dashboard continua fechado (a entrada é exata).
-      expect(canAccessRouteBt('/atendimento/financeiro/dashboard', temDoSetor(setor), BT_LABORATORIO)).toBe(false);
     }
     for (const setor of ['dentista', 'recepcao', 'acd_asb']) {
       for (const tela of telas) expect(canAccessRouteBt(tela, temDoSetor(setor), BT_LABORATORIO)).toBe(false);
@@ -236,14 +251,12 @@ describe('canAccessRouteBt × retrato das clínicas (F4)', () => {
   // [/F6a]
 
   // [F7a]
-  it('no laboratório, a agenda e a Central abrem para cada setor igual à clínica; a Campanha manual fica fechada', () => {
+  it('no laboratório, a agenda e a Central abrem para cada setor igual à clínica', () => {
     for (const setor of ['admin', 'recepcao', 'crc', 'financeiro', 'dentista', 'acd_asb']) {
       const has = temDoSetor(setor);
       for (const tela of ['/atendimento/agenda', '/atendimento/agenda?tab=tasks', '/atendimento/settings/disparos']) {
         expect([setor, tela, canAccessRouteBt(tela, has, BT_LABORATORIO)]).toEqual([setor, tela, canAccessRoute(tela, has)]);
       }
-      // Campanha manual: fechada no laboratório até para quem a abre na clínica.
-      expect(canAccessRouteBt('/atendimento/settings/disparos/campanhas', has, BT_LABORATORIO)).toBe(false);
     }
     // O Protético (setor dentista) e a Expedição veem a agenda (view_agenda).
     expect(canAccessRouteBt('/atendimento/agenda', temDoSetor('dentista'), BT_LABORATORIO)).toBe(true);

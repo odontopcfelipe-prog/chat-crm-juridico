@@ -34,6 +34,9 @@ import { AvisarAdmsSemAgendamento } from '@/components/AvisarAdmsSemAgendamento'
 import { FinalizarTratamentoModal } from '@/components/FinalizarTratamentoModal';
 import { AgendarPacienteModal } from '@/components/AgendarPacienteModal';
 import { useRole } from '@/lib/useRole';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_PROGRESSO, LAB_PROGRESSO_COLUNAS, LAB_PROGRESSO_SERVICOS } from './lab-progresso-textos';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -181,6 +184,7 @@ interface PlanData {
 function ProceduresModal({ planIds, patientName, onClose }: {
   planIds: string[]; patientName: string; onClose: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const [plans, setPlans] = useState<PlanData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const planKey = planIds.join(',');
@@ -219,7 +223,7 @@ function ProceduresModal({ planIds, patientName, onClose }: {
       >
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/30 shrink-0">
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-foreground truncate">Procedimentos</h2>
+            <h2 className="text-sm font-bold text-foreground truncate">{lab ? LAB_PROGRESSO_SERVICOS.titulo : 'Procedimentos'}</h2>
             <p className="text-[11px] text-muted-foreground truncate">{patientName}</p>
           </div>
           <button
@@ -236,7 +240,7 @@ function ProceduresModal({ planIds, patientName, onClose }: {
               <Loader2 size={16} className="animate-spin mr-2" /> Carregando...
             </div>
           ) : totalExec === 0 ? (
-            <p className="text-sm text-muted-foreground italic text-center py-8">Nenhum procedimento no plano.</p>
+            <p className="text-sm text-muted-foreground italic text-center py-8">{lab ? LAB_PROGRESSO_SERVICOS.vazio : 'Nenhum procedimento no plano.'}</p>
           ) : (
             <div className="space-y-4">
               {/* Resumo */}
@@ -253,7 +257,7 @@ function ProceduresModal({ planIds, patientName, onClose }: {
               {multi && (
                 <div>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-violet-700 mb-1.5">
-                    <Layers size={13} /> Contratos ({plans!.length})
+                    <Layers size={13} /> {lab ? LAB_PROGRESSO_SERVICOS.orcamentos : 'Contratos'} ({plans!.length})
                   </div>
                   <ul className="space-y-1">
                     {plans!.map((p, i) => {
@@ -263,7 +267,7 @@ function ProceduresModal({ planIds, patientName, onClose }: {
                       return (
                         <li key={p.planId} className="flex items-center justify-between gap-2 text-sm">
                           <span className="text-foreground truncate">
-                            {p.title || `Contrato ${i + 1}`}
+                            {p.title || `${lab ? LAB_PROGRESSO_SERVICOS.orcamento : 'Contrato'} ${i + 1}`}
                             {cd && <span className="text-[11px] text-muted-foreground"> · {cd}</span>}
                           </span>
                           <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{d}/{t}</span>
@@ -279,7 +283,7 @@ function ProceduresModal({ planIds, patientName, onClose }: {
                   <Check size={13} strokeWidth={3} /> Feitos ({feitos.length})
                 </div>
                 {feitos.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground italic pl-1">Nenhum procedimento feito ainda.</p>
+                  <p className="text-[11px] text-muted-foreground italic pl-1">{lab ? LAB_PROGRESSO_SERVICOS.nenhumFeito : 'Nenhum procedimento feito ainda.'}</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {feitos.map((it) => (
@@ -325,6 +329,8 @@ function ProceduresModal({ planIds, patientName, onClose }: {
 
 export default function ProgressoPage() {
   const router = useRouter();
+  const lab = isLab(useBusinessType());
+  const columns = lab ? COLUMNS.map((c) => ({ ...c, label: LAB_PROGRESSO_COLUNAS[c.key] })) : COLUMNS;
   const [board, setBoard] = useState<BoardData>(EMPTY_BOARD);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -384,22 +390,24 @@ export default function ProgressoPage() {
     try {
       await api.patch(`/patients/${patientId}`, { primary_dentist_id: dentist?.id ?? null });
     } catch {
-      showError('Não foi possível salvar o dentista');
+      showError(lab ? LAB_PROGRESSO.naoSalvouProtetico : 'Não foi possível salvar o dentista');
       load();
     }
-  }, [load]);
+  }, [load, lab]);
 
   // Coloca/tira o paciente de STAND BY (pausa/retoma TODOS os planos dele).
   const toggleStandby = useCallback(async (c: JourneyCard) => {
     const resume = c.standby;
     const ok = window.confirm(
-      resume ? 'Retomar o tratamento deste paciente?' : 'Colocar este paciente em stand by?',
+      resume
+        ? (lab ? LAB_PROGRESSO.retomar : 'Retomar o tratamento deste paciente?')
+        : (lab ? LAB_PROGRESSO.pausar : 'Colocar este paciente em stand by?'),
     );
     if (!ok) return;
     const action = resume ? 'activate' : 'pause';
     await Promise.allSettled((c.plan_ids || []).map((id) => api.post(`/treatment-plans/${id}/${action}`)));
     load();
-  }, [load]);
+  }, [load, lab]);
 
   const goToPatient = (c: JourneyCard) =>
     router.push(`/atendimento/pacientes/${c.patient.id}?tab=tratamento`);
@@ -461,7 +469,7 @@ export default function ProgressoPage() {
         <div>
           <h1 className="text-2xl font-bold">Progresso</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            A jornada de cada paciente depois que a venda fecha — do agendamento à conclusão.
+            {lab ? LAB_PROGRESSO.subtitulo : 'A jornada de cada paciente depois que a venda fecha — do agendamento à conclusão.'}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -469,16 +477,17 @@ export default function ProgressoPage() {
             value={dentistFilter}
             onChange={(e) => setDentistFilter(e.target.value)}
             className="px-2.5 py-1.5 text-sm border rounded-lg bg-card text-foreground hover:bg-muted transition-colors outline-none cursor-pointer max-w-[190px]"
-            title="Filtrar o quadro por dentista"
+            title={lab ? LAB_PROGRESSO.filtroTitulo : 'Filtrar o quadro por dentista'}
           >
-            <option value="">Todos os dentistas</option>
-            <option value="__none__">Sem dentista</option>
+            <option value="">{lab ? LAB_PROGRESSO.todos : 'Todos os dentistas'}</option>
+            <option value="__none__">{lab ? LAB_PROGRESSO.semProtetico : 'Sem dentista'}</option>
             {dentists.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
           {/* Disparo MANUAL do resumo "pacientes sem agendamento" aos ADMs */}
-          <AvisarAdmsSemAgendamento />
+          {/* Laboratório: o aviso aos administradores é um envio de mensagem da clínica. */}
+          {!lab && <AvisarAdmsSemAgendamento />}
           <button
             onClick={load}
             disabled={loading}
@@ -511,9 +520,9 @@ export default function ProgressoPage() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard
           icon={AlertTriangle}
-          label="Fechamentos"
+          label={lab ? LAB_PROGRESSO.kpiAgendar : 'Fechamentos'}
           value={String(summary.to_schedule_count)}
-          sub={summary.to_schedule_count > 0 ? 'aguardando a 1ª consulta' : 'todos agendados'}
+          sub={summary.to_schedule_count > 0 ? (lab ? LAB_PROGRESSO.kpiAgendarSub : 'aguardando a 1ª consulta') : 'todos agendados'}
           accent={summary.to_schedule_count > 0 ? 'text-amber-600' : 'text-emerald-600'}
           highlight={summary.to_schedule_count > 0 ? 'amber' : undefined}
         />
@@ -528,7 +537,7 @@ export default function ProgressoPage() {
           icon={AlertTriangle}
           label="Parados"
           value={String(summary.stalled_count)}
-          sub="em trat. sem consulta"
+          sub={lab ? LAB_PROGRESSO.kpiParadosSub : 'em trat. sem consulta'}
           accent={summary.stalled_count > 0 ? 'text-red-600' : 'text-emerald-600'}
           highlight={summary.stalled_count > 0 ? 'red' : undefined}
         />
@@ -550,7 +559,7 @@ export default function ProgressoPage() {
 
       {/* Kanban de 4 colunas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {COLUMNS.map((col) => {
+        {columns.map((col) => {
           const cards = by_stage[col.key] || [];
           const Icon = col.icon;
           const colStalled = col.key === 'EM_TRATAMENTO'
@@ -592,12 +601,12 @@ export default function ProgressoPage() {
                       key={c.patient.id}
                       card={c}
                       onOpen={() => goToPatient(c)}
-                      onSchedule={() => setScheduleCard(c)}
-                      onProcedures={() => (c.plan_ids?.length ?? 0) > 0 && setProcModal({ planIds: c.plan_ids, patientName: c.patient.name || 'Paciente' })}
+                      onSchedule={() => (lab ? goToAgenda(c) : setScheduleCard(c))}
+                      onProcedures={() => (c.plan_ids?.length ?? 0) > 0 && setProcModal({ planIds: c.plan_ids, patientName: c.patient.name || (lab ? LAB_PROGRESSO.clienteSemNome : 'Paciente') })}
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
                       onToggleStandby={() => toggleStandby(c)}
-                      canFinalize={role.isAdmin || role.isSuperAdmin}
+                      canFinalize={!lab && (role.isAdmin || role.isSuperAdmin)}
                       onFinalize={() => setFinalizeTarget({ patientId: c.patient.id, patientName: c.patient.name || 'Paciente', planIds: c.plan_ids || [], nextAppointmentAt: c.next_appointment_at })}
                     />
                   ))
@@ -682,6 +691,7 @@ function JourneyCardItem({
   canFinalize: boolean;
   onFinalize: () => void;
 }) {
+  const lab = isLab(useBusinessType());
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
@@ -741,7 +751,7 @@ function JourneyCardItem({
           <button
             onClick={(e) => { e.stopPropagation(); onToggleStandby(); }}
             className="shrink-0 p-1 rounded text-muted-foreground hover:text-slate-700 hover:bg-slate-100 transition-colors"
-            title={c.standby ? 'Retomar tratamento' : 'Colocar em stand by'}
+            title={c.standby ? (lab ? LAB_PROGRESSO.tituloRetomar : 'Retomar tratamento') : 'Colocar em stand by'}
           >
             {c.standby ? <Play size={13} /> : <Pause size={13} />}
           </button>
@@ -770,13 +780,13 @@ function JourneyCardItem({
             </div>
             <div className="flex items-center justify-between gap-2 mt-1">
               <span className="text-[11px] text-muted-foreground tabular-nums">
-                {c.items_done} de {c.items_total} procedimentos
+                {c.items_done} de {c.items_total} {lab ? LAB_PROGRESSO.servicos : 'procedimentos'}
               </span>
               {(c.plan_ids?.length ?? 0) > 0 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onProcedures(); }}
                   className="shrink-0 p-0.5 -mr-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-                  title="Ver procedimentos e contratos"
+                  title={lab ? LAB_PROGRESSO.verServicos : 'Ver procedimentos e contratos'}
                 >
                   <BookOpen size={13} />
                 </button>
@@ -784,7 +794,7 @@ function JourneyCardItem({
             </div>
           </>
         ) : (
-          <div className="text-[11px] text-muted-foreground italic">Plano ainda não montado</div>
+          <div className="text-[11px] text-muted-foreground italic">{lab ? LAB_PROGRESSO.trabalhoNaoMontado : 'Plano ainda não montado'}</div>
         )}
       </div>
 
@@ -799,9 +809,9 @@ function JourneyCardItem({
             onSetDentist(id ? (dentists.find((d) => d.id === id) || null) : null);
           }}
           className="w-full text-[11px] text-muted-foreground bg-transparent border-none outline-none cursor-pointer hover:text-foreground truncate py-0 focus:ring-0"
-          title="Dentista que está atendendo"
+          title={lab ? LAB_PROGRESSO.protetico : 'Dentista que está atendendo'}
         >
-          <option value="">Sem dentista</option>
+          <option value="">{lab ? LAB_PROGRESSO.semProtetico : 'Sem dentista'}</option>
           {dentists.map((d) => (
             <option key={d.id} value={d.id}>{d.name}</option>
           ))}
@@ -820,7 +830,7 @@ function JourneyCardItem({
 
       {c.contracts > 1 && (
         <div className="text-[10px] text-violet-700 mt-1 inline-flex items-center gap-1 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">
-          <Layers size={10} /> {c.contracts} contratos juntos
+          <Layers size={10} /> {c.contracts} {lab ? LAB_PROGRESSO.orcamentosJuntos : 'contratos juntos'}
         </div>
       )}
 
@@ -829,7 +839,7 @@ function JourneyCardItem({
         <button
           onClick={onSchedule}
           className="w-full mt-2.5 text-xs px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-amber-950 font-medium flex items-center justify-center gap-1.5 transition-colors"
-          title="Agendar a 1ª consulta deste paciente"
+          title={lab ? LAB_PROGRESSO.agendarTitulo : 'Agendar a 1ª consulta deste paciente'}
         >
           <CalendarPlus size={13} /> Agendar
         </button>
@@ -838,7 +848,7 @@ function JourneyCardItem({
       {c.stage === 'AGENDADO' && (
         <div className="flex items-center gap-1.5 mt-2.5 text-xs text-sky-600 font-medium">
           <Clock size={13} className="shrink-0" />
-          <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
+          <span className="truncate">{apptStr ? `${lab ? LAB_PROGRESSO.visita : 'Consulta'} ${apptStr}` : (lab ? LAB_PROGRESSO.visitaMarcada : 'Consulta marcada')}</span>
         </div>
       )}
 
@@ -846,18 +856,18 @@ function JourneyCardItem({
         c.has_future_appt ? (
           <div className="flex items-center gap-1.5 mt-2.5 text-xs text-sky-600 font-medium">
             <Clock size={13} className="shrink-0" />
-            <span className="truncate">{apptStr ? `Próxima consulta ${apptStr}` : 'Consulta marcada'}</span>
+            <span className="truncate">{apptStr ? `${lab ? LAB_PROGRESSO.proximaVisita : 'Próxima consulta'} ${apptStr}` : (lab ? LAB_PROGRESSO.visitaMarcada : 'Consulta marcada')}</span>
           </div>
         ) : (
           <>
             <div className="flex items-center gap-1.5 mt-2.5 text-xs text-red-600 font-medium">
               <AlertTriangle size={13} className="shrink-0" />
-              <span>Sem próxima consulta</span>
+              <span>{lab ? LAB_PROGRESSO.semProximaVisita : 'Sem próxima consulta'}</span>
             </div>
             <button
               onClick={onSchedule}
               className="w-full mt-2 text-xs px-2 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium flex items-center justify-center gap-1.5 transition-colors"
-              title="Marcar a próxima consulta deste tratamento"
+              title={lab ? LAB_PROGRESSO.marcarProxima : 'Marcar a próxima consulta deste tratamento'}
             >
               <CalendarPlus size={13} /> Agendar próxima
             </button>
@@ -867,7 +877,7 @@ function JourneyCardItem({
 
       {c.stage === 'CONCLUIDO' && (
         <div className="flex items-center gap-1.5 mt-2.5 text-xs text-emerald-600 font-medium">
-          <Check size={13} className="shrink-0" /> Tratamento finalizado
+          <Check size={13} className="shrink-0" /> {lab ? LAB_PROGRESSO.finalizado : 'Tratamento finalizado'}
         </div>
       )}
     </div>

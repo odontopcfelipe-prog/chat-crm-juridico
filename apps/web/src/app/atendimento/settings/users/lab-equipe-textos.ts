@@ -8,10 +8,20 @@
  *
  * `permissoes` traz o nome e a descrição de cada permissão que a conta de
  * laboratório ajusta nesta tela. Permissão sem texto aqui é de tela que o
- * laboratório não abre (agenda, clínico, relatórios, marketing) e não aparece na
+ * laboratório não abre (prontuário e anotações clínicas) e não aparece na
  * lista do laboratório; o que já está gravado no usuário não muda.
  */
 import type { Permission } from '@crm/shared';
+
+/** Pontuação do jogo no cadastro do protético (só as regras que valem no laboratório). */
+export const LAB_PONTUACAO = Object.freeze({
+  pontos: Object.freeze({
+    procedimento: Object.freeze({ label: 'Serviço executado', desc: 'Cada item do trabalho que ele marca como feito' }),
+    avaliacao: Object.freeze({ label: 'Orçamento montado', desc: 'Cada orçamento de trabalho que ele monta' }),
+    conversao: Object.freeze({ label: 'Orçamento que virou trabalho', desc: 'Cada orçamento dele aceito pelo cliente' }),
+    missao: Object.freeze({ label: 'Missão da semana cumprida', desc: 'Cada missão batida na semana' }),
+  }),
+});
 
 export const LAB_EQUIPE: Readonly<{
   ajudaSetor: string;
@@ -33,8 +43,11 @@ export const LAB_EQUIPE: Readonly<{
   remuneracaoAjuda: 'A diária vira despesa no caixa quando paga. Deixe vazio se não houver.',
   grupos: Object.freeze({
     paciente: '👤 Dentistas',
+    agenda: '📅 Agenda',
     chat: '💬 Chat / WhatsApp',
+    clinico: '🛠 Orçamento e produção',
     financeiro: '💰 Financeiro',
+    marketing: '📢 Comercial e marketing',
     sistema: '⚙ Sistema',
   }),
   permissoes: Object.freeze({
@@ -50,6 +63,15 @@ export const LAB_EQUIPE: Readonly<{
     view_patient_contact: Object.freeze({
       label: 'Ver contato do dentista',
       description: 'Telefone/WhatsApp, e-mail e endereço',
+    }),
+    view_agenda: Object.freeze({ label: 'Ver agenda', description: 'Coletas, provas e entregas marcadas' }),
+    manage_agenda: Object.freeze({
+      label: 'Gerenciar agenda',
+      description: 'Marcar, remarcar e cancelar coletas, provas e entregas',
+    }),
+    create_evaluation: Object.freeze({
+      label: 'Montar orçamento',
+      description: 'Montar orçamentos de trabalho e usar o Passos CAD',
     }),
     view_chat: Object.freeze({ label: 'WhatsApp', description: 'Conversas, leads e atendimento' }),
     view_financial: Object.freeze({ label: 'Ver financeiro', description: 'Boletos, parcelas e recebimentos' }),
@@ -72,6 +94,14 @@ export const LAB_EQUIPE: Readonly<{
     view_values: Object.freeze({
       label: 'Ver valores',
       description: 'Preços, totais das vendas e débitos do cliente',
+    }),
+    view_reports: Object.freeze({
+      label: 'Ver relatórios',
+      description: 'Painéis e relatórios do laboratório',
+    }),
+    view_marketing: Object.freeze({
+      label: 'Comercial e marketing',
+      description: 'Funil comercial, afiliados, indicação e influenciadores',
     }),
     manage_inventory: Object.freeze({
       label: 'Gerenciar estoque',

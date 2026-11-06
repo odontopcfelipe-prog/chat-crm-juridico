@@ -17,6 +17,9 @@ import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useAuthedImage } from '@/lib/use-authed-image';
 import { useUserPermissions } from '@/lib/useUserPermissions';
+import { isLab } from '@crm/shared';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { LAB_MATERIAIS } from './lab-materiais-textos';
 
 interface ProdutoResumo {
   id: string;
@@ -118,6 +121,7 @@ export default function MateriaisProcedimento({
   onChanged: (total: number) => void;
 }) {
   const { hasPermission } = useUserPermissions();
+  const lab = isLab(useBusinessType());
   const podeMudar = hasPermission('manage_inventory');
 
   const [vinculos, setVinculos] = useState<Vinculo[]>([]);
@@ -189,7 +193,7 @@ export default function MateriaisProcedimento({
     }
     const jaLigado = vinculos.some((v) => v.product.id === escolhido.id);
     if (await ligar(escolhido, q, 'novo')) {
-      showSuccess(jaLigado ? `Quantidade de ${escolhido.name} atualizada` : `${escolhido.name} ligado ao procedimento`);
+      showSuccess(jaLigado ? `Quantidade de ${escolhido.name} atualizada` : (lab ? LAB_MATERIAIS.ligado(escolhido.name) : `${escolhido.name} ligado ao procedimento`));
       setEscolhido(null);
       setBusca('');
       setQtdTxt('1');
@@ -239,8 +243,8 @@ export default function MateriaisProcedimento({
             <div className="min-w-0">
               <h2 className="text-base font-semibold truncate">Materiais — {procedureName}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Cada vez que este procedimento é vendido na Venda rápida, estes materiais saem do
-                estoque. Com dentes marcados, conta uma vez por dente.
+                {lab ? LAB_MATERIAIS.explicacao : <>Cada vez que este procedimento é vendido na Venda rápida, estes materiais saem do
+                estoque. Com dentes marcados, conta uma vez por dente.</>}
               </p>
             </div>
           </div>
@@ -257,7 +261,7 @@ export default function MateriaisProcedimento({
             </div>
           ) : vinculos.length === 0 ? (
             <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border px-3 py-3">
-              Nenhum material ligado: a venda rápida não baixa nada do estoque para este procedimento.
+              {lab ? LAB_MATERIAIS.nenhum : 'Nenhum material ligado: a venda rápida não baixa nada do estoque para este procedimento.'}
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border">
@@ -422,7 +426,7 @@ export default function MateriaisProcedimento({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Só quem gerencia o estoque pode mudar os materiais deste procedimento.
+              {lab ? LAB_MATERIAIS.soQuemGerencia : 'Só quem gerencia o estoque pode mudar os materiais deste procedimento.'}
             </p>
           )}
         </div>

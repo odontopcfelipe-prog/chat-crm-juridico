@@ -9,7 +9,7 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeNextRunAt, ScheduleType, Recurrence } from '@crm/shared';
+import { computeNextRunAt, isLabTenant, ScheduleType, Recurrence } from '@crm/shared';
 
 const VALID_SCHEDULE_TYPES: ScheduleType[] = ['ONCE', 'RECURRING'];
 const VALID_RECURRENCE: Recurrence[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
@@ -100,6 +100,9 @@ export class InfluencerSchedulesService {
     this.validate(data);
     await this.assertTemplate(tenantId, data.template_id);
 
+    // Sem o campo, o agendamento nasce ativo; no laboratório nasce pausado (a conta liga).
+    const ativo = data.active ?? !(await isLabTenant(this.prisma, tenantId));
+
     const nextRunAt = computeNextRunAt({
       schedule_type: data.schedule_type,
       run_at: data.run_at || null,
@@ -115,7 +118,7 @@ export class InfluencerSchedulesService {
         tenant_id: tenantId,
         name: data.name.trim(),
         template_id: data.template_id,
-        active: data.active ?? true,
+        active: ativo,
         schedule_type: data.schedule_type,
         run_at: data.run_at ? new Date(data.run_at) : null,
         recurrence: data.recurrence || null,

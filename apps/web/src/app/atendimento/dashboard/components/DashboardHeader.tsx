@@ -7,9 +7,11 @@ import type { DashboardData } from '../types';
 interface Props {
   data: DashboardData;
   isAdmin: boolean;
+  /** Laboratório: sem o CSV do painel de clínica (traz "Casos Ativos" e "Processos"). */
+  lab?: boolean;
 }
 
-export function DashboardHeader({ data, isAdmin }: Props) {
+export function DashboardHeader({ data, isAdmin, lab }: Props) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -18,6 +20,7 @@ export function DashboardHeader({ data, isAdmin }: Props) {
         </h1>
         <p className="text-sm text-muted-foreground capitalize">{formatDateFull()}</p>
       </div>
+      {!lab && (
       <button
         onClick={() => exportDashboardCSV(data, isAdmin)}
         className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent border border-border transition-all"
@@ -27,6 +30,7 @@ export function DashboardHeader({ data, isAdmin }: Props) {
         <Download size={14} />
         Exportar CSV
       </button>
+      )}
     </div>
   );
 }

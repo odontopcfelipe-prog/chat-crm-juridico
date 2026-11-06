@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Users, Wifi } from 'lucide-react';
 import api from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
+import { useBusinessType } from '@/lib/useBusinessType';
+import { isLab, LAB_ROLE_LABELS } from '@crm/shared';
 
 interface UserInfo {
   id: string;
@@ -21,6 +23,7 @@ export function TeamOnline() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const { socket } = useSocket();
+  const lab = isLab(useBusinessType());
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -94,7 +97,7 @@ export function TeamOnline() {
                   {user.name}
                 </p>
                 <p className="text-[9px] text-muted-foreground">
-                  {user.roles.map(r => ROLE_LABELS[r] || r).join(', ')}
+                  {user.roles.map(r => (lab ? LAB_ROLE_LABELS[r] : undefined) || ROLE_LABELS[r] || r).join(', ')}
                 </p>
               </div>
               <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded shrink-0 ${

@@ -103,6 +103,34 @@ const ROTAS_ESPERADAS: unknown[] = [
   // [F9a]
   '/atendimento/passos-cad',
   // [/F9a]
+  // [F12a]
+  '/atendimento/crm',
+  { path: '/atendimento/settings/pipelines', exact: true },
+  { path: '/atendimento/tasks', exact: true },
+  '/atendimento/settings/permissions',
+  '/atendimento/settings/specialties',
+  { path: '/atendimento/relatorios', exact: true },
+  { path: '/atendimento/financeiro/dashboard', exact: true },
+  { path: '/atendimento/dashboard-completo', exact: true },
+  { path: '/atendimento/progresso', exact: true },
+  { path: '/atendimento/comissoes', exact: true },
+  { path: '/atendimento/settings/commission-rules', exact: true },
+  { path: '/atendimento/metas', exact: true },
+  { path: '/atendimento/meu-jogo', exact: true },
+  { path: '/atendimento/minha-comissao', exact: true },
+  { path: '/atendimento/settings/contracts', exact: true },
+  { path: '/atendimento/settings/nota-fiscal', exact: true },
+  { path: '/atendimento/settings/quote-coupons', exact: true },
+  { path: '/atendimento/settings/quotes-trash', exact: true },
+  { path: '/atendimento/settings/disparos/campanhas', exact: true },
+  { path: '/atendimento/settings/emails-automaticos', exact: true },
+  { path: '/atendimento/settings/automations', exact: true },
+  { path: '/atendimento/afiliados', exact: true },
+  { path: '/atendimento/referrals', exact: true },
+  { path: '/atendimento/influenciadores', exact: true },
+  { path: '/atendimento/marketing/analytics', exact: true },
+  { path: '/atendimento/settings/ai', exact: true },
+  // [/F12a]
 ];
 
 describe('labAllowsRoute — negação por padrão', () => {
@@ -119,25 +147,13 @@ describe('labAllowsRoute — negação por padrão', () => {
     '/',
     '/atendimento/agenda-antiga',
     '/atendimento/minha-agenda',
-    '/atendimento/crm',
-    '/atendimento/tasks',
     '/atendimento/waitlist',
     '/atendimento/return-alerts',
-    '/atendimento/settings/disparos/campanhas',
     '/atendimento/settings/disparos-antigos',
-    '/atendimento/settings/emails-automaticos',
     '/atendimento/settings/office',
     '/atendimento/settings/appointment-markers',
-    '/atendimento/settings/ai',
-    '/atendimento/settings/specialties',
-    '/atendimento/settings/quotes-trash',
-    '/atendimento/settings/quote-coupons',
-    '/atendimento/settings/permissions',
-    '/atendimento/financeiro/dashboard',
     '/atendimento/financeiro-antigo',
     '/atendimento/pacientes-antigos',
-    '/atendimento/relatorios',
-    '/atendimento/dashboard-completo',
     '/atendimento/chatbot',
     '/atendimento-antigo',
     '/admin',
@@ -199,33 +215,33 @@ describe('labAllowsRoute — negação por padrão', () => {
     expect(labAllowsRoute('/atendimento?x=1')).toBe(true);
     expect(labAllowsRoute('/atendimento#topo')).toBe(true);
     expect(labAllowsRoute('/atendimento/minha-agenda')).toBe(false);
-    expect(labAllowsRoute('/atendimento/tasks')).toBe(false);
-    expect(labAllowsRoute('/atendimento/crm')).toBe(false);
+    expect(labAllowsRoute('/atendimento/waitlist')).toBe(false);
+    expect(labAllowsRoute('/atendimento/return-alerts')).toBe(false);
   });
 
   it("'/atendimento/settings' é exata: abre só o índice das configurações", () => {
     expect(labAllowsRoute('/atendimento/settings')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings?aba=1')).toBe(true);
-    expect(labAllowsRoute('/atendimento/settings/ai')).toBe(false);
-    expect(labAllowsRoute('/atendimento/settings/emails-automaticos')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/appointment-markers')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/office')).toBe(false);
     // As subtelas liberadas entram pela própria entrada, não pelo índice.
     expect(labAllowsRoute('/atendimento/settings/whatsapp')).toBe(true);
     expect(labAllowsRoute('/atendimento/settings/ponto')).toBe(true);
   });
 
-  it("'/atendimento/financeiro' fica EXATA: o resumo abre e o painel /financeiro/dashboard não", () => {
-    expect(labAllowsRoute('/atendimento/financeiro/dashboard')).toBe(false);
-    expect(labAllowsRoute('/atendimento/financeiro/dashboard?x=1')).toBe(false);
+  it("'/atendimento/financeiro' fica EXATA: o resumo abre e o que está embaixo dele só com entrada própria", () => {
+    expect(labAllowsRoute('/atendimento/financeiro/outra')).toBe(false);
+    expect(labAllowsRoute('/atendimento/financeiro/outra?x=1')).toBe(false);
     expect(labAllowsRoute('/atendimento/financeiro-antigo')).toBe(false);
     expect(ALLOWED_LAB_ROUTES).not.toContain('/atendimento/financeiro');
   });
 
   // [F7a]
-  it("a Central de Disparos fica EXATA: abre a Central e a Campanha manual embaixo dela não", () => {
+  it("a Central de Disparos fica EXATA: abre a Central, e o que está embaixo dela só com entrada própria", () => {
     expect(labAllowsRoute('/atendimento/settings/disparos')).toBe(true);
-    expect(labAllowsRoute('/atendimento/settings/disparos/campanhas')).toBe(false);
-    expect(labAllowsRoute('/atendimento/settings/disparos/campanhas?id=1')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/disparos/outra')).toBe(false);
+    expect(labAllowsRoute('/atendimento/settings/disparos/outra?id=1')).toBe(false);
     expect(ALLOWED_LAB_ROUTES).not.toContain('/atendimento/settings/disparos');
     // A agenda entra como prefixo (a aba de tarefas e o deep-link abrem por ela).
     expect(labAllowsRoute('/atendimento/agenda/x')).toBe(true);
@@ -234,7 +250,7 @@ describe('labAllowsRoute — negação por padrão', () => {
 
   it('as entradas de prefixo abrem a tela e as filhas, por segmento', () => {
     expect(labAllowsRoute('/atendimento/dashboard')).toBe(true);
-    expect(labAllowsRoute('/atendimento/dashboard-completo')).toBe(false);
+    expect(labAllowsRoute('/atendimento/dashboard-antigo')).toBe(false);
     expect(labAllowsRoute('/atendimento/ponto')).toBe(true);
     expect(labAllowsRoute('/atendimento/ponto/equipe')).toBe(true);
     expect(labAllowsRoute('/atendimento/chat/abc')).toBe(true);

@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
 import { CreateGoalDto, UpdateGoalDto } from './dto/goal.dto';
+import { recusarIdsDeOutraConta } from './ids-da-conta';
 
 @Injectable()
 export class GoalsService {
@@ -11,6 +12,7 @@ export class GoalsService {
 
   async create(tenantId: string, dto: CreateGoalDto) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    await recusarIdsDeOutraConta(this.prisma, tenantId, dto, (m) => this.logger.warn(m));
     const goal = await this.prisma.goal.create({
       data: {
         tenant_id: tenantId,
@@ -80,6 +82,7 @@ export class GoalsService {
 
   async update(tenantId: string, id: string, dto: UpdateGoalDto) {
     await this.findOne(tenantId, id);
+    await recusarIdsDeOutraConta(this.prisma, tenantId, dto, (m) => this.logger.warn(m));
     return this.prisma.goal.update({
       where: { id },
       data: {

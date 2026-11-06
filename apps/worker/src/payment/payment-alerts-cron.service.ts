@@ -7,10 +7,17 @@ import {
   brazilPhoneMatchVariants,
   defaultCobrancaTemplate,
   DEFAULT_BOLETO_INTRO,
+  chipDoLabComIa,
   COBRANCA_STAGES,
   cobrancaTemplateKey,
+  contaDoLabPodeEnviar,
   excludeLabWhere,
   getLabTenantIds,
+  LAB_REGUA,
+  padraoFinDoLaboratorio,
+  primeiroNomeSemTitulo,
+  semVariaveis,
+  temVocabularioDeClinica,
   type CobrancaStage,
   type CobrancaTipo,
 } from '@crm/shared';
@@ -38,6 +45,15 @@ import { buildAlertIndex, DEDUP_LOOKBACK_DAYS } from './regua-dedup';
  * TENTATIVA (sucesso OU falha de envio) pra um número inválido não travar a fila.
  *
  * NOTA: cooldown em memória (assume 1 réplica do worker, como os outros crons).
+ *
+ * LABORATÓRIO: o mesmo motor numa raia própria (`contaLab` nos métodos abaixo), depois da
+ * raia das clínicas, uma conta por vez e só na conta que ligou o marco (chave ausente =
+ * desligado). A cobrança de laboratório fica fora da busca das clínicas (não ocupa o take
+ * nem a vez delas) e a dele não se mistura com a de outra conta. Na raia dele: texto do
+ * laboratório, só boleto da conta Asaas dele, chip da conta na ordem FINANCEIRO → CLINICA →
+ * COMERCIAL (sem chip não envia e registra a falha; nunca o chip padrão do servidor),
+ * ritmo em memória por conta e a vez do chip reservada no banco (WhatsappChipPacer, atômico):
+ * dois workers ao mesmo tempo não enviam a mesma cobrança.
  */
 
 type Stage = CobrancaStage;
@@ -154,6 +170,9 @@ export class PaymentAlertsCronService {
    *  travaria a fila (a seleção pega sempre a 1ª não enviada). Em memória: o worker é
    *  1 réplica; após restart rechecaria 1× (barato e seguro). */
   private freioPular = new Map<string, number>();
+  /** Raia do laboratório: guard próprio e ritmo por conta (nunca mexem no das clínicas). */
+  private busyLab = false;
+  private ritmoDoLab = new Map<string, { lastSentAt: number; nextGapMs: number }>();
 
   private static readonly PACE_MIN_MS = 3 * 60_000; // 3 min
   private static readonly PACE_MAX_MS = 7 * 60_000; // 7 min
@@ -170,6 +189,7 @@ export class PaymentAlertsCronService {
   @Cron('*/1 8-17 * * 1-5', { timeZone: 'America/Maceio' })
   async pacerTick() {
     await this.sendOnePacedCharge();
+    await this.sendOnePacedChargeDosLaboratorios();
   }
 
   /**
@@ -185,14 +205,70 @@ export class PaymentAlertsCronService {
     const nowMs = Date.now();
     if (nowMs - this.lastSentAt < this.nextGapMs) return 'cooldown';
 
+    // return AWAIT: mantém o busy=true durante o envio (senão o finally limparia o
+    // guard antes da Promise resolver).
+    return await this.soltarUma(nowMs);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /**
+   * Raia do laboratório: passa pelas contas que ligaram algum marco e solta no máximo 1
+   * cobrança de cada, no ritmo dela. Sem laboratório, ou sem nada ligado, não lê cobrança
+   * nenhuma. Conta suspensa ou congelada é pulada (nem apresentação, nem marco, nem
+   * atrasado) e volta sozinha quando ficar ativa. Uma conta com problema não segura as
+   * outras, e nada aqui lança para o cron.
+   */
+  async sendOnePacedChargeDosLaboratorios(): Promise<void> {
+    if (this.busyLab) return;
+    this.busyLab = true;
+    try {
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (!labs.size) return;
+      for (const conta of await this.laboratoriosComReguaLigada(labs)) {
+        try {
+          const nowMs = Date.now();
+          const ritmo = this.ritmoDoLab.get(conta);
+          if (ritmo && nowMs - ritmo.lastSentAt < ritmo.nextGapMs) continue;
+          if (!(await contaDoLabPodeEnviar(this.prisma, conta))) continue;
+          await this.soltarUma(nowMs, conta);
+        } catch (e: any) {
+          this.logger.warn(`[COBRANCA][LAB] Falha na régua da conta ${conta}: ${e?.message}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA][LAB] Falha na raia do laboratório: ${e?.message}`);
+    } finally {
+      this.busyLab = false;
+    }
+  }
+
+  /** Contas de laboratório com algum marco, a apresentação ou o envio dos boletos em 'true'
+   *  (chave ausente = desligado). Uma leitura só, para todas as contas. */
+  private async laboratoriosComReguaLigada(labs: ReadonlySet<string>): Promise<string[]> {
+    const contaDaChave = new Map<string, string>();
+    for (const conta of labs) {
+      for (const s of STAGES) contaDaChave.set(`${STAGE_SETTING_PREFIX[s]}_${conta}`, conta);
+      contaDaChave.set(`BOLETO_INTRO_ENABLED_${conta}`, conta);
+      contaDaChave.set(`BOLETO_DELIVERY_ENABLED_${conta}`, conta);
+    }
+    const rows = await this.prisma.globalSetting.findMany({
+      where: { key: { in: [...contaDaChave.keys()] }, value: 'true' },
+      select: { key: true },
+    });
+    return [...new Set(rows.map((r) => contaDaChave.get(r.key)).filter((c): c is string => !!c))];
+  }
+
+  /** Solta a próxima da fila (apresentação, marco ou carteira de atrasados), da raia das
+   *  clínicas ou, com `contaLab`, da conta de laboratório. */
+  private async soltarUma(nowMs: number, contaLab?: string): Promise<'sent' | 'failed' | 'cooldown' | 'empty'> {
     // Parte 1 (apresentação D+1): no dia SEGUINTE ao fechamento da venda, o
     // Financeiro se apresenta e avisa que amanhã manda os boletos. Tem prioridade
     // (é sensível ao dia) e compartilha o MESMO marca-passo das cobranças, pra não
     // abrir um 2º ritmo no chip (anti-ban). Opt-in por tenant (default OFF).
-    // return AWAIT: mantém o busy=true durante o envio da intro (senão o finally
-    // limparia o guard antes da Promise resolver).
-    const intro = await this.findNextIntro();
-    if (intro) return await this.sendIntro(intro, nowMs);
+    const intro = await this.findNextIntro(contaLab);
+    if (intro) return await this.sendIntro(intro, nowMs, contaLab);
 
     // 1º os MARCOS exatos (1/15/30d — prioridade, são sensíveis à data); se não há
     // nenhum pendente, drena a CARTEIRA de atrasados (recorrente, janela larga).
@@ -201,22 +277,31 @@ export class PaymentAlertsCronService {
     // fila no mesmo tick (até 5) — um lote de cobranças pagas com status velho, ou uma
     // clínica que não dá pra conferir, não pode travar a régua das outras.
     for (let tentativa = 0; tentativa < 5; tentativa++) {
-      const pick = (await this.findNextCharge()) || (await this.findNextOverdue());
+      const pick = (await this.findNextCharge(contaLab)) || (await this.findNextOverdue(contaLab));
       if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
-      const r = await this.sendPacedCharge(pick, nowMs);
+      const r = await this.sendPacedCharge(pick, nowMs, contaLab);
       if (r !== 'freio') return r;
     }
     return 'cooldown';
-    } finally {
-      this.busy = false;
+  }
+
+  /** Avança o marca-passo (o das clínicas ou o da conta de laboratório); devolve o gap sorteado. */
+  private avancarRitmo(nowMs: number, contaLab?: string): number {
+    const gap = this.randomGapMs();
+    if (contaLab) {
+      this.ritmoDoLab.set(contaLab, { lastSentAt: nowMs, nextGapMs: gap });
+    } else {
+      this.lastSentAt = nowMs;
+      this.nextGapMs = gap;
     }
+    return gap;
   }
 
   /**
    * Envia UMA cobrança já escolhida (marco ou atrasado-recorrente) e avança o
    * marca-passo. Extraído pra ser reusado pelos dois passes (marcos + carteira).
    */
-  private async sendPacedCharge(pick: ChargeCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown' | 'freio'> {
+  private async sendPacedCharge(pick: ChargeCandidate, nowMs: number, contaLab?: string): Promise<'sent' | 'failed' | 'cooldown' | 'freio'> {
     // WhatsApp não configurado: nada sai de qualquer jeito — sai antes do freio pra não
     // consultar o Asaas a cada minuto à toa.
     const evo = await this.settings.getEvolutionConfig();
@@ -255,17 +340,25 @@ export class PaymentAlertsCronService {
       groupPlan = planGroup(pick.members);
       pick.pdfUrls = groupPlan.pdfs.map((m) => m.pdfUrl as string);
     }
-    const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
+    const instanceName = contaLab
+      ? await this.resolveChipDoLaboratorio(contaLab)
+      : await this.resolveFinanceiroInstance(pick.tenantId);
     // Sem chip (null): os envios abaixo devolvem false — a MESMA falha do 404 do chip
     // morto de hoje (marco travado, FAILED na Central, marca-passo andando). Nunca
     // 'cooldown'/'freio': a mesma cobrança voltaria todo minuto e travaria a régua.
     if (!instanceName) {
       this.logger.warn(`[COBRANCA] Clínica ${pick.tenantId} sem chip FINANCEIRO/CLINICA próprio — não envia (charge ${pick.chargeId})`);
     }
-    const clinica = await this.resolveClinicName(pick.tenantId);
+    // Laboratório: só quem reserva a vez do chip no banco envia (2 workers não duplicam).
+    if (contaLab && instanceName && !(await this.reservarVezDoChip(instanceName))) return 'cooldown';
+    const lab = !!contaLab;
+    const clinica = await this.resolveClinicName(pick.tenantId, lab);
+    const primeiroNome = lab
+      ? primeiroNomeSemTitulo(pick.name) || LAB_REGUA.clienteSemNome
+      : pick.name.split(' ')[0];
     const message = groupPlan
-      ? buildGroupMessage(pick.name.split(' ')[0], clinica, pick.amount, groupPlan)
-      : this.buildMessage(pick, await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo), clinica);
+      ? buildGroupMessage(primeiroNome, clinica, pick.amount, groupPlan, lab)
+      : this.buildMessage(pick, await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo, lab), clinica, primeiroNome);
     // Boleto(s) → manda CADA um como PDF anexo separado (o 1º leva a legenda; os
     // demais vão sem texto). PIX/sem-boleto seguem texto+link. Evolution não
     // configurado (NO_CONFIG): NÃO gasta o slot, tenta de novo no próximo tick.
@@ -322,8 +415,7 @@ export class PaymentAlertsCronService {
     );
     // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
     await this.logDispatchUnificado(pick.tenantId, pick.stage, pick.name, pick.phone, messageId, pick.chargeId);
-    this.lastSentAt = nowMs;
-    this.nextGapMs = this.randomGapMs();
+    const gap = this.avancarRitmo(nowMs, contaLab);
 
     if (messageId === false) {
       this.logger.warn(`[COBRANCA] Envio falhou pra charge ${pick.chargeId} (${pick.stage}) — marcado como tentado.`);
@@ -338,9 +430,10 @@ export class PaymentAlertsCronService {
       message,
       typeof messageId === 'string' ? messageId : null,
       instanceName as string, // saiu → havia chip (sem chip o envio é false e retorna acima)
+      lab,
     );
     this.logger.log(
-      `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
+      `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(gap / 60000)}min`,
     );
     return 'sent';
   }
@@ -356,6 +449,7 @@ export class PaymentAlertsCronService {
     text: string,
     messageId: string | null,
     instanceName: string,
+    lab = false,
   ): Promise<void> {
     try {
       if (!tenantId) return;
@@ -421,6 +515,8 @@ export class PaymentAlertsCronService {
         return;
       }
 
+      // Laboratório: a conversa nasce com a IA só se o chip Financeiro da conta estiver ligado.
+      const iaDoChip = lab ? await chipDoLabComIa(this.prisma, tenantId, 'FINANCEIRO') : false;
       try {
         await this.prisma.$transaction(async (tx) => {
           const created = await tx.conversation.create({
@@ -433,6 +529,8 @@ export class PaymentAlertsCronService {
               instance_name: instanceName,
               tenant_id: tenantId,
               last_message_at: new Date(),
+              // Laboratório: a mesma regra da conversa criada na API.
+              ...(lab ? { ai_mode: iaDoChip } : {}),
             },
             select: { id: true },
           });
@@ -459,27 +557,34 @@ export class PaymentAlertsCronService {
   /**
    * Escolhe a PRÓXIMA cobrança a lembrar: em aberto, num estágio LIGADO, com
    * telefone e link, ainda não enviada naquele estágio. A mais antiga primeiro.
+   * Com `contaLab`, a fila é só dessa conta de laboratório (só boleto Asaas dela).
    */
-  private async findNextCharge(): Promise<ChargeCandidate | null> {
+  private async findNextCharge(contaLab?: string): Promise<ChargeCandidate | null> {
     const todayIdx = this.dayIndexUTC(new Date(Date.now() - 3 * 3_600_000)); // hoje Maceió
     // Janela: só o que pode bater num estágio (−33d atraso até +3d antes — o +3d
     // cobre a antecipação de sexta pra vencimento na segunda).
     const lo = new Date(Date.now() - 33 * 86_400_000);
     const hi = new Date(Date.now() + 3 * 86_400_000);
 
-    // F2 [LAB-GATE] — a régua de cobrança inteira fica fora no laboratório (o envio
-    // MANUAL de boleto/carnê pela tela continua). No where, e não no laço: o take vem
-    // antes do toggle de estágio, e o marca-passo é um só para todas as contas.
-    // Clínica: sem laboratório o where é o mesmo objeto; a cobrança legada sem conta
-    // (tenant_id NULL) continua entrando.
-    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (labs.size) this.logger.debug(`[LAB-GATE] regua-marcos — ${labs.size} laboratório(s) fora da busca`);
+    const base = {
+      status: { in: ['PENDING', 'OVERDUE'] },
+      received_in_cash: false,
+      due_date: { gte: lo, lte: hi },
+    };
+    // Raia das clínicas: a cobrança de laboratório fica fora da busca. No where, e não no
+    // laço: o take vem antes do toggle de estágio, e o marca-passo é um só para as clínicas.
+    // Sem laboratório o where é o mesmo objeto; a cobrança legada sem conta (tenant_id NULL)
+    // continua entrando. O laboratório tem a busca dele, na raia dele.
+    let where: typeof base | (typeof base & { tenant_id: string; gateway: string });
+    if (contaLab) {
+      where = { ...base, tenant_id: contaLab, gateway: 'ASAAS' };
+    } else {
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) this.logger.debug(`[LAB-GATE] regua-marcos — ${labs.size} laboratório(s) fora da busca`);
+      where = excludeLabWhere('paymentGatewayCharge', base, labs);
+    }
     const charges = await this.prisma.paymentGatewayCharge.findMany({
-      where: excludeLabWhere('paymentGatewayCharge', {
-        status: { in: ['PENDING', 'OVERDUE'] },
-        received_in_cash: false,
-        due_date: { gte: lo, lte: hi },
-      }, labs),
+      where,
       select: {
         id: true,
         external_id: true,
@@ -631,11 +736,13 @@ export class PaymentAlertsCronService {
       });
     }
     if (candidates.length === 0) return null;
+    const daFila = contaLab ? await this.soClientesDaConta(candidates, contaLab) : candidates;
+    if (daFila.length === 0) return null;
 
     // Anti-repetição por BOLETO + estágio (regua-dedup.ts): tira os boletos que JÁ
     // receberam este marco. Antes era por PACIENTE+estágio para sempre — da 2ª parcela
     // em diante os marcos já usados nunca mais saíam (caso Jose, out/2026).
-    const patientIds = [...new Set(candidates.map((c) => c.patientId))];
+    const patientIds = [...new Set(daFila.map((c) => c.patientId))];
     const alertLogs = await this.prisma.auditLog.findMany({
       where: {
         entity: 'PAYMENT_ALERT',
@@ -646,7 +753,7 @@ export class PaymentAlertsCronService {
       select: { entity_id: true, action: true, created_at: true, meta_json: true },
     });
     const avisos = buildAlertIndex(alertLogs, Date.now());
-    const pendentes = candidates.filter((c) => !avisos.jaAvisado(c.chargeId, c.patientId, c.stage));
+    const pendentes = daFila.filter((c) => !avisos.jaAvisado(c.chargeId, c.patientId, c.stage));
     if (pendentes.length === 0) return null;
 
     // Onda 18.x — AGRUPA por (tenant, paciente, estágio): paciente com N boletos
@@ -683,18 +790,24 @@ export class PaymentAlertsCronService {
    * (1 aviso com o total + todos os links) e RE-TOCA no máx 1×/semana por paciente
    * (dedup por janela de tempo, não once-ever) — assim a cobrança recorre até
    * regularizar, sempre dentro do marca-passo/anti-ban. Opt-in por tenant.
+   * Com `contaLab`, só essa conta de laboratório, se ela ligou (só boleto Asaas dela).
    */
-  private async findNextOverdue(): Promise<ChargeCandidate | null> {
+  private async findNextOverdue(contaLab?: string): Promise<ChargeCandidate | null> {
     // Só varre se ALGUM tenant ligou o "cobrar atrasados" — senão nem toca no banco.
-    const enabledTenants = await this.loadOverdueEnabledTenants();
-    // F2 [LAB-GATE] — "cobrar atrasados" é régua: laboratório sai do conjunto mesmo com
-    // o toggle ligado. Clínica: sem laboratório o conjunto é o mesmo.
-    if (enabledTenants.size) {
-      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-      for (const id of [...enabledTenants]) {
-        if (labs.has(id)) {
-          enabledTenants.delete(id);
-          this.logger.debug(`[LAB-GATE] regua-atrasados — conta ${id} é laboratório: fora`);
+    let enabledTenants: Set<string>;
+    if (contaLab) {
+      enabledTenants = new Set((await this.loadEnabledStages(contaLab)).has('boleto_atrasado') ? [contaLab] : []);
+    } else {
+      enabledTenants = await this.loadOverdueEnabledTenants();
+      // Raia das clínicas: laboratório sai do conjunto (ele tem a raia dele). Sem
+      // laboratório o conjunto é o mesmo.
+      if (enabledTenants.size) {
+        const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+        for (const id of [...enabledTenants]) {
+          if (labs.has(id)) {
+            enabledTenants.delete(id);
+            this.logger.debug(`[LAB-GATE] regua-atrasados — conta ${id} é laboratório: fora`);
+          }
         }
       }
     }
@@ -712,6 +825,7 @@ export class PaymentAlertsCronService {
         received_in_cash: false,
         due_date: { gte: lo, lte: hi },
         tenant_id: { in: [...enabledTenants] },
+        ...(contaLab ? { gateway: 'ASAAS' } : {}),
       },
       select: {
         id: true,
@@ -796,11 +910,12 @@ export class PaymentAlertsCronService {
       });
     }
     if (candidates.length === 0) return null;
+    const daFila = contaLab ? await this.soClientesDaConta(candidates, contaLab) : candidates;
 
     // Agrupa por (tenant, paciente): 1 aviso com o TOTAL da carteira do paciente +
     // todos os links (não 1 msg por boleto — anti-spam/anti-ban).
     const groups = new Map<string, ChargeCandidate>();
-    for (const cand of candidates) {
+    for (const cand of daFila) {
       const key = `${cand.tenantId}::${cand.patientId}`;
       const g = groups.get(key);
       if (!g) {
@@ -893,6 +1008,65 @@ export class PaymentAlertsCronService {
       }
     }
     return resolveOwnedEnvChip(this.prisma, tenantId, 'cobranca', 'whatsapp');
+  }
+
+  /**
+   * Chip da conta de laboratório: FINANCEIRO → CLINICA → COMERCIAL (a ordem de
+   * chip-do-laboratorio.ts na API). Sem chip da conta, null: nunca o chip padrão do
+   * servidor nem o de outra conta. Erro na leitura também é null (não envia).
+   */
+  private async resolveChipDoLaboratorio(conta: string): Promise<string | null> {
+    try {
+      for (const purpose of ['FINANCEIRO', 'CLINICA', 'COMERCIAL']) {
+        const chip = await this.prisma.instance.findFirst({
+          where: { tenant_id: conta, type: 'whatsapp', purpose },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        });
+        if (chip?.name) return chip.name;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA][LAB] Falha ao resolver o chip da conta ${conta}: ${e?.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Reserva a vez do chip no marca-passo do banco (atômico, vale entre workers): só quem
+   * move next_allowed_at envia, então o tick de um 2º worker não repete a cobrança do 1º.
+   * Erro na reserva = não envia agora.
+   */
+  private async reservarVezDoChip(chip: string): Promise<boolean> {
+    try {
+      const agora = new Date();
+      await this.prisma.whatsappChipPacer.createMany({
+        data: [{ instance_name: chip, next_allowed_at: new Date(0) }],
+        skipDuplicates: true,
+      });
+      const vez = await this.prisma.whatsappChipPacer.updateMany({
+        where: { instance_name: chip, next_allowed_at: { lte: agora } },
+        data: { next_allowed_at: new Date(agora.getTime() + this.randomGapMs()) },
+      });
+      return vez.count > 0;
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA][LAB] Falha ao reservar a vez do chip ${chip}: ${e?.message} — não envia agora`);
+      return false;
+    }
+  }
+
+  /** Tira da fila do laboratório o cadastro que não é da própria conta. */
+  private async soClientesDaConta(candidatos: ChargeCandidate[], conta: string): Promise<ChargeCandidate[]> {
+    const ids = [...new Set(candidatos.map((c) => c.patientId))];
+    const daConta = await this.prisma.patient.findMany({
+      where: { id: { in: ids }, tenant_id: conta },
+      select: { id: true },
+    });
+    const validos = new Set(daConta.map((p) => p.id));
+    const fora = candidatos.filter((c) => !validos.has(c.patientId));
+    if (fora.length) {
+      this.logger.warn(`[COBRANCA][LAB] ${fora.length} cobrança(s) da conta ${conta} com cadastro de outra conta — fora da fila`);
+    }
+    return candidatos.filter((c) => validos.has(c.patientId));
   }
 
   /** O freio barrou este paciente+estágio (pago/cancelado ou Asaas sem resposta) ou a
@@ -1103,8 +1277,8 @@ export class PaymentAlertsCronService {
 
   /** Monta a mensagem do estágio (boleto ÚNICO) com nome/valor/data/link. O aviso
    *  agrupado (2+) tem formato próprio em cobranca-grupo.ts. */
-  private buildMessage(c: ChargeCandidate, template: string, clinica: string): string {
-    const firstName = c.name.split(' ')[0];
+  private buildMessage(c: ChargeCandidate, template: string, clinica: string, primeiroNome?: string): string {
+    const firstName = primeiroNome ?? c.name.split(' ')[0];
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
     const mm = String(c.dueDate.getUTCMonth() + 1).padStart(2, '0');
@@ -1163,13 +1337,14 @@ export class PaymentAlertsCronService {
   }
 
   /** Nome da clínica (Tenant.name) pra usar como {clinica} no template. */
-  private async resolveClinicName(tenantId: string): Promise<string> {
-    if (!tenantId) return 'a clínica';
+  private async resolveClinicName(tenantId: string, lab = false): Promise<string> {
+    const semNome = lab ? LAB_REGUA.laboratorioSemNome : 'a clínica';
+    if (!tenantId) return semNome;
     try {
       const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-      return t?.name || 'a clínica';
+      return t?.name || semNome;
     } catch {
-      return 'a clínica';
+      return semNome;
     }
   }
 
@@ -1177,9 +1352,11 @@ export class PaymentAlertsCronService {
    * Template do estágio: o que a clínica salvou na Central de Disparos
    * (GlobalSetting via cobrancaTemplateKey) → senão o default aprovado. Mesma
    * chave que a API grava, então editar na tela muda o que sai daqui.
+   * Laboratório: o padrão é o do laboratório, e texto salvo com palavra de clínica não
+   * sai (o editor da Central mostra o mesmo padrão nesse caso).
    */
-  private async resolveTemplate(tenantId: string, stage: Stage, tipo: CobrancaTipo): Promise<string> {
-    const fallback = defaultCobrancaTemplate(stage, tipo);
+  private async resolveTemplate(tenantId: string, stage: Stage, tipo: CobrancaTipo, lab = false): Promise<string> {
+    const fallback = lab ? (padraoFinDoLaboratorio(stage, tipo) as string) : defaultCobrancaTemplate(stage, tipo);
     if (!tenantId) return fallback;
     // Mesma resolução do editor (followup.service): 1) variante do TIPO editada →
     // 2) texto ÚNICO legado (pré-split, editado antes) → 3) default type-aware.
@@ -1188,7 +1365,9 @@ export class PaymentAlertsCronService {
         const row = await this.prisma.globalSetting.findUnique({ where: { key } });
         if (row?.value) {
           const parsed = JSON.parse(row.value);
-          if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+          if (typeof parsed?.template === 'string' && parsed.template.trim()) {
+            return lab && temVocabularioDeClinica(semVariaveis(parsed.template)) ? fallback : parsed.template;
+          }
         }
       } catch (e: any) {
         this.logger.warn(`[COBRANCA] Falha ao ler template ${stage}/${tipo} do tenant ${tenantId}: ${e.message}`);
@@ -1308,8 +1487,9 @@ export class PaymentAlertsCronService {
   /**
    * Próxima apresentação a enviar: uma venda com BOLETO fechada ONTEM (dia de
    * Maceió), do tenant que ligou a apresentação, ainda não apresentada. 1 por plano.
+   * Com `contaLab`, só as vendas dessa conta de laboratório (só boleto Asaas dela).
    */
-  private async findNextIntro(): Promise<IntroCandidate | null> {
+  private async findNextIntro(contaLab?: string): Promise<IntroCandidate | null> {
     // Vendas fechadas a partir do dia SEGUINTE (nunca no mesmo dia). created_at é
     // instante UTC real; os limites do dia local de Maceió (UTC-3) viram UTC +3h.
     // Janela de 5 dias (não só "ontem"): o cron só roda seg-sex, então venda de
@@ -1325,25 +1505,30 @@ export class PaymentAlertsCronService {
     // groupBy = 1 registro por VENDA (plano), NÃO por boleto — assim o volume aqui
     // é o nº de vendas, e uma venda de 20 boletos não ocupa 20 slots. Mais antiga
     // primeiro. (findMany+take por charge deixava planos novos invisíveis sob volume.)
-    // F2 [LAB-GATE] — apresentação D+1 e a âncora que libera o carnê automático D+2
-    // ficam fora no laboratório (decisão do dono: a régua inteira; o envio manual pela
-    // tela continua). Venda de laboratório não entra: nem mensagem, nem âncora, nem
-    // vez no marca-passo. Clínica: sem laboratório o where é o mesmo objeto.
-    const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
-    if (labs.size) this.logger.debug(`[LAB-GATE] regua-apresentacao — ${labs.size} laboratório(s) fora da busca`);
+    const base = {
+      billing_type: 'BOLETO',
+      created_at: { gte: yStart, lt: yEnd },
+      treatment_plan_id: { not: null },
+      // Só venda com boleto EM ABERTO. Sem isto, venda cancelada/estornada ou já
+      // paga (inclusive em espécie na clínica) recebia "amanhã te envio todos os
+      // seus boletos" — e no dia seguinte não ia boleto nenhum, porque a entrega
+      // (findPendingDeliveries→sendBoletos) filtra o que aqui passava batido.
+      status: { in: ['PENDING', 'OVERDUE'] },
+      received_in_cash: false,
+    };
+    // Raia das clínicas: venda de laboratório fica fora (nem mensagem, nem âncora, nem vez
+    // no marca-passo delas). Sem laboratório o where é o mesmo objeto.
+    let where: typeof base | (typeof base & { tenant_id: string; gateway: string });
+    if (contaLab) {
+      where = { ...base, tenant_id: contaLab, gateway: 'ASAAS' };
+    } else {
+      const labs = await getLabTenantIds(this.prisma, (m) => this.logger.warn(m));
+      if (labs.size) this.logger.debug(`[LAB-GATE] regua-apresentacao — ${labs.size} laboratório(s) fora da busca`);
+      where = excludeLabWhere('paymentGatewayCharge', base, labs);
+    }
     const sales = await this.prisma.paymentGatewayCharge.groupBy({
       by: ['treatment_plan_id', 'tenant_id'],
-      where: excludeLabWhere('paymentGatewayCharge', {
-        billing_type: 'BOLETO',
-        created_at: { gte: yStart, lt: yEnd },
-        treatment_plan_id: { not: null },
-        // Só venda com boleto EM ABERTO. Sem isto, venda cancelada/estornada ou já
-        // paga (inclusive em espécie na clínica) recebia "amanhã te envio todos os
-        // seus boletos" — e no dia seguinte não ia boleto nenhum, porque a entrega
-        // (findPendingDeliveries→sendBoletos) filtra o que aqui passava batido.
-        status: { in: ['PENDING', 'OVERDUE'] },
-        received_in_cash: false,
-      }, labs),
+      where,
       orderBy: { _min: { created_at: 'asc' } },
     });
     if (sales.length === 0) return null;
@@ -1356,7 +1541,7 @@ export class PaymentAlertsCronService {
     const flagsDo = async (t: string) => {
       let f = flagCache.get(t);
       if (!f) {
-        f = { intro: await this.isIntroEnabled(t), delivery: await this.isDeliveryEnabled(t) };
+        f = { intro: await this.isIntroEnabled(t), delivery: await this.isDeliveryEnabled(t, !!contaLab) };
         flagCache.set(t, f);
       }
       return f;
@@ -1384,7 +1569,7 @@ export class PaymentAlertsCronService {
     // Busca os pacientes das vendas ainda-não-apresentadas numa query só e devolve a
     // 1ª (mais antiga) COM telefone. Sem telefone é PULADA — não bloqueia as outras.
     const plans = await this.prisma.treatmentPlan.findMany({
-      where: { id: { in: unsent.map((e) => e.planId) } },
+      where: { id: { in: unsent.map((e) => e.planId) }, ...(contaLab ? { patient: { tenant_id: contaLab } } : {}) },
       select: { id: true, patient_id: true, patient: { select: { name: true, phone: true } } },
     });
     const planById = new Map(plans.map((p) => [p.id, p]));
@@ -1457,16 +1642,21 @@ export class PaymentAlertsCronService {
   }
 
   /** Envia a apresentação, marca no AuditLog e avança o marca-passo compartilhado. */
-  private async sendIntro(cand: IntroCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
-    const instanceName = await this.resolveFinanceiroInstance(cand.tenantId);
+  private async sendIntro(cand: IntroCandidate, nowMs: number, contaLab?: string): Promise<'sent' | 'failed' | 'cooldown'> {
+    const instanceName = contaLab
+      ? await this.resolveChipDoLaboratorio(contaLab)
+      : await this.resolveFinanceiroInstance(cand.tenantId);
     // Sem chip (null): sendWhatsApp devolve false — a mesma falha do chip morto de hoje
     // (marcada como tentada + FAILED + marca-passo), nunca 'cooldown'.
     if (!instanceName) {
       this.logger.warn(`[BOLETO_INTRO] Clínica ${cand.tenantId} sem chip FINANCEIRO/CLINICA próprio — não envia (plano ${cand.planId})`);
     }
-    const template = await this.resolveIntroTemplate(cand.tenantId);
-    const clinica = await this.resolveClinicName(cand.tenantId);
-    const firstName = cand.name.split(' ')[0];
+    // Laboratório: só quem reserva a vez do chip no banco envia (2 workers não duplicam).
+    if (contaLab && instanceName && !(await this.reservarVezDoChip(instanceName))) return 'cooldown';
+    const lab = !!contaLab;
+    const template = await this.resolveIntroTemplate(cand.tenantId, lab);
+    const clinica = await this.resolveClinicName(cand.tenantId, lab);
+    const firstName = lab ? primeiroNomeSemTitulo(cand.name) || LAB_REGUA.clienteSemNome : cand.name.split(' ')[0];
     const message = template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica);
     const messageId = await this.sendWhatsApp(cand.phone, message, instanceName);
 
@@ -1477,8 +1667,7 @@ export class PaymentAlertsCronService {
     await this.logIntroSent(cand.planId, cand.tenantId, typeof messageId === 'string' ? messageId : null);
     // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
     await this.logDispatchUnificado(cand.tenantId, 'boleto_intro', cand.name, cand.phone, messageId, cand.planId);
-    this.lastSentAt = nowMs;
-    this.nextGapMs = this.randomGapMs();
+    const gap = this.avancarRitmo(nowMs, contaLab);
 
     if (messageId === false) {
       this.logger.warn(`[BOLETO_INTRO] Envio falhou pro plano ${cand.planId} — marcado como tentado.`);
@@ -1490,9 +1679,10 @@ export class PaymentAlertsCronService {
       message,
       typeof messageId === 'string' ? messageId : null,
       instanceName as string, // saiu → havia chip (sem chip o envio é false e retorna acima)
+      lab,
     );
     this.logger.log(
-      `[BOLETO_INTRO] Apresentação enviada (plano ${cand.planId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
+      `[BOLETO_INTRO] Apresentação enviada (plano ${cand.planId}); próximo em ~${Math.round(gap / 60000)}min`,
     );
     return 'sent';
   }
@@ -1509,21 +1699,24 @@ export class PaymentAlertsCronService {
   }
 
   /** Entrega dos boletos (D+2) LIGADA? Toggle separado da apresentação; quando NUNCA
-   *  foi setado, HERDA a apresentação (compat: antes era 1 toggle só pro fluxo todo). */
-  private async isDeliveryEnabled(tenantId: string): Promise<boolean> {
+   *  foi setado, HERDA a apresentação (compat: antes era 1 toggle só pro fluxo todo).
+   *  Laboratório: sem herança, chave ausente = desligado. */
+  private async isDeliveryEnabled(tenantId: string, lab = false): Promise<boolean> {
     if (!tenantId) return false;
     try {
       const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
       if (row) return row.value === 'true';
+      if (lab) return false;
       return this.isIntroEnabled(tenantId);
     } catch {
       return false;
     }
   }
 
-  /** Texto da apresentação: o que a clínica salvou (mesma chave da API) → default. */
-  private async resolveIntroTemplate(tenantId: string): Promise<string> {
-    const fallback = DEFAULT_BOLETO_INTRO;
+  /** Texto da apresentação: o que a clínica salvou (mesma chave da API) → default.
+   *  Laboratório: padrão do laboratório, e texto salvo com palavra de clínica não sai. */
+  private async resolveIntroTemplate(tenantId: string, lab = false): Promise<string> {
+    const fallback = lab ? LAB_REGUA.apresentacao : DEFAULT_BOLETO_INTRO;
     if (!tenantId) return fallback;
     try {
       const row = await this.prisma.globalSetting.findUnique({
@@ -1531,7 +1724,9 @@ export class PaymentAlertsCronService {
       });
       if (row?.value) {
         const parsed = JSON.parse(row.value);
-        if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+        if (typeof parsed?.template === 'string' && parsed.template.trim()) {
+          return lab && temVocabularioDeClinica(semVariaveis(parsed.template)) ? fallback : parsed.template;
+        }
       }
     } catch (e: any) {
       this.logger.warn(`[BOLETO_INTRO] Falha ao ler template do tenant ${tenantId}: ${e.message}`);

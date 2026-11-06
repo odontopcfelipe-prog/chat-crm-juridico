@@ -24,13 +24,10 @@ export const LAB_PREVIA_DO_CLIENTE = 'Preview (como o cliente vai receber)';
 /** Endereço de exemplo da prévia: o consultório do cliente, nunca o do laboratório. */
 export const LAB_ENDERECO_EXEMPLO = 'Av. Exemplo, 100 — Sala 3 (consultório do cliente, exemplo)';
 
-/** Cabeçalho, semáforo do chip e selo da régua de cobrança. */
+/** Cabeçalho e semáforo do chip. */
 export const LAB_CENTRAL = Object.freeze({
   cabecalho: 'Configure aqui as mensagens automáticas do laboratório. Cada aviso liga e desliga no botão do card.',
   semChipProprio: 'Sem chip próprio desta função — os disparos saem pelo chip de Atendimento ou, sem ele, pelo Comercial',
-  reguaBadge: 'Em breve no laboratório',
-  reguaTitulo:
-    'A régua de cobrança liga no laboratório quando o envio em fila por chip chegar. Até lá fica desligada.',
 });
 
 /** Rótulos dos setores (o Comercial não aparece no laboratório). */
@@ -43,7 +40,9 @@ export const LAB_SETORES: Readonly<
     nota: 'Chip principal do laboratório — o padrão de tudo que fala com o cliente.',
   }),
   financeiro: Object.freeze({
-    nota: 'Sai pelo chip Financeiro. Se ele não estiver conectado, usa o chip principal (Atendimento).',
+    nota:
+      'Sai pelo chip Financeiro; sem ele, pelo de Atendimento ou, sem este, pelo Comercial. A cobrança automática nasce ' +
+      'desligada, cada aviso liga no botão do card, e só cobra boleto da conta Asaas do laboratório, conferindo antes se já foi pago.',
   }),
   equipe: Object.freeze({
     chip: 'Atendimento',
@@ -90,8 +89,12 @@ export const LAB_DISPAROS_CARDS: Readonly<
     nome: 'Orçamento aprovado · à vista (PIX/cartão)',
     gatilho: 'Ao fechar uma venda à vista em PIX ou cartão · confirma os serviços, sem falar em boleto',
   }),
+  boleto_delivery: Object.freeze({
+    gatilho: 'D+2 · manda todos os boletos num carnê (1 PDF) pelo chip Financeiro (sem ele, Atendimento ou Comercial)',
+  }),
   boleto_atrasado: Object.freeze({
     gatilho: 'Qualquer boleto vencido · re-toque semanal · agrupado por cliente',
+    descricao: 'Antes de ligar, confira a carteira: quem tem boleto antigo em aberto no Asaas passa a receber a cobrança.',
   }),
   block_sched_on_overdue: Object.freeze({
     nome: 'Bloquear coleta/entrega de cliente com boleto atrasado',
@@ -260,6 +263,68 @@ export const LAB_EDITORES = Object.freeze({
       metodo: ' via boleto',
       descricao: '',
       vencimento: '📅 Boleto com vencimento em 05/07/2026.',
+      clinica: 'Laboratório Exemplo',
+    }),
+    previewLabel: LAB_PREVIA_DO_CLIENTE,
+    enderecoExemplo: LAB_ENDERECO_EXEMPLO,
+  }),
+  apresentacao: Object.freeze({
+    titulo: 'Apresentação · 1 dia após a venda',
+    descricao:
+      'Enviada ao cliente pelo chip Financeiro (sem ele, Atendimento ou Comercial) depois do fechamento da venda: o setor ' +
+      'financeiro se apresenta e avisa que amanhã manda os boletos em PDF. Só sai com o envio dos boletos ligado. Edite e ' +
+      'Salve; deixe em branco pra voltar ao padrão.',
+    variaveis: Object.freeze({
+      nome: 'Primeiro nome do cliente (sem Dr./Dra.)',
+      clinica: 'Nome do laboratório',
+    }),
+    preview: Object.freeze({ nome: 'Carlos', clinica: 'Laboratório Exemplo' }),
+    previewLabel: LAB_PREVIA_DO_CLIENTE,
+    enderecoExemplo: LAB_ENDERECO_EXEMPLO,
+  }),
+  entregaDosBoletos: Object.freeze({
+    titulo: 'Envio dos boletos · carnê em PDF',
+    descricao:
+      'Texto de abertura que acompanha o carnê (1 PDF com todos os boletos), enviado no dia da entrega pelo chip ' +
+      'Financeiro (sem ele, Atendimento ou Comercial). Não cite prazo: a entrega pode sair em dias diferentes. Edite e ' +
+      'Salve; deixe em branco pra voltar ao padrão.',
+    variaveis: Object.freeze({
+      nome: 'Primeiro nome do cliente (sem Dr./Dra.)',
+      clinica: 'Nome do laboratório',
+      condicoes: 'Bloco dos boletos: entrada + parcelas + total (derivado do carnê)',
+      condicoes_sem_total: 'O mesmo bloco, mas SEM a linha do total',
+    }),
+    preview: Object.freeze({
+      nome: 'Carlos',
+      clinica: 'Laboratório Exemplo',
+      condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74',
+      condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34',
+    }),
+    previewLabel: LAB_PREVIA_DO_CLIENTE,
+    enderecoExemplo: LAB_ENDERECO_EXEMPLO,
+  }),
+  regua: Object.freeze({
+    titulo: 'Régua de cobrança',
+    descricao:
+      'Enviada ao cliente pelo chip Financeiro (sem ele, Atendimento ou Comercial) quando uma cobrança DESTE tipo chega ' +
+      'neste marco. O texto é escolhido pelo tipo real da cobrança. Texto salvo com palavra de clínica não sai: vai o ' +
+      'padrão. Edite e Salve; deixe em branco pra voltar ao padrão.',
+    tipoDePagamento: 'Tipo de pagamento:',
+    variaveis: Object.freeze({
+      nome: 'Primeiro nome do cliente (sem Dr./Dra.)',
+      valor: 'Valor da cobrança (ex.: R$ 350,00)',
+      data: 'Vencimento (DD/MM)',
+      link: 'Link do boleto/pix pra pagar',
+      codigo:
+        'Vira o aviso "o código PIX vai na próxima mensagem"; o código em si é enviado num disparo SEPARADO, pra copiar limpo. O boleto vai como PDF anexo.',
+      clinica: 'Nome do laboratório',
+    }),
+    preview: Object.freeze({
+      nome: 'Carlos',
+      valor: 'R$ 350,00',
+      data: '05/07',
+      link: 'https://cobranca.exemplo/pagar',
+      codigo: '📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇',
       clinica: 'Laboratório Exemplo',
     }),
     previewLabel: LAB_PREVIA_DO_CLIENTE,
