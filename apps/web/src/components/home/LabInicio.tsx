@@ -282,7 +282,8 @@ export default function LabInicio({ sector, userName, extraGrants, extraRevokes,
           <div className="dh-switch">
             <span className="dh-switch-label">{LAB_INICIO.verComo}</span>
             <div className="dh-switch-tabs" role="group" aria-label={LAB_INICIO.verComo}>
-              {SECTORS.map((s) => (
+              {/* O colaborador não tem home: entra direto em Meu ponto. */}
+              {SECTORS.filter((s) => s.id !== 'colaborador').map((s) => (
                 <button
                   key={s.id}
                   type="button"

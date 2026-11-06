@@ -49,6 +49,12 @@ export const LAB_SECTOR_TEXT: Readonly<Record<Sector, Readonly<{ name: string; p
       description: 'Relacionamento com dentistas e clínicas parceiras',
       subtitle: 'Capte e acompanhe dentistas e clínicas parceiras.',
     }),
+    colaborador: Object.freeze({
+      name: 'Colaborador',
+      persona: 'Colaborador',
+      description: 'Acessa só o relógio de ponto: bate entrada e saída e vê as próprias horas',
+      subtitle: 'Registre entrada e saída e acompanhe suas horas.',
+    }),
   });
 
 /** Papel do login (o mesmo da clínica) → nome do cargo no laboratório. */
@@ -58,6 +64,7 @@ export const LAB_ROLE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   OPERADOR: 'Atendimento',
   ASSISTANT: 'Expedição',
   FINANCEIRO: 'Financeiro',
+  COLABORADOR: 'Colaborador',
 });
 
 /** Função do chip (o valor gravado não muda) → nome no laboratório. */

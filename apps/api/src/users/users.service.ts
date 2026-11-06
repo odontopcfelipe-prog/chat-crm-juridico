@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
 import { FileStorageService } from '../media/filesystem.service';
 import { MailService, publicWebUrl } from '../common/mail/mail.service';
-import { Prisma, User, normalizarDisparosIds } from '@crm/shared';
+import { PAPEL_COLABORADOR, Prisma, User, normalizarDisparosIds } from '@crm/shared';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 import { semSegredos, semSegredosNemPagamento } from './usuario-sem-segredos';
@@ -19,7 +19,7 @@ import { semSegredos, semSegredosNemPagamento } from './usuario-sem-segredos';
  * Essa camada garante que, independente do que chegue via API, o banco só
  * receba os 6 enums canônicos suportados por useRole.ts.
  */
-const CANONICAL_ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'ASSISTANT', 'FINANCEIRO'] as const;
+const CANONICAL_ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'ASSISTANT', 'FINANCEIRO', 'COLABORADOR'] as const;
 type CanonicalRole = typeof CANONICAL_ROLES[number];
 
 function normalizeRole(raw: string): CanonicalRole {
@@ -33,6 +33,7 @@ function normalizeRole(raw: string): CanonicalRole {
   if (upper === 'COMERCIAL' || upper === 'ATENDENTE COMERCIAL') return 'COMERCIAL';
   if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS' || upper === 'ASSISTANT' || upper === 'ASSISTANTS') return 'ASSISTANT';
   if (upper === 'FINANCEIRO') return 'FINANCEIRO';
+  if (upper === 'COLABORADOR' || upper === 'COLABORADORES') return 'COLABORADOR';
   return 'OPERADOR'; // fallback seguro
 }
 
@@ -117,7 +118,8 @@ export class UsersService {
 
   async findAgents(tenantId?: string): Promise<{ id: string; name: string; specialties: string[] }[]> {
     return (this.prisma as any).user.findMany({
-      where: this.tenantWhere(tenantId),
+      // Colaborador só acessa o ponto: não recebe conversa, tarefa nem atendimento.
+      where: { ...this.tenantWhere(tenantId), NOT: { roles: { has: PAPEL_COLABORADOR } } },
       select: { id: true, name: true, specialties: true },
       orderBy: { name: 'asc' },
     });
@@ -180,6 +182,8 @@ export class UsersService {
     const password_hash = await argon2.hash(data.password);
     // Normaliza para o enum canônico. Aceita tanto `roles[]` (forma nova) quanto `role` (legado).
     const normalizedRoles = normalizeRoles(data.roles, data.role);
+    // Colaborador nasce só com o papel dele, com o setor gravado e sem caixa de WhatsApp.
+    const nasceColaborador = normalizedRoles.includes(PAPEL_COLABORADOR);
     // Onda 17.32.172 — token de confirmacao de e-mail gerado no cadastro
     const verifyToken = randomBytes(32).toString('hex');
     let user;
@@ -190,7 +194,8 @@ export class UsersService {
           email: data.email,
           phone: data.phone || null,
           password_hash,
-          roles: normalizedRoles,
+          roles: nasceColaborador ? [PAPEL_COLABORADOR] : normalizedRoles,
+          ...(nasceColaborador ? { sector: 'colaborador' } : {}),
           specialties: data.specialties ?? [],
           ortho_days: data.ortho_days ?? [],
           disparos_off: normalizarDisparosIds(data.disparos_off),
@@ -200,7 +205,7 @@ export class UsersService {
           tenant_id: data.tenant_id,
           email_verify_token: verifyToken,
           email_verify_sent_at: new Date(),
-          inboxes: data.inboxIds ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
+          inboxes: data.inboxIds && !nasceColaborador ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
         },
         include: { inboxes: { select: { id: true, name: true } } }
       });
@@ -336,8 +341,10 @@ export class UsersService {
     // O papel do dono não vem do formulário; a conta do dono continua com ele.
     const rolesPedidos = (data.roles ?? []).filter((r) => !ehPapelDoDono(r));
     const roleLegado = data.role && !ehPapelDoDono(data.role) ? data.role : undefined;
+    let viraColaborador = data.sector === 'colaborador';
     if (rolesPedidos.length > 0 || roleLegado) {
       const normalizedRoles: string[] = normalizeRoles(rolesPedidos, roleLegado);
+      viraColaborador = viraColaborador || normalizedRoles.includes(PAPEL_COLABORADOR);
       (updateData as any).roles = { set: alvoEhDono ? [PAPEL_DO_DONO, ...normalizedRoles] : normalizedRoles };
     }
     if (data.phone !== undefined) updateData.phone = data.phone || null;
@@ -373,7 +380,7 @@ export class UsersService {
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {
       // Onda 17.32.122 — Inclui acd_asb (auxiliar de consultorio)
-      const allowed = ['recepcao','dentista','acd_asb','crc','financeiro','admin'];
+      const allowed = ['recepcao','dentista','acd_asb','crc','financeiro','admin','colaborador'];
       if (data.sector && !allowed.includes(data.sector)) {
         throw new BadRequestException(`Setor invalido: ${data.sector}`);
       }
@@ -388,6 +395,17 @@ export class UsersService {
       updateData.inboxes = {
         set: data.inboxIds.map(id => ({ id }))
       };
+    }
+
+    // Colaborador: papel e setor andam juntos, sem permissão individual nem caixa de
+    // WhatsApp, por qualquer caminho (formulário ou PATCH /:id/sector).
+    if (viraColaborador) {
+      if (alvoEhDono) throw new BadRequestException('A conta do dono do sistema não pode ser Colaborador.');
+      (updateData as any).roles = { set: [PAPEL_COLABORADOR] };
+      (updateData as any).sector = 'colaborador';
+      (updateData as any).extra_grants = { set: [] };
+      (updateData as any).extra_revokes = { set: [] };
+      updateData.inboxes = { set: [] };
     }
 
     let user;
@@ -408,7 +426,7 @@ export class UsersService {
     }
     // Onda 17.52 — se mudou setor/permissões, invalida o cache do guard pra a
     // mudança valer NA HORA (antes só após o TTL de 30s).
-    if (data.sector !== undefined || data.extra_grants !== undefined || data.extra_revokes !== undefined) {
+    if (viraColaborador || data.sector !== undefined || data.extra_grants !== undefined || data.extra_revokes !== undefined) {
       PermissionsGuard.invalidate(id);
     }
     return semSegredos(user) as any;

@@ -40,7 +40,8 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
     <div className="dh-switch">
       <span className="dh-switch-label">Visualizando a home como:</span>
       <div className="dh-switch-tabs">
-        {SECTORS.map((s) => (
+        {/* O colaborador não tem home: entra direto em Meu ponto. */}
+        {SECTORS.filter((s) => s.id !== 'colaborador').map((s) => (
           <button
             key={s.id}
             type="button"

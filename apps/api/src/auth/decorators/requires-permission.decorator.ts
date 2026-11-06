@@ -29,6 +29,7 @@ export const REQUIRES_PERMISSION_KEY = 'requiresPermission';
 
 interface CachedPerms {
   perms: Set<Permission>;
+  sector: Sector;
   fetchedAt: number;
 }
 
@@ -113,8 +114,16 @@ export class PermissionsGuard implements CanActivate {
     const revokes = (u?.extra_revokes ?? []) as Permission[];
     const perms = resolvePermissions(sector, grants, revokes);
 
-    PermissionsGuard.cache.set(userId, { perms, fetchedAt: Date.now() });
+    PermissionsGuard.cache.set(userId, { perms, sector, fetchedAt: Date.now() });
     return perms;
+  }
+
+  /** Setor efetivo do usuário (mesmo cache e mesma regra das permissões). */
+  static async sectorFor(prisma: PrismaService, userId: string, fallbackRoles: string[] = []): Promise<Sector> {
+    const cached = PermissionsGuard.cache.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < PermissionsGuard.TTL_MS) return cached.sector;
+    await PermissionsGuard.permissionsFor(prisma, userId, fallbackRoles);
+    return PermissionsGuard.cache.get(userId)?.sector ?? mapBackendRole(fallbackRoles);
   }
 
   /**

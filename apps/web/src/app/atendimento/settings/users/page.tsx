@@ -64,7 +64,7 @@ const SPECIALTY_SUGGESTIONS = [
 // e com os checks do backend (Guards/Roles). Qualquer valor fora dessa lista quebra permissões.
 // SUPER_ADMIN (dono do sistema) não é escolha do formulário: só é lido pra não virar
 // OPERADOR ao abrir a conta; o backend mantém e nunca concede esse papel.
-type RoleKey = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
+type RoleKey = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO' | 'COLABORADOR';
 
 const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: string }[] = [
   { key: 'SUPER_ADMIN', label: 'Adm master', emoji: '👑', description: 'Dono do sistema' },
@@ -74,6 +74,7 @@ const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: s
   { key: 'COMERCIAL', label: 'Comercial', emoji: '💼', description: 'Captação e pré-venda' },
   { key: 'ASSISTANT', label: 'Assistente', emoji: '🧑‍⚕️', description: 'Auxilia dentistas em procedimentos e atendimento' },
   { key: 'FINANCEIRO', label: 'Financeiro', emoji: '💰', description: 'Honorários e receitas' },
+  { key: 'COLABORADOR', label: 'Colaborador', emoji: '🕒', description: 'Só o relógio de ponto' },
 ];
 
 // Onda 17.51 — Setor -> perfil de acesso técnico (1:1). O SETOR é a única
@@ -89,6 +90,7 @@ const SECTOR_ROLE: Record<Sector, RoleKey> = {
   crc:        'COMERCIAL',
   financeiro: 'FINANCEIRO',
   admin:      'ADMIN',
+  colaborador: 'COLABORADOR',
 };
 
 // Mapeia rótulos legados (nomes de departamento ou roles jurídicos) para o enum canônico
@@ -104,6 +106,7 @@ function normalizeLegacyRole(raw: string): RoleKey {
   if (upper === 'COMERCIAL' || upper === 'ATENDENTE COMERCIAL') return 'COMERCIAL';
   if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS' || upper === 'ASSISTANT' || upper === 'ASSISTANTS') return 'ASSISTANT';
   if (upper === 'FINANCEIRO') return 'FINANCEIRO';
+  if (upper === 'COLABORADOR') return 'COLABORADOR';
   return 'OPERADOR';
 }
 
@@ -990,6 +993,7 @@ export default function UsersSettingsPage() {
                 </div>
               )}
 
+              {form.sector !== 'colaborador' && (
               <div className="space-y-1.5">
                 <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Caixas de WhatsApp <span className="text-muted-foreground/60 normal-case font-medium">(acesso ao chat)</span></label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
@@ -1014,6 +1018,7 @@ export default function UsersSettingsPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Onda 17.52 — Prévia da home do setor escolhido: mostra os balões
                   que esse usuário vai ver, atualizando junto com o card de setor. */}
@@ -1137,7 +1142,7 @@ export default function UsersSettingsPage() {
 
               {/* Disparos internos que esta pessoa recebe no WhatsApp dela (telefone acima).
                   A clínica liga o disparo inteiro na Central; aqui é por pessoa. */}
-              {!lab && (() => {
+              {!lab && form.sector !== 'colaborador' && (() => {
                 const disparos = disparosEquipeDoPapel(form);
                 if (disparos.length === 0) return null;
                 const semTelefone = !form.phone.trim();
@@ -1237,6 +1242,8 @@ export default function UsersSettingsPage() {
                           // papel combinado Administrador + Dentista, nem as
                           // permissões individuais).
                           if (form.sector === s.id) return;
+                          // Colaborador só acessa o ponto: nenhuma individual vale lá.
+                          if (s.id === 'colaborador') { applySector(s.id, false); return; }
                           // Só pergunta se alguma individual se perderia na troca.
                           const kept = carryOver(form, s.id);
                           if (kept.grants.length + kept.revokes.length > 0) setSectorSwap(s.id);
@@ -1316,8 +1323,19 @@ export default function UsersSettingsPage() {
                   );
                 })()}
 
+                {/* Colaborador: sem permissões pra marcar (a API só deixa bater o ponto). */}
+                {form.sector === 'colaborador' && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-sky-500/10 border border-sky-500/30">
+                    <Clock size={14} className="shrink-0 mt-0.5 text-sky-500" />
+                    <div className="text-xs text-foreground space-y-1">
+                      <p>Por enquanto, o colaborador só acessa o <strong>Meu ponto</strong>: bate entrada e saída e vê as próprias horas.</p>
+                      <p>Para ele conseguir bater o ponto, depois de salvar inclua-o na equipe em <strong>Configurações › Ponto</strong> e defina o horário.</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Permissões — agrupadas por grupo */}
-                {form.sector && (() => {
+                {form.sector && form.sector !== 'colaborador' && (() => {
                   const sectorMeta = SECTORS.find(s => s.id === form.sector);
                   const defaults = new Set(sectorMeta?.defaultPermissions ?? []);
                   const groups: Record<string, typeof PERMISSIONS> = {};

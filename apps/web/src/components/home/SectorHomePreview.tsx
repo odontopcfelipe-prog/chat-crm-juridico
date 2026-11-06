@@ -13,7 +13,7 @@ import {
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
   Megaphone, Settings, Cake, Clock, type LucideIcon,
 } from 'lucide-react';
-import { getSector, resolveHomeActions, type Sector, type Permission } from '@crm/shared';
+import { getSector, PONTO_BALAO, resolveHomeActions, type Sector, type Permission } from '@crm/shared';
 
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
@@ -33,7 +33,9 @@ export function SectorHomePreview({
   const meta = getSector(sector);
   // Onda 17.52 — reflete as permissões EFETIVAS (concedidas/revogadas), não só
   // os defaults do setor: granted extra adiciona o balão; revogada remove.
-  const actions = resolveHomeActions(sector, extraGrants, extraRevokes);
+  // O colaborador não tem balões: a única tela dele é o ponto.
+  const soPonto = meta.id === 'colaborador';
+  const actions = soPonto ? [PONTO_BALAO] : resolveHomeActions(sector, extraGrants, extraRevokes);
   const isAdmin = meta.id === 'admin';
 
   return (
@@ -64,7 +66,9 @@ export function SectorHomePreview({
       <p className="text-[10px] text-muted-foreground/70 ml-1 leading-tight">
         {isAdmin
           ? 'O Adm Geral também mantém a barra lateral completa, além desses balões.'
-          : 'Essa é a tela inicial (balões) que esse setor vê — sem barra lateral.'}
+          : soPonto
+            ? 'Entra direto em Meu ponto, sem nenhuma outra tela.'
+            : 'Essa é a tela inicial (balões) que esse setor vê — sem barra lateral.'}
       </p>
     </div>
   );

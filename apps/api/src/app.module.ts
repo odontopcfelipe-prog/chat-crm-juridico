@@ -98,6 +98,7 @@ import { PatientScopeGuard } from './auth/patient-scope';
 // F2 parte 4 do laboratório — negação por padrão, por handler, para conta de laboratório.
 import { LabTenantGuard } from './business-type/lab-tenant.guard';
 import { ModoSoVerGuard } from './auth/modo-so-ver.guard';
+import { ColaboradorGuard } from './auth/colaborador.guard';
 import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
 // F4 do laboratório — textos que a API devolve à conta de laboratório.
 import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
@@ -234,6 +235,12 @@ import { LabVocabInterceptor } from './business-type/lab-vocab.interceptor';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Nov/2026 — colaborador só alcança o relógio de ponto (negação por padrão).
+    // Antes do RolesGuard para o 403 dele não virar aviso de "Sem autorização" na tela.
+    {
+      provide: APP_GUARD,
+      useClass: ColaboradorGuard,
     },
     {
       provide: APP_GUARD,

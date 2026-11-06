@@ -12,7 +12,7 @@ import { Clock, ChevronLeft, Loader2, LogIn, LogOut, MapPin, MapPinOff, Users, R
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
-import { pickBt } from '@crm/shared';
+import { ehSoPonto, pickBt } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 import {
   apiErr, cap1, dateBr, distanceMeters, EspelhoTable, fmtDist, fmtMin, GEO_META, geoLabel, MonthNav,
@@ -46,7 +46,7 @@ const FRESCA_MS = 15000;
 
 export default function PontoPage() {
   const router = useRouter();
-  const { hasPermission, ready: permsReady } = useUserPermissions();
+  const { hasPermission, ready: permsReady, sector } = useUserPermissions();
   const bt = useBusinessType();
   const [data, setData] = useState<MeData | null>(null);
   const [ym, setYm] = useState<string | null>(null);
@@ -198,9 +198,12 @@ export default function PontoPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
-        <ChevronLeft className="w-4 h-4" /> Voltar
-      </button>
+      {/* O colaborador só tem esta tela: não há para onde voltar. */}
+      {!ehSoPonto(sector, []) && (
+        <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
+          <ChevronLeft className="w-4 h-4" /> Voltar
+        </button>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 grid place-items-center"><Clock className="w-5 h-5" /></div>

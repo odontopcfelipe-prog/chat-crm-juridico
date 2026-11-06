@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { mapBackendRole } from '@crm/shared';
+import { ehSoPonto, mapBackendRole } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isOwnPatient, restrictedPatientOwner } from '../auth/patient-scope';
@@ -87,7 +87,8 @@ export class TeamChatService {
       last_at: ult.get(id) ?? null,
     }));
     const people = users
-      .filter((u) => u.id !== userId)
+      // Colaborador só acessa o ponto: não leria a conversa.
+      .filter((u) => u.id !== userId && !ehSoPonto(u.sector, u.roles))
       .map((u) => {
         const channel = dmChannel(userId, u.id);
         return {

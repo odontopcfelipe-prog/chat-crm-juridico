@@ -5,7 +5,7 @@ import { InboxesService } from '../inboxes/inboxes.service';
 import { NotificationSettingsService, type NotifEventType } from '../notification-settings/notification-settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
-import { mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
+import { ehSoPonto, mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
 import { idDeConversa } from './socket-eventos';
 
 /**
@@ -345,6 +345,10 @@ export class ChatGateway {
 
     // Entra automaticamente na sala do tenant para receber inboxUpdate
     const tenantId = socketUser?.tenant_id;
+    // Colaborador só acessa o ponto: a sala da clínica traz conversa da equipe e aviso
+    // de mensagem. A sala dele (user:{id}) basta; ela já entrou acima.
+    const papeis: string[] = Array.isArray(socketUser?.roles) ? socketUser.roles : (socketUser?.role ? [socketUser.role] : []);
+    if (ehSoPonto(null, papeis)) return;
     if (tenantId) {
       client.join(`tenant:${tenantId}`);
       this.logger.log(`[SOCKET] Client ${client.id} joined tenant room: tenant:${tenantId}`);

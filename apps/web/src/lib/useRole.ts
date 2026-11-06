@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { BT_CLINICA, isLab, resolveBtFromJwtPayload, type BusinessType } from '@crm/shared';
 
 // Onda 17.32.77 — SUPER_ADMIN: cross-tenant, ve todos os tenants do SaaS.
-export type AppRole = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
+export type AppRole = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO' | 'COLABORADOR';
 
 export interface RoleInfo {
   role: AppRole | null;       // Primeiro role (backward compat)

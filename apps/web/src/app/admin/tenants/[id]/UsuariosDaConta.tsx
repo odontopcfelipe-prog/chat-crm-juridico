@@ -29,6 +29,7 @@ const ROTULOS: Record<string, string> = {
   OPERADOR: 'Atendimento',
   ASSISTANT: 'Assistente',
   FINANCEIRO: 'Financeiro',
+  COLABORADOR: 'Colaborador',
 };
 
 /** Quem está online muda sozinho: confere de novo enquanto a lista estiver aberta. */

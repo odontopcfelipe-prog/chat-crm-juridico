@@ -4,7 +4,7 @@
   "resumo": {
     "automatismos": { "@Cron": 29, "@Processor": 2, "BullModule.registerQueue": 9, "new QueueEvents": 2, "onApplicationBootstrap": 1, "onModuleInit": 9, "setInterval (boot)": 2, "setTimeout (boot)": 2 },
     "socket": 12,
-    "globais": 14,
+    "globais": 15,
     "produtores": 24,
     "controllers": 92,
     "handlers": 975,
@@ -86,6 +86,7 @@
     { "arquivo": "app.module.ts", "token": "APP_FILTER", "classe": "PrismaExceptionFilter" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "ThrottlerGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "JwtAuthGuard" },
+    { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "ColaboradorGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "RolesGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PermissionsGuard" },
     { "arquivo": "app.module.ts", "token": "APP_GUARD", "classe": "PatientScopeGuard" },

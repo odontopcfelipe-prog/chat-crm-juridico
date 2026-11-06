@@ -27,7 +27,7 @@ import { useRole } from '@/lib/useRole';
 // tela que o perfil não pode vê "Sem acesso" em vez da tela (ex.: Dentista).
 import { useUserPermissions, resetUserPermissionsCache } from '@/lib/useUserPermissions';
 import { clearSessionTraces } from '@/lib/api';
-import { canAccessRouteBt, isLab, labAllowsRoute } from '@crm/shared';
+import { canAccessRouteBt, COLABORADOR_HOME, colaboradorAllowsRoute, ehSoPonto, isLab, labAllowsRoute } from '@crm/shared';
 // F4 do laboratório — tipo de negócio da sessão (clínica × laboratório) e os
 // textos de laboratório da casca. Na clínica nada muda.
 import { useBusinessType } from '@/lib/useBusinessType';
@@ -83,6 +83,28 @@ function NoRouteAccess({ onHome, lab }: { onHome: () => void; lab: boolean }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Nov/2026 — casca do colaborador, que só acessa o ponto: a tela e o menu da conta
+ * (Aparência e Sair). Separada da casca normal de propósito: banner, chat, busca e
+ * atalho que entrarem lá não aparecem aqui sem alguém decidir.
+ */
+function CascaDoColaborador({ pathname, children }: { pathname: string; children: React.ReactNode }) {
+  return (
+    <SocketProvider pathname={pathname} chatNotifications={false}>
+      <TelaAoVivoEmissor />
+      <div className="flex flex-col h-screen overflow-hidden">
+        <header className="flex items-center justify-end gap-1 px-4 md:px-6 py-1.5 border-b border-border bg-card shrink-0">
+          <ThemeMenuButton variant="header" align="right" />
+          <AccountMenu />
+        </header>
+        <main className="flex-1 overflow-y-auto">
+          {colaboradorAllowsRoute(pathname) ? children : null}
+        </main>
+      </div>
+    </SocketProvider>
   );
 }
 
@@ -204,6 +226,14 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     router.replace('/atendimento/login');
   }, [rolesChanged, pathname, router]);
   const routeAllowed = canAccessRouteBt(pathname, hasPermission, bt);
+  // Nov/2026 — colaborador: o ponto é a tela inicial e a única; qualquer outra rota
+  // (inclusive o Início, onde o login cai) leva pra ela.
+  const soPonto = !!authToken && ehSoPonto(permSector, rolesFromToken(authToken));
+  useEffect(() => {
+    if (soPonto && pathname !== '/atendimento/login' && !colaboradorAllowsRoute(pathname)) {
+      router.replace(COLABORADOR_HOME);
+    }
+  }, [soPonto, pathname, router]);
   const pontoStatus = usePontoStatus(authToken);
   // Out/2026 — a agenda do Dentista é a LISTA (/minha-agenda), não o calendário
   // da clínica. Se ganhar manage_agenda (admin liberou), volta a ter o calendário.
@@ -219,7 +249,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   // ─── Fetch unread counts do servidor na montagem (fonte de verdade) ──────
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || ehSoPonto(null, rolesFromToken(authToken))) return;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005';
     fetch(`${apiUrl}/conversations/unread-counts`, {
       headers: { Authorization: `Bearer ${authToken}` },
@@ -275,7 +305,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005';
     const fetchOverdue = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-      if (!token) return;
+      if (!token || ehSoPonto(null, rolesFromToken(token))) return;
       try {
         const res = await fetch(`${apiUrl}/tasks?limit=500`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -358,6 +388,10 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   if (isLoginPage) {
     return <>{children}</>;
+  }
+
+  if (soPonto) {
+    return <CascaDoColaborador pathname={pathname}>{children}</CascaDoColaborador>;
   }
 
   // ─── Bottom nav tabs ──────────────────────────────────────

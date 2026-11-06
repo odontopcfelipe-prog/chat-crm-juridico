@@ -34,7 +34,8 @@ describe('setor Dentista (regra do dono, out/2026)', () => {
   });
 
   it('os outros setores continuam vendo todos os pacientes, contato e valores', () => {
-    for (const s of SECTORS.filter((x) => x.id !== 'dentista')) {
+    // Colaborador só acessa o ponto: não vê paciente nenhum (ver auth/colaborador.spec.ts).
+    for (const s of SECTORS.filter((x) => x.id !== 'dentista' && x.id !== 'colaborador')) {
       const perms = resolvePermissions(s.id);
       expect([s.id, perms.has('view_all_patients')]).toEqual([s.id, true]);
       expect([s.id, perms.has('view_patient_contact')]).toEqual([s.id, true]);

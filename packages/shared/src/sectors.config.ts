@@ -13,7 +13,7 @@
  * nao autorizacao real.
  */
 
-export type Sector = 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin';
+export type Sector = 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin' | 'colaborador';
 
 export type Permission =
   | 'view_patients'      | 'edit_patients'
@@ -496,9 +496,33 @@ export const SECTORS: SectorMeta[] = [
       ],
     },
   },
+  {
+    // Nov/2026 — pedido do dono: por enquanto o colaborador só tem acesso ao ponto.
+    // Sem permissão nenhuma e sem balões: entra direto em Meu ponto. A trava de
+    // verdade é negação por padrão (colaboradorAllowsRoute na tela, ColaboradorGuard
+    // na API). Fica por ÚLTIMO: o getSector cai em SECTORS[0] para setor desconhecido.
+    id: 'colaborador',
+    name: 'Colaborador',
+    description: 'Acessa só o relógio de ponto: bate entrada e saída e vê as próprias horas',
+    icon: '🕒',
+    backendRoles: ['COLABORADOR'],
+    defaultPermissions: [],
+    home: {
+      persona: 'Colaborador',
+      subtitle: 'Registre entrada e saída e acompanhe suas horas.',
+      highlight: { title: 'Meu ponto', icon: '🕒', chips: [] },
+      actions: [],
+      todos: [],
+    },
+  },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────
+
+/** Papel do login de quem só acessa o relógio de ponto. */
+export const PAPEL_COLABORADOR = 'COLABORADOR';
+/** A única tela do colaborador (a central da equipe, embaixo dela, segue fechada). */
+export const COLABORADOR_HOME = '/atendimento/ponto';
 
 /**
  * Traduz o array de roles do User pro setor. Pega o primeiro que
@@ -506,7 +530,7 @@ export const SECTORS: SectorMeta[] = [
  * nao expor demais por engano).
  *
  * Ordem de prioridade:
- *   admin > dentista > acd_asb > financeiro > crc > recepcao.
+ *   admin > dentista > acd_asb > financeiro > crc > recepcao > colaborador.
  *
  * Onda 17.32.122 — ACD/ASB ficou ACIMA de financeiro e crc na
  * prioridade porque eh funcao clinica especifica (auxiliar
@@ -525,8 +549,27 @@ export function mapBackendRole(roles: string[] | null | undefined): Sector {
   if (set.has('FINANCEIRO'))                                       return 'financeiro';
   if (set.has('COMERCIAL')   || set.has('ASSISTANT'))              return 'crc';
   if (set.has('OPERADOR'))                                         return 'recepcao';
+  // Sem esta linha o papel cairia no default e o colaborador abriria tudo da recepção.
+  if (set.has(PAPEL_COLABORADOR))                                  return 'colaborador';
 
   return 'recepcao';
+}
+
+/**
+ * Conta que só acessa o ponto? Vale o setor do banco OU o papel do token, para a
+ * trava não abrir nem com o token velho de quem acabou de virar colaborador nem com
+ * cadastro antigo sem setor. Só o dono do sistema (SUPER_ADMIN) fica de fora.
+ */
+export function ehSoPonto(sector: string | null | undefined, roles: readonly string[] | null | undefined): boolean {
+  const papeis = (roles ?? []).map((r) => String(r).toUpperCase());
+  if (papeis.includes('SUPER_ADMIN')) return false;
+  return sector === 'colaborador' || mapBackendRole(papeis) === 'colaborador';
+}
+
+/** Negação por padrão: o colaborador só abre a própria tela do ponto. */
+export function colaboradorAllowsRoute(pathname: unknown): boolean {
+  if (typeof pathname !== 'string') return false;
+  return (pathname.split(/[?#]/)[0].replace(/\/+$/, '') || '/') === COLABORADOR_HOME;
 }
 
 /** Acha o SectorMeta pelo id. */
