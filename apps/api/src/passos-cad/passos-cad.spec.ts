@@ -10,7 +10,8 @@
 import { BT_LABORATORIO, __limparCacheLabTenants } from '@crm/shared';
 import { PassosCadController } from './passos-cad.controller';
 import { PassosCadService, custoEmDolar, textoDaResposta } from './passos-cad.service';
-import { ESQUEMA_DO_PLANO, INSTRUCOES, limparPedido } from './desenho-ia.prompt';
+import { ESQUEMA_DO_PLANO, INSTRUCOES, limparPedido, resumoAnatomico } from './desenho-ia.prompt';
+import { planoPadrao } from '../../../web/src/app/atendimento/passos-cad/motor/plano-do-dente';
 import { rotaDoLaboratorio } from '../business-type/lab-route-policy';
 
 const CONTA = 'conta-exemplo-1';
@@ -84,6 +85,16 @@ describe('PassosCadService.desenhar', () => {
     expect(corpo.text.format).toEqual(expect.objectContaining({ type: 'json_schema', name: 'plano_do_dente', strict: true }));
     expect(corpo.input[0].content).toHaveLength(1);
     expect(corpo.input[0].content[0].type).toBe('input_text');
+  });
+
+  it('o texto leva a anatomia do dente pedido, e só a dele', async () => {
+    const m = montar();
+    await m.svc.desenhar(CONTA, { ...PEDIDO, fdi: 46 } as any);
+    const texto = JSON.parse(busca.mock.calls[0][1].body).input[0].content[0].text as string;
+    expect(texto).toContain('Anatomia deste dente:');
+    expect(texto).toContain(resumoAnatomico(46));
+    expect(texto).not.toContain('Primeiro molar superior');
+    expect(INSTRUCOES).toContain('Anatomia deste dente');
   });
 
   it('nada que venha a mais da tela chega à OpenAI', async () => {
@@ -233,6 +244,35 @@ describe('partes do pedido', () => {
     expect(p.sulcos.items.properties.largura).toBeDefined();
     expect(p.cristas.items.properties.lado.enum).toEqual(['mesial', 'distal', 'nenhum']);
     for (const texto of ['lado', 'largura', 'vlMm', 'contatoMesial', 'espessuraAxialMm', 'alturaDoDenteMm']) expect(INSTRUCOES).toContain(texto);
+  });
+
+  it('cada dente tem o seu resumo, com o que o identifica', () => {
+    for (const q of [1, 2, 3, 4]) for (let u = 1; u <= 8; u++) expect(resumoAnatomico(q * 10 + u).length).toBeGreaterThan(300);
+    // Esquerdo e direito são o mesmo dente.
+    expect(resumoAnatomico(26)).toBe(resumoAnatomico(16));
+    expect(resumoAnatomico(16)).toMatch(/Quatro cúspides.*mésio-palatina \(a maior\).*crista oblíqua/s);
+    expect(resumoAnatomico(46)).toMatch(/Cinco cúspides.*Sulcos em Y/s);
+    expect(resumoAnatomico(47)).toContain('sulcos em cruz');
+    expect(resumoAnatomico(13)).toContain('guia canina');
+    expect(resumoAnatomico(14)).toContain('crista marginal mesial');
+    // Anterior não tem crista marginal no plano; posterior tem a regra da face oclusal.
+    expect(resumoAnatomico(11)).toContain('Não há crista marginal');
+    expect(resumoAnatomico(16)).toContain('Face oclusal com 55 a 65%');
+    expect(resumoAnatomico(11)).not.toContain('Face oclusal com 55 a 65%');
+    // Número que não é dente não ganha texto inventado.
+    for (const fdi of [19, 20, 30, 49, 0]) expect(resumoAnatomico(fdi)).toBe('');
+  });
+
+  it('as medidas do resumo são as do desenho de partida do motor', () => {
+    const mm = (x: number) => x.toFixed(1).replace('.', ',');
+    for (const q of [1, 3]) {
+      for (let u = 1; u <= 8; u++) {
+        const p = planoPadrao(q * 10 + u);
+        const texto = resumoAnatomico(q * 10 + u);
+        const medidas = new RegExp(`médio ${mm(p.alturaMm)} mm, mesio-distal ${mm(p.larguraMm)} e vestíbulo-(palatina|lingual) ${mm(p.vlMm)}[.;]`);
+        expect([q * 10 + u, medidas.test(texto)]).toEqual([q * 10 + u, true]);
+      }
+    }
   });
 });
 
