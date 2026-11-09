@@ -188,36 +188,8 @@ export function lerPly(buf: ArrayBuffer): Malha {
   return { pos, tri: Uint32Array.from(tri) };
 }
 
-const CABECALHO_OFF = 'OFF BINARY\n';
-
-/** OFF binário das bibliotecas: nv, nf, ne (u32); nv×3 float32; nf×(u16 = 3 + 3×u32). */
-export function lerOffBinario(buf: ArrayBuffer): Malha {
-  const b = new Uint8Array(buf);
-  if (new TextDecoder('latin1').decode(b.subarray(0, CABECALHO_OFF.length)) !== CABECALHO_OFF) {
-    throw new ArquivoRecusado('Este arquivo de biblioteca não é uma malha aberta.');
-  }
-  const dv = new DataView(buf);
-  const base = CABECALHO_OFF.length;
-  const nv = dv.getUint32(base, true);
-  const nf = dv.getUint32(base + 4, true);
-  let o = base + 12;
-  if (o + nv * 12 + nf * 14 > buf.byteLength) throw new ArquivoRecusado('Arquivo de biblioteca incompleto.');
-  const pos = new Float64Array(nv * 3);
-  for (let i = 0; i < nv * 3; i++, o += 4) pos[i] = dv.getFloat32(o, true);
-  const tri = new Uint32Array(nf * 3);
-  for (let f = 0; f < nf; f++) {
-    if (dv.getUint16(o, true) !== 3) throw new ArquivoRecusado('Arquivo de biblioteca com face que não é triângulo.');
-    for (let k = 0; k < 3; k++) {
-      const id = dv.getUint32(o + 2 + k * 4, true);
-      if (id >= nv) throw new ArquivoRecusado('Arquivo de biblioteca com índice inválido.');
-      tri[3 * f + k] = id;
-    }
-    o += 14;
-  }
-  return { pos, tri };
-}
-
-export const EXTENSOES_DE_MALHA = ['stl', 'obj', 'ply', 'eoff'];
+/** Só escaneamento. Biblioteca de outro CAD (.eoff e afins) não entra: os termos dela só permitem o uso no CAD de origem. */
+export const EXTENSOES_DE_MALHA = ['stl', 'obj', 'ply'];
 
 export function extensao(nome: string): string {
   const i = nome.lastIndexOf('.');
@@ -245,9 +217,6 @@ function porExtensao(nome: string, buf: ArrayBuffer): Malha {
       return lerObj(buf);
     case 'ply':
       return lerPly(buf);
-    case 'eoff':
-    case 'off':
-      return lerOffBinario(buf);
     default:
       throw new ArquivoRecusado('Use um arquivo STL, OBJ ou PLY.');
   }

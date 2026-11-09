@@ -1,7 +1,7 @@
 /**
  * Passos CAD — textos e listas da tela. Só o laboratório monta esta tela.
  */
-import { PARAMETROS_PADRAO, type Ajuste, type Parametros } from './motor/coroa';
+import { PARAMETROS_PADRAO, type Parametros } from './motor/coroa';
 import type { ModoPincel } from './motor/escultura';
 
 export const TEXTOS = Object.freeze({
@@ -11,7 +11,6 @@ export const TEXTOS = Object.freeze({
   nomeCasoExemplo: 'OS 1024',
   nomePadraoCaso: 'caso',
   antagonistaAjuda: 'Exporte as duas arcadas já em oclusão, nas mesmas coordenadas.',
-  escolherArquivo: 'Escolher STL, OBJ ou PLY',
   material: 'Material',
   fichaProjeto: 'Projeto',
   fichaNovo: 'Novo',
@@ -59,18 +58,6 @@ export const TEXTOS = Object.freeze({
   desfazerPonto: 'Desfazer ponto',
   limparPontos: 'Limpar pontos',
   clicarDeNovo: 'Escolher outro ponto no preparo',
-  bibliotecaGuardada: 'Biblioteca',
-  bibliotecaAjuda: 'As bibliotecas ficam neste navegador, só nesta conta. Não vão para o servidor.',
-  nenhumaGuardada: 'Nenhuma ainda: escolha a pasta abaixo',
-  escolha: 'Escolha',
-  tirarBiblioteca: 'Tirar esta biblioteca deste navegador',
-  escolherPasta: 'Escolher pasta de bibliotecas',
-  bibliotecasDaPasta: 'Bibliotecas da pasta',
-  protegidaSufixo: '(protegida: só abre no CAD do fabricante)',
-  denteSolto: 'Ou um dente em arquivo solto',
-  denteSoltoAjuda: 'Eixos: x mesial, y vestibular, z oclusal.',
-  bibliotecaSemDente: 'Esta biblioteca não tem arquivo legível para este dente.',
-  posicaoAutomatica: 'Posição automática',
   mapa: 'Mapa de cores',
   verArco: 'Arcada',
   verAntagonista: 'Antagonista',
@@ -117,9 +104,6 @@ export const TEXTOS = Object.freeze({
   voltar: 'Voltar',
   avancar: 'Avançar',
   gerar: 'Gerar coroa',
-  modelagemTitulo: 'Como modelar',
-  modelagemBiblioteca: 'Biblioteca',
-  modelagemIa: 'Desenhar com IA',
   iaExplica: 'A IA decide onde ficam as cúspides, as cristas e os sulcos, olhando o espaço deste caso. A superfície é calculada aqui, sem biblioteca.',
   iaPrivacidade: 'Só saem deste computador o número do dente e medidas em mm: o tamanho dele e a altura do preparo e do antagonista em 121 pontos. O escaneamento e a ficha do caso não saem.',
   iaDesenhar: 'Desenhar com IA',
@@ -132,8 +116,6 @@ export const TEXTOS = Object.freeze({
   abrindoArquivo: 'Abrindo o arquivo…',
   procurandoPreparo: 'Procurando o preparo e a margem…',
   ajustandoMargem: 'Ajustando a margem…',
-  posicionandoDente: 'Posicionando o dente…',
-  guardandoBiblioteca: 'Guardando a biblioteca neste navegador…',
   gerandoCoroa: 'Gerando a coroa…',
   exportando: 'Preparando o arquivo…',
   erroGenerico: 'Não foi possível concluir. Tente de novo.',
@@ -168,22 +150,4 @@ export const MATERIAIS: readonly { id: string; nome: string; parametros: Paramet
   { id: 'hibrida', nome: 'Cerâmica híbrida', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.5 } },
   { id: 'pmma', nome: 'PMMA (provisório)', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 1.0, espessuraOclusal: 1.2, cimento: 0.1 } },
   { id: 'metal', nome: 'Metal', parametros: { ...PARAMETROS_PADRAO, espessuraMinima: 0.4, espessuraOclusal: 0.4 } },
-]);
-
-export const AJUSTES_DA_ANATOMIA: readonly {
-  chave: keyof Ajuste;
-  rotulo: string;
-  min: number;
-  max: number;
-  passo: number;
-  casas: number;
-  unidade: string;
-}[] = Object.freeze([
-  { chave: 'escalaMD', rotulo: 'Largura mesiodistal', min: 0.6, max: 1.5, passo: 0.01, casas: 2, unidade: 'x' },
-  { chave: 'escalaVL', rotulo: 'Largura vestíbulo-lingual', min: 0.6, max: 1.5, passo: 0.01, casas: 2, unidade: 'x' },
-  { chave: 'escalaAltura', rotulo: 'Altura', min: 0.6, max: 1.5, passo: 0.01, casas: 2, unidade: 'x' },
-  { chave: 'deslocMesial', rotulo: 'Mover para mesial', min: -3, max: 3, passo: 0.05, casas: 2, unidade: ' mm' },
-  { chave: 'deslocVestibular', rotulo: 'Mover para vestibular', min: -3, max: 3, passo: 0.05, casas: 2, unidade: ' mm' },
-  { chave: 'deslocOclusal', rotulo: 'Subir para oclusal', min: -6, max: 12, passo: 0.05, casas: 2, unidade: ' mm' },
-  { chave: 'giro', rotulo: 'Girar no eixo', min: -30, max: 30, passo: 0.5, casas: 1, unidade: '°' },
 ]);

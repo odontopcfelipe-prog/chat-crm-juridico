@@ -3,32 +3,25 @@
 /**
  * Passos CAD — desenho de coroa unitária no navegador do técnico.
  * Etapas: caso → preparo e margem → anatomia → ajustes → exportar. Só o laboratório abre.
- * Os arquivos do caso e as bibliotecas ficam neste computador: nada sobe para o servidor.
+ * Os arquivos do caso ficam neste computador: nada sobe para o servidor. A anatomia vem do desenho
+ * de partida do motor ou do plano da IA; importar biblioteca de outro CAD saiu (os termos dela só
+ * permitem o uso dentro do CAD de origem).
  */
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { ChevronLeft, ChevronRight, Download, Focus, FolderOpen, Library, Loader2, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Download, Focus, Loader2, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Visor3D, type V3 } from './Visor3D';
 import { ClienteDoMotor } from './motor/cliente';
 import { Campo, CampoDeBroca, brocaLembrada } from './campos';
 import { pedirDesenhoIa } from './desenho-com-ia';
 import { fichaNova, guardarRecentes, lerRecentes, type FichaCaso, type Recentes } from './ficha';
+import { apagarBibliotecaAntiga } from './motor/conta';
 import { FichaDoCaso } from './FichaDoCaso';
 import type { MalhaLeve } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
-import type { Ajuste, Parametros, Relatorio } from './motor/coroa';
+import type { Parametros, Relatorio } from './motor/coroa';
 import type { ResumoDente } from './motor/sessao';
 import { planoPadrao, validarPlano, type PedidoDesenhoIa, type PlanoDoDente } from './motor/plano-do-dente';
-import {
-  apagarBiblioteca,
-  bibliotecasGuardadas,
-  chaveDoDente,
-  denteDoFdi,
-  guardarBiblioteca,
-  indexarPasta,
-  lerDenteGuardado,
-} from './motor/biblioteca';
-import type { BibliotecaDaPasta } from './motor/biblioteca-indice';
-import { AJUSTES_DA_ANATOMIA, ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
+import { ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
 
 interface CoroaNaTela {
   malha: MalhaLeve;
@@ -127,7 +120,6 @@ export default function PassosCadApp() {
   const caixa = useRef<HTMLDivElement | null>(null);
   const visor = useRef<Visor3D | null>(null);
   const motor = useRef<ClienteDoMotor | null>(null);
-  const pastaRef = useRef<HTMLInputElement | null>(null);
 
   const [etapa, setEtapa] = useState(0);
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -147,11 +139,6 @@ export default function PassosCadApp() {
   const [dente, setDente] = useState<ResumoDente | null>(null);
   const [fixos, setFixos] = useState<V3[]>([]);
 
-  const [pasta, setPasta] = useState<BibliotecaDaPasta<File>[]>([]);
-  const [guardadas, setGuardadas] = useState<string[]>([]);
-  const [nomeBib, setNomeBib] = useState<string | null>(null);
-  const [ajuste, setAjuste] = useState<Ajuste | null>(null);
-  const [modelagem, setModelagem] = useState<'biblioteca' | 'ia'>('biblioteca');
   // Plano da coroa na tela: quem muda os ajustes gera de novo pelo mesmo plano, sem gastar crédito.
   const [plano, setPlano] = useState<{ desenho: PlanoDoDente; origem: 'ia' | 'base' } | null>(null);
 
@@ -177,7 +164,7 @@ export default function PassosCadApp() {
     const m = new ClienteDoMotor();
     visor.current = v;
     motor.current = m;
-    void bibliotecasGuardadas().then(setGuardadas);
+    apagarBibliotecaAntiga();
     return () => {
       v.encerrar();
       m.encerrar();
@@ -212,10 +199,8 @@ export default function PassosCadApp() {
   }, []);
 
   const descartarCoroa = useCallback(() => {
-    setAjuste(null);
     setPlano(null);
     setCoroa(null);
-    setNomeBib(null);
     zerarEscultura();
     const v = visor.current;
     v?.definirMalha('anatomia', null);
@@ -324,62 +309,6 @@ export default function PassosCadApp() {
     v.enquadrar(null, dente.O, 7, [-dente.a[0], -dente.a[1], -dente.a[2]], dente.vestibular);
   };
 
-  const mostrarAnatomia = (m: MalhaLeve) => {
-    const v = visor.current as Visor3D;
-    v.definirMalha('anatomia', m, { cor: COR_DENTE, opacidade: 0.72 });
-  };
-
-  const usarDente = (nomeBiblioteca: string, nomeArq: string, buf: ArrayBuffer) =>
-    executar(T.posicionandoDente, async () => {
-      const r = await (motor.current as ClienteDoMotor).pedir<{ ajuste: Ajuste; malha: MalhaLeve }>(
-        { tipo: 'anatomia', nome: nomeArq, buf, parametros },
-        [buf],
-      );
-      setNomeBib(nomeBiblioteca);
-      setPlano(null);
-      setAjuste(r.ajuste);
-      setCoroa(null);
-      zerarEscultura();
-      (visor.current as Visor3D).definirMalha('coroa', null);
-      mostrarAnatomia(r.malha);
-    });
-
-  const escolherGuardada = async (nome: string) => {
-    if (!fdi) return;
-    const { arcada, posicao } = denteDoFdi(fdi);
-    const d = await lerDenteGuardado(nome, chaveDoDente(arcada, posicao));
-    if (!d) {
-      setErro(T.bibliotecaSemDente);
-      return;
-    }
-    await usarDente(nome, d.nome, d.dados);
-  };
-
-  const aoEscolherPasta = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) setPasta(indexarPasta(e.target.files));
-    e.target.value = '';
-  };
-
-  const escolherDaPasta = (nome: string) =>
-    executar(T.guardandoBiblioteca, async () => {
-      const b = pasta.find((x) => x.nome === nome);
-      if (!b) return;
-      await guardarBiblioteca(b);
-      setGuardadas(await bibliotecasGuardadas());
-      await escolherGuardada(nome);
-    });
-
-  const moverAnatomia = (novo: Ajuste) => {
-    setAjuste(novo);
-    setCoroa(null);
-    zerarEscultura();
-    (visor.current as Visor3D).definirMalha('coroa', null);
-    void (motor.current as ClienteDoMotor)
-      .pedir<MalhaLeve>({ tipo: 'mover', ajuste: novo, parametros })
-      .then(mostrarAnatomia)
-      .catch((e: unknown) => setErro(e instanceof Error ? e.message : T.erroGenerico));
-  };
-
   const mostrarCoroa = (recebida: CoroaNaTela) => {
       const c = { ...recebida, folgaVizinhoUsada: parametros.folgaVizinho };
       zerarEscultura();
@@ -398,7 +327,6 @@ export default function PassosCadApp() {
     executar(T.gerandoCoroa, async () => {
       const m = motor.current as ClienteDoMotor;
       if (plano) mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroaDoPlano', plano: plano.desenho, parametros }));
-      else if (ajuste) mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroa', ajuste, parametros }));
     });
 
   /** Sem IA, o plano é o desenho de partida do dente: não sai nada do computador. */
@@ -419,8 +347,6 @@ export default function PassosCadApp() {
       }
       // Guarda antes de construir: se o motor falhar, gerar de novo não gasta outra chamada à IA.
       setPlano({ desenho, origem: usarIa ? 'ia' : 'base' });
-      setAjuste(null);
-      setNomeBib(null);
       mostrarCoroa(await m.pedir<CoroaNaTela>({ tipo: 'coroaDoPlano', plano: desenho, parametros }));
     });
 
@@ -615,10 +541,10 @@ export default function PassosCadApp() {
   const podeAvancar = useMemo(() => {
     if (etapa === 0) return Boolean(nomeArco && fdi);
     if (etapa === 1) return Boolean(dente);
-    if (etapa === 2) return modelagem === 'ia' ? Boolean(plano) : Boolean(ajuste);
+    if (etapa === 2) return Boolean(plano);
     if (etapa === 3) return Boolean(coroa);
     return false;
-  }, [etapa, nomeArco, fdi, dente, ajuste, coroa, modelagem, plano]);
+  }, [etapa, nomeArco, fdi, dente, coroa, plano]);
 
   const escolherDente = (n: number) => {
     if (n === fdi) return;
@@ -747,29 +673,6 @@ export default function PassosCadApp() {
           )}
 
           {etapa === 2 && (
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-muted" role="group" aria-label={T.modelagemTitulo} data-testid="modelagem">
-              {(
-                [
-                  ['biblioteca', T.modelagemBiblioteca, Library],
-                  ['ia', T.modelagemIa, Sparkles],
-                ] as const
-              ).map(([id, rotulo, Icone]) => (
-                <button
-                  key={id}
-                  type="button"
-                  data-testid={`modelagem-${id}`}
-                  aria-pressed={modelagem === id}
-                  disabled={Boolean(ocupado)}
-                  onClick={() => setModelagem(id)}
-                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold disabled:opacity-40 ${modelagem === id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
-                >
-                  <Icone size={14} /> {rotulo}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {etapa === 2 && modelagem === 'ia' && (
             <div className="space-y-3" data-testid="painel-ia">
               <p className="text-xs text-muted-foreground">{T.iaExplica}</p>
               <p className="text-[11px] text-muted-foreground">{T.iaPrivacidade}</p>
@@ -780,95 +683,6 @@ export default function PassosCadApp() {
                 {T.iaSemIa}
               </button>
             </div>
-          )}
-
-          {etapa === 2 && modelagem === 'biblioteca' && (
-            <>
-              <Campo rotulo={T.bibliotecaGuardada} ajuda={T.bibliotecaAjuda}>
-                <select className={inputCls} data-testid="biblioteca-guardada" disabled={Boolean(ocupado)} value={guardadas.includes(nomeBib ?? '') ? (nomeBib as string) : ''} onChange={(e) => e.target.value && void executar(T.posicionandoDente, () => escolherGuardada(e.target.value))}>
-                  <option value="">{guardadas.length ? T.escolha : T.nenhumaGuardada}</option>
-                  {guardadas.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </Campo>
-              {nomeBib && guardadas.includes(nomeBib) && (
-                <button
-                  type="button"
-                  disabled={Boolean(ocupado)}
-                  className="text-xs text-muted-foreground underline"
-                  onClick={() =>
-                    void executar(T.guardandoBiblioteca, async () => {
-                      await apagarBiblioteca(nomeBib);
-                      setGuardadas(await bibliotecasGuardadas());
-                    })
-                  }
-                >
-                  {T.tirarBiblioteca}
-                </button>
-              )}
-              <button type="button" disabled={Boolean(ocupado)} onClick={() => pastaRef.current?.click()} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted disabled:opacity-40">
-                <FolderOpen size={16} /> {T.escolherPasta}
-              </button>
-              <input ref={pastaRef} type="file" data-testid="pasta-biblioteca" className="hidden" multiple onChange={aoEscolherPasta} {...({ webkitdirectory: '' } as Record<string, string>)} />
-              {pasta.length > 0 && (
-                <Campo rotulo={T.bibliotecasDaPasta}>
-                  <select className={inputCls} data-testid="biblioteca-pasta" disabled={Boolean(ocupado)} value="" onChange={(e) => e.target.value && void escolherDaPasta(e.target.value)}>
-                    <option value="">{T.escolha}</option>
-                    {pasta.map((b) => (
-                      <option key={b.nome} value={b.nome} disabled={!b.dentes.size}>
-                        {b.dentes.size ? b.nome : `${b.nome} ${T.protegidaSufixo}`}
-                      </option>
-                    ))}
-                  </select>
-                </Campo>
-              )}
-              <Campo rotulo={T.denteSolto} ajuda={T.denteSoltoAjuda}>
-                <BotaoArquivo
-                  testid="arquivo-dente"
-                  travado={Boolean(ocupado)}
-                  rotulo={T.escolherArquivo}
-                  nome={null}
-                  aceitar=".stl,.obj,.ply,.eoff"
-                  aoEscolher={(f) => {
-                    if (f.size > TAMANHO_MAXIMO) {
-                      setErro(T.arquivoGrande);
-                      return;
-                    }
-                    void f.arrayBuffer().then((b) => usarDente(f.name, f.name, b)).catch(() => setErro(T.erroGenerico));
-                  }}
-                />
-              </Campo>
-              {ajuste && (
-                <div className="space-y-3 pt-2 border-t border-border">
-                  {AJUSTES_DA_ANATOMIA.map((c) => (
-                    <label key={c.chave} className="block">
-                      <span className="flex justify-between text-xs">
-                        <span className="font-semibold">{c.rotulo}</span>
-                        <span className="text-muted-foreground">{ajuste[c.chave].toFixed(c.casas)}{c.unidade}</span>
-                      </span>
-                      <input type="range" className="w-full" disabled={Boolean(ocupado)} min={c.min} max={c.max} step={c.passo} value={ajuste[c.chave]} onChange={(e) => moverAnatomia({ ...ajuste, [c.chave]: +e.target.value })} />
-                    </label>
-                  ))}
-                  <button
-                    type="button"
-                    disabled={Boolean(ocupado)}
-                    className="w-full inline-flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-border text-xs disabled:opacity-40"
-                    onClick={() =>
-                      void executar(T.posicionandoDente, async () => {
-                        const res = await (motor.current as ClienteDoMotor).pedir<{ ajuste: Ajuste; malha: MalhaLeve }>({ tipo: 'reposicionar', parametros });
-                        setAjuste(res.ajuste);
-                        mostrarAnatomia(res.malha);
-                      })
-                    }
-                  >
-                    <RotateCcw size={14} /> {T.posicaoAutomatica}
-                  </button>
-                </div>
-              )}
-            </>
           )}
 
           {etapa === 2 && tracos > 0 && <p className="text-xs text-amber-600" data-testid="aviso-gerar-apaga">{T.gerarApaga}</p>}

@@ -3,7 +3,7 @@
  * Neste navegador ficam lembrados só os nomes de cliente e de técnico, para sugerir no próximo
  * caso. O paciente do caso nunca é guardado nem vai no nome do arquivo.
  */
-import { contaDoNavegador } from './motor/biblioteca';
+import { contaDoNavegador } from './motor/conta';
 
 export interface FichaCaso {
   numero: string;

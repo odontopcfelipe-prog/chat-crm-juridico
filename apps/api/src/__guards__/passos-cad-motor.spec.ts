@@ -6,7 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Bvh, conferirMalha, cross, dot, juntar, mul, norma, soma, sub, unit, vert, type Malha, type V3 } from '../../../web/src/app/atendimento/passos-cad/motor/geo';
-import { ArquivoRecusado, escreverStl, lerMalha, lerObj, lerOffBinario, lerPly, lerStl } from '../../../web/src/app/atendimento/passos-cad/motor/arquivos';
+import { ArquivoRecusado, escreverStl, lerMalha, lerObj, lerPly, lerStl, EXTENSOES_DE_MALHA } from '../../../web/src/app/atendimento/passos-cad/motor/arquivos';
 import { acharPreparo, conferirMargem, margemDePontos, proporMargem, type PontoMargem } from '../../../web/src/app/atendimento/passos-cad/motor/margem';
 import {
   anatomiaNoLugar,
@@ -18,7 +18,6 @@ import {
   type Ajuste,
   type EntradaCoroa,
 } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
-import { chaveDoDente, denteDoFdi, indexarPasta } from '../../../web/src/app/atendimento/passos-cad/motor/biblioteca-indice';
 import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao';
 import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
 import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
@@ -203,25 +202,6 @@ describe('Passos CAD — arquivos', () => {
     expect(r.pos[3]).toBe(1);
   });
 
-  const off = () => {
-    const c = Buffer.from('OFF BINARY\n');
-    const h = Buffer.alloc(12);
-    h.writeUInt32LE(3, 0);
-    h.writeUInt32LE(1, 4);
-    const p = Buffer.alloc(36);
-    [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((x, i) => p.writeFloatLE(x, i * 4));
-    const f = Buffer.alloc(14);
-    f.writeUInt16LE(3, 0);
-    [0, 1, 2].forEach((id, k) => f.writeUInt32LE(id, 2 + k * 4));
-    return Buffer.concat([c, h, p, f]);
-  };
-
-  it('OFF binário das bibliotecas', () => {
-    const r = lerOffBinario(paraBuffer(off()));
-    expect(Array.from(r.tri)).toEqual([0, 1, 2]);
-    expect(r.pos[3]).toBe(1);
-  });
-
   it('arquivo com defeito é recusado em português, sem travar nem chegar ao cálculo', () => {
     const b = (t: string) => paraBuffer(Buffer.from(t));
     const CAB_PLY = 'property float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n';
@@ -249,44 +229,32 @@ describe('Passos CAD — arquivos', () => {
   });
 
   it('recusa arquivo protegido, cortado ou de outro tipo, sem tentar abrir', () => {
-    expect(() => lerOffBinario(paraBuffer(Buffer.from('drmSDFA10 conteudo cifrado')))).toThrow(ArquivoRecusado);
-    expect(() => lerOffBinario(paraBuffer(off().subarray(0, 40)))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('dente.eoff', paraBuffer(Buffer.from('OFF BINARY\n')))).toThrow(ArquivoRecusado);
+    expect(() => lerMalha('dente.off', paraBuffer(Buffer.from('OFF BINARY\n')))).toThrow(ArquivoRecusado);
     expect(() => lerMalha('dente.sdfa', new ArrayBuffer(8))).toThrow(ArquivoRecusado);
     const com = Buffer.from('ply\nformat binary_little_endian 1.0\ncomment encrypted\nelement vertex 1\nproperty float x\nend_header\n');
     expect(() => lerPly(paraBuffer(com))).toThrow(ArquivoRecusado);
   });
 });
 
-describe('Passos CAD — pasta de bibliotecas', () => {
-  const f = (caminho: string) => ({ name: caminho.split('/').pop() as string, webkitRelativePath: caminho });
-
-  it('acha dentes por arcada e posição, prefere .eoff e ignora o que não é dente', () => {
-    const r = indexarPasta([
-      f('Bib/teeth/Autor A/upperjaw/6.stl'),
-      f('Bib/teeth/Autor A/upperjaw/6.eoff'),
-      f('Bib/teeth/Autor A/lowerjaw/1.eoff'),
-      f('Bib/teeth/Autor A/upperjaw/._6.eoff'),
-      f('Bib/pontics/Autor A/upperjaw/2.eoff'),
-      f('Bib/metadata/Autor A/upperjaw/3.eoff'),
-      f('Bib/teeth/Autor A/upperjaw/9.eoff'),
-      f('Bib/teeth/Protegida/lowerjaw/2.drmsdfa'),
-      f('Bib/teeth/Protegida/lowerjaw/3.sdfa'),
-    ]);
-    expect(r.map((b) => b.nome)).toEqual(['Autor A', 'Protegida']);
-    const a = r[0];
-    expect([...a.dentes.keys()].sort()).toEqual(['inferior1', 'superior6']);
-    expect(a.dentes.get('superior6')?.name).toBe('6.eoff');
-    expect(a.protegida).toBe(false);
-    expect(r[1].dentes.size).toBe(0);
-    expect(r[1].protegida).toBe(true);
+describe('Passos CAD — biblioteca de outro CAD não entra', () => {
+  // Os termos de download de bibliotecas do exocad (4.2, 4.4 e 4.6) só permitem o uso dentro do
+  // exocad e proíbem extrair dados; VITA e 3Shape vão na mesma linha. A tela não pode convidar
+  // o laboratório a importar essas bibliotecas.
+  const PASTA_TELA = path.join(__dirname, '../../../web/src/app/atendimento/passos-cad');
+  it('sem leitor da pasta de bibliotecas e sem .eoff', () => {
+    expect(fs.existsSync(path.join(PASTA_TELA, 'motor/biblioteca-indice.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(PASTA_TELA, 'motor/biblioteca.ts'))).toBe(false);
+    expect(EXTENSOES_DE_MALHA).toEqual(['stl', 'obj', 'ply']);
+    const app = fs.readFileSync(path.join(PASTA_TELA, 'PassosCadApp.tsx'), 'utf8');
+    expect(app).not.toMatch(/webkitdirectory|\.eoff|indexarPasta|guardarBiblioteca|modelagem-biblioteca/);
   });
 
-  it('número FDI vira arcada e posição', () => {
-    expect(denteDoFdi(16)).toEqual({ arcada: 'superior', posicao: 6 });
-    expect(denteDoFdi(25)).toEqual({ arcada: 'superior', posicao: 5 });
-    expect(denteDoFdi(36)).toEqual({ arcada: 'inferior', posicao: 6 });
-    expect(denteDoFdi(41)).toEqual({ arcada: 'inferior', posicao: 1 });
-    expect(chaveDoDente('superior', 6)).toBe('superior6');
+  it('a cópia guardada por versões antigas é apagada do navegador ao abrir a tela', () => {
+    const conta = fs.readFileSync(path.join(PASTA_TELA, 'motor/conta.ts'), 'utf8');
+    expect(conta).toContain('indexedDB.deleteDatabase(`passos-cad-${contaDoNavegador()}`)');
+    const app = fs.readFileSync(path.join(PASTA_TELA, 'PassosCadApp.tsx'), 'utf8');
+    expect(app).toMatch(/motor\.current = m;\s*apagarBibliotecaAntiga\(\);/);
   });
 });
 
@@ -1796,10 +1764,10 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
     expect(fora(path.join(RAIZ, 'apps/web/src'))).toEqual([]);
   });
 
-  it('a biblioteca guardada no navegador é da conta: duas contas não se enxergam', () => {
-    const src = fs.readFileSync(path.join(PASTA, 'motor/biblioteca.ts'), 'utf8');
-    expect(src).toContain('indexedDB.open(nomeDoBanco(), 1)');
+  it('o que a tela lembra no navegador é da conta: duas contas não se enxergam', () => {
+    const src = fs.readFileSync(path.join(PASTA, 'motor/conta.ts'), 'utf8');
     expect(src).toMatch(/decodeJwtPayload\(.*\)\?\.tenant_id/);
+    expect(fs.readFileSync(path.join(PASTA, 'ficha.ts'), 'utf8')).toContain('`passos-cad-recentes-${contaDoNavegador()}`');
   });
 
   it('no Início, o atalho segue o setor visto, não o da pessoa', () => {
