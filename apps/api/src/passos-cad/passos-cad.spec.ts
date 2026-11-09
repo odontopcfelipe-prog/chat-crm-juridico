@@ -246,6 +246,16 @@ describe('partes do pedido', () => {
     for (const texto of ['lado', 'largura', 'vlMm', 'contatoMesial', 'espessuraAxialMm', 'alturaDoDenteMm']) expect(INSTRUCOES).toContain(texto);
   });
 
+  it('todo campo de número do plano está explicado nas instruções', () => {
+    // A IA leu "mesa" como a largura da face oclusal porque nada dizia o que ela era.
+    const campos = Object.entries(ESQUEMA_DO_PLANO.properties as Record<string, { type: string }>)
+      .filter(([nome, f]) => f.type === 'number' || nome === 'centro')
+      .map(([nome]) => nome);
+    expect(campos.length).toBeGreaterThan(10);
+    expect(campos.filter((nome) => !INSTRUCOES.includes(`"${nome}"`))).toEqual([]);
+    expect(INSTRUCOES).toMatch(/^- "mesa": [^\n]*Não é a largura da face oclusal/m);
+  });
+
   it('cada dente tem o seu resumo, com o que o identifica', () => {
     for (const q of [1, 2, 3, 4]) for (let u = 1; u <= 8; u++) expect(resumoAnatomico(q * 10 + u).length).toBeGreaterThan(300);
     // Esquerdo e direito são o mesmo dente.
@@ -273,6 +283,22 @@ describe('partes do pedido', () => {
         expect([q * 10 + u, medidas.test(texto)]).toEqual([q * 10 + u, true]);
       }
     }
+  });
+
+  it('a face oclusal do resumo é a das cúspides do desenho de partida, não a mesa', () => {
+    const regra = resumoAnatomico(16).match(/maior w menos o menor dá de (\d),(\d) a (\d),(\d)/);
+    expect(regra).not.toBeNull();
+    const [, a, b, c, d] = regra!;
+    const menor = Number(`${a}.${b}`);
+    const maior = Number(`${c}.${d}`);
+    for (const q of [1, 2, 3, 4]) {
+      for (let u = 4; u <= 8; u++) {
+        const ws = planoPadrao(q * 10 + u).cuspides.map((cu) => cu.w);
+        const distancia = Math.round((Math.max(...ws) - Math.min(...ws)) * 100) / 100;
+        expect([q * 10 + u, distancia >= menor && distancia <= maior]).toEqual([q * 10 + u, true]);
+      }
+    }
+    expect(resumoAnatomico(46)).toContain('Não é o campo "mesa"');
   });
 });
 

@@ -95,7 +95,7 @@ const MORFOLOGIA_INFERIOR: readonly string[] = [
   'Terceiro molar inferior. Comprimento médio 7,0 mm, mesio-distal 10,0 e vestíbulo-lingual 9,5. Forma variável, com quatro ou cinco cúspides e sulcos irregulares: simplifique e acompanhe o antagonista.',
 ];
 const REGRAS_DOS_POSTERIORES =
-  'Face oclusal com 55 a 65% da largura vestíbulo-lingual. Vertentes das cúspides de 20 a 30°. Cristas triangulares convexas, da ponta de cada cúspide até o sulco central. Sulcos principais de 0,5 a 1,0 mm de fundo, arredondados; sulcos secundários de 0,15 a 0,35 mm, saindo das fossetas. Cristas marginais na altura das dos vizinhos. O ponto mais largo da face vestibular fica no terço perto da margem; o da face lingual ou palatina, no terço médio.';
+  'Face oclusal com 55 a 65% da largura vestíbulo-lingual: é a distância entre as pontas das cúspides vestibulares e as das linguais ou palatinas, que no plano vem do w delas (o maior w menos o menor dá de 1,1 a 1,3). Não é o campo "mesa". Vertentes das cúspides de 20 a 30°. Cristas triangulares convexas, da ponta de cada cúspide até o sulco central. Sulcos principais de 0,5 a 1,0 mm de fundo, arredondados; sulcos secundários de 0,15 a 0,35 mm, saindo das fossetas. Cristas marginais na altura das dos vizinhos. O ponto mais largo da face vestibular fica no terço perto da margem; o da face lingual ou palatina, no terço médio.';
 const REGRAS_DOS_ANTERIORES =
   'O ponto mais largo da face vestibular fica no terço perto da margem; o da face lingual ou palatina é o cíngulo. Não há crista marginal no plano ("lado" nenhum).';
 const ERROS_QUE_DENUNCIAM =
@@ -121,6 +121,12 @@ COORDENADAS DO PLANO
 - A "largura" de um sulco é em mm: cerca de 0,5 nos principais, 0,3 nos secundários e 0,85 nas fossas rasas. A "largura" de uma crista é relativa (1 = normal).
 - "lado" de uma crista: "mesial" ou "distal" na crista marginal daquele lado, e "nenhum" nas outras. O motor põe a crista marginal na altura da do vizinho. Dentes anteriores não têm crista marginal.
 - "larguraMm" e "vlMm" são as larguras naturais do dente; "contatoMesial" e "contatoDistal", a altura do contato com cada vizinho (0 = margem, 1 = topo).
+- "centro" é a fossa central (u, w), para onde descem as vertentes das cúspides.
+
+CONTORNO (o dente visto de cima, da margem até as cúspides)
+- "bojoVestibular" e "bojoLingual": quanto o contorno passa da margem em cada lado, em mm. O motor ajusta os dois para a largura vestíbulo-lingual ficar perto de "vlMm".
+- "contornoVestibular" e "contornoLingual": altura do ponto mais largo de cada face, de 0 (margem) a 1 (topo).
+- "mesa": quanto o contorno fecha do ponto mais largo até a altura da cúspide mais alta. Ali, visto de cima, ele tem "mesa" vezes a largura do ponto mais largo: 0,6 fecha mais e arredonda as faces vestibular e lingual perto das cúspides; 0,9 deixa a parede quase reta até em cima. Não é a largura da face oclusal: essa vem da posição das cúspides (o w delas). Fique acima do maior |w| das cúspides: abaixo disso o contorno passa por dentro da ponta delas.
 
 MAPAS RECEBIDOS
 Cada mapa tem 11 linhas e 11 colunas. A primeira linha é w = 1 (vestibular) e a última w = -1. A primeira coluna é u = -1 (distal) e a última u = 1 (mesial). Os passos são de 0,2. Os valores são alturas em mm acima da margem, e null significa sem dado naquele ponto.
