@@ -129,6 +129,15 @@ export const DISPAROS_EQUIPE: readonly DisparoEquipe[] = [
     padrao: false,
     central: 'aviso',
   },
+  {
+    id: 'chip_whatsapp',
+    nome: 'WhatsApp com problema',
+    descricao: 'Chip da clínica desconectado, instável ou sem receber mensagens, e o aviso de quando volta ao normal.',
+    publico: 'admin',
+    nicho: 'WhatsApp',
+    padrao: false,
+    central: 'aviso',
+  },
 ];
 
 export const DISPAROS_EQUIPE_IDS: readonly string[] = DISPAROS_EQUIPE.map((d) => d.id);

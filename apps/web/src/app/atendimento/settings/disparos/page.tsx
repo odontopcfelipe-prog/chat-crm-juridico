@@ -107,6 +107,8 @@ interface OperacionalData {
   nao_paciente_triage?: { enabled: boolean };
   admin_agendamento_ia?: { enabled: boolean };
   admin_agendamento_equipe?: { enabled: boolean };
+  // Vigia dos chips (WhatsApp com problema) aos ADMs — default LIGADO.
+  chip_whatsapp?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };

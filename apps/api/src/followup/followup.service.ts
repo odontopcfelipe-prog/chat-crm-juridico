@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL, isLabTenant } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS, isCobrancaTipo, isCobrancaStage, type CobrancaTipo, REATIVACAO_TOGGLE_IDS, isReativacaoToggleId, reativacaoToggleKey, parseAlertPhones, invalidAlertPhoneParts, RETORNO_DISPARO_IDS, isRetornoDisparoId, retornoToggleKey, parseRetornoDisparoId, RETORNO_FAMILIA_LABEL, RETORNO_ETAPA_LABEL, isLabTenant, CHIP_VIGIA_DISPARO, CHIP_VIGIA_DISPATCH_TYPE, chipVigiaToggleKey, chipVigiaLigada } from '@crm/shared';
 import OpenAI from 'openai';
 import { gravarPostCareConfigDaConta, lerPostCareConfigBruta } from '../post-care/post-care-config';
 import { negarLaboratorio } from '../common/lab-gate.util';
@@ -210,6 +210,13 @@ export class FollowupService {
     const naoPacienteSetting = await this.prisma.globalSetting.findUnique({
       where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
     });
+
+    // VIGIA DOS CHIPS (WhatsApp desconectado / instável / sem receber) aos ADMs. Default
+    // LIGADO (só 'false' desliga); o worker (admin-alerts/chip-vigia.service) lê a MESMA key.
+    // Fora do Promise.all posicional. O laboratório não tem a vigia.
+    const chipVigiaSetting = lab
+      ? null
+      : await this.prisma.globalSetting.findUnique({ where: { key: chipVigiaToggleKey(tenantId) } }).catch(() => null);
 
     // AVISO AOS ADMs DE NOVO AGENDAMENTO (feito pela IA / pela equipe) — vai pro número
     // de aviso dos ADMs (o do Venda feita / Resumo diário). Default OFF (opt-in). O worker
@@ -478,6 +485,8 @@ export class FollowupService {
       // Aviso aos ADMs de novo agendamento (IA / equipe). Default OFF (opt-in).
       admin_agendamento_ia: { enabled: adminAgendOn('IA') },
       admin_agendamento_equipe: { enabled: adminAgendOn('EQUIPE') },
+      // Vigia dos chips aos ADMs. Default LIGADO (só 'false' desliga); laboratório não tem.
+      chip_whatsapp: { enabled: !lab && chipVigiaLigada(chipVigiaSetting?.value) },
     };
   }
 
@@ -512,6 +521,7 @@ export class FollowupService {
       admin_agendamento: 'Aviso aos ADMs: novo agendamento',
       nao_paciente_handoff: 'Triagem não-paciente (aviso aos ADMs)',
       nao_paciente_anexo: 'Arquivo de não-paciente (aos ADMs)',
+      [CHIP_VIGIA_DISPATCH_TYPE]: 'Aviso aos ADMs: WhatsApp com problema',
       // Campanha manual (Central › setor › Campanha manual) — 1 DispatchLog por paciente.
       campanha_manual: 'Campanha manual',
       // Retorno de manutenção (chip da Clínica) — 1 DispatchLog por toque, type = id.
@@ -673,6 +683,8 @@ export class FollowupService {
       // Aviso aos ADMs de novo agendamento — os 2 cards (IA/equipe) gravam o mesmo type.
       admin_agendamento_ia: ['admin_agendamento'],
       admin_agendamento_equipe: ['admin_agendamento'],
+      // Vigia dos chips (desconectado / instável / sem receber / normalizado).
+      [CHIP_VIGIA_DISPARO]: [CHIP_VIGIA_DISPATCH_TYPE],
       // Régua de reativação — card geral (Envio). Os cards de COLUNA leem o
       // LeadDispatch (ramo abaixo): o DispatchLog não guarda a coluna.
       reativacao_leads: ['reativacao_lead'],
@@ -1037,6 +1049,13 @@ export class FollowupService {
       case 'admin_agendamento_equipe': {
         const origem = which === 'admin_agendamento_ia' ? 'IA' : 'EQUIPE';
         const key = `ADMIN_AGENDAMENTO_${origem}_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Vigia dos chips aos ADMs (o worker admin-alerts/chip-vigia lê esta key). Default ON.
+      case CHIP_VIGIA_DISPARO: {
+        const key = chipVigiaToggleKey(tenantId);
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

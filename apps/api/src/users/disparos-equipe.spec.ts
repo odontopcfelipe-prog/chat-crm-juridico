@@ -66,8 +66,9 @@ describe('disparos da equipe (quem recebe)', () => {
       'pacientes_sem_agendamento',
       'pacientes_sem_agendamento_orto',
       'nao_paciente_triage',
+      'chip_whatsapp',
     ]);
-    expect([...new Set(adm.map((d) => d.nicho))]).toEqual(['Tarefas', 'Vendas e financeiro', 'Agenda da clínica', 'Contatos']);
+    expect([...new Set(adm.map((d) => d.nicho))]).toEqual(['Tarefas', 'Vendas e financeiro', 'Agenda da clínica', 'Contatos', 'WhatsApp']);
     const admDentista = disparosEquipeDoPapel({ roles: ['ADMIN'], specialties: ['Ortodontia'] }).map((d) => d.id);
     expect(admDentista).toContain('resumo_dentista');
     expect(admDentista).toContain('venda_feita');

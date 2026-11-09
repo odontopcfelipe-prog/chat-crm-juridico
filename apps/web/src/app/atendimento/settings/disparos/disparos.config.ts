@@ -124,6 +124,8 @@ export type OperacionalKey =
   | 'nao_paciente_triage'
   // Aviso aos ADMs de NOVO AGENDAMENTO — marcado pela IA / pela equipe (número dos adms).
   | 'admin_agendamento_ia' | 'admin_agendamento_equipe'
+  // Vigia dos chips: WhatsApp desconectado / instável / sem receber, aos ADMs (default ON).
+  | 'chip_whatsapp'
   // Régua de reativação de leads (chip Comercial) — ids = REATIVACAO_TOGGLE_IDS do
   // shared. 'reativacao_leads' = ENVIO de verdade; cada coluna = entra nos Previstos.
   | 'reativacao_leads'
@@ -473,4 +475,17 @@ export const DISPAROS: DisparoItem[] = [
       'A mensagem diz: "📅 Novo agendamento" com o paciente e o telefone, o dia da semana, data e hora, o tipo, com qual dentista e ' +
       '"Marcado por: nome de quem marcou". Série recorrente avisa só a 1ª; desmarcado antes do aviso não avisa. Só avisa o que for marcado depois de ligar.',
     operacionalKey: 'admin_agendamento_equipe' },
+  // Vigia dos chips (nov/2026): o worker (admin-alerts/chip-vigia) confere cada chip a cada
+  // minuto e avisa os ADMs por OUTRO chip da clínica. Default LIGADO (só desligar grava 'false').
+  { id: 'chip_whatsapp', nome: 'Aviso aos ADMs: WhatsApp com problema', categoria: 'equipe',
+    gatilho: 'Chip desconectado, instável ou sem receber mensagens · e quando volta ao normal · aos números da Central + ADMs marcados no cadastro', canal: 'WhatsApp', tags: ['Interno'],
+    descricao:
+      'O sistema confere a cada minuto os chips da clínica (Comercial, Clínica e Financeiro) e avisa os ADMs quando um deles ' +
+      'fica desconectado por 10 minutos, cai e volta 3 vezes em 15 minutos, ou aparece conectado mas para de receber mensagens ' +
+      '(chip bem movimentado que já recebeu no dia e ficou 2 horas sem nada, só de segunda a sexta em horário de atendimento). ' +
+      'Quando o chip volta ao normal, chega outro aviso. Só avisa queda de chip que já esteve conectado. O aviso sai por outro ' +
+      'chip da clínica; com um chip só, o aviso de desconectado pode não ter por onde sair (tenta de novo 3 vezes). ' +
+      'Quem recebe: os números de aviso (os mesmos do "Venda feita" / "Resumo diário") e quem marcou o aviso em Equipe → editar → ' +
+      '"Disparos que recebe".',
+    operacionalKey: 'chip_whatsapp' },
 ];

@@ -44,6 +44,7 @@ export * from './campanha-manual';
 export * from './disparo-anexos';
 // Disparos internos à equipe: quem recebe (cadastro da equipe → User.disparos_off)
 export * from './disparos-equipe';
+export * from './chip-vigia';
 // Disparo em áudio (teste): texto→fala com motor, voz, sotaque e velocidade
 export * from './audio-disparo';
 // F1 do laboratório: tipo de negócio da conta (CLÍNICA × LABORATÓRIO) e quem é lab

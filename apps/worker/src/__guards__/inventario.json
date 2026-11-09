@@ -2,7 +2,7 @@
   "_aviso": "Gerado por scripts/ci/inventario.cjs — não edite à mão. Atualize na raiz do repo com: npm run guards:update",
   "app": "worker",
   "resumo": {
-    "automatismos": { "@Cron": 26, "@Processor": 5, "BullModule.registerQueue": 6, "onModuleInit": 3 },
+    "automatismos": { "@Cron": 27, "@Processor": 5, "BullModule.registerQueue": 6, "onModuleInit": 3 },
     "socket": 0,
     "globais": 0,
     "produtores": 7,
@@ -12,6 +12,7 @@
   },
   "automatismos": [
     { "tipo": "@Cron", "arquivo": "admin-alerts/admin-agendamento-alert.service.ts", "alvo": "AdminAgendamentoAlertService.tick", "detalhe": "'* * * * *', { timeZone: 'America/Maceio' }" },
+    { "tipo": "@Cron", "arquivo": "admin-alerts/chip-vigia.service.ts", "alvo": "ChipVigiaService.tick", "detalhe": "'* * * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "after-hours/after-hours.service.ts", "alvo": "AfterHoursService.tick", "detalhe": "'*/5 * * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "ai/ai-reactivation-cron.service.ts", "alvo": "AiReactivationCronService.reactivateStaleConversations", "detalhe": "'17 * * * *', { timeZone: 'America/Maceio' }" },
     { "tipo": "@Cron", "arquivo": "automation/appointment-confirmation-dispatcher.service.ts", "alvo": "AppointmentConfirmationDispatcherService.dispatchPending", "detalhe": "'5 * * * *', { timeZone: 'America/Maceio' }" },

@@ -98,6 +98,18 @@ export interface AdminAlertOptions {
   disparo?: string | null;
   /** Destinatários já resolvidos (adminAlertRecipients) — evita reler a cada aviso. */
   recipients?: DestinatarioAviso[] | null;
+  /**
+   * Chips tentados por ÚLTIMO (ex.: o chip com problema, no aviso da vigia): os outros
+   * chips da clínica vêm antes, na ordem de sempre. Ausente = ordem de sempre.
+   */
+  chipsPorUltimo?: string[] | null;
+}
+
+/** Ordem de envio com `porUltimo` no fim (a ordem relativa dos dois grupos não muda). */
+export function ordenarChipsDoAviso(chips: readonly string[], porUltimo?: readonly string[] | null): string[] {
+  if (!porUltimo?.length) return [...chips];
+  const fim = new Set(porUltimo);
+  return [...chips.filter((c) => !fim.has(c)), ...chips.filter((c) => fim.has(c))];
 }
 
 export interface AdminAlertResult {
@@ -279,7 +291,7 @@ export async function sendAdminAlert(
     return { sent: 0, failed: 0, phones: [], noPhone: true };
   }
   const cfg = await resolverEvo(evo);
-  const chips = cfg ? await adminAlertChips(prisma, tenantId) : [];
+  const chips = cfg ? ordenarChipsDoAviso(await adminAlertChips(prisma, tenantId), opts.chipsPorUltimo) : [];
 
   let sent = 0;
   let failed = 0;
