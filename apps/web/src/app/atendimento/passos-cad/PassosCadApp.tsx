@@ -100,7 +100,7 @@ function baixar(dados: BlobPart, nome: string, tipo: string) {
 const BotaoArquivo = ({ rotulo, nome, aceitar, aoEscolher, testid, travado }: { rotulo: string; nome: string | null; aceitar: string; aoEscolher: (f: File) => void; testid: string; travado: boolean }) => (
   <label className={`relative flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-sm focus-within:outline focus-within:outline-2 focus-within:outline-primary ${travado ? 'opacity-50' : 'hover:bg-muted cursor-pointer'}`}>
     <Upload size={16} className="shrink-0" />
-    <span className="truncate">{nome ?? rotulo}</span>
+    <span className={nome ? 'truncate rr-mask' : 'truncate'}>{nome ?? rotulo}</span>
     <input
       type="file"
       data-testid={testid}
@@ -816,7 +816,7 @@ export default function PassosCadApp() {
                   {resumoDoCaso.map(([rotulo, valor]) => (
                     <Fragment key={rotulo}>
                       <dt className="text-muted-foreground">{rotulo}</dt>
-                      <dd className="text-right break-words">{valor}</dd>
+                      <dd className={`text-right break-words${rotulo === T.fichaPaciente || rotulo === T.fichaNotas ? ' rr-mask' : ''}`}>{valor}</dd>
                     </Fragment>
                   ))}
                 </dl>

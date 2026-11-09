@@ -1764,6 +1764,17 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
     expect(fora(path.join(RAIZ, 'apps/web/src'))).toEqual([]);
   });
 
+  it('a Tela ao vivo não vê o paciente do caso, as observações nem o nome dos arquivos', () => {
+    // O rrweb só mascara senha; o resto sai em claro, e o nome do escaneamento costuma ter o do paciente.
+    const ficha = fs.readFileSync(path.join(PASTA, 'FichaDoCaso.tsx'), 'utf8');
+    expect(ficha).toMatch(/data-testid="caso-nome" data-rr-is-password/);
+    expect(ficha).toMatch(/data-testid="caso-notas" data-rr-is-password/);
+    expect(ficha).toContain("nome ? 'truncate rr-mask' : 'truncate'");
+    const app = fs.readFileSync(path.join(PASTA, 'PassosCadApp.tsx'), 'utf8');
+    expect(app).toContain("nome ? 'truncate rr-mask' : 'truncate'");
+    expect(app).toMatch(/rotulo === T\.fichaPaciente \|\| rotulo === T\.fichaNotas \? ' rr-mask'/);
+  });
+
   it('o que a tela lembra no navegador é da conta: duas contas não se enxergam', () => {
     const src = fs.readFileSync(path.join(PASTA, 'motor/conta.ts'), 'utf8');
     expect(src).toMatch(/decodeJwtPayload\(.*\)\?\.tenant_id/);

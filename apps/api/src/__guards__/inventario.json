@@ -6,8 +6,8 @@
     "socket": 12,
     "globais": 15,
     "produtores": 24,
-    "controllers": 92,
-    "handlers": 975,
+    "controllers": 93,
+    "handlers": 977,
     "@Public": 33
   },
   "automatismos": [
@@ -1196,6 +1196,15 @@
       ]
     },
     {
+      "arquivo": "passos-cad/passos-cad.controller.ts",
+      "classe": "PassosCadController",
+      "path": "passos-cad",
+      "acesso": ["@UseGuards(JwtAuthGuard)"],
+      "handlers": [
+        { "metodo": "PassosCadController.desenhar", "verbo": "POST", "path": "desenho-ia", "rota": "POST /passos-cad/desenho-ia", "acesso": ["@RequiresPermission('create_evaluation')"] }
+      ]
+    },
+    {
       "arquivo": "patient-tags/patient-tags.controller.ts",
       "classe": "PatientTagsController",
       "path": "",
@@ -1232,6 +1241,7 @@
         { "metodo": "PatientsController.getStats", "verbo": "GET", "path": "stats", "rota": "GET /patients/stats", "acesso": ["@RequiresPermission('view_patients')"] },
         { "metodo": "PatientsController.findFunilClinica", "verbo": "GET", "path": "funil-clinica", "rota": "GET /patients/funil-clinica", "acesso": ["@RequiresPermission('view_patients')"] },
         { "metodo": "PatientsController.backfillVisitDates", "verbo": "POST", "path": "backfill-visit-dates", "rota": "POST /patients/backfill-visit-dates", "acesso": [] },
+        { "metodo": "PatientsController.nomes", "verbo": "GET", "path": "nomes", "rota": "GET /patients/nomes", "acesso": ["@RequiresPermission('view_patients')"] },
         { "metodo": "PatientsController.getBirthdays", "verbo": "GET", "path": "birthdays", "rota": "GET /patients/birthdays", "acesso": ["@RequiresPermission('view_patients')"] },
         { "metodo": "PatientsController.findByLead", "verbo": "GET", "path": "by-lead/:leadId", "rota": "GET /patients/by-lead/:leadId", "acesso": [] },
         { "metodo": "PatientsController.startAttending", "verbo": "POST", "path": ":id/start-attending", "rota": "POST /patients/:id/start-attending", "acesso": [] },

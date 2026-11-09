@@ -58,7 +58,7 @@ const AcaoDeArquivo = ({ testid, titulo, ajuda, nome, Icone, cor, travado, aoEsc
       <span className="block text-sm text-foreground">{titulo}</span>
       <span className={`flex items-center gap-1 text-[11px] ${nome ? 'text-primary' : 'text-muted-foreground'}`}>
         {nome && <Check size={12} className="shrink-0" />}
-        <span className="truncate">{nome ?? ajuda}</span>
+        <span className={nome ? 'truncate rr-mask' : 'truncate'}>{nome ?? ajuda}</span>
       </span>
     </span>
     <input
@@ -141,7 +141,7 @@ export function FichaDoCaso(p: Props) {
             <CampoCliente id="passos-cad-cliente" className={estiloCampo} valor={ficha.cliente} recentes={p.recentes.clientes} aoMudar={(cliente) => p.aoMudarFicha({ ...ficha, cliente })} />
           </div>
           <Linha rotulo={T.fichaPaciente}>
-            <input data-testid="caso-nome" className={estiloCampo} value={ficha.nomeDoCaso} onChange={muda('nomeDoCaso')} autoComplete="off" />
+            <input data-testid="caso-nome" data-rr-is-password className={estiloCampo} value={ficha.nomeDoCaso} onChange={muda('nomeDoCaso')} autoComplete="off" />
           </Linha>
           <Linha rotulo={T.fichaTecnico}>
             <input data-testid="caso-tecnico" list="passos-cad-tecnicos" className={estiloCampo} value={ficha.tecnico} onChange={muda('tecnico')} />
@@ -149,7 +149,7 @@ export function FichaDoCaso(p: Props) {
           <datalist id="passos-cad-tecnicos">
             {p.recentes.tecnicos.map((n) => <option key={n} value={n} />)}
           </datalist>
-          <textarea data-testid="caso-notas" aria-label={T.fichaNotas} className={`${estiloCampo} flex-1 min-h-[6rem] resize-none`} value={ficha.notas} onChange={muda('notas')} placeholder={T.fichaNotasEx} />
+          <textarea data-testid="caso-notas" data-rr-is-password aria-label={T.fichaNotas} className={`${estiloCampo} flex-1 min-h-[6rem] resize-none`} value={ficha.notas} onChange={muda('notas')} placeholder={T.fichaNotasEx} />
           <div>
             <p className="text-sm text-muted-foreground mb-1.5">{T.fichaOpcoes}</p>
             <Campo rotulo={T.pBroca} ajuda={T.brocaAjuda}>
