@@ -23,10 +23,10 @@ export const ALTURA_DO_ARCO = 400;
 
 const CENTRO_X = LARGURA_DO_ARCO / 2;
 const RAIO_X = 118;
-const RAIO_Y = 168;
-/** As duas metades ficam um pouco separadas no meio, como nos modelos em oclusão abertos. */
-const CENTRO_Y_CIMA = 193;
-const CENTRO_Y_BAIXO = 207;
+const RAIO_Y = 165;
+/** As duas metades ficam separadas no meio, como no odontograma em papel. */
+const CENTRO_Y_CIMA = 189;
+const CENTRO_Y_BAIXO = 211;
 const FOLGA_ENTRE_DENTES = 0.5;
 /** O contorno não enche a caixa: um pouco maior, os dentes ficam encostados como numa arcada de verdade. */
 const ENCHER_LARGURA = 1.1;
@@ -91,22 +91,25 @@ export function dentesDoArco(): DenteNoArco[] {
   return saida;
 }
 
-/** Contorno e sulcos de cada tipo, numa caixa de 100 × 100, com a face vestibular para cima. */
+/**
+ * Contorno e sulcos de cada tipo, numa caixa de 100 × 100, com a face vestibular para cima. Estilo de
+ * odontograma em traço: os sulcos são linhas curtas e curvas, como num desenho à mão.
+ */
 export const FORMA_DO_DENTE: Readonly<Record<TipoDeDente, { contorno: string; sulcos: string }>> = Object.freeze({
   incisivo: {
-    contorno: 'M10 22C28 8 72 8 90 22C98 30 94 48 84 62C74 78 62 92 50 92C38 92 26 78 16 62C6 48 2 30 10 22Z',
-    sulcos: 'M22 28Q50 20 78 28',
+    contorno: 'M14 16C30 6 70 6 86 16C95 22 94 40 86 58C78 76 64 92 50 92C36 92 22 76 14 58C6 40 5 22 14 16Z',
+    sulcos: 'M30 24Q50 18 70 24M36 31Q42 50 46 66M64 31Q58 50 54 66',
   },
   canino: {
-    contorno: 'M50 3C70 8 92 30 94 52C96 74 74 97 50 97C26 97 4 74 6 52C8 30 30 8 50 3Z',
-    sulcos: 'M50 20L50 58',
+    contorno: 'M50 4C66 8 88 24 92 46C96 70 76 94 50 96C24 94 4 70 8 46C12 24 34 8 50 4Z',
+    sulcos: 'M50 18Q48 40 50 60M50 60Q40 64 34 74M50 60Q60 64 66 74M30 36Q38 44 44 42M70 36Q62 44 56 42',
   },
   premolar: {
-    contorno: 'M50 4C78 4 96 24 96 50C96 76 78 96 50 96C22 96 4 76 4 50C4 24 22 4 50 4Z',
-    sulcos: 'M22 50Q50 38 78 50',
+    contorno: 'M50 5C76 5 95 24 95 50C95 76 76 95 50 95C24 95 5 76 5 50C5 24 24 5 50 5Z',
+    sulcos: 'M26 50Q38 42 50 50Q62 58 74 50M40 26Q44 37 42 44M60 26Q56 37 58 44M42 74Q44 63 42 56M58 74Q56 63 58 56',
   },
   molar: {
-    contorno: 'M20 10C35 2 65 2 80 10C95 18 98 38 94 50C98 62 95 82 80 90C65 98 35 98 20 90C5 82 2 62 6 50C2 38 5 18 20 10Z',
-    sulcos: 'M28 34L50 50L72 34M50 50L50 80M28 66L50 50L72 66',
+    contorno: 'M22 8C34 3 46 6 50 8C54 6 66 3 78 8C92 14 97 30 94 44C97 56 97 72 90 84C82 96 64 97 50 93C36 97 18 96 10 84C3 72 3 56 6 44C3 30 8 14 22 8Z',
+    sulcos: 'M26 44Q36 52 46 46Q52 40 50 26M46 46Q54 58 66 54Q76 52 82 58M50 26Q62 20 74 28M46 46Q42 62 34 76M66 54Q64 68 70 80M28 26Q36 32 42 40',
   },
 });

@@ -24,7 +24,7 @@ export function Odontograma({ selecionado, travado, aoEscolher }: { selecionado:
             aria-pressed={escolhido}
             disabled={travado}
             onClick={() => aoEscolher(d.fdi)}
-            className={`absolute pointer-events-none flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60 ${escolhido ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            className="group absolute pointer-events-none flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
             style={{
               left: `${(d.x / LARGURA_DO_ARCO) * 100}%`,
               top: `${(d.y / ALTURA_DO_ARCO) * 100}%`,
@@ -34,10 +34,17 @@ export function Odontograma({ selecionado, travado, aoEscolher }: { selecionado:
             }}
           >
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" className="absolute inset-0 w-full h-full overflow-visible" style={{ transform: `rotate(${d.rotacao}deg)` }}>
-              <path d={forma.contorno} fill="currentColor" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" className={travado ? '' : 'cursor-pointer'} style={{ pointerEvents: 'auto' }} />
-              <path d={forma.sulcos} fill="none" stroke="var(--background, #fff)" strokeOpacity={0.3} strokeWidth={1.5} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              {/* Odontograma em traço: dente cinza-claro, contorno escuro e sulcos finos. */}
+              <path
+                d={forma.contorno}
+                strokeWidth={escolhido ? 2.4 : 1.5}
+                vectorEffect="non-scaling-stroke"
+                className={`transition-colors ${travado ? '' : 'cursor-pointer'} ${escolhido ? '' : 'fill-[#cfcfcf] stroke-[#3d3d3d] group-hover:fill-[#e2e2e2]'}`}
+                style={{ pointerEvents: 'auto', ...(escolhido ? { fill: 'color-mix(in srgb, var(--color-primary) 30%, #e6e6e6)', stroke: 'var(--color-primary)' } : {}) }}
+              />
+              <path d={forma.sulcos} fill="none" stroke="#3d3d3d" strokeOpacity={0.9} strokeWidth={1.1} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
             </svg>
-            <span className="relative text-xs font-bold leading-none text-background select-none">{d.fdi}</span>
+            <span className={`relative text-[11px] font-semibold leading-none select-none ${escolhido ? 'text-primary' : 'text-neutral-800'}`}>{d.fdi}</span>
           </button>
         );
       })}
