@@ -2,7 +2,16 @@ import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@ne
 import { SettingsService } from '../settings/settings.service';
 import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { isLabTenant, toBrazilWhatsappNumber } from '@crm/shared';
+import {
+  chipVigiaEstadoKey,
+  chipVigiaLigada,
+  chipVigiaToggleKey,
+  isLabTenant,
+  problemaDaVigia,
+  situacaoDoChip,
+  toBrazilWhatsappNumber,
+  type SituacaoDoChip,
+} from '@crm/shared';
 import * as crypto from 'crypto';
 import { chipPadraoDaClinica } from './env-chip';
 import { voltaDoChipNoLaboratorio } from './chip-do-laboratorio';
@@ -585,6 +594,76 @@ export class WhatsappService {
     } catch {
       return null;
     }
+  }
+
+  /** fetchInstances do servidor do WhatsApp, guardado 30 s (a tela de todos pergunta a cada minuto). */
+  private instanciasEmCache: { ate: number; lista: Promise<any[] | null> } | null = null;
+
+  private instanciasDoServidor(): Promise<any[] | null> {
+    const agora = Date.now();
+    if (this.instanciasEmCache && this.instanciasEmCache.ate > agora) return this.instanciasEmCache.lista;
+    const lista = this.listInstances(null, 8000)
+      .then((r: any) => (Array.isArray(r) ? r : null))
+      .catch(() => null);
+    this.instanciasEmCache = { ate: agora + 30_000, lista };
+    return lista;
+  }
+
+  /**
+   * Situação dos chips da conta para o aviso na tela (topo de toda página e barra de envio
+   * do chat): estado ao vivo no servidor do WhatsApp + o que a vigia do worker registrou
+   * (instável, sem receber). Servidor sem resposta = 'desconhecido' (a tela não alarma).
+   * Lê só a própria conta.
+   *
+   * Quais chips: os com função e os da conta pelo nome (t<hash>-N) ainda sem função — os
+   * mesmos da faixa antiga (listForTenant), sem as linhas mortas de nome solto. O chip
+   * legado da conta (EVOLUTION_INSTANCE_NAME) só entra se ela não tem chip com função.
+   * Em ordem de criação: com dois chips da mesma função, o envio usa o mais antigo
+   * (resolveDispatchInstance), e a tela (chipDaConversa) pega o primeiro da lista.
+   */
+  async situacaoDosChips(tenantId: string): Promise<SituacaoDoChip[]> {
+    const linhasDaConta = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      select: { name: true, purpose: true },
+      orderBy: { created_at: 'asc' },
+    });
+    const prefixo = `${this.tenantPrefix(tenantId)}-`;
+    const temFuncao = (p: string | null) => p === 'COMERCIAL' || p === 'CLINICA' || p === 'FINANCEIRO';
+    const chips: Array<{ name: string; purpose: string | null }> = linhasDaConta
+      .filter((c) => temFuncao(c.purpose) || c.name.startsWith(prefixo))
+      .map((c) => ({ name: c.name, purpose: temFuncao(c.purpose) ? c.purpose : null }));
+    if (!chips.some((c) => c.purpose)) {
+      const legado = await this.getLegacyInstanceName(tenantId).catch(() => null);
+      if (legado && !chips.some((c) => c.name === legado)) chips.push({ name: legado, purpose: null });
+    }
+    if (!chips.length) return [];
+    const chaveDaVigia = chipVigiaToggleKey(tenantId);
+    const [noServidor, linhas] = await Promise.all([
+      this.instanciasDoServidor(),
+      this.prisma.globalSetting
+        .findMany({
+          where: { key: { in: [chaveDaVigia, ...chips.map((c) => chipVigiaEstadoKey(c.name))] } },
+          select: { key: true, value: true },
+        })
+        .catch(() => [] as { key: string; value: string }[]),
+    ]);
+    const porNome = new Map<string, any>((noServidor ?? []).map((i: any) => [i.instanceName, i]));
+    const vigia = new Map(linhas.map((l) => [l.key, l.value]));
+    // Vigia desligada na Central: o worker parou de olhar, o que ficou gravado não vale.
+    const vigiaLigada = chipVigiaLigada(vigia.get(chaveDaVigia));
+    const agora = Date.now();
+    return chips.map((c) => {
+      const inst = porNome.get(c.name);
+      const problema = vigiaLigada ? problemaDaVigia(vigia.get(chipVigiaEstadoKey(c.name)), agora) : null;
+      const situacao = noServidor ? situacaoDoChip(inst?.status, problema) : 'desconhecido';
+      return {
+        instanceName: c.name,
+        purpose: c.purpose,
+        numero: inst?.phoneNumber ?? null,
+        situacao,
+        desde: situacao === 'instavel' || situacao === 'sem_receber' ? problema?.desde ?? null : null,
+      };
+    });
   }
 
   /**

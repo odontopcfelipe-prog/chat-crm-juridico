@@ -29,6 +29,17 @@ export class WhatsappController {
     return this.whatsappService.listForTenant(tenantId);
   }
 
+  /**
+   * Situação dos chips da conta para o aviso na tela (desconectado, sem conexão,
+   * conexão baixa, sem receber). Todo logado da conta lê: a recepção também vê o aviso.
+   */
+  @Get('situacao-chips')
+  async situacaoChips(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.situacaoDosChips(tenantId);
+  }
+
   /** Conecta um novo WhatsApp — cria instancia + retorna QR. */
   @Post('my-numbers/connect')
   async connectMyNumber(

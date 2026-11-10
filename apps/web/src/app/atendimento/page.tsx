@@ -36,6 +36,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import ContratoTrabalhistaModal from '@/components/modals/ContratoTrabalhistaModal';
 import { InboxSidebar } from './components/InboxSidebar';
+import { AvisoChipNaConversa } from './components/AvisoChipNaConversa';
 import { ChatHeader } from './components/ChatHeader';
 import { NotesPanel } from './components/NotesPanel';
 // Onda 17.32.56 — Painel de agendamento dentro da conversa
@@ -3408,6 +3409,9 @@ export default function Dashboard() {
                   </div>
                 );
               })()}
+
+              {/* WhatsApp desta conversa com problema (ou sem internet): avisa antes de digitar. */}
+              {!isClosed && selected && <AvisoChipNaConversa conversa={selected} />}
 
               {isClosed ? (
                 <div className="max-w-4xl mx-auto text-center text-sm text-muted-foreground py-3 wa-composer-pill rounded-xl">

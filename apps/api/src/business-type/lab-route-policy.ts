@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (584). */
+/** Handlers que a conta de laboratório alcança (585). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // AuthController — dono do sistema volta de dentro do laboratório para a conta dele
   // (devolve só o login dele; quem não é o dono no banco leva 403)
@@ -452,6 +452,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'UsersController.remove',
   // WhatsappController — chips da própria conta
   'WhatsappController.myNumbers',
+  'WhatsappController.situacaoChips',
   'WhatsappController.connectMyNumber',
   'WhatsappController.setMyNumberPurpose',
   'WhatsappController.reconnectMyNumber',

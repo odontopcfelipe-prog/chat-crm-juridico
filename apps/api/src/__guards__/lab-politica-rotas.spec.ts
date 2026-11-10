@@ -45,7 +45,7 @@ const CHAMADAS_DE_TODA_PAGINA: readonly string[] = [
   'TeamChatController.overview', // conversa da equipe (balão em toda página)
   'ConversationsController.getUnreadCounts', // selo de não lidas
   'TasksController.findAll', // selo de tarefas
-  'WhatsappController.myNumbers', // aviso de chip desconectado (a cada 90 s)
+  'WhatsappController.situacaoChips', // aviso de WhatsApp desconectado / sem conexão / conexão baixa (a cada 60 s)
   'CommercialController.quotesDashboard', // selo de propostas na barra lateral
   'CalendarController.pendingValidation', // selo de atendimentos a validar na barra lateral (ADMIN, a cada 5 min)
 ];

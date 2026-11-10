@@ -7,7 +7,7 @@
     "globais": 15,
     "produtores": 24,
     "controllers": 93,
-    "handlers": 977,
+    "handlers": 978,
     "@Public": 33
   },
   "automatismos": [
@@ -1831,6 +1831,7 @@
       "acesso": ["@UseGuards(JwtAuthGuard)"],
       "handlers": [
         { "metodo": "WhatsappController.myNumbers", "verbo": "GET", "path": "my-numbers", "rota": "GET /whatsapp/my-numbers", "acesso": [] },
+        { "metodo": "WhatsappController.situacaoChips", "verbo": "GET", "path": "situacao-chips", "rota": "GET /whatsapp/situacao-chips", "acesso": [] },
         { "metodo": "WhatsappController.connectMyNumber", "verbo": "POST", "path": "my-numbers/connect", "rota": "POST /whatsapp/my-numbers/connect", "acesso": [] },
         { "metodo": "WhatsappController.setMyNumberPurpose", "verbo": "PATCH", "path": "my-numbers/:name/purpose", "rota": "PATCH /whatsapp/my-numbers/:name/purpose", "acesso": [] },
         { "metodo": "WhatsappController.reconnectMyNumber", "verbo": "POST", "path": "my-numbers/:name/reconnect", "rota": "POST /whatsapp/my-numbers/:name/reconnect", "acesso": [] },

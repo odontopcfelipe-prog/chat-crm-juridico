@@ -1,91 +1,74 @@
 'use client';
 
-// Onda 18.x — Aviso GLOBAL de chip WhatsApp desconectado.
-// Aparece no topo de todas as telas do /atendimento (Início da recepção/comercial,
-// inbox dos atendentes, tudo do adm) enquanto algum chip estiver fora. Fonte: polling
-// de GET /whatsapp/my-numbers (só JwtAuthGuard, tenant-scoped — recepção/comercial
-// enxergam). Some sozinho quando reconecta. Combina com o resolvedor "união
-// Comercial↔Clínica, nunca Financeiro": enquanto a Clínica está fora, o disparo de
-// paciente sai pelo Comercial; este banner pede a reconexão.
+// Aviso GLOBAL de WhatsApp com problema, no topo de todas as telas do /atendimento
+// (Início, chat, tudo do adm). Nov/2026 — além de "desconectado", mostra "sem conexão"
+// (reconectando), "conexão baixa" (chip caindo e voltando) e "sem receber mensagens",
+// que vêm da vigia do worker, e "sem conexão com a internet" deste computador.
+// Fonte: GET /whatsapp/situacao-chips (todo logado da conta lê), a cada 60 s, pelo
+// useSituacaoChips (a mesma consulta do aviso na barra de envio do chat). Some sozinho
+// quando normaliza. Servidor sem resposta não vira alarme.
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, WifiOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { LAB_PURPOSE_LABEL, pickBt } from '@crm/shared';
-import api from '@/lib/api';
 import { useBusinessType } from '@/lib/useBusinessType';
+import { useSituacaoChips } from '@/lib/useSituacaoChips';
+import {
+  ROTULO_FUNCAO_CHIP,
+  SEM_INTERNET_TOPO,
+  avisoDoTopo,
+  nomeDoChipNaTela,
+  type AvisoDoTopo,
+} from './aviso-whatsapp-textos';
 
-type Chip = { purpose: string | null; status: string; displayName?: string; instanceName?: string };
-
-const PURPOSE_LABEL: Record<string, string> = {
-  CLINICA: 'Clínica',
-  COMERCIAL: 'Comercial',
-  FINANCEIRO: 'Financeiro',
+const COR: Record<AvisoDoTopo['tom'], string> = {
+  vermelho: 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400',
+  amarelo: 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400',
 };
 
-// "down" = mesma definição do semáforo da Central de Disparos: nem 'open' nem
-// 'unknown' (unknown = Evolution não respondeu; não alarma pra não dar falso positivo).
-const isDown = (s?: string) => !!s && s !== 'open' && s !== 'unknown';
+const BOTAO: Record<AvisoDoTopo['tom'], string> = {
+  vermelho: 'bg-red-500/15 hover:bg-red-500/25',
+  amarelo: 'bg-amber-500/15 hover:bg-amber-500/25',
+};
 
 export function WhatsappDisconnectedBanner() {
   const router = useRouter();
   const bt = useBusinessType();
-  const [down, setDown] = useState<string[]>([]);
+  const { chips, online } = useSituacaoChips();
+  const rotulos: Readonly<Record<string, string>> = pickBt(bt, ROTULO_FUNCAO_CHIP, LAB_PURPOSE_LABEL);
 
-  // Depende do bt: no laboratório a 1ª renderização (hidratação) ainda diz clínica;
-  // quando o tipo vira, a checagem roda de novo com o nome da função do laboratório.
-  // Na clínica o bt não muda e o efeito roda uma vez só, como antes.
-  useEffect(() => {
-    const nomes: Readonly<Record<string, string>> = pickBt(bt, PURPOSE_LABEL, LAB_PURPOSE_LABEL);
-    let alive = true;
-    const check = async () => {
-      try {
-        const res = await api.get<Chip[]>('/whatsapp/my-numbers', {
-          timeout: 12000,
-          ...({ _silent401: true } as any),
-        });
-        if (!alive) return;
-        const chips = Array.isArray(res.data) ? res.data : [];
-        const labels = chips
-          .filter((c) => isDown(c.status))
-          .map((c) => (c.purpose && nomes[c.purpose]) || c.displayName || 'WhatsApp');
-        setDown(labels);
-      } catch {
-        /* silencioso: não mostra alarme falso se a checagem falhar */
-      }
-    };
-    check();
-    const id = setInterval(check, 90_000);
-    const onFocus = () => check();
-    window.addEventListener('focus', onFocus);
-    return () => {
-      alive = false;
-      clearInterval(id);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [bt]);
-
-  if (down.length === 0) return null;
-
-  const label =
-    down.length === 1
-      ? `O WhatsApp ${down[0]} está desconectado`
-      : `WhatsApps desconectados: ${down.join(', ')}`;
+  const avisos: Array<{ chave: string; aviso: AvisoDoTopo }> = [];
+  if (!online) avisos.push({ chave: 'internet', aviso: SEM_INTERNET_TOPO });
+  else {
+    for (const chip of chips) {
+      const aviso = avisoDoTopo(chip, nomeDoChipNaTela(chip, rotulos));
+      if (aviso) avisos.push({ chave: chip.instanceName, aviso });
+    }
+  }
+  if (avisos.length === 0) return null;
 
   return (
-    <div className="shrink-0 bg-red-500/10 border-b border-red-500/30 text-red-600 dark:text-red-400 px-4 py-2 flex items-center gap-2 text-sm">
-      <AlertTriangle size={16} className="shrink-0 animate-pulse" />
-      <span className="font-semibold">{label}.</span>
-      <span className="hidden sm:inline text-red-600/80 dark:text-red-400/80">
-        Reconecte em Configurações › WhatsApp para não perder envios.
-      </span>
-      <button
-        type="button"
-        onClick={() => router.push('/atendimento/settings/whatsapp')}
-        className="ml-auto shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 transition-colors"
-      >
-        Reconectar
-      </button>
+    <div className="shrink-0" role="status" aria-live="polite">
+      {avisos.map(({ chave, aviso }) => (
+        <div key={chave} className={`border-b px-4 py-2 flex items-center gap-2 text-sm ${COR[aviso.tom]}`}>
+          {online ? (
+            <AlertTriangle size={16} className={`shrink-0 ${aviso.tom === 'vermelho' ? 'animate-pulse' : ''}`} />
+          ) : (
+            <WifiOff size={16} className="shrink-0" />
+          )}
+          <span className="font-semibold shrink-0">{aviso.titulo}.</span>
+          <span className="hidden sm:inline opacity-80 truncate">{aviso.detalhe}</span>
+          {aviso.reconectar && (
+            <button
+              type="button"
+              onClick={() => router.push('/atendimento/settings/whatsapp')}
+              className={`ml-auto shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${BOTAO[aviso.tom]}`}
+            >
+              Reconectar
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
