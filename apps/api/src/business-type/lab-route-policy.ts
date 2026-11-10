@@ -21,7 +21,7 @@ export function chaveDoHandler(classe: { name?: string } | undefined, handler: {
   return `${classe?.name ?? '?'}.${handler?.name ?? '?'}`;
 }
 
-/** Handlers que a conta de laboratório alcança (585). */
+/** Handlers que a conta de laboratório alcança (586). */
 export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   // AuthController — dono do sistema volta de dentro do laboratório para a conta dele
   // (devolve só o login dele; quem não é o dono no banco leva 403)
@@ -270,6 +270,7 @@ export const ROTAS_DO_LABORATORIO: ReadonlySet<string> = new Set<string>([
   'MessagesController.reactToMessage',
   'MessagesController.editMessage',
   'MessagesController.deleteMessage',
+  'MessagesController.forwardMessage',
   // NotificationSettingsController — notificações do usuário
   'NotificationSettingsController.get',
   'NotificationSettingsController.update',

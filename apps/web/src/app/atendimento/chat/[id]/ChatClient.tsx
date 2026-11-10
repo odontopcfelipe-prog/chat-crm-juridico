@@ -14,8 +14,9 @@ import api from '@/lib/api';
 import type { Socket } from 'socket.io-client';
 import { formatPhone } from '@/lib/utils';
 import { showError } from '@/lib/toast';
+import { baixarArquivo } from '@/lib/baixarArquivo';
 import { getDateKey, formatDateLabel, formatTime as formatTimeUtil, getInitial as getInitialUtil, isEmojiOnly, extractFirstUrl, getDocLabel } from '@/lib/chatUtils';
-import { isLab } from '@crm/shared';
+import { ACCEPT_ARQUIVOS_DO_CHAT, isLab } from '@crm/shared';
 import { btAgora, useBusinessType } from '@/lib/useBusinessType';
 
 function StatusIcon({ status, isOut }: { status: string; isOut: boolean }) {
@@ -95,52 +96,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
   // getDocLabel, isEmojiOnly, extractFirstUrl — importados de @/lib/chatUtils
 
-  const handleDocDownload = async (url: string, name: string) => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({ suggestedName: name });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') console.error('Erro ao baixar documento', e);
-    }
-  };
+  // Download na hora do clique, pelo navegador (ver lib/baixarArquivo: o fetch + "Salvar
+  // como" recusava arquivo grande e não avisava). O servidor manda o nome original.
+  const handleDocDownload = (url: string, name: string) => baixarArquivo(url, name);
 
-  const handleImageDownload = async (src: string) => {
-    try {
-      const res = await fetch(src);
-      const blob = await res.blob();
-      const ext = (blob.type.split('/')[1] || 'jpg').split(';')[0];
-      const filename = `imagem.${ext}`;
-      if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: filename,
-          types: [{ description: 'Imagem', accept: { [blob.type]: [`.${ext}`] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') console.error('Erro ao baixar imagem', e);
-    }
+  const handleImageDownload = (src: string) => {
+    baixarArquivo(src);
   };
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -1094,7 +1055,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+                accept={ACCEPT_ARQUIVOS_DO_CHAT}
                 className="hidden"
                 onChange={handleFileSelect}
               />

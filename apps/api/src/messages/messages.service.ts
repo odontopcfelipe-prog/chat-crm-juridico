@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService, evolutionSendFailed, describeEvolutionFailure } from '../whatsapp/whatsapp.service';
-import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, getLabTenantIds, algumLab, isLabTenant } from '@crm/shared';
+import { toBrazilWhatsappNumber, brazilPhoneMatchVariants, getLabTenantIds, algumLab, isLabTenant, tipoDoArquivoDoChat } from '@crm/shared';
 import {
   exigirContaComIa,
   LIMITE_CORRECAO,
@@ -56,10 +56,21 @@ function mimeToExt(mime: string): string {
     'application/x-rar-compressed': 'rar',
     'text/plain': 'txt',
     'text/csv': 'csv',
+    // Escaneamento 3D / radiografia (tipos de tipoDoArquivoDoChat, @crm/shared)
+    'model/stl': 'stl',
+    'model/obj': 'obj',
+    'model/3mf': '3mf',
+    'application/dicom': 'dcm',
+    'application/vnd.rar': 'rar',
+    'application/x-7z-compressed': '7z',
+    'application/octet-stream': 'bin',
   };
   // Retorna do mapa ou usa a parte após última '/' e último '.' como fallback
   return map[clean] || clean.split('/').pop()?.split('.').pop()?.split('+').pop() || 'bin';
 }
+
+/** Teto do encaminhar (o mesmo do envio manual em send-file). */
+const LIMITE_ENCAMINHAR_BYTES = 50 * 1024 * 1024;
 
 @Injectable()
 export class MessagesService {
@@ -575,6 +586,11 @@ export class MessagesService {
     });
     if (!convo || !convo.lead) throw new BadRequestException('Conversa inválida');
 
+    // Escaneamento 3D / radiografia: o tipo vem da extensão (o navegador manda tipos
+    // variados, ex. application/vnd.ms-pki.stl no Windows). Os demais seguem como vieram.
+    const tipo = tipoDoArquivoDoChat(file.mimetype, file.originalname);
+    if (tipo !== file.mimetype) file = { ...file, mimetype: tipo };
+
     await this.autoReassignIfNeeded(convo, senderId);
 
     const { msg, mediaType } = await this.persistOutgoingFile(convo.id, file, caption);
@@ -639,6 +655,50 @@ export class MessagesService {
     this.chatGateway.emitConversationsUpdate(null);
 
     return sendError ? { ...msgWithMedia, send_error: sendError } : msgWithMedia;
+  }
+
+  /**
+   * Encaminha uma mensagem para outra conversa da MESMA conta (nov/2026). Documento,
+   * imagem, vídeo e áudio vão como o ARQUIVO, lido do armazenamento — antes só o texto (o
+   * nome do arquivo) ia. Texto vai como antes: "↪️ *Mensagem encaminhada:*". A legenda só
+   * acompanha quando não é o próprio nome do arquivo.
+   */
+  async forwardMessage(messageId: string, destConversationId: string, senderId?: string, tenantId?: string) {
+    const origem = await this.prisma.message.findUnique({ where: { id: messageId }, include: { media: true } });
+    if (!origem || origem.type === 'deleted') throw new NotFoundException('Mensagem não encontrada');
+    await this.assertConvTenant(origem.conversation_id, tenantId);
+    await this.assertConvTenant(destConversationId, tenantId);
+
+    const midia = origem.media;
+    if (!midia) {
+      const texto = (origem.text || '').trim();
+      if (!texto) throw new BadRequestException('Esta mensagem não tem nada para encaminhar');
+      return this.sendMessage(destConversationId, `↪️ *Mensagem encaminhada:*\n${texto}`, undefined, senderId, false, tenantId);
+    }
+
+    // Mesmo teto do envio manual (send-file): não carrega arquivo gigante na memória da API.
+    if (typeof midia.size === 'number' && midia.size > LIMITE_ENCAMINHAR_BYTES) {
+      throw new BadRequestException('Arquivo grande demais para encaminhar (limite de 50 MB)');
+    }
+    let buffer: Buffer | null = midia.file_path ? await this.fileStorage.tryRead(midia.file_path) : null;
+    if (!buffer && midia.s3_key) buffer = await this.s3.getFileBuffer(midia.s3_key).catch(() => null);
+    if (!buffer) throw new BadRequestException('O arquivo desta mensagem não está mais guardado no sistema para encaminhar');
+    if (buffer.length > LIMITE_ENCAMINHAR_BYTES) {
+      throw new BadRequestException('Arquivo grande demais para encaminhar (limite de 50 MB)');
+    }
+
+    const nome = midia.original_name || null;
+    const arquivo = {
+      buffer,
+      size: buffer.length,
+      originalname: nome || `arquivo.${mimeToExt(midia.mime_type || '')}`,
+      mimetype: midia.mime_type || 'application/octet-stream',
+    } as Express.Multer.File;
+    if (arquivo.mimetype.startsWith('audio/')) {
+      return this.sendAudio(destConversationId, arquivo, senderId, tenantId);
+    }
+    const legenda = origem.text && origem.text.trim() !== (nome || '').trim() ? origem.text : undefined;
+    return this.sendFile(destConversationId, arquivo, legenda, senderId, tenantId);
   }
 
   /** O que vai no campo de mídia da Evolution: o próprio arquivo em base64 (até

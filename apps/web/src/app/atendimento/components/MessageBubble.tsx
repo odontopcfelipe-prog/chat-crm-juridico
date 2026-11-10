@@ -151,7 +151,10 @@ function MessageBubbleInner({
   }
 
   const isMedia = msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker';
-  const caption = (msg.type === 'image' || msg.type === 'video' || msg.type === 'document') ? msg.text : null;
+  // Legenda que é só o nome do arquivo (o WhatsApp manda assim): o nome já está no cartão.
+  const textoDaMidia = (msg.type === 'image' || msg.type === 'video' || msg.type === 'document') ? msg.text : null;
+  const caption =
+    textoDaMidia && msg.media?.original_name && textoDaMidia.trim() === msg.media.original_name.trim() ? null : textoDaMidia;
   const time = formatTime(msg.created_at);
   const metaContent = (onMedia?: boolean) => (
     <>
@@ -180,7 +183,7 @@ function MessageBubbleInner({
       <button onClick={() => onReply(msg)} className={actionBtn} title="Responder" aria-label="Responder mensagem">
         <Reply size={15} />
       </button>
-      {onForward && msg.text && msg.type !== 'deleted' && (
+      {onForward && (msg.text || msg.media) && msg.type !== 'deleted' && (
         <button onClick={() => onForward(msg)} className={actionBtn} title="Encaminhar mensagem" aria-label="Encaminhar mensagem">
           <span className="text-[12px] font-bold leading-none">↪</span>
         </button>

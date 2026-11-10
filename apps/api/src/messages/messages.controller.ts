@@ -17,20 +17,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { arquivoDoChatPermitido } from '@crm/shared';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ReactMessageDto } from './dto/react-message.dto';
-
-// Whitelist de MIME types para upload
-const ALLOWED_MEDIA_RE = /^(image|video|audio)\//;
-const ALLOWED_DOC_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument',
-  'application/vnd.ms-excel',
-  'text/plain',
-  'application/zip',
-  'application/x-zip-compressed',
-];
 
 @UseGuards(JwtAuthGuard)
 @Controller('messages')
@@ -129,7 +118,9 @@ export class MessagesController {
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      if (ALLOWED_MEDIA_RE.test(file.mimetype) || ALLOWED_DOC_TYPES.some(t => file.mimetype.startsWith(t))) {
+      // Lista do @crm/shared (a mesma do front): mídia, documentos e, pela extensão,
+      // escaneamento 3D / radiografia (STL, PLY, OBJ, 3MF, DICOM) e RAR/7z.
+      if (arquivoDoChatPermitido(file.mimetype, file.originalname)) {
         cb(null, true);
       } else {
         cb(new BadRequestException(`Tipo de arquivo nao permitido: ${file.mimetype}`) as any, false);
@@ -152,6 +143,19 @@ export class MessagesController {
     @Req() req: any,
   ) {
     return this.messagesService.correctText(text, action, req?.user?.tenant_id);
+  }
+
+  /**
+   * Encaminha a mensagem para outra conversa da mesma conta. Documento, imagem, vídeo e
+   * áudio vão como ARQUIVO (antes só o texto/nome do arquivo ia); texto vai como antes.
+   */
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  @Post(':id/forward')
+  forwardMessage(@Param('id') messageId: string, @Body('conversationId') conversationId: string, @Req() req: any) {
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new BadRequestException('Escolha a conversa para encaminhar');
+    }
+    return this.messagesService.forwardMessage(messageId, conversationId, req.user?.id, req.user?.tenant_id);
   }
 
   @Post(':id/transcribe')

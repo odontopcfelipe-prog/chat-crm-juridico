@@ -7,7 +7,7 @@
     "globais": 15,
     "produtores": 24,
     "controllers": 93,
-    "handlers": 978,
+    "handlers": 979,
     "@Public": 33
   },
   "automatismos": [
@@ -1133,6 +1133,7 @@
         { "metodo": "MessagesController.sendAudio", "verbo": "POST", "path": "send-audio", "rota": "POST /messages/send-audio", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 60 } })"] },
         { "metodo": "MessagesController.sendFile", "verbo": "POST", "path": "send-file", "rota": "POST /messages/send-file", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 60 } })"] },
         { "metodo": "MessagesController.correctText", "verbo": "POST", "path": "ai-correct", "rota": "POST /messages/ai-correct", "acesso": [] },
+        { "metodo": "MessagesController.forwardMessage", "verbo": "POST", "path": ":id/forward", "rota": "POST /messages/:id/forward", "acesso": ["@Throttle({ default: { ttl: 60000, limit: 30 } })"] },
         { "metodo": "MessagesController.transcribeAudio", "verbo": "POST", "path": ":id/transcribe", "rota": "POST /messages/:id/transcribe", "acesso": [] },
         { "metodo": "MessagesController.reactToMessage", "verbo": "POST", "path": ":id/react", "rota": "POST /messages/:id/react", "acesso": [] },
         { "metodo": "MessagesController.editMessage", "verbo": "PATCH", "path": ":id", "rota": "PATCH /messages/:id", "acesso": [] },

@@ -37,7 +37,7 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useChatSocket } from '../../hooks/useChatSocket';
 import { getDateKey, formatDateLabel } from '@/lib/chatUtils';
-import { isLab, pickBt } from '@crm/shared';
+import { ACCEPT_ARQUIVOS_DO_CHAT, isLab, pickBt } from '@crm/shared';
 import { useBusinessType } from '@/lib/useBusinessType';
 
 type RenderItem =
@@ -438,7 +438,7 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,video/*,application/pdf"
+              accept={ACCEPT_ARQUIVOS_DO_CHAT}
               className="hidden"
               onChange={handleFileUpload}
             />

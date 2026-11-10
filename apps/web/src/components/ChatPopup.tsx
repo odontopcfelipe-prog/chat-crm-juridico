@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import api from '@/lib/api';
+import { baixarArquivo } from '@/lib/baixarArquivo';
 import { MessageBubble } from '@/app/atendimento/components/MessageBubble';
 import type { MessageItem } from '@/app/atendimento/types';
 
@@ -350,14 +351,9 @@ export function ChatPopup({ leadId, leadName, conversationId: initialConvId, cas
   };
 
   // ── Download helpers ──────────────────────────────────────────────────────
-  const handleImageDownload = (url: string) => {
-    const a = document.createElement('a');
-    a.href = url; a.download = 'imagem'; a.target = '_blank'; a.click();
-  };
-  const handleDocDownload = (url: string, name: string) => {
-    const a = document.createElement('a');
-    a.href = url; a.download = name; a.target = '_blank'; a.click();
-  };
+  // Mesmo download do inbox (lib/baixarArquivo): na hora do clique, com o nome original.
+  const handleImageDownload = (url: string) => baixarArquivo(url);
+  const handleDocDownload = (url: string, name: string) => baixarArquivo(url, name);
 
   // ── Abrir chat completo ───────────────────────────────────────────────────
   const openFullChat = () => {

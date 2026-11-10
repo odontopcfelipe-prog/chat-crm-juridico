@@ -37,6 +37,8 @@ import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import ContratoTrabalhistaModal from '@/components/modals/ContratoTrabalhistaModal';
 import { InboxSidebar } from './components/InboxSidebar';
 import { AvisoChipNaConversa } from './components/AvisoChipNaConversa';
+import { baixarArquivo } from '@/lib/baixarArquivo';
+import { ACCEPT_ARQUIVOS_DO_CHAT, arquivoDoChatPermitido } from '@crm/shared';
 import { ChatHeader } from './components/ChatHeader';
 import { NotesPanel } from './components/NotesPanel';
 // Onda 17.32.56 — Painel de agendamento dentro da conversa
@@ -2020,18 +2022,21 @@ export default function Dashboard() {
     }
   };
 
+  // Nov/2026 — a API encaminha a mensagem inteira: documento/imagem/vídeo/áudio vão como
+  // arquivo (antes só o texto — o nome do arquivo — ia); texto vai como antes.
   const handleForwardMessage = async (destConversationId: string) => {
-    if (!forwardMsg?.text?.trim()) return;
+    if (!forwardMsg?.id) return;
+    const { id } = forwardMsg;
     setForwardMsg(null);
     setForwardSearch('');
     try {
-      await api.post('/messages/send', {
-        conversationId: destConversationId,
-        text: `↪️ *Mensagem encaminhada:*\n${forwardMsg.text}`,
-      });
-      showSuccess('Mensagem encaminhada');
-    } catch {
-      showError('Erro ao encaminhar mensagem');
+      const res = await api.post(`/messages/${id}/forward`, { conversationId: destConversationId });
+      if ((res.data as any)?.send_error) showError(`Encaminhada, mas o WhatsApp recusou: ${(res.data as any).send_error}`);
+      else showSuccess('Mensagem encaminhada');
+    } catch (e: any) {
+      // Motivo da API (ex.: "Arquivo grande demais para encaminhar (limite de 50 MB)").
+      const motivo = e?.response?.data?.message;
+      showError(typeof motivo === 'string' && motivo ? motivo : 'Erro ao encaminhar mensagem');
     }
   };
 
@@ -2238,8 +2243,8 @@ export default function Dashboard() {
   };
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-  const ALLOWED_MEDIA = /^(image|video|audio)\//;
-  const ALLOWED_DOC_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument', 'application/vnd.ms-excel', 'text/plain', 'application/zip', 'application/x-zip-compressed'];
+  // Tipos aceitos: a mesma lista da API (@crm/shared arquivoDoChatPermitido), com STL e
+  // os outros arquivos de escaneamento/radiografia pela extensão.
 
   // Envia UM arquivo pra conversa `convId` (legenda opcional). Não mexe em
   // uploadingFile — quem chama (o lote) controla, senão o "enviando" desligava
@@ -2250,7 +2255,7 @@ export default function Dashboard() {
       showError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Limite: 50MB`);
       return false;
     }
-    if (!ALLOWED_MEDIA.test(file.type) && !ALLOWED_DOC_TYPES.some(t => file.type.startsWith(t))) {
+    if (!arquivoDoChatPermitido(file.type, file.name)) {
       showError('Tipo de arquivo não permitido');
       return false;
     }
@@ -2288,7 +2293,7 @@ export default function Dashboard() {
       showError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Limite: 50MB`);
       return;
     }
-    if (!ALLOWED_MEDIA.test(file.type) && !ALLOWED_DOC_TYPES.some(t => file.type.startsWith(t))) {
+    if (!arquivoDoChatPermitido(file.type, file.name)) {
       showError('Tipo de arquivo não permitido');
       return;
     }
@@ -2486,32 +2491,9 @@ export default function Dashboard() {
     return messages.filter(m => m.text?.toLowerCase().includes(q));
   }, [messages, msgSearchOpen, msgSearchQuery]);
 
-  const handleImageDownload = async (src: string) => {
-    try {
-      const res = await fetch(src);
-      const blob = await res.blob();
-      const ext = (blob.type.split('/')[1] || 'jpg').split(';')[0];
-      const filename = `imagem.${ext}`;
-      if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: filename,
-          types: [{ description: 'Imagem', accept: { [blob.type]: [`.${ext}`] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') console.error('Erro ao baixar imagem', e);
-    }
-  };
+  // Download na hora do clique, pelo navegador (ver lib/baixarArquivo: o fetch + "Salvar
+  // como" recusava arquivo grande e não avisava). O servidor manda o nome original.
+  const handleImageDownload = (src: string) => baixarArquivo(src);
 
   const getDocLabel = (mime: string, name?: string) => {
     if (name) { const p = name.split('.'); if (p.length > 1) return p.pop()!.toUpperCase(); }
@@ -2525,26 +2507,7 @@ export default function Dashboard() {
     return map[mime] || 'FILE';
   };
 
-  const handleDocDownload = async (url: string, name: string) => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({ suggestedName: name });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') console.error('Erro ao baixar documento', e);
-    }
-  };
+  const handleDocDownload = (url: string, name: string) => baixarArquivo(url, name);
 
 
   const handleTranscribe = async (msgId: string) => {
@@ -2968,7 +2931,13 @@ export default function Dashboard() {
                         onDocPreview={setDocPreview}
                         onImageDownload={handleImageDownload}
                         onDocDownload={handleDocDownload}
-                        onForward={(m) => { if (m.text) { setForwardMsg({ id: m.id, text: m.text }); setForwardSearch(''); } }}
+                        onForward={(m) => {
+                          // Arquivo sem legenda também encaminha (o resumo no modal é o nome dele).
+                          const tipoDaMidia =
+                            m.type === 'image' ? '📷 Imagem' : m.type === 'video' ? '🎥 Vídeo' : m.type === 'audio' ? '🎤 Áudio' : '📎 Arquivo';
+                          const resumo = m.text || m.media?.original_name || (m.media ? tipoDaMidia : '');
+                          if (resumo) { setForwardMsg({ id: m.id, text: resumo }); setForwardSearch(''); }
+                        }}
                         nextStep={convNextStep}
                       />
                         </Fragment>
@@ -3423,7 +3392,7 @@ export default function Dashboard() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+                    accept={ACCEPT_ARQUIVOS_DO_CHAT}
                     multiple
                     className="hidden"
                     onChange={handleFileSelect}

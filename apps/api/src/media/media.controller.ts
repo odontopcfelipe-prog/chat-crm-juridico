@@ -118,7 +118,7 @@ export class MediaController {
       // ─── 3. Fallback: proxy da Evolution CDN (original_url) ──────
       if (media.original_url) {
         this.logger.log(`[MediaController] Servindo via original_url para ${messageId}`);
-        await this.proxyFromEvolutionCdn(media, res);
+        await this.proxyFromEvolutionCdn(media, dl, res);
         return;
       }
 
@@ -203,14 +203,18 @@ export class MediaController {
     stream.pipe(res);
   }
 
-  private async proxyFromEvolutionCdn(media: any, res: any): Promise<void> {
+  private async proxyFromEvolutionCdn(media: any, dl: string, res: any): Promise<void> {
     const protocol = media.original_url.startsWith('https') ? https : http;
+    // Mesmo nome dos outros caminhos (o botão "baixar" do chat usa o nome que vem daqui).
+    const disposition = dl === '1' ? 'attachment' : 'inline';
+    const safeFilename = encodeURIComponent(this.resolveFilename(media));
     await new Promise<void>((resolve, reject) => {
       const req2 = protocol.get(media.original_url!, (proxyRes) => {
         const proxyCt = proxyRes.headers['content-type'] || '';
         const ct = (proxyCt && proxyCt !== 'application/octet-stream') ? proxyCt : (media.mime_type || 'application/octet-stream');
         const cl = proxyRes.headers['content-length'];
         res.setHeader('Content-Type', ct);
+        res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
         res.setHeader('Cache-Control', 'private, max-age=86400');
         res.setHeader('Accept-Ranges', 'none');
         if (cl) res.setHeader('Content-Length', cl);
