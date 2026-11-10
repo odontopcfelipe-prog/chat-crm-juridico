@@ -20,6 +20,8 @@ import type { MalhaLeve } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Parametros, Relatorio } from './motor/coroa';
 import type { ResumoDente } from './motor/sessao';
+import type { Mordida } from './motor/mordida';
+import { avisoDaMordida, avisoDoAntagonistaNoDente } from './aviso-da-mordida';
 import { planoPadrao, validarPlano, type PedidoDesenhoIa, type PlanoDoDente } from './motor/plano-do-dente';
 import { ETAPAS, MAPAS, MATERIAIS, PINCEIS, TEXTOS as T, type MapaId } from './textos';
 
@@ -128,6 +130,7 @@ export default function PassosCadApp() {
   const [ficha, setFicha] = useState<FichaCaso>(() => fichaNova(lerRecentes().tecnicos[0] ?? ''));
   const [nomeArco, setNomeArco] = useState<string | null>(null);
   const [nomeAnt, setNomeAnt] = useState<string | null>(null);
+  const [mordida, setMordida] = useState<Mordida | null>(null);
   const [frenteDoArco, setFrenteDoArco] = useState<V3 | undefined>(undefined);
   const [fdi, setFdi] = useState<number | null>(null);
   const [materialId, setMaterialId] = useState(MATERIAIS[0].id);
@@ -236,6 +239,12 @@ export default function PassosCadApp() {
         setNomeAnt(f.name);
         v.definirMalha('ant', m, { cor: COR_ANT, opacidade: 0.55 });
         v.definirVisivel('ant', false);
+      }
+      // Com as duas arcadas abertas, confere se estão em oclusão: o desenho confia nisso.
+      setMordida(null);
+      if (qual === 'arco' ? nomeAnt : nomeArco) {
+        setOcupado(T.conferindoMordida);
+        setMordida(await (motor.current as ClienteDoMotor).pedir<Mordida | null>({ tipo: 'mordida' }));
       }
     });
 
@@ -570,6 +579,7 @@ export default function PassosCadApp() {
       v.definirMalha('ant', null);
       setNomeArco(null);
       setNomeAnt(null);
+      setMordida(null);
       setFrenteDoArco(undefined);
       setFdi(null);
       setMapa('nenhum');
@@ -590,6 +600,8 @@ export default function PassosCadApp() {
   };
 
   const r = coroa?.relatorio;
+  const aviso = mordida ? avisoDaMordida(mordida) : null;
+  const avisoNoDente = dente ? avisoDoAntagonistaNoDente(dente.antagonista) : null;
   const resumoDoCaso: [string, string][] = (
     [
       [T.fichaNumero, ficha.numero],
@@ -621,6 +633,7 @@ export default function PassosCadApp() {
           aoMudarBroca={(v) => setParametros((p) => ({ ...p, diametroBroca: v }))}
           nomeArco={nomeArco}
           nomeAnt={nomeAnt}
+          mordida={mordida}
           aoAbrirArquivo={(qual, f) => void abrirArquivo(qual, f)}
           aoDesenhar={avancar}
           aoComecarNovo={() => void comecarCasoNovo()}
@@ -642,6 +655,8 @@ export default function PassosCadApp() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {aviso && !aviso.ok && <p className="text-xs text-amber-600" role="alert" data-testid="aviso-mordida">{aviso.texto}</p>}
+          {avisoNoDente && <p className="text-xs text-amber-600" role="alert" data-testid="aviso-antagonista-no-dente">{avisoNoDente}</p>}
           {etapa === 1 && (
             <>
               <p className="text-sm text-foreground">{dente ? T.margemInstrucao : T.clicarPreparo}</p>

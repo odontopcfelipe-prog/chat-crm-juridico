@@ -27,6 +27,8 @@ import { planoPadrao, validarPlano } from '../../../web/src/app/atendimento/pass
 import { alisarLimite, alisarOndeEncosta, normalizarParametros } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
 import { camadaSobOAntagonista, pisoDosSulcos } from '../../../web/src/app/atendimento/passos-cad/motor/forma-do-plano';
 import { MATERIAIS } from '../../../web/src/app/atendimento/passos-cad/textos';
+import { ANTAGONISTA_SOBRE_O_DENTE, FOLGA_MAXIMA, INVASAO_MAXIMA, medirMordida } from '../../../web/src/app/atendimento/passos-cad/motor/mordida';
+import { avisoDaMordida, avisoDoAntagonistaNoDente } from '../../../web/src/app/atendimento/passos-cad/aviso-da-mordida';
 
 const paraBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -606,6 +608,146 @@ describe('Passos CAD — ficha do caso', () => {
     expect(exportar).not.toContain('ficha.nomeDoCaso');
     expect(ficha).toMatch(/guardarRecentes\(ficha: Pick<FichaCaso, 'cliente' \| 'tecnico'>\)/);
     expect(ficha.slice(ficha.indexOf('export function guardarRecentes'))).not.toMatch(/ficha\.paciente/);
+  });
+});
+
+/** Arcada de cúspides vista de cima, aberta embaixo: cúspides de 2 mm, normais para a oclusal (+z). */
+function arcadaDeCuspides(passo = 0.4, meia = 15): Malha {
+  const n = Math.round((2 * meia) / passo);
+  const pos: number[] = [];
+  const tri: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= n; j++) {
+      const x = -meia + i * passo;
+      const y = -meia + j * passo;
+      pos.push(x, y, 2 * Math.max(0, Math.cos((Math.PI * x) / 6) * Math.cos((Math.PI * y) / 6)));
+    }
+  }
+  const id = (i: number, j: number) => i * (n + 1) + j;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) tri.push(id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j), id(i + 1, j + 1), id(i, j + 1));
+  return { pos: Float64Array.from(pos), tri: Uint32Array.from(tri) };
+}
+
+/** O sentido dos triângulos trocado, como sai de alguns programas. */
+function invertida(m: Malha): Malha {
+  const tri = Uint32Array.from(m.tri);
+  for (let t = 0; t < tri.length; t += 3) [tri[t + 1], tri[t + 2]] = [tri[t + 2], tri[t + 1]];
+  return { pos: m.pos, tri };
+}
+
+/** Antagonista plano na altura z, com a face para baixo; a grade não coincide com a da arcada. */
+const antagonistaEm = (z: number): Malha => antagonistaPlano(z);
+
+describe('Passos CAD — conferência da mordida', () => {
+  const arcada = arcadaDeCuspides();
+  const b = new Bvh(arcada);
+  const TOPO = 2;
+
+  it('as arcadas que se tocam estão encaixadas, com o registro entrando um pouco ou com folga pequena', () => {
+    const tocando = medirMordida(b, antagonistaEm(TOPO + 0.1));
+    expect(tocando.situacao).toBe('encaixada');
+    expect(tocando.menor).toBeCloseTo(0.1, 1);
+    const entrandoUmPouco = medirMordida(b, antagonistaEm(TOPO - 0.2));
+    expect(entrandoUmPouco.situacao).toBe('encaixada');
+    expect(entrandoUmPouco.menor).toBeLessThan(0);
+  });
+
+  it('mordida aberta: diz a distância, perto ou longe', () => {
+    const aberta = medirMordida(b, antagonistaEm(TOPO + 3));
+    expect(aberta.situacao).toBe('afastada');
+    expect(aberta.menor).toBeCloseTo(3, 1);
+    // Nada a menos de 10 mm: a distância vem da medida de longe.
+    const longe = medirMordida(b, antagonistaEm(TOPO + 40));
+    expect(longe.situacao).toBe('afastada');
+    expect(longe.menor).toBeCloseTo(40, 1);
+    expect(FOLGA_MAXIMA).toBeLessThan(1);
+  });
+
+  it('uma arcada entrando na outra', () => {
+    const r = medirMordida(b, antagonistaEm(TOPO - 1.5));
+    expect(r.situacao).toBe('invadindo');
+    expect(-r.menor).toBeGreaterThan(INVASAO_MAXIMA);
+  });
+
+  it('o mesmo arquivo nas duas', () => {
+    expect(medirMordida(b, arcadaDeCuspides()).situacao).toBe('mesma');
+  });
+
+  it('triângulos no sentido trocado não mudam a resposta (escaneamento aberto)', () => {
+    const bi = new Bvh(invertida(arcada));
+    expect(medirMordida(bi, antagonistaEm(TOPO + 0.1)).situacao).toBe('encaixada');
+    expect(medirMordida(bi, antagonistaEm(TOPO - 1.5)).situacao).toBe('invadindo');
+  });
+
+  it('triângulos no sentido trocado não mudam a resposta (modelo fechado, com base)', () => {
+    // Esfera fechada: a soma das áreas some, e quem decide é o volume.
+    const perfil: [number, number][] = [];
+    for (let k = 0; k <= 40; k++) perfil.push([5 * Math.sin((Math.PI * k) / 40), 5 * Math.cos((Math.PI * k) / 40)]);
+    const esfera = revolucao(perfil, 72);
+    expect(medirMordida(new Bvh(esfera), antagonistaEm(5.1)).situacao).toBe('encaixada');
+    expect(medirMordida(new Bvh(invertida(esfera)), antagonistaEm(5.1)).situacao).toBe('encaixada');
+    expect(medirMordida(new Bvh(invertida(esfera)), antagonistaEm(3.5)).situacao).toBe('invadindo');
+  });
+
+  it('a Sessao confere só com as duas arcadas abertas', () => {
+    const s = new Sessao({ meridianos: 60, linhas: 40 });
+    s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
+    expect(s.conferirMordida()).toBeNull();
+    s.abrirAntagonista('ant.stl', escreverStl(antagonistaPlano(6.1), 'ant'));
+    expect(s.conferirMordida()?.situacao).toBe('encaixada');
+    s.abrirAntagonista('ant.stl', escreverStl(antagonistaPlano(9), 'ant'));
+    const aberta = s.conferirMordida();
+    expect(aberta?.situacao).toBe('afastada');
+    expect(aberta?.menor).toBeCloseTo(3, 1);
+  });
+
+  describe('antagonista sobre o dente escolhido', () => {
+    const abrir = (antagonista: Malha | null) => {
+      const s = new Sessao({ meridianos: 60, linhas: 40 });
+      s.abrirArco('arco.stl', escreverStl(arcoSintetico(), 'arco'));
+      if (antagonista) s.abrirAntagonista('ant.stl', escreverStl(antagonista, 'ant'));
+      const h = s.apontar([0.3, 0.2, 20], [0, 0, -1]);
+      return s.abrirDente(16, h!.ponto, h!.normal);
+    };
+    /** Um pedaço de antagonista que só cobre outro dente, com o centro em x. */
+    const pedacoEm = (x: number) => invertida(revolucao(denso([[0, 9], [4, 9]], 1), 36, 1, 1, [x, 0, 0]));
+
+    it('sem arquivo de antagonista não há aviso', () => {
+      const d = abrir(null);
+      expect(d.antagonista).toBeNull();
+      expect(avisoDoAntagonistaNoDente(d.antagonista)).toBeNull();
+    });
+
+    it('antagonista sobre o dente: sem aviso', () => {
+      const d = abrir(antagonistaPlano(9));
+      expect(d.antagonista).toBeLessThanOrEqual(ANTAGONISTA_SOBRE_O_DENTE);
+      expect(avisoDoAntagonistaNoDente(d.antagonista)).toBeNull();
+    });
+
+    it('antagonista que cobre só o dente ao lado: avisa, com a distância', () => {
+      const d = abrir(pedacoEm(16));
+      expect(d.antagonista).toBeGreaterThan(11);
+      expect(d.antagonista).toBeLessThan(12.5);
+      expect(avisoDoAntagonistaNoDente(d.antagonista)).toMatch(/está a 1[12](,\d)? mm/);
+    });
+
+    it('antagonista longe de tudo: avisa sem número', () => {
+      const d = abrir(pedacoEm(80));
+      expect(d.antagonista).toBe(Infinity);
+      const aviso = avisoDoAntagonistaNoDente(d.antagonista);
+      expect(aviso).toContain('não cobre este dente');
+      expect(aviso).not.toMatch(/\d/);
+    });
+  });
+
+  it('o aviso diz o número com vírgula e manda exportar de novo', () => {
+    expect(avisoDaMordida({ situacao: 'encaixada', menor: 0.1 }).ok).toBe(true);
+    const aberta = avisoDaMordida({ situacao: 'afastada', menor: 3.26 });
+    expect(aberta.ok).toBe(false);
+    expect(aberta.texto).toContain('3,3 mm');
+    expect(aberta.texto).toContain('registro de mordida');
+    expect(avisoDaMordida({ situacao: 'invadindo', menor: -1.44 }).texto).toContain('1,4 mm');
+    expect(avisoDaMordida({ situacao: 'mesma', menor: 0 }).ok).toBe(false);
   });
 });
 

@@ -12,6 +12,7 @@ import { Sessao, type ResumoCoroa } from './sessao';
 export type Pedido =
   | { tipo: 'arco'; nome: string; buf: ArrayBuffer }
   | { tipo: 'antagonista'; nome: string; buf: ArrayBuffer }
+  | { tipo: 'mordida' }
   | { tipo: 'apontar'; o: V3; d: V3 }
   | { tipo: 'dente'; fdi: number; clique: V3; normal: V3 }
   | { tipo: 'margem'; fixos: V3[] }
@@ -69,6 +70,8 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
       const m = leve(sessao.abrirAntagonista(p.nome, p.buf));
       return { dados: m, envio: [m.pos.buffer, m.tri.buffer] };
     }
+    case 'mordida':
+      return { dados: sessao.conferirMordida(), envio: [] };
     case 'apontar':
       return { dados: sessao.apontar(p.o, p.d), envio: [] };
     case 'dente':

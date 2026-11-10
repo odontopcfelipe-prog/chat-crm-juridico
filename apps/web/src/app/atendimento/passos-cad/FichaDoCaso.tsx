@@ -10,6 +10,8 @@ import { CampoCliente } from './CampoCliente';
 import { CampoDeBroca, Campo } from './campos';
 import type { FichaCaso, Recentes } from './ficha';
 import { Odontograma } from './Odontograma';
+import { avisoDaMordida } from './aviso-da-mordida';
+import type { Mordida } from './motor/mordida';
 import { CORES_DO_DENTE, MATERIAIS, TEXTOS as T } from './textos';
 
 interface Props {
@@ -26,6 +28,8 @@ interface Props {
   aoMudarBroca: (v: number) => void;
   nomeArco: string | null;
   nomeAnt: string | null;
+  /** Conferência das duas arcadas abertas: null enquanto falta uma delas. */
+  mordida: Mordida | null;
   aoAbrirArquivo: (qual: 'arco' | 'antagonista', f: File) => void;
   aoDesenhar: () => void;
   aoComecarNovo: () => void;
@@ -88,6 +92,7 @@ export function FichaDoCaso(p: Props) {
   const travado = Boolean(p.ocupado);
   const temAlgoAberto = Boolean(p.nomeArco || p.nomeAnt || p.fdi || ficha.numero || ficha.cliente || ficha.nomeDoCaso || ficha.notas);
   const falta = !p.nomeArco ? T.faltaArco : !p.fdi ? T.faltaDente : null;
+  const aviso = p.mordida ? avisoDaMordida(p.mordida) : null;
 
   return (
     <div className="absolute inset-0 z-20 overflow-y-auto bg-background" data-testid="ficha-do-caso">
@@ -215,7 +220,17 @@ export function FichaDoCaso(p: Props) {
             <AcaoDeArquivo testid="arquivo-arco" titulo={T.acaoArco} ajuda={T.acaoArcoAjuda} nome={p.nomeArco} Icone={Upload} cor="bg-amber-500/15 text-amber-700" travado={travado} aoEscolher={(f) => p.aoAbrirArquivo('arco', f)} />
             <AcaoDeArquivo testid="arquivo-antagonista" titulo={T.acaoAnt} ajuda={T.acaoAntAjuda} nome={p.nomeAnt} Icone={Layers} cor="bg-sky-500/15 text-sky-700" travado={travado} aoEscolher={(f) => p.aoAbrirArquivo('antagonista', f)} />
           </div>
-          <p className="text-[11px] text-muted-foreground px-1.5">{T.antagonistaAjuda}</p>
+          {aviso?.ok && (
+            <p className="flex items-start gap-1 text-[11px] text-primary px-1.5" data-testid="mordida">
+              <Check size={12} className="shrink-0 mt-px" /> {aviso.texto}
+            </p>
+          )}
+          {aviso && !aviso.ok && (
+            <p className="mx-1.5 p-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-[11px] text-foreground" role="alert" data-testid="mordida">
+              {aviso.texto}
+            </p>
+          )}
+          {!aviso && <p className="text-[11px] text-muted-foreground px-1.5">{T.antagonistaAjuda}</p>}
           <button type="button" data-testid="avancar" disabled={Boolean(falta) || travado} onClick={p.aoDesenhar} className="mt-3 w-full flex items-center gap-3 p-1.5 rounded-lg text-left hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent">
             <Selo Icone={PenTool} cor="bg-primary text-primary-foreground" />
             <span className="text-sm font-semibold text-foreground">{T.acaoDesenhar}</span>

@@ -6,6 +6,7 @@ import { lerMalha, escreverStl } from './arquivos';
 import { Bvh, centroide, cross, dot, norma, recortarCaixa, sub, unit, vert, type Malha, type V3 } from './geo';
 import { acharPreparo, proporMargem, type PontoMargem, type Preparo } from './margem';
 import { quadroDoCaso } from './forma-do-plano';
+import { antagonistaSobreODente, medirMordida, type Mordida } from './mordida';
 import { planoPadrao, type PedidoDesenhoIa, type PlanoDoDente } from './plano-do-dente';
 import { Escultor, type FimDoTraco, type MedidasDaCoroa, type MudancaDaMalha, type OpcoesPincel, type RespostaDoPincel } from './escultura';
 import {
@@ -29,6 +30,8 @@ export interface ResumoDente {
   mesial: V3;
   vestibular: V3;
   margem: V3[];
+  /** Distância do antagonista até a coluna sobre o preparo (mm); null sem arquivo de antagonista. */
+  antagonista: number | null;
 }
 
 export interface ResumoCoroa {
@@ -77,6 +80,7 @@ export class Sessao {
   private margem: PontoMargem[] | null = null;
   private eixos: Eixos | null = null;
   private fdi = 0;
+  private antagonistaDoDente: number | null = null;
   private anatomia: Malha | null = null;
   private parametros: Parametros | null = null;
   private coroa: ResultadoCoroa | null = null;
@@ -95,6 +99,7 @@ export class Sessao {
     this.margem = null;
     this.eixos = null;
     this.fdi = 0;
+    this.antagonistaDoDente = null;
     this.anatomia = null;
     this.parametros = null;
     this.coroa = null;
@@ -122,6 +127,12 @@ export class Sessao {
     return this.antagonista !== null;
   }
 
+  /** A mordida das duas arcadas abertas; sem uma delas, não há o que conferir. */
+  conferirMordida(): Mordida | null {
+    if (!this.arcoB || !this.antagonista) return null;
+    return medirMordida(this.arcoB, this.antagonista);
+  }
+
   /** Ponto do arco sob o raio do clique. */
   apontar(o: V3, d: V3): { ponto: V3; normal: V3 } | null {
     const h = this.arcoB?.raio(o, d);
@@ -143,6 +154,8 @@ export class Sessao {
     }
     this.prep = acharPreparo(this.recorteB, clique, lado);
     this.eixos = eixosDoDente(this.prep, fdi, this.recorte, centroide(this.arco.pos));
+    // Sem isto, um antagonista que não cobre o dente deixava a coroa seguir como se ele não existisse.
+    this.antagonistaDoDente = this.antagonista ? antagonistaSobreODente(this.antB, this.prep) : null;
     return this.proporMargem([]);
   }
 
@@ -158,6 +171,7 @@ export class Sessao {
       mesial: this.eixos.mesial,
       vestibular: this.eixos.vestibular,
       margem: this.margem.map((m) => m.ponto),
+      antagonista: this.antagonistaDoDente,
     };
   }
 
