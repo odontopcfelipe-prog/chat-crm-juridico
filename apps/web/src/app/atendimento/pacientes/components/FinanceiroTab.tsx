@@ -83,6 +83,10 @@ interface Charge {
   cancelled_by_name?: string | null;
   cancel_reason?: string | null;
   received_in_cash?: boolean;
+  /** Vínculo com o plano (nem sempre preenchido: o vínculo confiável é a tag [plan:] na descrição). */
+  treatment_plan_id?: string | null;
+  /** Parcela do módulo antigo de Parcelas (Installment). */
+  installment_id?: string | null;
 }
 
 interface Installment {
@@ -160,6 +164,13 @@ const fmtDateTime = (iso?: string | null) => {
 const CANCELLED_CHARGE_STATUSES = ['DELETED', 'CANCELLED', 'REFUNDED'];
 const isCancelledStatus = (status?: string | null): boolean =>
   !!status && CANCELLED_CHARGE_STATUSES.includes(status);
+
+// Cobrança SEM contrato no sistema: boleto importado do Asaas (carteira antiga) ou
+// avulso. Mesma regra do "Do mês" (financeiro-charges.service): sem plano — nem
+// treatment_plan_id nem a tag "[plan:" na descrição — e sem parcela do módulo Parcelas
+// (essa já aparece na lista "Parcelas"). Nenhum card de contrato mostra essas.
+const isChargeSemContrato = (c: Charge): boolean =>
+  !c.treatment_plan_id && !c.installment_id && !(c.description || '').includes('[plan:');
 
 // Venda no CARTÃO da maquineta (cobrança local `cash-<plano>-CARTAO-…`): o cartão é passado
 // na hora — ninguém cobra nem dá baixa; o recebimento é confirmado no Validar do Financeiro.
@@ -285,6 +296,14 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
         total += Number(it.amount);
       }
     }
+    // Cobranças sem contrato no sistema (financiamento antigo importado do Asaas,
+    // avulsas) também são valor contratado. Sem elas, quem tinha um financiamento
+    // importado E um contrato novo ficava com "Já recebido + Em aberto" maior que o
+    // "Total contratado".
+    for (const c of charges) {
+      if (isCancelledStatus(c.status) || !isChargeSemContrato(c)) continue;
+      total += Number(c.amount);
+    }
 
     // 2. Installments (fluxo antigo de parcelas odontologicas)
     for (const it of installments) {
@@ -313,8 +332,8 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
     for (const c of charges) {
       const amt = Number(c.amount);
       const st = c.status;
-      // Canceladas/estornadas nao contam
-      if (st === 'DELETED' || st === 'REFUNDED') continue;
+      // Canceladas/estornadas nao contam (mesma lista da seção "Boletos cancelados")
+      if (isCancelledStatus(st)) continue;
       // Pagas
       if (st === 'RECEIVED' || st === 'CONFIRMED' || st === 'RECEIVED_IN_CASH') {
         paid += amt;
@@ -394,6 +413,8 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
     });
   }).length;
   const contractsCount = acceptedQuotes.length;
+  // Cobranças que nenhum card de contrato mostra (financiamento importado do Asaas, avulsas).
+  const chargesSemContrato = charges.filter(isChargeSemContrato);
 
   return (
     <div className="space-y-4">
@@ -482,10 +503,20 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
         />
       )}
 
-      {/* Onda 14.9 — Cobranças "órfãs" (sem quote aceito vinculado).
-          Caso raro mas mantém — ex: charges legadas via Installment. */}
-      {charges.length > 0 && acceptedQuotes.length === 0 && (
+      {/* Onda 14.9 — Cobranças "órfãs" (sem contrato no sistema): financiamento
+          importado do Asaas, avulsas. ANTES só apareciam quando o paciente não tinha
+          NENHUM contrato aceito — ao lançar um contrato novo, o financiamento antigo
+          sumia da ficha (mas seguia no "Em aberto" e na régua). Sem contrato nenhum,
+          continua mostrando todas as cobranças, como antes. */}
+      {acceptedQuotes.length === 0 ? (
         <ChargesSection charges={charges} onReload={load} />
+      ) : (
+        <ChargesSection
+          charges={chargesSemContrato}
+          onReload={load}
+          title="Boletos fora dos contratos acima"
+          hint="Importados do Asaas ou lançados avulsos — continuam valendo"
+        />
       )}
 
       {/* Onda 18.x — Boletos cancelados (preservados com rastro p/ revisão até
@@ -2497,11 +2528,26 @@ function ProceduresListModal({
   );
 }
 
-function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: () => void }) {
+function ChargesSection({
+  charges,
+  onReload,
+  title = 'Cobranças geradas',
+  hint,
+}: {
+  charges: Charge[];
+  onReload?: () => void;
+  title?: string;
+  hint?: string;
+}) {
   // Cobranças CANCELADAS não entram na lista ativa nem no contador — elas ficam
   // preservadas na seção "Boletos cancelados" (com rastro). Evita mostrar 2x.
+  // Ordem por VENCIMENTO: num carnê importado todas nascem juntas (created_at igual),
+  // então a ordem de criação embaralhava as parcelas.
   const activeCharges = useMemo(
-    () => charges.filter((c) => !isCancelledStatus(c.status)),
+    () =>
+      charges
+        .filter((c) => !isCancelledStatus(c.status))
+        .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()),
     [charges],
   );
   const summary = useMemo(() => {
@@ -2510,22 +2556,25 @@ function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: (
     let overdue = 0;
     for (const c of activeCharges) {
       const amt = Number(c.amount);
-      if (c.status === 'RECEIVED' || c.status === 'CONFIRMED') paid += amt;
+      if (c.status === 'RECEIVED' || c.status === 'CONFIRMED' || c.status === 'RECEIVED_IN_CASH') paid += amt;
       else if (c.status === 'PENDING') pending += amt;
       else if (c.status === 'OVERDUE') overdue += amt;
     }
     return { paid, pending, overdue };
   }, [activeCharges]);
 
+  if (activeCharges.length === 0) return null;
+
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Receipt size={14} className="text-amber-700" />
-          <p className="text-sm font-semibold">Cobranças geradas</p>
+          <p className="text-sm font-semibold">{title}</p>
           <span className="text-xs text-muted-foreground">
             ({activeCharges.length})
           </span>
+          {hint && <span className="text-[11px] text-muted-foreground">· {hint}</span>}
         </div>
         <div className="flex items-center gap-3 text-[11px]">
           {summary.paid > 0 && (
