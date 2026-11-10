@@ -5,7 +5,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { Bvh, conferirMalha, cross, dot, juntar, mul, norma, soma, sub, unit, vert, type Malha, type V3 } from '../../../web/src/app/atendimento/passos-cad/motor/geo';
+import { Bvh, conferirMalha, cross, dot, filtrarTriangulos, juntar, mul, norma, soma, sub, unit, vert, type Malha, type V3 } from '../../../web/src/app/atendimento/passos-cad/motor/geo';
+import { encaixarPelaOclusao, inversa, moverMalha, type Rigida } from '../../../web/src/app/atendimento/passos-cad/motor/encaixe';
 import { ArquivoRecusado, escreverStl, lerMalha, lerObj, lerPly, lerStl, EXTENSOES_DE_MALHA } from '../../../web/src/app/atendimento/passos-cad/motor/arquivos';
 import { acharPreparo, conferirMargem, margemDePontos, proporMargem, type PontoMargem } from '../../../web/src/app/atendimento/passos-cad/motor/margem';
 import {
@@ -749,6 +750,272 @@ describe('Passos CAD — conferência da mordida', () => {
     expect(avisoDaMordida({ situacao: 'invadindo', menor: -1.44 }).texto).toContain('1,4 mm');
     expect(avisoDaMordida({ situacao: 'mesma', menor: 0 }).ok).toBe(false);
   });
+});
+
+// ---------------------------------------------------------------- arcada sintética com dentes
+// Geometria própria (sem escaneamento de ninguém): incisivo, canino, pré-molar e molar com cúspides,
+// gengiva, e a oclusão vista por fora. As mesmas medidas de C:\wt\dev-cad\arcada-dentada.ts, onde o
+// encaixe foi medido em 24 posições.
+
+function sorteioDoTeste(semente: number): () => number {
+  let s = semente >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+type TipoDeDente = 'incisivo' | 'canino' | 'premolar' | 'molar';
+const TIPOS_DO_LADO: TipoDeDente[] = ['incisivo', 'incisivo', 'canino', 'premolar', 'premolar', 'molar', 'molar'];
+
+function relevoDoDente(tipo: TipoDeDente, x: number, y: number, w: number, bl: number): number {
+  const g = (cx: number, cy: number, s: number, a: number) => a * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * s * s));
+  if (tipo === 'molar') return g(w / 4, bl / 4, w / 6, 1.3) + g(-w / 4, bl / 4, w / 6, 1.1) + g(w / 4, -bl / 4, w / 6, 1.0) + g(-w / 4, -bl / 4, w / 6, 0.9) + g(-w * 0.05, 0, w / 8, -0.8);
+  if (tipo === 'premolar') return g(0, bl / 4, w / 4, 1.4) + g(0, -bl / 4, w / 4, 0.9) + g(0, 0, w / 7, -0.5);
+  if (tipo === 'canino') return g(0, 0, w / 4, 2.2);
+  return (-0.6 * Math.abs(y)) / (bl / 2) + g(0, 0, w, 0.4);
+}
+
+function coroaSintetica(c: V3, e1: V3, e2: V3, w: number, bl: number, h: number, tipo: TipoDeDente, col: number, lin: number): Malha {
+  const local = (x: number, y: number, z: number): V3 => [c[0] + x * e1[0] + y * e2[0], c[1] + x * e1[1] + y * e2[1], c[2] + z];
+  const pos: number[] = [...local(0, 0, h + relevoDoDente(tipo, 0, 0, w, bl))];
+  for (let q = 0; q < col; q++) {
+    const th = (2 * Math.PI * q) / col;
+    for (let k = 1; k <= lin; k++) {
+      const phi = (Math.PI / 2) * (1 - k / lin);
+      const rho = Math.cos(phi) ** 0.3;
+      const x = (w / 2) * rho * Math.cos(th);
+      const y = (bl / 2) * rho * Math.sin(th);
+      pos.push(...local(x, y, -4 + (h + 4) * Math.sin(phi) + relevoDoDente(tipo, x, y, w, bl) * Math.sin(phi) ** 4));
+    }
+  }
+  const tri: number[] = [];
+  const id = (q: number, k: number) => 1 + (q % col) * lin + (k - 1);
+  for (let q = 0; q < col; q++) {
+    tri.push(0, id(q, 1), id(q + 1, 1));
+    for (let k = 1; k < lin; k++) tri.push(id(q, k), id(q, k + 1), id(q + 1, k + 1), id(q, k), id(q + 1, k + 1), id(q + 1, k));
+  }
+  return { pos: Float64Array.from(pos), tri: Uint32Array.from(tri) };
+}
+
+interface MedidasDaArcada {
+  larguras: number[];
+  bl: number[];
+  h: number[];
+  k: number;
+  y0: number;
+}
+
+/** Arcada com a oclusal em +z; `res` muda só a amostragem, não a forma. */
+function arcadaDentada(md: MedidasDaArcada, semente: number, res: number): Malha {
+  const sortear = sorteioDoTeste(semente);
+  const xs: number[] = [];
+  const ss: number[] = [];
+  let s = 0;
+  for (let x = 0; x <= 40; x += 0.01) {
+    if (xs.length) s += Math.hypot(0.01, md.k * (x * x - (x - 0.01) ** 2));
+    xs.push(x);
+    ss.push(s);
+  }
+  const xNoComprimento = (l: number) => xs[Math.min(xs.length - 1, ss.findIndex((v) => v >= l))];
+  const tangente = (x: number): V3 => {
+    const l = Math.hypot(1, 2 * md.k * x);
+    return [1 / l, (2 * md.k * x) / l, 0];
+  };
+  const partes: Malha[] = [];
+  let xMax = 0;
+  for (const lado of [1, -1]) {
+    let l = 0;
+    for (let i = 0; i < md.larguras.length; i++) {
+      const w = md.larguras[i] * (1 + 0.04 * (sortear() - 0.5));
+      const xc = lado * xNoComprimento(l + w / 2);
+      l += w;
+      xMax = Math.max(xMax, Math.abs(xc) + w);
+      const t0 = tangente(xc);
+      const giro = 0.12 * (sortear() - 0.5);
+      const e1: V3 = [t0[0] * Math.cos(giro) - t0[1] * Math.sin(giro), t0[0] * Math.sin(giro) + t0[1] * Math.cos(giro), 0];
+      partes.push(coroaSintetica([xc, md.k * xc * xc + md.y0, 0.3 * (sortear() - 0.5)], e1, cross([0, 0, 1], e1), w, md.bl[i], md.h[i] * (1 + 0.05 * (sortear() - 0.5)), TIPOS_DO_LADO[i], 6 * res, 3 * res));
+    }
+  }
+  const pos: number[] = [];
+  const tri: number[] = [];
+  const passos = Math.round(2 * xMax * res);
+  const largura = 20 * res;
+  for (let i = 0; i <= passos; i++) {
+    const x = -xMax + (2 * xMax * i) / passos;
+    const e2 = cross([0, 0, 1], tangente(x));
+    for (let j = 0; j <= largura; j++) {
+      const o = -10 + (20 * j) / largura;
+      pos.push(x + o * e2[0], md.k * x * x + md.y0 + o * e2[1], -1.5 - 0.07 * o * o);
+    }
+  }
+  const id = (i: number, j: number) => i * (largura + 1) + j;
+  for (let i = 0; i < passos; i++) for (let j = 0; j < largura; j++) tri.push(id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j), id(i + 1, j + 1), id(i, j + 1));
+  partes.push({ pos: Float64Array.from(pos), tri: Uint32Array.from(tri) });
+  return juntar(...partes);
+}
+
+/** De cabeça para baixo (a arcada de cima), com as normais ainda para fora. */
+function deCabecaParaBaixo(m: Malha, dz: number): Malha {
+  const pos = Float64Array.from(m.pos);
+  for (let i = 2; i < pos.length; i += 3) pos[i] = -pos[i] + dz;
+  return invertida({ pos, tri: m.tri });
+}
+
+const DE_BAIXO: MedidasDaArcada = { larguras: [5.4, 5.9, 6.9, 7.0, 7.1, 11.0, 10.4], bl: [5.8, 6.2, 7.6, 7.8, 8.2, 10.6, 10.2], h: [7.5, 7.8, 9.0, 7.6, 7.2, 6.8, 6.4], k: 0.052, y0: 0 };
+const DE_CIMA: MedidasDaArcada = { larguras: [8.6, 6.6, 7.6, 7.0, 6.6, 10.2, 9.0], bl: [7.0, 6.2, 8.0, 9.2, 9.0, 11.2, 11.0], h: [9.6, 8.4, 9.4, 7.8, 7.2, 6.8, 6.4], k: 0.044, y0: -1.8 };
+
+const maiorZ = (m: Malha) => m.pos.reduce((a, v, i) => (i % 3 === 2 ? Math.max(a, v) : a), -Infinity);
+const menorZ = (m: Malha) => m.pos.reduce((a, v, i) => (i % 3 === 2 ? Math.min(a, v) : a), Infinity);
+
+/** A oclusão: o que se vê por fora, perto do plano de mordida, das duas arcadas, com ruído. */
+function oclusaoVistaPorFora(baixo: Malha, cima: Malha, zMordida: number, semente: number): Malha {
+  const sortear = sorteioDoTeste(semente);
+  const fora = (m: Malha) =>
+    filtrarTriangulos(m, (a, b, c) => {
+      const n = cross(sub(b, a), sub(c, a));
+      const l = norma(n);
+      if (l < 1e-12 || Math.abs((a[2] + b[2] + c[2]) / 3 - zMordida) > 6) return false;
+      const x = (a[0] + b[0] + c[0]) / 3;
+      const lv = Math.hypot(2 * 0.048 * x, 1);
+      return dot(n, [(2 * 0.048 * x) / lv, -1 / lv, 0]) / l > 0.35;
+    });
+  const m = juntar(fora(baixo), fora(cima));
+  const pos = Float64Array.from(m.pos);
+  for (let i = 0; i < pos.length; i++) pos[i] += 0.01 * (sortear() + sortear() - 1);
+  return { pos, tri: m.tri };
+}
+
+let casoDaOclusao: { baixo: Malha; cima: Malha; oclusao: Malha; outraBoca: Malha } | null = null;
+
+/** As duas arcadas na mordida e a oclusão escaneada com outra amostragem; montado uma vez só. */
+function casoComOclusao() {
+  if (!casoDaOclusao) {
+    const baixo = arcadaDentada(DE_BAIXO, 7, 6);
+    const dz = maiorZ(baixo) - menorZ(deCabecaParaBaixo(arcadaDentada(DE_CIMA, 8, 6), 0)) - 0.3;
+    const cima = deCabecaParaBaixo(arcadaDentada(DE_CIMA, 8, 6), dz);
+    const z = maiorZ(baixo) - 1;
+    const oclusao = oclusaoVistaPorFora(arcadaDentada(DE_BAIXO, 7, 8), deCabecaParaBaixo(arcadaDentada(DE_CIMA, 8, 8), dz), z, 3);
+    const mais = (v: number[], f: number) => v.map((x) => x * f);
+    const outraBoca = oclusaoVistaPorFora(
+      arcadaDentada({ ...DE_BAIXO, larguras: mais(DE_BAIXO.larguras, 1.1), bl: mais(DE_BAIXO.bl, 0.92), k: 0.06 }, 41, 8),
+      deCabecaParaBaixo(arcadaDentada({ ...DE_CIMA, larguras: mais(DE_CIMA.larguras, 1.1), bl: mais(DE_CIMA.bl, 0.92), k: 0.05 }, 42, 8), dz),
+      z,
+      4,
+    );
+    casoDaOclusao = { baixo, cima, oclusao, outraBoca };
+  }
+  return casoDaOclusao;
+}
+
+function giroDoTeste(eixo: V3, graus: number, t: V3): Rigida {
+  const [x, y, z] = unit(eixo);
+  const th = (graus * Math.PI) / 180;
+  const c = Math.cos(th);
+  const s = Math.sin(th);
+  const C = 1 - c;
+  return { R: [c + x * x * C, x * y * C - z * s, x * z * C + y * s, y * x * C + z * s, c + y * y * C, y * z * C - x * s, z * x * C - y * s, z * y * C + x * s, c + z * z * C], t };
+}
+
+/** Quanto o ponto mais longe ficou do lugar (mm): as duas malhas têm os mesmos vértices. */
+function maiorDesvio(a: { pos: ArrayLike<number> }, b: Malha): number {
+  let m = 0;
+  for (let i = 0; i < b.pos.length; i += 3) m = Math.max(m, Math.hypot(a.pos[i] - b.pos[i], a.pos[i + 1] - b.pos[i + 1], a.pos[i + 2] - b.pos[i + 2]));
+  return m;
+}
+
+describe('Passos CAD — encaixe pela oclusão', () => {
+  const DEMORADO = 240_000;
+  const ANTAGONISTA_SOLTO = giroDoTeste([1, 2, 3], 25, [10, -5, 20]);
+  const OCLUSAO_SOLTA = giroDoTeste([0, 1, 1], 70, [-30, 15, 5]);
+
+  it(
+    'arcada parada; antagonista e oclusão em lugares quaisquer: o antagonista volta para a mordida',
+    () => {
+      const { baixo, cima, oclusao } = casoComOclusao();
+      const ant = moverMalha(cima, ANTAGONISTA_SOLTO);
+      const e = encaixarPelaOclusao(new Bvh(baixo), ant, moverMalha(oclusao, OCLUSAO_SOLTA));
+      expect(e).not.toBeNull();
+      expect(maiorDesvio(moverMalha(ant, e!.T), cima)).toBeLessThan(0.15);
+    },
+    DEMORADO,
+  );
+
+  it(
+    'preparo na arcada de cima: ela fica parada e a de baixo é que se move',
+    () => {
+      const { baixo, cima, oclusao } = casoComOclusao();
+      const ant = moverMalha(baixo, giroDoTeste([0, 0, 1], 150, [5, 40, -10]));
+      const e = encaixarPelaOclusao(new Bvh(cima), ant, moverMalha(oclusao, giroDoTeste([1, -1, 0], 120, [20, 0, 30])));
+      expect(e).not.toBeNull();
+      expect(maiorDesvio(moverMalha(ant, e!.T), baixo)).toBeLessThan(0.15);
+    },
+    DEMORADO,
+  );
+
+  it(
+    'oclusão já nas coordenadas da arcada, como sai de scanner que exporta junto',
+    () => {
+      const { baixo, cima, oclusao } = casoComOclusao();
+      const ant = moverMalha(cima, ANTAGONISTA_SOLTO);
+      const e = encaixarPelaOclusao(new Bvh(baixo), ant, oclusao);
+      expect(e).not.toBeNull();
+      expect(maiorDesvio(moverMalha(ant, e!.T), cima)).toBeLessThan(0.15);
+    },
+    DEMORADO,
+  );
+
+  it(
+    'oclusão com os triângulos no sentido trocado',
+    () => {
+      const { baixo, cima, oclusao } = casoComOclusao();
+      const ant = moverMalha(cima, ANTAGONISTA_SOLTO);
+      const e = encaixarPelaOclusao(new Bvh(baixo), ant, invertida(moverMalha(oclusao, OCLUSAO_SOLTA)));
+      expect(e).not.toBeNull();
+      expect(maiorDesvio(moverMalha(ant, e!.T), cima)).toBeLessThan(0.15);
+    },
+    DEMORADO,
+  );
+
+  it(
+    'oclusão de outra boca é recusada: nunca um encaixe errado',
+    () => {
+      const { baixo, cima, outraBoca } = casoComOclusao();
+      expect(encaixarPelaOclusao(new Bvh(baixo), moverMalha(cima, ANTAGONISTA_SOLTO), moverMalha(outraBoca, OCLUSAO_SOLTA))).toBeNull();
+    },
+    DEMORADO,
+  );
+
+  it(
+    'a Sessao só usa a oclusão quando as arcadas não chegaram encaixadas',
+    () => {
+      const { baixo, cima, oclusao } = casoComOclusao();
+      const stl = (m: Malha) => escreverStl(m, 'teste');
+      const s = new Sessao({ meridianos: 60, linhas: 40 });
+      s.abrirArco('arco.stl', stl(baixo));
+      const solto = stl(moverMalha(cima, ANTAGONISTA_SOLTO));
+      s.abrirAntagonista('ant.stl', solto);
+      expect(s.conferirEEncaixar()?.encaixe).toBeNull();
+      s.abrirOclusao('oclusao.stl', stl(moverMalha(oclusao, OCLUSAO_SOLTA)));
+      const r = s.conferirEEncaixar();
+      expect(r?.encaixe).toBe('feito');
+      // Comparado com o mesmo arquivo lido e levado de volta: a leitura pode mudar a ordem dos vértices.
+      expect(maiorDesvio(r!.antagonista!, moverMalha(lerMalha('ant.stl', solto), inversa(ANTAGONISTA_SOLTO)))).toBeLessThan(0.15);
+      // Arcadas que já se tocam ficam como vieram, mesmo com a oclusão aberta.
+      const t = new Sessao({ meridianos: 60, linhas: 40 });
+      t.abrirArco('arco.stl', stl(arcoSintetico()));
+      t.abrirAntagonista('ant.stl', stl(antagonistaPlano(6.1)));
+      t.abrirOclusao('oclusao.stl', stl(oclusao));
+      const u = t.conferirEEncaixar();
+      expect(u?.mordida.situacao).toBe('encaixada');
+      expect(u?.encaixe).toBeNull();
+      expect(u?.antagonista).toBeNull();
+    },
+    DEMORADO,
+  );
 });
 
 describe('Passos CAD — compensação de fresa', () => {
@@ -1945,7 +2212,10 @@ describe('Passos CAD — o que a tela não pode fazer', () => {
 
   it('mudar arcada, antagonista, dente ou margem tira a coroa antiga da tela', () => {
     const src = fs.readFileSync(path.join(PASTA, 'PassosCadApp.tsx'), 'utf8');
-    expect(src).toMatch(/const abrirArquivo[\s\S]{0,420}descartarDente\(\);/);
+    const abrir = src.slice(src.indexOf('const abrirArquivo'), src.indexOf('// O aviso é da etapa'));
+    expect(abrir).toMatch(/const malha = await m\.pedir<MalhaLeve>[^\n]*\n\s*descartarDente\(\);/);
+    // O antagonista que o encaixe pela oclusão moveu também tira o dente e a coroa.
+    expect(abrir).toMatch(/if \(r\?\.antagonista\) \{\s*descartarDente\(\);/);
     expect(src).toMatch(/setFdi\(n\);\s*descartarDente\(\);/);
     expect((src.match(/tipo: 'margem'[^\n]*\n\s*descartarCoroa\(\);/g) ?? []).length).toBe(2);
   });

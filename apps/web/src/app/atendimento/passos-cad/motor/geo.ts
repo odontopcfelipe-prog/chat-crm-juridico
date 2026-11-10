@@ -3,6 +3,10 @@
  * Módulo puro: roda no navegador (Web Worker) e nos testes. Unidades em milímetros.
  */
 
+// Math em nomes locais: no jest (que roda o código isolado), cada acesso a Math dentro de um laço
+// custava centenas de vezes mais (medido: 10,6 s contra 0,03 s). No navegador tanto faz.
+const { abs, floor, hypot, max, min, sqrt } = Math;
+
 export type V3 = readonly [number, number, number];
 
 export interface Malha {
@@ -15,11 +19,11 @@ export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 export const mul = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s];
 export const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-export const norma = (a: V3): number => Math.hypot(a[0], a[1], a[2]);
+export const norma = (a: V3): number => hypot(a[0], a[1], a[2]);
 export const unit = (a: V3): V3 => mul(a, 1 / (norma(a) || 1));
 export const vert = (m: Malha, i: number): V3 => [m.pos[3 * i], m.pos[3 * i + 1], m.pos[3 * i + 2]];
 export const passoSuave = (a: number, b: number, x: number): number => {
-  const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+  const t = min(max((x - a) / (b - a), 0), 1);
   return t * t * (3 - 2 * t);
 };
 
@@ -67,7 +71,7 @@ export function filtrarTriangulos(m: Malha, manter: (a: V3, b: V3, c: V3) => boo
 }
 
 export function recortarCaixa(m: Malha, c: V3, r: number): Malha {
-  const dentro = (p: V3) => Math.abs(p[0] - c[0]) < r && Math.abs(p[1] - c[1]) < r && Math.abs(p[2] - c[2]) < r;
+  const dentro = (p: V3) => abs(p[0] - c[0]) < r && abs(p[1] - c[1]) < r && abs(p[2] - c[2]) < r;
   return filtrarTriangulos(m, (a, b, d) => dentro(a) || dentro(b) || dentro(d));
 }
 
@@ -94,7 +98,7 @@ export function normaisDeVertice(m: Malha): Float64Array {
     }
   }
   for (let i = 0; i < n.length; i += 3) {
-    const l = Math.hypot(n[i], n[i + 1], n[i + 2]) || 1;
+    const l = hypot(n[i], n[i + 1], n[i + 2]) || 1;
     n[i] /= l;
     n[i + 1] /= l;
     n[i + 2] /= l;
@@ -132,7 +136,7 @@ export function conferirMalha(m: Malha): Conferencia {
   }
   let abertas = 0;
   for (const k of arestas) {
-    const a = Math.floor(k / nv);
+    const a = floor(k / nv);
     const b = k - a * nv;
     if (!arestas.has(b * nv + a)) abertas++;
   }
@@ -179,8 +183,8 @@ export class Bvh {
         const x = m.pos[a + e];
         const y = m.pos[b + e];
         const z = m.pos[c + e];
-        this.caixaTri[6 * t + e] = Math.min(x, y, z);
-        this.caixaTri[6 * t + 3 + e] = Math.max(x, y, z);
+        this.caixaTri[6 * t + e] = min(x, y, z);
+        this.caixaTri[6 * t + 3 + e] = max(x, y, z);
         cen[3 * t + e] = (x + y + z) / 3;
       }
     }
@@ -194,15 +198,15 @@ export class Bvh {
     for (let i = ini; i < fim; i++) {
       const t = this.ordem[i];
       for (let e = 0; e < 3; e++) {
-        cx[e] = Math.min(cx[e], this.caixaTri[6 * t + e]);
-        cx[3 + e] = Math.max(cx[3 + e], this.caixaTri[6 * t + 3 + e]);
+        cx[e] = min(cx[e], this.caixaTri[6 * t + e]);
+        cx[3 + e] = max(cx[3 + e], this.caixaTri[6 * t + 3 + e]);
       }
     }
     this.caixas.push(...cx);
     this.filhos.push(-1, -1, ini, fim - ini);
     if (fim - ini <= 6) return id;
     const ext = [cx[3] - cx[0], cx[4] - cx[1], cx[5] - cx[2]];
-    const eixo = ext.indexOf(Math.max(...ext));
+    const eixo = ext.indexOf(max(...ext));
     const parte = Array.from(this.ordem.subarray(ini, fim)).sort((p, q) => cen[3 * p + eixo] - cen[3 * q + eixo]);
     this.ordem.set(parte, ini);
     const meio = (ini + fim) >> 1;
@@ -226,8 +230,8 @@ export class Bvh {
         const e = 6 * f[4 * n];
         const d = 6 * f[4 * n + 1];
         for (let k = 0; k < 3; k++) {
-          c[b + k] = Math.min(c[e + k], c[d + k]);
-          c[b + 3 + k] = Math.max(c[e + 3 + k], c[d + 3 + k]);
+          c[b + k] = min(c[e + k], c[d + k]);
+          c[b + 3 + k] = max(c[e + 3 + k], c[d + 3 + k]);
         }
         continue;
       }
@@ -281,18 +285,18 @@ export class Bvh {
       let t1 = melhorT;
       let a1 = (c[b] - o[0]) * ix;
       let a2 = (c[b + 3] - o[0]) * ix;
-      t0 = Math.max(t0, Math.min(a1, a2));
-      t1 = Math.min(t1, Math.max(a1, a2));
+      t0 = max(t0, min(a1, a2));
+      t1 = min(t1, max(a1, a2));
       if (t0 > t1) continue;
       a1 = (c[b + 1] - o[1]) * iy;
       a2 = (c[b + 4] - o[1]) * iy;
-      t0 = Math.max(t0, Math.min(a1, a2));
-      t1 = Math.min(t1, Math.max(a1, a2));
+      t0 = max(t0, min(a1, a2));
+      t1 = min(t1, max(a1, a2));
       if (t0 > t1) continue;
       a1 = (c[b + 2] - o[2]) * iz;
       a2 = (c[b + 5] - o[2]) * iz;
-      t0 = Math.max(t0, Math.min(a1, a2));
-      t1 = Math.min(t1, Math.max(a1, a2));
+      t0 = max(t0, min(a1, a2));
+      t1 = min(t1, max(a1, a2));
       if (t0 > t1) continue;
       if (this.filhos[4 * n + 3] === 0) {
         pilha.push(this.filhos[4 * n], this.filhos[4 * n + 1]);
@@ -315,7 +319,7 @@ export class Bvh {
         const py = d[2] * e2x - d[0] * e2z;
         const pz = d[0] * e2y - d[1] * e2x;
         const det = e1x * px + e1y * py + e1z * pz;
-        if (Math.abs(det) < 1e-12) continue;
+        if (abs(det) < 1e-12) continue;
         const sx = o[0] - pos[A];
         const sy = o[1] - pos[A + 1];
         const sz = o[2] - pos[A + 2];
@@ -381,7 +385,7 @@ export class Bvh {
     }
     if (melhorT < 0) return null;
     const normal = this.normalEm(melhorT, mu, mv);
-    const dist = Math.sqrt(melhor2);
+    const dist = sqrt(melhor2);
     return { d: dot(sub(p, melhorP), normal) >= 0 ? dist : -dist, tri: melhorT, ponto: melhorP, normal };
   }
 }
@@ -391,7 +395,7 @@ function distCaixa2(c: number[], n: number, p: V3): number {
   const b = 6 * n;
   let dd = 0;
   for (let e = 0; e < 3; e++) {
-    const q = Math.max(c[b + e] - p[e], 0, p[e] - c[b + 3 + e]);
+    const q = max(c[b + e] - p[e], 0, p[e] - c[b + 3 + e]);
     dd += q * q;
   }
   return dd;

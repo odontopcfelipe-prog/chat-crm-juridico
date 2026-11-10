@@ -7,11 +7,13 @@ import type { Malha, V3 } from './geo';
 import type { Ajuste, Parametros } from './coroa';
 import type { MedidasDaCoroa, MudancaDaMalha, OpcoesPincel } from './escultura';
 import type { PlanoDoDente } from './plano-do-dente';
+import type { Mordida } from './mordida';
 import { Sessao, type ResumoCoroa } from './sessao';
 
 export type Pedido =
   | { tipo: 'arco'; nome: string; buf: ArrayBuffer }
   | { tipo: 'antagonista'; nome: string; buf: ArrayBuffer }
+  | { tipo: 'oclusao'; nome: string; buf: ArrayBuffer }
   | { tipo: 'mordida' }
   | { tipo: 'apontar'; o: V3; d: V3 }
   | { tipo: 'dente'; fdi: number; clique: V3; normal: V3 }
@@ -33,6 +35,13 @@ export type Pedido =
 export interface MalhaLeve {
   pos: Float32Array;
   tri: Uint32Array;
+}
+
+/** A mordida conferida; com o encaixe feito, o antagonista vem na posição nova para a tela. */
+export interface RespostaDaMordida {
+  mordida: Mordida;
+  encaixe: 'feito' | 'falhou' | null;
+  antagonista: MalhaLeve | null;
 }
 
 const escopo = self as unknown as DedicatedWorkerGlobalScope;
@@ -70,8 +79,16 @@ function atender(p: Pedido): { dados: unknown; envio: Transferable[] } {
       const m = leve(sessao.abrirAntagonista(p.nome, p.buf));
       return { dados: m, envio: [m.pos.buffer, m.tri.buffer] };
     }
-    case 'mordida':
-      return { dados: sessao.conferirMordida(), envio: [] };
+    case 'oclusao':
+      sessao.abrirOclusao(p.nome, p.buf);
+      return { dados: null, envio: [] };
+    case 'mordida': {
+      const r = sessao.conferirEEncaixar();
+      if (!r) return { dados: null, envio: [] };
+      const antagonista = r.antagonista ? leve(r.antagonista) : null;
+      const dados: RespostaDaMordida = { mordida: r.mordida, encaixe: r.encaixe, antagonista };
+      return { dados, envio: antagonista ? [antagonista.pos.buffer, antagonista.tri.buffer] : [] };
+    }
     case 'apontar':
       return { dados: sessao.apontar(p.o, p.d), envio: [] };
     case 'dente':

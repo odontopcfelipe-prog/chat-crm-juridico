@@ -7,6 +7,16 @@ import { Bvh, centroide, cross, dot, norma, recortarCaixa, sub, unit, vert, type
 import { acharPreparo, proporMargem, type PontoMargem, type Preparo } from './margem';
 import { quadroDoCaso } from './forma-do-plano';
 import { antagonistaSobreODente, medirMordida, type Mordida } from './mordida';
+import { encaixarPelaOclusao, moverMalha } from './encaixe';
+
+/** A mordida conferida e, se precisou, o antagonista encaixado pela oclusão. */
+export interface ConferenciaDaMordida {
+  mordida: Mordida;
+  /** null: a oclusão não foi usada (não havia, ou as arcadas já chegaram encaixadas). */
+  encaixe: 'feito' | 'falhou' | null;
+  /** O antagonista na posição nova, quando o encaixe foi feito. */
+  antagonista: Malha | null;
+}
 import { planoPadrao, type PedidoDesenhoIa, type PlanoDoDente } from './plano-do-dente';
 import { Escultor, type FimDoTraco, type MedidasDaCoroa, type MudancaDaMalha, type OpcoesPincel, type RespostaDoPincel } from './escultura';
 import {
@@ -72,6 +82,7 @@ export class Sessao {
   private arco: Malha | null = null;
   private arcoB: Bvh | null = null;
   private antagonista: Malha | null = null;
+  private oclusao: Malha | null = null;
   private recorte: Malha | null = null;
   private recorteB: Bvh | null = null;
   private antB: Bvh | null = null;
@@ -91,6 +102,7 @@ export class Sessao {
     this.arco = null;
     this.arcoB = null;
     this.antagonista = null;
+    this.oclusao = null;
     this.recorte = null;
     this.recorteB = null;
     this.antB = null;
@@ -131,6 +143,27 @@ export class Sessao {
   conferirMordida(): Mordida | null {
     if (!this.arcoB || !this.antagonista) return null;
     return medirMordida(this.arcoB, this.antagonista);
+  }
+
+  /** O escaneamento da oclusão (as duas arcadas mordendo, por fora). Só é usado se precisar. */
+  abrirOclusao(nome: string, buf: ArrayBuffer): void {
+    this.oclusao = lerMalha(nome, buf);
+  }
+
+  /**
+   * Confere a mordida e, se as arcadas não chegaram encaixadas e há oclusão, encaixa o antagonista por
+   * ela. A arcada não se move: a coroa sai nas coordenadas dela. Arcadas que já se tocam ficam como
+   * vieram, e o mesmo arquivo nas duas não é encaixe, é engano.
+   */
+  conferirEEncaixar(): ConferenciaDaMordida | null {
+    const mordida = this.conferirMordida();
+    if (!mordida || !this.arcoB || !this.antagonista) return null;
+    if (!this.oclusao || mordida.situacao === 'encaixada' || mordida.situacao === 'mesma') return { mordida, encaixe: null, antagonista: null };
+    const e = encaixarPelaOclusao(this.arcoB, this.antagonista, this.oclusao);
+    if (!e) return { mordida, encaixe: 'falhou', antagonista: null };
+    this.antagonista = moverMalha(this.antagonista, e.T);
+    this.antB = null;
+    return { mordida: medirMordida(this.arcoB, this.antagonista), encaixe: 'feito', antagonista: this.antagonista };
   }
 
   /** Ponto do arco sob o raio do clique. */

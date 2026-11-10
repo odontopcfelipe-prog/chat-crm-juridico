@@ -7,6 +7,10 @@
 import { Bvh, centroide, cross, dot, mul, norma, soma, sub, vert, type Malha, type V3 } from './geo';
 import type { Preparo } from './margem';
 
+// Math em nomes locais: no jest (que roda o código isolado), cada acesso a Math dentro de um laço
+// custava centenas de vezes mais (medido: 10,6 s contra 0,03 s). No navegador tanto faz.
+const { abs, floor, max, min } = Math;
+
 export type SituacaoDaMordida = 'encaixada' | 'afastada' | 'invadindo' | 'mesma';
 
 export interface Mordida {
@@ -52,11 +56,11 @@ export function normaisParaFora(arco: Malha, paraOAntagonista: V3): boolean {
 /** Arcadas sem nenhum ponto perto: a distância de verdade, por uma amostra menor. */
 function menorDistancia(arcoB: Bvh, antagonista: Malha): number {
   const nv = antagonista.pos.length / 3;
-  const passo = Math.max(1, Math.floor(nv / 2000));
+  const passo = max(1, floor(nv / 2000));
   let menor = Infinity;
   for (let v = 0; v < nv; v += passo) {
     const r = arcoB.proximo(vert(antagonista, v), menor);
-    if (r) menor = Math.min(menor, Math.abs(r.d));
+    if (r) menor = min(menor, abs(r.d));
   }
   return menor;
 }
@@ -66,14 +70,14 @@ export function medirMordida(arcoB: Bvh, antagonista: Malha): Mordida {
   const arco = arcoB.m;
   const sinal = normaisParaFora(arco, sub(centroide(antagonista.pos), centroide(arco.pos))) ? 1 : -1;
   const nv = antagonista.pos.length / 3;
-  const passo = Math.max(1, Math.floor(nv / AMOSTRAS));
+  const passo = max(1, floor(nv / AMOSTRAS));
   const perto: number[] = [];
   let coincidem = 0;
   for (let v = 0; v < nv; v += passo) {
     const r = arcoB.proximo(vert(antagonista, v), ALCANCE);
     if (!r) continue;
     perto.push(sinal * r.d);
-    if (Math.abs(r.d) < COINCIDE) coincidem++;
+    if (abs(r.d) < COINCIDE) coincidem++;
   }
   if (perto.length <= PONTOS_SOLTOS) return { situacao: 'afastada', menor: menorDistancia(arcoB, antagonista) };
   if (coincidem > perto.length / 2) return { situacao: 'mesma', menor: 0 };
@@ -99,7 +103,7 @@ export function antagonistaSobreODente(antB: Bvh | null, prep: Preparo): number 
   let menor = Infinity;
   for (const h of ALTURAS_SOBRE_O_PREPARO) {
     const r = antB.proximo(soma(prep.topo, mul(prep.a, h)), menor);
-    if (r) menor = Math.min(menor, Math.abs(r.d));
+    if (r) menor = min(menor, abs(r.d));
   }
   return menor;
 }

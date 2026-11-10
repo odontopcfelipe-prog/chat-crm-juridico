@@ -16,7 +16,7 @@ import { pedirDesenhoIa } from './desenho-com-ia';
 import { fichaNova, guardarRecentes, lerRecentes, type FichaCaso, type Recentes } from './ficha';
 import { apagarBibliotecaAntiga } from './motor/conta';
 import { FichaDoCaso } from './FichaDoCaso';
-import type { MalhaLeve } from './motor/worker';
+import type { MalhaLeve, RespostaDaMordida } from './motor/worker';
 import type { FimDoTraco, MedidasDaCoroa, ModoPincel, MudancaDaMalha, OpcoesPincel, RespostaDoPincel } from './motor/escultura';
 import type { Parametros, Relatorio } from './motor/coroa';
 import type { ResumoDente } from './motor/sessao';
@@ -131,6 +131,8 @@ export default function PassosCadApp() {
   const [nomeArco, setNomeArco] = useState<string | null>(null);
   const [nomeAnt, setNomeAnt] = useState<string | null>(null);
   const [mordida, setMordida] = useState<Mordida | null>(null);
+  const [nomeOclusao, setNomeOclusao] = useState<string | null>(null);
+  const [encaixe, setEncaixe] = useState<RespostaDaMordida['encaixe']>(null);
   const [frenteDoArco, setFrenteDoArco] = useState<V3 | undefined>(undefined);
   const [fdi, setFdi] = useState<number | null>(null);
   const [materialId, setMaterialId] = useState(MATERIAIS[0].id);
@@ -222,30 +224,47 @@ export default function PassosCadApp() {
     v?.definirPontos('fixos', null, 0);
   }, [descartarCoroa]);
 
-  const abrirArquivo = (qual: 'arco' | 'antagonista', f: File) =>
+  const abrirArquivo = (qual: 'arco' | 'antagonista' | 'oclusao', f: File) =>
     executar(T.abrindoArquivo, async () => {
       if (f.size > TAMANHO_MAXIMO) throw new Error(T.arquivoGrande);
       const buf = await f.arrayBuffer();
-      const m = await (motor.current as ClienteDoMotor).pedir<MalhaLeve>({ tipo: qual, nome: f.name, buf }, [buf]);
+      const m = motor.current as ClienteDoMotor;
       const v = visor.current as Visor3D;
-      descartarDente();
-      if (qual === 'arco') {
-        setNomeArco(f.name);
-        v.definirMalha('arco', m, { cor: COR_ARCO });
-        const frente = v.direcaoMedia(m);
-        setFrenteDoArco(frente);
-        v.enquadrar('arco', undefined, undefined, frente);
+      if (qual === 'oclusao') {
+        // A oclusão não aparece no visor: ela só serve para encaixar o antagonista.
+        await m.pedir<null>({ tipo: 'oclusao', nome: f.name, buf }, [buf]);
+        setNomeOclusao(f.name);
       } else {
-        setNomeAnt(f.name);
-        v.definirMalha('ant', m, { cor: COR_ANT, opacidade: 0.55 });
+        const malha = await m.pedir<MalhaLeve>({ tipo: qual, nome: f.name, buf }, [buf]);
+        descartarDente();
+        if (qual === 'arco') {
+          setNomeArco(f.name);
+          v.definirMalha('arco', malha, { cor: COR_ARCO });
+          const frente = v.direcaoMedia(malha);
+          setFrenteDoArco(frente);
+          v.enquadrar('arco', undefined, undefined, frente);
+        } else {
+          setNomeAnt(f.name);
+          v.definirMalha('ant', malha, { cor: COR_ANT, opacidade: 0.55 });
+          v.definirVisivel('ant', false);
+        }
+      }
+      // Com as duas arcadas abertas, confere se estão em oclusão: o desenho confia nisso. Se não
+      // estão e há oclusão, o motor encaixa o antagonista por ela.
+      setMordida(null);
+      setEncaixe(null);
+      const temArco = qual === 'arco' || Boolean(nomeArco);
+      const temAnt = qual === 'antagonista' || Boolean(nomeAnt);
+      if (!temArco || !temAnt) return;
+      setOcupado(qual === 'oclusao' || nomeOclusao ? T.encaixandoMordida : T.conferindoMordida);
+      const r = await m.pedir<RespostaDaMordida | null>({ tipo: 'mordida' });
+      if (r?.antagonista) {
+        descartarDente();
+        v.definirMalha('ant', r.antagonista, { cor: COR_ANT, opacidade: 0.55 });
         v.definirVisivel('ant', false);
       }
-      // Com as duas arcadas abertas, confere se estão em oclusão: o desenho confia nisso.
-      setMordida(null);
-      if (qual === 'arco' ? nomeAnt : nomeArco) {
-        setOcupado(T.conferindoMordida);
-        setMordida(await (motor.current as ClienteDoMotor).pedir<Mordida | null>({ tipo: 'mordida' }));
-      }
+      setMordida(r?.mordida ?? null);
+      setEncaixe(r?.encaixe ?? null);
     });
 
   // O aviso é da etapa em que aconteceu.
@@ -579,7 +598,9 @@ export default function PassosCadApp() {
       v.definirMalha('ant', null);
       setNomeArco(null);
       setNomeAnt(null);
+      setNomeOclusao(null);
       setMordida(null);
+      setEncaixe(null);
       setFrenteDoArco(undefined);
       setFdi(null);
       setMapa('nenhum');
@@ -634,6 +655,8 @@ export default function PassosCadApp() {
           nomeArco={nomeArco}
           nomeAnt={nomeAnt}
           mordida={mordida}
+          nomeOclusao={nomeOclusao}
+          encaixe={encaixe}
           aoAbrirArquivo={(qual, f) => void abrirArquivo(qual, f)}
           aoDesenhar={avancar}
           aoComecarNovo={() => void comecarCasoNovo()}
