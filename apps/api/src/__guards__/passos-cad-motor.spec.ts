@@ -21,7 +21,7 @@ import {
 import { Sessao } from '../../../web/src/app/atendimento/passos-cad/motor/sessao';
 import { Escultor, type ModoPincel } from '../../../web/src/app/atendimento/passos-cad/motor/escultura';
 import { compensarFresa, contarSemAlcance, normalizarBroca } from '../../../web/src/app/atendimento/passos-cad/motor/fresa';
-import { ALTURA_DO_ARCO, LARGURA_DO_ARCO, dentesDoArco } from '../../../web/src/app/atendimento/passos-cad/arco-dos-dentes';
+import { ALTURA_DA_IMAGEM, DENTES_DA_IMAGEM, LARGURA_DA_IMAGEM } from '../../../web/src/app/atendimento/passos-cad/mapa-da-arcada';
 import { juntarRecente, nomesDoCadastro, opcoesDeCliente } from '../../../web/src/app/atendimento/passos-cad/ficha';
 import { planoPadrao, validarPlano } from '../../../web/src/app/atendimento/passos-cad/motor/plano-do-dente';
 import { alisarLimite, alisarOndeEncosta, normalizarParametros } from '../../../web/src/app/atendimento/passos-cad/motor/coroa';
@@ -495,8 +495,20 @@ describe('Passos CAD — coroa', () => {
 });
 
 describe('Passos CAD — ficha do caso', () => {
-  const dentes = dentesDoArco();
+  const dentes = DENTES_DA_IMAGEM;
   const de = (fdi: number) => dentes.find((d) => d.fdi === fdi) as (typeof dentes)[number];
+  /** Pontos do contorno (caminho "M x y L x y ... Z", em pixels da imagem). */
+  const pontos = (fdi: number): number[][] =>
+    de(fdi).contorno.replace(/[MZ]/g, '').split('L').map((p) => p.trim().split(/\s+/).map(Number));
+  const dentro = (x: number, y: number, poly: number[][]): boolean => {
+    let sim = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i];
+      const [xj, yj] = poly[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) sim = !sim;
+    }
+    return sim;
+  };
 
   it('a arcada tem os 32 dentes, uma vez cada', () => {
     const esperados: number[] = [];
@@ -504,44 +516,46 @@ describe('Passos CAD — ficha do caso', () => {
     expect(dentes.map((d) => d.fdi).sort((a, b) => a - b)).toEqual(esperados);
   });
 
+  it('a imagem da arcada existe e tem o tamanho do mapa', () => {
+    const png = fs.readFileSync(path.join(__dirname, '../../../web/public/passos-cad/arcada.png'));
+    expect(png.subarray(1, 4).toString('latin1')).toBe('PNG');
+    expect(png.readUInt32BE(16)).toBe(LARGURA_DA_IMAGEM);
+    expect(png.readUInt32BE(20)).toBe(ALTURA_DA_IMAGEM);
+  });
+
   it('cada quadrante fica no seu lugar: 1 em cima à esquerda, 2 à direita, 3 embaixo à direita, 4 à esquerda', () => {
-    const meioX = LARGURA_DO_ARCO / 2;
-    const meioY = ALTURA_DO_ARCO / 2;
+    const meioX = LARGURA_DA_IMAGEM / 2;
+    const meioY = ALTURA_DA_IMAGEM / 2;
     for (const d of dentes) {
       const q = Math.floor(d.fdi / 10);
       expect([d.fdi, d.x < meioX]).toEqual([d.fdi, q === 1 || q === 4]);
       expect([d.fdi, d.y < meioY]).toEqual([d.fdi, q === 1 || q === 2]);
-      expect(d.x - d.largura / 2).toBeGreaterThan(-20);
-      expect(d.x + d.largura / 2).toBeLessThan(LARGURA_DO_ARCO + 20);
+      for (const [x, y] of pontos(d.fdi)) {
+        expect([d.fdi, x >= 0 && x <= LARGURA_DA_IMAGEM && y >= 0 && y <= ALTURA_DA_IMAGEM]).toEqual([d.fdi, true]);
+      }
     }
-    // Os centrais colados na linha média, em cima e embaixo; os sisos no meio da altura.
-    expect(meioX - de(11).x).toBeLessThan(de(11).largura);
-    expect(de(21).x - meioX).toBeLessThan(de(21).largura);
+    // Os centrais na frente, os sisos no meio da altura; em cada quadrante, cada dente fica mais para trás que o anterior.
     expect(de(11).y).toBeLessThan(de(18).y);
     expect(de(41).y).toBeGreaterThan(de(48).y);
     expect(de(48).y).toBeGreaterThan(de(18).y);
-  });
-
-  it('os dois lados são espelho um do outro', () => {
-    for (let n = 1; n <= 8; n++) {
-      for (const [e, d] of [[10, 20], [40, 30]]) {
-        expect(de(e + n).x + de(d + n).x).toBeCloseTo(LARGURA_DO_ARCO, 6);
-        expect(de(e + n).y).toBeCloseTo(de(d + n).y, 6);
-        expect(de(e + n).largura).toBeCloseTo(de(d + n).largura, 6);
-      }
-    }
-  });
-
-  it('um dente não cobre o vizinho na mesma arcada', () => {
     for (const q of [1, 2, 3, 4]) {
       for (let n = 1; n < 8; n++) {
         const a = de(q * 10 + n);
         const b = de(q * 10 + n + 1);
-        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(0.85 * (a.largura + b.largura) / 2);
+        const fundo = (d: typeof a) => (q <= 2 ? d.y : ALTURA_DA_IMAGEM - d.y) + Math.abs(d.x - meioX) * 0.3;
+        expect([a.fdi, fundo(b) > fundo(a)]).toEqual([a.fdi, true]);
       }
     }
-    // Os dois centrais de cada arcada também não se cruzam.
-    expect(de(21).x - de(11).x).toBeGreaterThanOrEqual((de(11).largura + de(21).largura) / 2 * 0.85);
+  });
+
+  it('o contorno de cada dente envolve o centro dele e não chega ao centro do vizinho', () => {
+    for (const d of dentes) expect([d.fdi, dentro(d.x, d.y, pontos(d.fdi))]).toEqual([d.fdi, true]);
+    const pares: Array<[number, number]> = [[11, 21], [41, 31]];
+    for (const q of [1, 2, 3, 4]) for (let n = 1; n < 8; n++) pares.push([q * 10 + n, q * 10 + n + 1]);
+    for (const [a, b] of pares) {
+      expect([a, b, dentro(de(b).x, de(b).y, pontos(a))]).toEqual([a, b, false]);
+      expect([b, a, dentro(de(a).x, de(a).y, pontos(b))]).toEqual([b, a, false]);
+    }
   });
 
   it('nomes lembrados: o último vem primeiro, sem repetir e sem nome vazio', () => {

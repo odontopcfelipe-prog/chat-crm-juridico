@@ -1,53 +1,54 @@
 'use client';
 
 /**
- * Passos CAD — a arcada clicável da ficha do caso. Cada dente é um botão de verdade: funciona no
- * teclado, e o clique só vale sobre o desenho do dente, não no canto da caixa dele.
+ * Passos CAD — a arcada clicável da ficha do caso. A imagem é a arcada que o dono escolheu
+ * (public/passos-cad/arcada.png); por cima dela, cada dente tem o contorno dele
+ * (mapa-da-arcada.ts), que é a área do clique e do destaque. Cada dente funciona no teclado.
  */
-import { useMemo } from 'react';
-import { ALTURA_DO_ARCO, FORMA_DO_DENTE, LARGURA_DO_ARCO, dentesDoArco } from './arco-dos-dentes';
+import { DENTES_DA_IMAGEM, ALTURA_DA_IMAGEM, LARGURA_DA_IMAGEM } from './mapa-da-arcada';
 import { TEXTOS as T } from './textos';
 
+/** O dente escolhido fica tingido na cor principal sem apagar os traços da imagem (multiplica). */
+const ESTILO = `
+.passos-cad-dente { fill: transparent; cursor: pointer; mix-blend-mode: multiply; transition: fill .15s; outline: none; }
+.passos-cad-dente:hover { fill: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+.passos-cad-dente:focus-visible { stroke: var(--color-primary); stroke-width: 2.5px; stroke-dasharray: 4 3; }
+.passos-cad-dente[aria-pressed='true'] { fill: color-mix(in srgb, var(--color-primary) 30%, transparent); stroke: var(--color-primary); stroke-width: 2.5px; }
+.passos-cad-dente[aria-disabled='true'] { cursor: default; pointer-events: none; }
+`;
+
 export function Odontograma({ selecionado, travado, aoEscolher }: { selecionado: number | null; travado: boolean; aoEscolher: (fdi: number) => void }) {
-  const dentes = useMemo(dentesDoArco, []);
   return (
-    <div className="relative" style={{ width: `min(100cqw, ${(LARGURA_DO_ARCO / ALTURA_DO_ARCO) * 100}cqh)`, aspectRatio: `${LARGURA_DO_ARCO} / ${ALTURA_DO_ARCO}` }} data-testid="arcada">
-      {dentes.map((d) => {
-        const forma = FORMA_DO_DENTE[d.tipo];
-        const escolhido = selecionado === d.fdi;
-        return (
-          <button
+    <div
+      className={`relative ${travado ? 'opacity-60' : ''}`}
+      style={{ width: `min(100cqw, ${(LARGURA_DA_IMAGEM / ALTURA_DA_IMAGEM) * 100}cqh)`, aspectRatio: `${LARGURA_DA_IMAGEM} / ${ALTURA_DA_IMAGEM}` }}
+      data-testid="arcada"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- imagem estática da arcada, com o mapa de clique por cima */}
+      <img src="/passos-cad/arcada.png" alt="" draggable={false} className="absolute inset-0 w-full h-full select-none pointer-events-none" />
+      <svg viewBox={`0 0 ${LARGURA_DA_IMAGEM} ${ALTURA_DA_IMAGEM}`} className="absolute inset-0 w-full h-full" role="group" aria-label={T.fichaDenteSel}>
+        <style>{ESTILO}</style>
+        {DENTES_DA_IMAGEM.map((d) => (
+          <path
             key={d.fdi}
-            type="button"
+            d={d.contorno}
+            role="button"
+            tabIndex={travado ? -1 : 0}
             data-testid={`dente-${d.fdi}`}
             aria-label={`${T.fichaDenteSel} ${d.fdi}`}
-            aria-pressed={escolhido}
-            disabled={travado}
-            onClick={() => aoEscolher(d.fdi)}
-            className="group absolute pointer-events-none flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
-            style={{
-              left: `${(d.x / LARGURA_DO_ARCO) * 100}%`,
-              top: `${(d.y / ALTURA_DO_ARCO) * 100}%`,
-              width: `${(d.largura / LARGURA_DO_ARCO) * 100}%`,
-              height: `${(d.altura / ALTURA_DO_ARCO) * 100}%`,
-              transform: 'translate(-50%, -50%)',
+            aria-pressed={selecionado === d.fdi}
+            aria-disabled={travado}
+            className="passos-cad-dente"
+            vectorEffect="non-scaling-stroke"
+            onClick={() => !travado && aoEscolher(d.fdi)}
+            onKeyDown={(e) => {
+              if (travado || (e.key !== 'Enter' && e.key !== ' ')) return;
+              e.preventDefault();
+              aoEscolher(d.fdi);
             }}
-          >
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" className="absolute inset-0 w-full h-full overflow-visible" style={{ transform: `rotate(${d.rotacao}deg)` }}>
-              {/* Odontograma em traço: dente cinza-claro, contorno escuro e sulcos finos. */}
-              <path
-                d={forma.contorno}
-                strokeWidth={escolhido ? 2.4 : 1.5}
-                vectorEffect="non-scaling-stroke"
-                className={`transition-colors ${travado ? '' : 'cursor-pointer'} ${escolhido ? '' : 'fill-[#cfcfcf] stroke-[#3d3d3d] group-hover:fill-[#e2e2e2]'}`}
-                style={{ pointerEvents: 'auto', ...(escolhido ? { fill: 'color-mix(in srgb, var(--color-primary) 30%, #e6e6e6)', stroke: 'var(--color-primary)' } : {}) }}
-              />
-              <path d={forma.sulcos} fill="none" stroke="#3d3d3d" strokeOpacity={0.9} strokeWidth={1.1} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-            </svg>
-            <span className={`relative text-[11px] font-semibold leading-none select-none ${escolhido ? 'text-primary' : 'text-neutral-800'}`}>{d.fdi}</span>
-          </button>
-        );
-      })}
+          />
+        ))}
+      </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
         {selecionado ? (
           <>
@@ -55,7 +56,7 @@ export function Odontograma({ selecionado, travado, aoEscolher }: { selecionado:
             <span className="text-xs text-muted-foreground">{T.fichaCoroa}</span>
           </>
         ) : (
-          <span className="text-sm text-muted-foreground max-w-[10rem]">{T.fichaEscolhaDente}</span>
+          <span className="text-sm text-muted-foreground max-w-[9rem]">{T.fichaEscolhaDente}</span>
         )}
       </div>
     </div>
