@@ -412,9 +412,11 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
       return s !== 'PAID' && s !== 'RECEIVED' && s !== 'CONFIRMED' && s !== 'RECEIVED_IN_CASH' && s !== 'CANCELLED';
     });
   }).length;
-  const contractsCount = acceptedQuotes.length;
   // Cobranças que nenhum card de contrato mostra (financiamento importado do Asaas, avulsas).
+  // Juntas, elas são o contrato ANTERIOR ao sistema ("Contrato 1"): conta no resumo.
   const chargesSemContrato = charges.filter(isChargeSemContrato);
+  const temContratoImportado = chargesSemContrato.some((c) => !isCancelledStatus(c.status));
+  const contractsCount = acceptedQuotes.length + (temContratoImportado ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -503,20 +505,33 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
         />
       )}
 
-      {/* Onda 14.9 — Cobranças "órfãs" (sem contrato no sistema): financiamento
-          importado do Asaas, avulsas. ANTES só apareciam quando o paciente não tinha
-          NENHUM contrato aceito — ao lançar um contrato novo, o financiamento antigo
-          sumia da ficha (mas seguia no "Em aberto" e na régua). Sem contrato nenhum,
-          continua mostrando todas as cobranças, como antes. */}
+      {/* Onda 14.9 — Cobranças "órfãs" (sem contrato no sistema): os boletos puxados
+          do Asaas são o contrato ANTERIOR ao sistema ("Contrato 1"). ANTES só apareciam
+          quando o paciente não tinha NENHUM contrato aceito — ao lançar um contrato
+          novo (contrato 2), o 1 sumia da ficha (mas seguia no "Em aberto" e na régua).
+          Agora fica na lista, como o contrato mais antigo, com a mesma lista de antes.
+          Sem contrato nenhum no sistema, continua mostrando todas as cobranças. */}
       {acceptedQuotes.length === 0 ? (
         <ChargesSection charges={charges} onReload={load} />
       ) : (
-        <ChargesSection
-          charges={chargesSemContrato}
-          onReload={load}
-          title="Boletos fora dos contratos acima"
-          hint="Importados do Asaas ou lançados avulsos — continuam valendo"
-        />
+        temContratoImportado && (
+          <div>
+            {/* Mesmo cabeçalho dos grupos de contrato (data → aqui, a origem). */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0">
+                Importado do Asaas
+              </span>
+              <span className="flex-1 h-px bg-border" />
+              <span className="text-[10px] text-muted-foreground/60 shrink-0">1 contrato</span>
+            </div>
+            <ChargesSection
+              charges={chargesSemContrato}
+              onReload={load}
+              title="Contrato 1"
+              hint="boletos puxados do Asaas, anteriores aos contratos do sistema"
+            />
+          </div>
+        )
       )}
 
       {/* Onda 18.x — Boletos cancelados (preservados com rastro p/ revisão até
