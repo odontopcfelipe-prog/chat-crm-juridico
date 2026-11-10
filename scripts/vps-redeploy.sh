@@ -36,9 +36,26 @@
 #     worker e web.
 #   - --dry-run: mostra tudo isso e não mexe em nenhum service.
 #
+# Trava de versão (nov/2026): várias sessões sobem commits ao mesmo tempo e cada
+# uma passa o seu comando; rodar o de um commit MAIS ANTIGO depois do mais novo
+# tirava do ar o que entrou no meio (10/11/2026: o 57696abd ficou na fila atrás
+# do e7cf5b51, que já o incluía). Antes de baixar qualquer imagem, o script
+# descobre o sha que está no ar (digest da API × tags do Docker Hub) e compara
+# com o pedido na API do GitHub (sem resposta dele: pela data da imagem no
+# Docker Hub):
+#   - mais antigo que o do ar, ou sem o do ar dentro: RECUSA (volta de propósito:
+#     --voltar; o --sem-ci não libera);
+#   - o master já tem commit mais novo: só AVISA e mostra o sha do topo (o mais
+#     novo inclui este).
+# E duas publicações ao mesmo tempo: a segunda espera a vez (flock), e a API é
+# relida antes do update (se mudou durante o download, para).
+# Download de cada imagem: até ESPERA_PULL_SEG (padrão 30 min; eram 15 e a API
+# de 423 MB não terminou numa manhã de internet lenta).
+#
 # Uso na VPS (deploy é MANUAL, a pedido do dono — docs/deploy.md):
 #   bash ~/scripts/vps-redeploy.sh --dry-run <SHA_COMPLETO_40>
 #   bash ~/scripts/vps-redeploy.sh <SHA_COMPLETO_40>
+#   bash ~/scripts/vps-redeploy.sh --voltar <SHA_COMPLETO_40>   (volta de propósito)
 # Sem sha usa :latest — aí não há como conferir o CI e o --sem-ci é exigido.
 # ============================================================================
 set -euo pipefail
@@ -56,6 +73,8 @@ Opções:
   --forcar-disco           aceita menos de 10% de disco livre
   --confirmo-sem-migracao  aceita subir a API com RUN_MIGRATIONS=false quando o
                            schema novo apagaria algo no banco
+  --voltar                 aceita publicar um sha MAIS ANTIGO que o que está no
+                           ar (volta de propósito); sem ela, recusa
   -h, --help               esta ajuda
 
 Token do GitHub (opcional, para não depender das 60 consultas por hora do IP):
@@ -67,13 +86,14 @@ EOF
 }
 
 # ── Argumentos ──────────────────────────────────────────────────────────────
-DRY_RUN=0; SEM_CI=0; FORCAR_DISCO=0; CONFIRMO_SEM_MIG=0; TAG_ARG=""
+DRY_RUN=0; SEM_CI=0; FORCAR_DISCO=0; CONFIRMO_SEM_MIG=0; VOLTAR=0; TAG_ARG=""
 for ARG in "$@"; do
   case "$ARG" in
     --dry-run) DRY_RUN=1 ;;
     --sem-ci) SEM_CI=1 ;;
     --forcar-disco) FORCAR_DISCO=1 ;;
     --confirmo-sem-migracao) CONFIRMO_SEM_MIG=1 ;;
+    --voltar) VOLTAR=1 ;;
     -h|--help) uso; exit 0 ;;
     -*) echo "❌ Opção desconhecida: $ARG"; uso; exit 2 ;;
     *)
@@ -91,6 +111,7 @@ OPCOES=""
 [ "$SEM_CI" = 1 ] && OPCOES="$OPCOES --sem-ci"
 [ "$FORCAR_DISCO" = 1 ] && OPCOES="$OPCOES --forcar-disco"
 [ "$CONFIRMO_SEM_MIG" = 1 ] && OPCOES="$OPCOES --confirmo-sem-migracao"
+[ "$VOLTAR" = 1 ] && OPCOES="$OPCOES --voltar"
 
 REPO="${REPO:-odontopassos/chat-crm-juridico}"
 STACK="${STACK:-chatcrm}"
@@ -104,18 +125,22 @@ unset GITHUB_TOKEN
 export -n GH_TOKEN
 DISCO_MIN_LIVRE="${DISCO_MIN_LIVRE:-10}"        # % livre mínimo
 ESPERA_API_SEG="${ESPERA_API_SEG:-300}"         # limite para a API nova subir
+ESPERA_PULL_SEG="${ESPERA_PULL_SEG:-1800}"      # limite para baixar cada imagem
 ESTAVEL_API_SEG="${ESTAVEL_API_SEG:-30}"        # a task nova tem de ficar de pé esse tempo
 POLL_SEG="${POLL_SEG:-5}"
 REDEPLOY_LOG="${REDEPLOY_LOG:-$HOME/vps-redeploy.log}"
 # Número fora do formato quebrava a trava em silêncio: o `[ -lt ]` do disco dava
 # erro e passava (falha aberta), e a espera da API morria por `set -u` DEPOIS do
 # update dela. Confere aqui, antes de qualquer docker.
-for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESTAVEL_API_SEG POLL_SEG; do
+for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESPERA_PULL_SEG ESTAVEL_API_SEG POLL_SEG; do
   if ! [[ "${!V}" =~ ^[0-9]+$ ]]; then
     echo "❌ $V='${!V}' precisa ser um número inteiro (sem %, sem unidade). NADA foi alterado."
     exit 2
   fi
 done
+if [ "$ESPERA_PULL_SEG" -lt 60 ]; then
+  echo "❌ ESPERA_PULL_SEG=$ESPERA_PULL_SEG é pouco (mínimo 60; 0 tiraria o limite do download). NADA foi alterado."; exit 2
+fi
 if [ "$DISCO_MIN_LIVRE" -gt 100 ]; then
   echo "❌ DISCO_MIN_LIVRE=$DISCO_MIN_LIVRE passa de 100 (%). NADA foi alterado."; exit 2
 fi
@@ -159,6 +184,22 @@ elif modo == "gh_runs":
             ini = r.get("run_started_at") or r.get("created_at")
             print("\t".join(limpa(v) for v in (r.get("id"), r.get("run_attempt"), ini, r.get("status"),
                   r.get("conclusion"), r.get("event"), r.get("path"), r.get("html_url"), r.get("name"))))
+elif modo == "hub_tag_digests":
+    for t in d.get("results") or []:
+        if not isinstance(t, dict):
+            continue
+        n = limpa(t.get("name"))
+        quando = limpa(t.get("tag_last_pushed") or t.get("last_updated"))
+        if t.get("digest"):
+            print(n + "\t" + limpa(t.get("digest")) + "\t" + quando)
+        for i in t.get("images") or []:
+            if isinstance(i, dict) and i.get("digest"):
+                print(n + "\t" + limpa(i.get("digest")) + "\t" + quando)
+elif modo == "gh_compare":
+    print("\t".join(limpa(d.get(k)) for k in ("status", "ahead_by", "behind_by")))
+elif modo == "gh_branch":
+    c = d.get("commit")
+    print(limpa(c.get("sha")) if isinstance(c, dict) else "-")
 elif modo == "gh_volta":
     r = d.get("resources")
     c = r.get("core") if isinstance(r, dict) else None
@@ -181,6 +222,18 @@ if (modo === 'hub_digest') {
   for (const r of d.workflow_runs || []) if (r && typeof r === 'object') {
     out.push([r.id, r.run_attempt, r.run_started_at || r.created_at, r.status, r.conclusion, r.event, r.path, r.html_url, r.name].map(limpa).join('\t'));
   }
+} else if (modo === 'hub_tag_digests') {
+  for (const t of d.results || []) {
+    if (!t || typeof t !== 'object') continue;
+    const n = limpa(t.name);
+    const quando = limpa(t.tag_last_pushed || t.last_updated);
+    if (t.digest) out.push(n + '\t' + limpa(t.digest) + '\t' + quando);
+    for (const i of t.images || []) if (i && typeof i === 'object' && i.digest) out.push(n + '\t' + limpa(i.digest) + '\t' + quando);
+  }
+} else if (modo === 'gh_compare') {
+  out.push(['status', 'ahead_by', 'behind_by'].map((k) => limpa(d[k])).join('\t'));
+} else if (modo === 'gh_branch') {
+  out.push(d.commit && typeof d.commit === 'object' ? limpa(d.commit.sha) : '-');
 } else if (modo === 'gh_volta') {
   const c = d.resources && d.resources.core;
   if (c && c.remaining === 0 && c.reset) out.push(String(c.reset));
@@ -195,7 +248,7 @@ if [ -z "$JSON_ENGINE" ]; then
   else echo "❌ Precisa de python3 (pra ler as APIs do Docker Hub e do GitHub)."; exit 1
   fi
 fi
-json_tool() {  # $1 = hub_digest | hub_tags | gh_runs | gh_volta ; JSON na entrada padrão
+json_tool() {  # $1 = hub_digest | hub_tags | hub_tag_digests | gh_runs | gh_compare | gh_branch | gh_volta ; JSON na entrada padrão
   if [ "$JSON_ENGINE" = node ]; then
     JSON_MODO="$1" node -e "$JS_JSON"
   else
@@ -350,6 +403,17 @@ echo "════════════════════════�
 echo " Redeploy chatcrm ($VERSAO) — tag: $TAG"
 [ "$DRY_RUN" = 1 ] && echo " DRY-RUN: só mostra o que faria; nenhum service é alterado."
 echo "═══════════════════════════════════════════════════════════════"
+
+# Uma publicação por vez: duas ao mesmo tempo (uma baixando devagar, outra
+# colada depois) faziam a mais lenta publicar por cima da outra.
+if [ "$DRY_RUN" = 0 ] && command -v flock >/dev/null 2>&1; then
+  exec 9>>"${REDEPLOY_LOCK:-$HOME/.vps-redeploy.lock}"
+  if ! flock -n 9; then
+    echo "❌ Já tem outro vps-redeploy rodando neste servidor. Espere ele terminar e confira"
+    echo "   qual é o topo do master: o mais novo inclui os anteriores. NADA foi alterado."
+    exit 1
+  fi
+fi
 
 # Detecta SÓ os services do stack chatcrm. Ancorado em "^chatcrm_" de
 # propósito: o regex genérico "_(api|worker|web)$" pegava também services de
@@ -588,6 +652,137 @@ for S in "${ORDEM[@]}"; do
   echo "  ${STACK}_${S}: $(digest_de "${ANTES[$S]}")  →  ${HD:0:19}… (${REPO}-${S}:${TAG:0:12})"
 done
 
+# ── 3b. Versão: a do ar × a pedida × o topo do master ──────────────────────
+# Ver "Trava de versão" no cabeçalho. Antes de baixar qualquer imagem.
+#   1. Sha do ar: o digest da API que roda, procurado nas tags de sha do Docker
+#      Hub (até 3 páginas de 100; :latest fica de fora).
+#   2. Pedido × ar no GitHub (compare). Sem resposta do GitHub (limite, rede),
+#      plano B pela data em que cada imagem foi publicada no Docker Hub: só passa
+#      se a pedida for mais nova. Mais antiga: recusa, salvo --voltar (o --sem-ci
+#      NÃO libera: o dia de cota esgotada é o mesmo dia de comando atrasado).
+#   3. Topo do master (só avisa), e só se sobrar cota no GitHub.
+VERSAO_STATUS="nao-conferida"
+versao_recusar() {  # $1 = motivo; com --voltar vira aviso
+  if [ "$VOLTAR" = 1 ]; then avisar "--voltar: $1"; else recusar "$1"; fi
+}
+so_digitos() { local v="${1//[^0-9]/}"; echo "${v:0:14}"; }   # 2026-11-10T14:09:13.49Z → 20261110140913
+# Pedido × base no GitHub. Saída em REL_ST (ahead|behind|identical|diverged;
+# vazio = não deu), REL_FRENTE, REL_ATRAS e REL_MOTIVO (por que não deu).
+gh_relacao() {  # $1 base, $2 head
+  REL_ST=""; REL_FRENTE=""; REL_ATRAS=""; REL_MOTIVO=""
+  if ! declare -F gh_get >/dev/null; then REL_MOTIVO="sem consulta ao GitHub"; return 0; fi
+  GH_STATUS=$(gh_get "https://api.github.com/repos/${GH_REPO}/compare/$1...$2?per_page=1")
+  if [ "$GH_STATUS" = 200 ]; then
+    IFS=$'\t' read -r REL_ST REL_FRENTE REL_ATRAS <<<"$(json_tool gh_compare < "$WORK/gh.json" 2>/dev/null || true)"
+    case "$REL_ST" in ahead|behind|identical|diverged) return 0 ;; esac
+    REL_ST=""; REL_MOTIVO="o GitHub respondeu sem o resultado da comparação"; return 0
+  fi
+  gh_ler_limite
+  if [ "$GH_LIMITADO" = 1 ]; then
+    gh_achar_volta
+    REL_MOTIVO="limite de consultas do GitHub"
+    if [ -n "$GH_VOLTA" ]; then
+      REL_MOTIVO="$REL_MOTIVO; a cota volta às $(date -u -d "@$((GH_VOLTA - 10800))" +%H:%M 2>/dev/null || true) de Maceió"
+    fi
+  else
+    REL_MOTIVO="o GitHub respondeu ${GH_STATUS:-000}"
+  fi
+}
+echo ""
+echo "▶ Versão (no ar × pedida × topo do master)"
+DIG_AR="${ANTES[api]##*@}"
+SHA_AR=""; PUSH_AR=""; PUSH_PEDIDO=""; HUB_LIDA=0; SHA_HUB_NOVA=""
+HUB_TAGS="$WORK/hub-tags.tsv"
+: > "$HUB_TAGS"
+if [ "${#TAG}" -eq 40 ]; then
+  # nome<TAB>digest<TAB>publicada em; para assim que achar a do ar e a pedida
+  for PAG in 1 2 3; do
+    PAG_TSV=$(curl -fsSL -m 20 "https://hub.docker.com/v2/repositories/${REPO}-api/tags/?page_size=100&page=${PAG}&ordering=last_updated" 2>/dev/null \
+      | json_tool hub_tag_digests 2>/dev/null || true)
+    [ -n "$PAG_TSV" ] || break
+    HUB_LIDA=1
+    printf '%s\n' "$PAG_TSV" >> "$HUB_TAGS"
+    if awk -F'\t' -v d="$DIG_AR" -v t="$TAG" '$2 == d && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { a = 1 } $1 == t { p = 1 } END { exit !(a && p) }' "$HUB_TAGS"; then break; fi
+  done
+  if [[ "$DIG_AR" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    IFS=$'\t' read -r SHA_AR PUSH_AR <<<"$(awk -F'\t' -v d="$DIG_AR" \
+      '$2 == d && length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 "\t" $3; exit }' "$HUB_TAGS")"
+  fi
+  PUSH_PEDIDO=$(awk -F'\t' -v t="$TAG" '$1 == t { print $3; exit }' "$HUB_TAGS")
+  PUSH_AR=$(so_digitos "${PUSH_AR:-}"); PUSH_PEDIDO=$(so_digitos "${PUSH_PEDIDO:-}")
+  # a imagem de sha mais nova do Docker Hub (a lista vem da mais nova para a mais velha)
+  SHA_HUB_NOVA=$(awk -F'\t' 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1; exit }' "$HUB_TAGS")
+fi
+DICA_NOVA=""
+if [ -n "$SHA_HUB_NOVA" ] && [ "$SHA_HUB_NOVA" != "$TAG" ]; then
+  DICA_NOVA=" A imagem mais nova no Docker Hub é $SHA_HUB_NOVA: publique ela depois que o CI dela ficar verde."
+fi
+
+if [ "${#TAG}" -ne 40 ]; then
+  avisar "'${TAG}' não é um sha de 40 caracteres: não conferi se é mais antigo que a versão no ar"
+elif [ "$HUB_LIDA" != 1 ]; then
+  versao_recusar "não consegui ler a lista de imagens do Docker Hub para saber qual versão está no ar. Rode de novo em alguns minutos, sem refazer o backup"
+elif ! [[ "$DIG_AR" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  avisar "a API no ar roda uma imagem sem digest (${ANTES[api]}): não dá para saber o sha dela, então não conferi se ${TAG:0:12} é mais antigo"
+elif [ -z "$SHA_AR" ]; then
+  avisar "a imagem da API no ar ($(digest_de "${ANTES[api]}")) não está entre as 300 últimas do Docker Hub (versão muito antiga, ou build refeito): não conferi se ${TAG:0:12} é mais antigo"
+elif [ "$SHA_AR" = "$TAG" ]; then
+  VERSAO_STATUS="mesma"
+  echo "  ✅ ${TAG:0:12} é a versão que já está no ar (publicar de novo é seguro)."
+else
+  echo "  no ar: ${SHA_AR:0:12}"
+  gh_relacao "$SHA_AR" "$TAG"
+  case "$REL_ST" in
+    ahead)
+      VERSAO_STATUS="mais-nova"
+      echo "  ✅ ${TAG:0:12} é mais nova que a do ar (${REL_FRENTE} commit(s) a mais)." ;;
+    identical)
+      VERSAO_STATUS="mesma"
+      echo "  ✅ ${TAG:0:12} é o mesmo commit da versão no ar." ;;
+    behind)
+      VERSAO_STATUS="mais-antiga"
+      versao_recusar "${TAG:0:12} é MAIS ANTIGO que a versão no ar (${SHA_AR:0:12}, que tem ${REL_ATRAS} commit(s) depois dele): publicar tiraria do ar o que entrou depois.${DICA_NOVA} Se for volta de propósito, rode de novo com --voltar (e --confirmo-sem-migracao, se o schema acusar PERIGO)" ;;
+    diverged)
+      VERSAO_STATUS="sem-a-do-ar"
+      versao_recusar "${TAG:0:12} não contém a versão no ar (${SHA_AR:0:12}): publicar tiraria do ar ${REL_ATRAS} commit(s) que só estão nela.${DICA_NOVA} Se for de propósito, rode de novo com --voltar" ;;
+    *)
+      # Plano B, sem GitHub: a data em que cada imagem foi publicada no Docker Hub.
+      if [ -n "$PUSH_PEDIDO" ] && [ -n "$PUSH_AR" ] && [ "$PUSH_PEDIDO" -gt "$PUSH_AR" ]; then
+        VERSAO_STATUS="mais-nova-pela-data"
+        avisar "não consegui comparar no GitHub (${REL_MOTIVO}); pela data no Docker Hub, ${TAG:0:12} foi publicada depois da versão no ar (${SHA_AR:0:12})"
+      else
+        VERSAO_STATUS="nao-conferida"
+        versao_recusar "não consegui comparar ${TAG:0:12} com a versão no ar (${SHA_AR:0:12}) no GitHub (${REL_MOTIVO}), e pela data no Docker Hub ela não é mais nova.${DICA_NOVA} Rode de novo depois, sem refazer o backup; se for volta de propósito, use --voltar"
+      fi ;;
+  esac
+fi
+
+# Topo do master: o mais novo inclui todos os anteriores. Só informa; sem token,
+# fica de fora quando a cota do GitHub está no fim (ela é do deploy).
+if [ "${#TAG}" -eq 40 ] && declare -F gh_get >/dev/null; then
+  GH_RESTAM=$(gh_cabecalho x-ratelimit-remaining)
+  if [ -z "$GH_TOKEN" ] && [[ "$GH_RESTAM" =~ ^[0-9]+$ ]] && [ "$GH_RESTAM" -lt 5 ]; then
+    avisar "pulei a conferência do topo do master para não gastar a cota do GitHub (restam ${GH_RESTAM} consultas)"
+  else
+    TOPO=""
+    if [ "$(gh_get "https://api.github.com/repos/${GH_REPO}/branches/master")" = 200 ]; then
+      TOPO=$(json_tool gh_branch < "$WORK/gh.json" 2>/dev/null || true)
+    fi
+    if ! [[ "$TOPO" =~ ^[0-9a-f]{40}$ ]]; then
+      avisar "não consegui ler o topo do master no GitHub"
+    elif [ "$TOPO" = "$TAG" ]; then
+      echo "  ✅ ${TAG:0:12} é o topo do master."
+    else
+      gh_relacao "$TAG" "$TOPO"
+      if [ "$REL_ST" = ahead ]; then
+        avisar "o master já tem ${REL_FRENTE} commit(s) depois de ${TAG:0:12}. O topo, que inclui este, é $TOPO: publique ele depois que o CI dele ficar verde"
+      else
+        avisar "o topo do master é $TOPO, diferente de ${TAG:0:12} (relação: ${REL_ST:-${REL_MOTIVO}}). Confira antes de publicar"
+      fi
+    fi
+  fi
+fi
+
 # ── 4. Download por digest ──────────────────────────────────────────────────
 # Deploy real: as 3 antes de mexer em qualquer service. --dry-run: só a da API
 # (precisa dela para ler o schema novo); com disco recusado, nenhuma.
@@ -600,8 +795,9 @@ fi
 for S in ${BAIXAR[@]+"${BAIXAR[@]}"}; do
   echo ""
   echo "▶ pull ${PIN[$S]:0:60}…"
-  if ! timeout 900 docker pull -q "${PIN[$S]}" >/dev/null; then
-    echo "  ❌ Falha/travamento no pull de ${PIN[$S]}. NADA foi alterado."
+  if ! timeout "$ESPERA_PULL_SEG" docker pull -q "${PIN[$S]}" >/dev/null; then
+    echo "  ❌ Falha/travamento no pull de ${PIN[$S]} (limite ${ESPERA_PULL_SEG}s). NADA foi alterado."
+    echo "     Rodar o mesmo comando de novo costuma passar: o Docker aproveita as camadas já baixadas."
     exit 1
   fi
   BAIXADAS+=("$S")
@@ -777,8 +973,8 @@ fi
 
 # ── 8. Aplica (só chega aqui com tudo conferido e as imagens no host) ──────
 registrar() {
-  printf '%s %s tag=%s ci=%s schema=%s migracao=%s opcoes=%s %s\n' "$(date '+%F %T')" "$VERSAO" "$TAG" "$CI_STATUS" \
-    "$SCHEMA_RESULT" "${MIG_API[*]:-sem-mudanca}" "${OPCOES# }" "$1" >> "$REDEPLOY_LOG" 2>/dev/null || true
+  printf '%s %s tag=%s ci=%s schema=%s migracao=%s versao=%s ar=%s opcoes=%s %s\n' "$(date '+%F %T')" "$VERSAO" "$TAG" "$CI_STATUS" \
+    "$SCHEMA_RESULT" "${MIG_API[*]:-sem-mudanca}" "$VERSAO_STATUS" "${SHA_AR:0:12}" "${OPCOES# }" "$1" >> "$REDEPLOY_LOG" 2>/dev/null || true
 }
 mostrar_volta() {
   echo ""
@@ -844,6 +1040,16 @@ esperar_api() {
   done
 }
 
+# Relê a API: se mudou durante o download, outra publicação rodou ao mesmo tempo.
+API_AGORA=$(imagem_do_service "${STACK}_api")
+if [ "$API_AGORA" != "${ANTES[api]}" ]; then
+  echo ""
+  echo "❌ A API mudou enquanto as imagens baixavam ($(digest_de "${ANTES[api]}") → $(digest_de "$API_AGORA")):"
+  echo "   outra publicação rodou ao mesmo tempo. Confira com 'docker service ls' e rode o"
+  echo "   comando do topo do master de novo. NADA foi alterado por este."
+  exit 1
+fi
+
 registrar "inicio"
 # Tasks da API que já existem (o esperar_api ignora). Sem linha vazia: no
 # grep -f, padrão vazio casa com tudo e esconderia a task nova.
@@ -903,6 +1109,12 @@ case "$CI_STATUS" in
   *)     echo " CI:      ⚠ NÃO conferido/verde — seguiu com --sem-ci" ;;
 esac
 echo " Schema:  $SCHEMA_RESULT — $MIG_TXT"
+case "$VERSAO_STATUS" in
+  mais-nova)           echo " Versão:  mais nova que a do ar (${SHA_AR:0:12})" ;;
+  mesma)               echo " Versão:  a mesma que já estava no ar" ;;
+  mais-nova-pela-data) echo " Versão:  mais nova que a do ar (${SHA_AR:0:12}) pela data no Docker Hub (o GitHub não comparou)" ;;
+  *)                   AR_TXT="${SHA_AR:0:12}"; echo " Versão:  ⚠ ${VERSAO_STATUS} (do ar: ${AR_TXT:-desconhecida})" ;;
+esac
 if [ "${MIG_API[*]:-}" = "--env-add RUN_MIGRATIONS=false" ]; then
   echo "          ⚠ A API ficou com RUN_MIGRATIONS=false. O próximo deploy sem perigo religa sozinho."
 fi

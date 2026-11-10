@@ -15,7 +15,7 @@ imagens em paralelo. Um CI vermelho é um aviso para não colar o
 | Tipos da API e do worker (`tsc --noEmit`) | erro de tipo, inclusive nos specs (o `nest build` não olha os specs e o `ts-jest` não confere tipos). |
 | Build (`nest build`) | o mesmo build da imagem. |
 | Grafo de injeção (`scripts/ci/di-smoke.cjs`) | ciclo de import entre módulos e provider sem dependência ("Nest can't resolve dependencies…"). Foi o que deixou a API em crash loop em out/2026; o `tsc` não vê. Constrói todos os providers com env falso, sem conectar em banco. |
-| Deploy — vps-redeploy v2 e vps-backup (`scripts/ci/test-vps-redeploy.sh`) | os scripts do servidor (portão do CI, token e limite de consultas do GitHub, disco, diff de schema, ordem dos updates, `--dry-run`, backup) rodando com stubs de docker/curl/df. Ver `docs/deploy.md`. |
+| Deploy — vps-redeploy v2 e vps-backup (`scripts/ci/test-vps-redeploy.sh`) | os scripts do servidor (portão do CI, token e limite de consultas do GitHub, disco, trava de versão mais antiga que a do ar, `--voltar` e uma publicação por vez, diff de schema, ordem dos updates, `--dry-run`, backup) rodando com stubs de docker/curl/df. Ver `docs/deploy.md`. |
 | Testes da API e do worker (jest) | as regras já cobertas por spec (dinheiro, antifraude, isolamento entre clínicas, ponto, agenda, IA…). |
 | Inventário (`apps/api/src/__guards__/inventario.spec.ts`, roda no jest da API) | `@Cron`, fila, job repetível, gatilho de boot, handler ou middleware de socket, `APP_GUARD` ou global do `main.ts` que entrou ou saiu sem atualizar o inventário. Ver [Inventário](#inventário). |
 | Web (`next build`) | o mesmo build da imagem do front. |

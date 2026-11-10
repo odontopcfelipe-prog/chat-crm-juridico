@@ -51,7 +51,9 @@ fim).
 Para conferir o CI, o script consulta a API do GitHub. Sem token são **60 consultas
 por hora por IP**, divididas com tudo que sai pelo mesmo IP. Aqui o servidor e os
 computadores do escritório dividem o IP, então sessões acompanhando o CI gastam a cota
-do deploy. Quando ela acaba, o deploy para e diz a hora em que ela volta. Com token são
+do deploy (cada execução usa até 4: o CI, a comparação com a versão no ar, o topo do
+`master` e a comparação com ele; o topo é pulado quando restam menos de 5). Quando ela
+acaba, o deploy para e diz a hora em que ela volta. Com token são
 5.000 por hora, só dele. Sem token tudo funciona como antes.
 
 **Criar o token**, no site do GitHub, com a conta dona do repositório:
@@ -132,7 +134,10 @@ também um CI vermelho que ninguém viu.
 |---|---|---|
 | CI | Runs do workflow **"CI — testes e checagens"** do sha na API do GitHub (token opcional, ver [Token do GitHub](#token-do-github-opcional)). Vale a **última tentativa**: o maior `run_attempt` do run (um re-run que passou libera, sem commit vazio); entre runs diferentes do mesmo sha, o que começou por último. Precisa `completed` + `success`. | Recusa. Escape: `--sem-ci` (aviso na tela e no registro). Com `latest` não há sha para conferir: exige `--sem-ci`. |
 | Disco | `df -h` da raiz e do diretório de dados do Docker. | Menos de 10% livre: recusa. Escape: `--forcar-disco`. |
-| Imagens | Digest de cada tag no Docker Hub e `docker pull` **por digest** das 3 antes de mexer (pull por tag trava neste servidor). | Para; nada foi alterado. |
+| Imagens | Digest de cada tag no Docker Hub. | Para; nada foi alterado. |
+| Versão | Descobre o sha que está no ar (o digest da API que roda, procurado nas tags de sha do Docker Hub, até 300) e compara com o pedido na API do GitHub (`compare`). Sem resposta do GitHub (limite, rede), compara pela data em que cada imagem foi publicada no Docker Hub. Depois lê o topo do `master`, se sobrar cota. Existe porque várias sessões sobem commits ao mesmo tempo e cada uma passa o seu comando: em 10/11/2026 o `57696abd` ficou na fila atrás do `e7cf5b51`, que já o incluía, e teria tirado do ar o que entrou no meio. | Pedido **mais antigo** que o do ar, ou que não contém o do ar: recusa antes de baixar qualquer imagem e mostra a imagem mais nova do Docker Hub. Escape: `--voltar` (volta de propósito; aviso na tela, `versao=` no registro). O `--sem-ci` **não** libera: o dia de cota esgotada é o mesmo dia de comando atrasado. Sem GitHub e a imagem pedida não é mais nova pela data: recusa e diz quando a cota volta. Lista do Docker Hub ilegível: recusa. O `master` já tem commit mais novo: **só avisa**, com o sha do topo. Sha do ar fora das 300 tags, imagem do ar sem digest, ou `latest`: avisa que não conferiu. |
+| Uma por vez | No deploy real, `flock` em `~/.vps-redeploy.lock`: uma segunda publicação colada enquanto a primeira baixa é recusada. E, logo antes do primeiro `service update`, a imagem da API é lida de novo. | Outra rodando: recusa antes de qualquer docker. A API mudou durante o download: para, nada alterado. |
+| Download | `docker pull` **por digest** das 3 antes de mexer (pull por tag trava neste servidor), até 30 min cada (`ESPERA_PULL_SEG`; eram 15, e a API de 423 MB não terminou numa manhã de internet lenta em 10/11/2026). | Para; nada foi alterado. Rodar o mesmo comando de novo costuma passar: o Docker aproveita as camadas já baixadas. |
 | Schema | `docker create` da imagem nova (sem rodar) → `docker cp` do `schema.prisma` dela → `docker cp` para o `/tmp` da API que está no ar → `docker exec` com `prisma migrate diff --from-schema-datasource <schema da própria API> --to-schema-datamodel <schema novo> --script`. O prisma lê o `DATABASE_URL` do ambiente da API (como o `db push` do boot): a URL não vira argumento de processo, não passa pelo host e nunca é impressa. | Diff que não dá para calcular (API fora, erro do prisma) conta como **PERIGO** (falha fechada). |
 | Migração | PERIGO → a API sobe com `--env-add RUN_MIGRATIONS=false`, **só** com `--confirmo-sem-migracao`. Sem perigo e a API com `RUN_MIGRATIONS=false` de antes → `--env-rm RUN_MIGRATIONS` (religa). | Sem a confirmação, para antes de mexer. |
 | Ordem | API primeiro. Espera (até 300s) uma task **nova** Running cujo log tenha as duas coisas: a linha do entrypoint (`[entrypoint] Schema aplicado com sucesso.` ou `pulando auto-migração`) **e** a do Nest depois do `listen` (`API rodando em`, ou `Nest application successfully started`). Depois, a **mesma** task tem de ficar de pé por 30s. Só então worker e web. A linha do entrypoint sozinha não basta, porque sai antes do `node` subir: um Nest que cai no boot (ciclo de DI, env faltando) imprime essa linha em cada restart. | API não subiu (Nest não chegou ao `listen`, task trocada sem parar, `tentativa 15/15`, tempo esgotado), ou o script foi interrompido no meio da espera: para, worker e web ficam na versão anterior, grava o `falhou` no registro e **mostra** (não executa) o comando de volta. |
@@ -167,8 +172,9 @@ ainda não subiu.
 | `--sem-ci` | Hotfix consciente com CI vermelho, rodando ou fora do ar (ou deploy de `latest`). |
 | `--forcar-disco` | Seguir com menos de 10% de disco livre. |
 | `--confirmo-sem-migracao` | Aceitar subir a API com `RUN_MIGRATIONS=false` quando o diff tem PERIGO. |
+| `--voltar` | Publicar de propósito um sha mais antigo que o do ar (volta). Sem ela, o script recusa. |
 
-Variáveis (raramente): `STACK` (padrão `chatcrm`), `ESPERA_API_SEG` (300),
+Variáveis (raramente): `STACK` (padrão `chatcrm`), `ESPERA_API_SEG` (300), `ESPERA_PULL_SEG` (1800),
 `ESTAVEL_API_SEG` (30), `POLL_SEG` (5), `DISCO_MIN_LIVRE` (10, em %),
 `GH_TOKEN_ARQ` (`~/.config/chatcrm/gh-token`), `REDEPLOY_LOG` (`~/vps-redeploy.log`), `DRIFT_EXTRA` (nomes de índice a mais
 no drift), `PROTEGIDAS_EXTRA` (tabelas a mais na lista protegida; não dá para
@@ -180,7 +186,8 @@ Saída: 0 = feito; 1 = recusado ou falhou; 2 = uso errado.
 ## Quando aparece PERIGO
 
 - **Voltando para uma versão mais velha** (o caso normal): é esperado. Faça o
-  backup e suba com `--confirmo-sem-migracao`. A API velha roda sem mexer no
+  backup e suba com `--voltar --confirmo-sem-migracao` (o `--voltar` passa pela
+  trava de versão; sem ele o script recusa antes de chegar ao schema). A API velha roda sem mexer no
   banco; as tabelas e colunas novas continuam lá, intactas. No próximo deploy
   para frente sem perigo, o v2 religa a migração sozinho.
 - **Deploy para frente com PERIGO**: pare. A mudança apaga dado; confira o
@@ -289,6 +296,13 @@ passo "Deploy — vps-redeploy v2 e vps-backup". O leitor de JSON do script é o
 máquina sem python.
 
 ## Limites conhecidos
+
+- Trava de versão: "a versão no ar" é a da **API** (worker e web não entram). O
+  sha dela sai do digest casado com as tags de sha do Docker Hub (até 300): imagem
+  mais antiga que isso, imagem sem digest ou build refeito do mesmo sha (digest
+  novo) ficam sem conferência, só com aviso. O plano B pela data compara quando
+  cada build terminou, não a ordem dos commits: dois builds quase juntos podem
+  terminar trocados. O `flock` só existe no deploy real (o `--dry-run` não espera).
 
 - O portão do CI acha o workflow pelo nome ou pelo arquivo
   `.github/workflows/ci.yml`. Se o CI virar um job chamado por outro workflow,

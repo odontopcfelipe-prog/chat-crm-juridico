@@ -11,7 +11,12 @@
 # nunca aparece na saída, --dry-run sem nenhum "service update", API que não
 # sobe (inclusive o Nest que cai depois do "Schema aplicado"; worker e web
 # ficam), interrupção no meio da espera, variáveis numéricas fora do formato e
-# o backup (espaço, /tmp, retenção, pg_dump que falha).
+# o backup (espaço, /tmp, retenção, pg_dump que falha). E a trava de versão: sha
+# mais antigo que o do ar (recusa; --voltar; o --sem-ci não libera), sem o do ar
+# dentro, topo do master mais novo (só avisa; pulado com a cota no fim), versão do
+# ar desconhecida ou sem digest, lista do Docker Hub ilegível, GitHub sem comparar
+# (plano B pela data da imagem), API trocada durante o download, flock e o tempo de
+# download (ESPERA_PULL_SEG).
 #
 # O leitor de JSON do script aceita python3 (o do servidor) ou node: o teste
 # roda com os dois quando existem. No CI o python3 é obrigatório.
@@ -76,7 +81,9 @@ case "$1" in
         esac ;;
     esac ;;
   info) echo "/var/lib/docker" ;;
-  pull) exit "${STUB_PULL_FALHA:-0}" ;;
+  pull)
+    [ "${STUB_PULL_TROCA_API:-0}" = 1 ] && echo "odontopassos/chat-crm-juridico-api@sha256:$(printf 'f%.0s' $(seq 64))" > "$S/img.chatcrm_api"
+    exit "${STUB_PULL_FALHA:-0}" ;;
   image)
     [ "$2" = "inspect" ] && echo "${STUB_LABELS:-null}"
     exit 0 ;;
@@ -123,7 +130,16 @@ printf '%s\n' "$*" >> "$S/curl.log"   # a linha toda: é o que a lista de proces
 dig64() { local i s=""; for i in $(seq 64); do s="$s$1"; done; echo "$s"; }
 case "$url" in
   https://hub.docker.com/v2/repositories/*/tags/\?*)
-    printf '{"count":2,"results":[{"name":"latest"},{"name":"%s"}]}' "${STUB_SHA:?}" ;;
+    # STUB_SHA_AR = sha da versão no ar (digest "a"×64, o das imagens de antes; imagem amd64 "e"×64);
+    # vazio = fora da lista. STUB_SHA_NOVA = uma imagem mais nova que todas, no topo.
+    [ "${STUB_HUB_LISTA_FALHA:-0}" = 1 ] && exit 22
+    case "$url" in *page=[2-9]*) printf '{"count":3,"next":null,"results":[]}'; exit 0 ;; esac
+    nova=""; ar=""
+    [ -n "${STUB_SHA_NOVA:-}" ] && nova=$(printf '{"name":"%s","digest":"sha256:%s","tag_last_pushed":"2026-11-10T15:00:00.1Z"},' "$STUB_SHA_NOVA" "$(dig64 f)")
+    [ -n "${STUB_SHA_AR:-}" ] && ar=$(printf ',{"name":"%s","digest":"sha256:%s","tag_last_pushed":"%s","images":[{"architecture":"amd64","digest":"sha256:%s"}]}' \
+      "$STUB_SHA_AR" "$(dig64 a)" "${STUB_PUSH_AR:-2026-11-10T12:58:37.197554Z}" "$(dig64 e)")
+    printf '{"count":3,"results":[%s{"name":"latest","digest":"sha256:%s","tag_last_pushed":"2026-11-10T12:58:36.5Z"},{"name":"%s","digest":"sha256:%s","tag_last_pushed":"%s"}%s]}' \
+      "$nova" "$(dig64 a)" "${STUB_SHA:?}" "$(dig64 b)" "${STUB_PUSH_PEDIDO:-2026-11-10T14:09:13.491544Z}" "$ar" ;;
   https://hub.docker.com/v2/repositories/*/tags/*)
     repo="${url#*/repositories/}"; repo="${repo%%/tags/*}"
     case "$repo" in *-api) c=b ;; *-worker) c=c ;; *-web) c=d ;; *) exit 22 ;; esac
@@ -164,7 +180,25 @@ case "$url" in
       status=403; cabecalhos="x-ratelimit-remaining: 40\r\n"
     fi
     printf "HTTP/2 %s\r\n$cabecalhos\r\n" "$status" > "$cab"
-    if [ "$status" = 200 ]; then cat "$S/runs.json" > "$corpo"; else printf '{"message":"%s"}\n' "$msg" > "$corpo"; fi
+    if [[ "$url" == */compare/* ]] && [ "${STUB_COMPARE_FALHA:-0}" = 1 ]; then
+      status=502; printf "HTTP/2 502\r\n\r\n" > "$cab"
+    elif [[ "$url" == */compare/* ]] && [ -n "${STUB_COMPARE_LIMITE:-}" ]; then
+      status=403; msg="API rate limit exceeded"
+      printf "HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n" "$STUB_COMPARE_LIMITE" > "$cab"
+    elif [[ "$url" == */branches/master ]] && [ "${STUB_TOPO_FALHA:-0}" = 1 ]; then
+      status=500; printf "HTTP/2 500\r\n\r\n" > "$cab"
+    elif [ "$status" = 200 ] && [ -n "${STUB_GH_RESTAM:-}" ]; then
+      printf "HTTP/2 200\r\nx-ratelimit-remaining: %s\r\n\r\n" "$STUB_GH_RESTAM" > "$cab"
+    fi
+    if [ "$status" != 200 ]; then printf '{"message":"%s"}\n' "$msg" > "$corpo"
+    elif [[ "$url" == */branches/master ]]; then
+      printf '{"name":"master","commit":{"sha":"%s"}}' "${STUB_TOPO:-$STUB_SHA}" > "$corpo"
+    elif [[ "$url" == */compare/* ]]; then
+      # STUB_REL_AR: o pedido em relação ao do ar; STUB_REL_TOPO: o topo em relação ao pedido
+      par="${url##*/compare/}"; par="${par%%\?*}"
+      if [ "${par%%...*}" = "${STUB_SHA_AR:-}" ]; then rel="${STUB_REL_AR:-ahead}"; else rel="${STUB_REL_TOPO:-ahead}"; fi
+      printf '{"status":"%s","ahead_by":3,"behind_by":2,"total_commits":3}' "$rel" > "$corpo"
+    else cat "$S/runs.json" > "$corpo"; fi
     printf '%s' "$status" ;;
   *) exit 22 ;;
 esac
@@ -198,10 +232,19 @@ printf '%s\n' "$*" >> "$S/chmod.log"
 [ "${STUB_CHMOD_FALHA:-0}" = 1 ] && exit 1
 echo "$1" > "$S/perm"
 STUB
-chmod +x "$T/bin/docker" "$T/bin/curl" "$T/bin/df" "$T/bin/stat" "$T/bin/chmod"
+cat > "$T/bin/timeout" <<'STUB'
+#!/usr/bin/env bash
+# stub do timeout: registra o limite e roda o comando
+printf '%s\n' "$*" >> "${STUB_DIR:?}/timeout.log"
+shift
+exec "$@"
+STUB
+chmod +x "$T/bin/docker" "$T/bin/curl" "$T/bin/df" "$T/bin/stat" "$T/bin/chmod" "$T/bin/timeout"
 
 # ── Utilitários do teste ────────────────────────────────────────────────────
 SHA=0123456789abcdef0123456789abcdef01234567
+SHA_AR=fedcba9876543210fedcba9876543210fedcba98     # a versão no ar (imagens "a"×64)
+SHA_TOPO=89abcdef0123456789abcdef0123456789abcdef   # um topo do master mais novo
 rep() { local i s=""; for i in $(seq "$2"); do s="$s$1"; done; echo "$s"; }
 DIG_API="sha256:$(rep b 64)"
 IMG_NOVA_API="odontopassos/chat-crm-juridico-api@$DIG_API"
@@ -232,7 +275,7 @@ rodar() {  # rodar <script> [VAR=valor ...] -- <args>
   local alvo="$1" vars=(); shift
   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do vars+=("$1"); shift; done
   [ "$#" -gt 0 ] && shift
-  env -u TAG -u GITHUB_TOKEN -u GH_TOKEN -u GH_TOKEN_ARQ PATH="$T/bin:$PATH" HOME="$S/home" TMPDIR="$S" STUB_DIR="$S" STUB_SHA="$SHA" \
+  env -u TAG -u GITHUB_TOKEN -u GH_TOKEN -u GH_TOKEN_ARQ PATH="$T/bin:$PATH" HOME="$S/home" TMPDIR="$S" STUB_DIR="$S" STUB_SHA="$SHA" STUB_SHA_AR="$SHA_AR" \
     JSON_ENGINE="$ENGINE" POLL_SEG=0 ESPERA_API_SEG=5 ESTAVEL_API_SEG=0 ${vars[@]+"${vars[@]}"} \
     bash -c 'echo $$ > "$STUB_DIR/pid"; exec bash "$@"' rodar "$alvo" "$@" > "$S/saida.txt" 2>&1
   RC=$?
@@ -654,7 +697,7 @@ SQL
   rc 143; ordem "chatcrm_api chatcrm_worker"; tem "Saiu no meio do update de worker/web"; nao_tem "Redeploy completo"
   if grep -q 'falhou: interrompido no update de worker/web' "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem o 'interrompido'"; fi
 
-  for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESTAVEL_API_SEG POLL_SEG; do
+  for V in DISCO_MIN_LIVRE ESPERA_API_SEG ESPERA_PULL_SEG ESTAVEL_API_SEG POLL_SEG; do
     novo_caso "$V fora do formato: uso errado antes de qualquer docker"
     redeploy STUB_DF_USO=99 "$V=15%" -- "$SHA"
     rc 2; tem "$V='15%' precisa ser um número"
@@ -667,6 +710,137 @@ SQL
   novo_caso "opção desconhecida: uso errado"
   redeploy -- --sem-cii "$SHA"
   rc 2; docker_nao_tem "service update"
+
+  # ── Trava de versão ──
+  local VOLTA_CMP=1793820000 VOLTA_CMP_MACEIO
+  VOLTA_CMP_MACEIO=$(date -u -d "@$((VOLTA_CMP - 10800))" +%H:%M)
+
+  novo_caso "versão: mais nova que a do ar e topo do master: segue sem aviso, registra"
+  redeploy -- "$SHA"
+  rc 0; tem "no ar: ${SHA_AR:0:12}"; tem "é mais nova que a do ar (3 commit(s) a mais)"; tem "é o topo do master"
+  nao_tem "--voltar"; nao_tem "⚠"; tem "Versão:  mais nova que a do ar"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+  curl_tem "/compare/$SHA_AR...$SHA?per_page=1"; curl_tem "/branches/master"
+  # achou as duas na 1ª página: não pede a 2ª
+  curl_nao_tem "page=2"
+  if grep -q "^1800 docker pull" "$S/timeout.log" 2>/dev/null; then passou; else falhou "pull sem o limite de 1800s"; fi
+  if grep -q "versao=mais-nova ar=${SHA_AR:0:12} opcoes= ok$" "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem versao=/ar="; fi
+
+  novo_caso "versão: MAIS ANTIGA que a do ar: recusa antes de baixar, e aponta a mais nova"
+  redeploy STUB_REL_AR=behind STUB_SHA_NOVA=$SHA_TOPO -- "$SHA"
+  rc 1; tem "é MAIS ANTIGO que a versão no ar (${SHA_AR:0:12}, que tem 2 commit(s) depois dele)"; tem "--voltar"
+  tem "A imagem mais nova no Docker Hub é $SHA_TOPO"; tem "--confirmo-sem-migracao"; tem "NADA foi alterado"
+  docker_nao_tem "pull "; docker_nao_tem "service update"; docker_nao_tem "create "
+
+  novo_caso "versão: mais antiga com --voltar: segue, avisa e registra"
+  redeploy STUB_REL_AR=behind -- --voltar "$SHA"
+  rc 0; tem "--voltar: ${SHA:0:12} é MAIS ANTIGO"; tem "Versão:  ⚠ mais-antiga"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+  if grep -q 'versao=mais-antiga .*opcoes=--voltar ok$' "$S/home/vps-redeploy.log" 2>/dev/null; then passou; else falhou "registro sem o --voltar"; fi
+
+  novo_caso "versão: mais antiga com --sem-ci: recusa do mesmo jeito"
+  redeploy STUB_REL_AR=behind -- --sem-ci "$SHA"
+  rc 1; tem "MAIS ANTIGO"; docker_nao_tem "service update"
+
+  novo_caso "versão: sem a versão do ar dentro (outro galho): recusa"
+  redeploy STUB_REL_AR=diverged -- "$SHA"
+  rc 1; tem "não contém a versão no ar (${SHA_AR:0:12})"; tem "2 commit(s) que só estão nela"; docker_nao_tem "service update"
+
+  novo_caso "versão: mais antiga no --dry-run: mostra que pararia"
+  redeploy STUB_REL_AR=behind -- --dry-run "$SHA"
+  rc 1; tem "PARARIA"; tem "MAIS ANTIGO"; docker_nao_tem "service update"
+
+  novo_caso "versão: o master já tem commit mais novo: só avisa e mostra o sha do topo"
+  redeploy STUB_TOPO=$SHA_TOPO -- "$SHA"
+  rc 0; tem "o master já tem 3 commit(s) depois de ${SHA:0:12}"; tem "$SHA_TOPO"; tem "depois que o CI dele ficar verde"
+  ordem "chatcrm_api chatcrm_worker chatcrm_web"; curl_tem "/compare/$SHA...$SHA_TOPO?per_page=1"
+
+  novo_caso "versão: topo do master fora da linha deste sha: avisa"
+  redeploy STUB_TOPO=$SHA_TOPO STUB_REL_TOPO=diverged -- "$SHA"
+  rc 0; tem "o topo do master é $SHA_TOPO, diferente"; tem "relação: diverged"
+
+  novo_caso "versão: topo do master ilegível: só avisa"
+  redeploy STUB_TOPO_FALHA=1 -- "$SHA"
+  rc 0; tem "não consegui ler o topo do master"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "versão: cota do GitHub no fim, sem token: pula o topo, não a comparação"
+  redeploy STUB_GH_RESTAM=3 -- "$SHA"
+  rc 0; tem "é mais nova que a do ar"; tem "pulei a conferência do topo do master"; curl_nao_tem "/branches/master"
+
+  novo_caso "versão: o mesmo sha do ar: publicar de novo é seguro"
+  redeploy STUB_SHA_AR=$SHA -- "$SHA"
+  rc 0; tem "já está no ar"; curl_nao_tem "/compare/"; tem "Versão:  a mesma"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "versão: API no ar só com digest (a forma que o script grava) e casando pela imagem amd64"
+  for svc in api worker web; do
+    echo "odontopassos/chat-crm-juridico-$svc@sha256:$(rep e 64)" > "$S/img0.chatcrm_$svc"; cp "$S/img0.chatcrm_$svc" "$S/img.chatcrm_$svc"
+  done
+  redeploy -- "$SHA"
+  rc 0; tem "no ar: ${SHA_AR:0:12}"; tem "é mais nova que a do ar"
+
+  novo_caso "versão: API no ar sem digest: avisa que não dá para saber e segue"
+  echo "odontopassos/chat-crm-juridico-api:latest" > "$S/img0.chatcrm_api"; cp "$S/img0.chatcrm_api" "$S/img.chatcrm_api"
+  redeploy -- "$SHA"
+  rc 0; tem "imagem sem digest"; nao_tem "300 últimas"
+
+  novo_caso "versão: sha do ar fora das 300 últimas do Docker Hub: avisa e segue"
+  redeploy STUB_SHA_AR= -- "$SHA"
+  rc 0; tem "não está entre as 300 últimas"; curl_tem "page=2"; curl_nao_tem "page=3"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "versão: lista do Docker Hub ilegível: recusa (falha fechada)"
+  redeploy STUB_HUB_LISTA_FALHA=1 -- "$SHA"
+  rc 1; tem "não consegui ler a lista de imagens do Docker Hub"; docker_nao_tem "pull "
+
+  novo_caso "versão: GitHub fora na comparação, imagem pedida mais nova pela data: avisa e segue"
+  redeploy STUB_COMPARE_FALHA=1 -- "$SHA"
+  rc 0; tem "o GitHub respondeu 502"; tem "pela data no Docker Hub"; tem "Versão:  mais nova que a do ar (${SHA_AR:0:12}) pela data"
+  ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "versão: comparação no limite do GitHub e pedida mais antiga pela data: recusa e diz quando volta"
+  redeploy STUB_COMPARE_LIMITE=$VOLTA_CMP STUB_PUSH_PEDIDO=2026-11-10T11:00:00Z -- "$SHA"
+  rc 1; tem "limite de consultas do GitHub; a cota volta às $VOLTA_CMP_MACEIO de Maceió"; tem "pela data no Docker Hub ela não é mais nova"
+  tem "sem refazer o backup"; docker_nao_tem "pull "; docker_nao_tem "service update"
+
+  novo_caso "versão: limite + mais antiga pela data + --sem-ci: recusa do mesmo jeito (o caso de 10/11)"
+  redeploy STUB_COMPARE_LIMITE=$VOLTA_CMP STUB_PUSH_PEDIDO=2026-11-10T11:00:00Z -- --sem-ci "$SHA"
+  rc 1; tem "não consegui comparar"; docker_nao_tem "service update"
+
+  novo_caso "versão: limite + mais antiga pela data + --voltar: segue, avisa"
+  redeploy STUB_COMPARE_LIMITE=$VOLTA_CMP STUB_PUSH_PEDIDO=2026-11-10T11:00:00Z -- --voltar "$SHA"
+  rc 0; tem "--voltar: não consegui comparar"; ordem "chatcrm_api chatcrm_worker chatcrm_web"
+
+  novo_caso "versão: 'latest' com --sem-ci não tem como conferir: avisa"
+  redeploy -- --sem-ci latest
+  rc 0; tem "não conferi se é mais antigo"
+
+  novo_caso "versão: a API mudou durante o download (outra publicação): para antes de mexer"
+  redeploy STUB_PULL_TROCA_API=1 -- "$SHA"
+  rc 1; tem "A API mudou enquanto as imagens baixavam"; docker_nao_tem "service update"
+  if grep -q ' inicio$' "$S/home/vps-redeploy.log" 2>/dev/null; then falhou "registrou início"; else passou; fi
+
+  if command -v flock >/dev/null 2>&1; then
+    novo_caso "versão: outra publicação rodando (flock): recusa antes de qualquer docker"
+    flock "$S/home/.vps-redeploy.lock" sleep 30 &
+    local trava=$!
+    sleep 1
+    redeploy -- "$SHA"
+    kill "$trava" 2>/dev/null; wait "$trava" 2>/dev/null
+    rc 1; tem "Já tem outro vps-redeploy rodando"; docker_nao_tem "service "
+
+    novo_caso "versão: --dry-run não espera a vez (não mexe em nada)"
+    flock "$S/home/.vps-redeploy.lock" sleep 30 &
+    trava=$!
+    sleep 1
+    redeploy -- --dry-run "$SHA"
+    kill "$trava" 2>/dev/null; wait "$trava" 2>/dev/null
+    rc 0; nao_tem "Já tem outro"
+  fi
+
+  novo_caso "versão: pull passa do limite: diz o limite e que rodar de novo costuma passar"
+  redeploy STUB_PULL_FALHA=1 ESPERA_PULL_SEG=60 -- "$SHA"
+  rc 1; tem "(limite 60s)"; tem "aproveita as camadas"; docker_nao_tem "service update"
+
+  novo_caso "ESPERA_PULL_SEG=0 tiraria o limite: uso errado"
+  redeploy ESPERA_PULL_SEG=0 -- "$SHA"
+  rc 2; tem "mínimo 60"; if [ -s "$S/docker.log" ]; then falhou "chamou o docker"; else passou; fi
 }
 
 # ── vps-backup.sh ───────────────────────────────────────────────────────────

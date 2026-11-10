@@ -24,8 +24,9 @@ clínica ou descrição de falha de segurança em código, commit ou documento.
   "Build and Push to Docker Hub" concluído.
   Porquê: o CI ainda não trava o build das imagens (`docs/ci.md`); e a imagem `:<sha>` só existe depois do build.
 - Deploy: o dono cola no servidor `bash ~/scripts/vps-redeploy.sh <sha40>`, com o sha
-  de 40 caracteres do tip publicado (`git rev-parse HEAD`).
+  de 40 caracteres do topo do `origin/master` na hora (`git fetch` antes: outras sessões sobem em paralelo).
   Porquê: o script baixa e fixa a imagem por digest; pull por tag trava no servidor e `:latest` sem digest roda a imagem velha.
+  O script recusa sha mais antigo que o do ar; volta de propósito é com `--voltar`, e só quando o dono pedir.
 - Nunca `docker stack deploy` nem `docker pull` por tag.
   Porquê: o stack vivo tem ajustes feitos por `service update` (ex.: volume da mídia) que um yml desatualizado desfaz.
 - Comando para o dono colar no servidor: bash começando com `set +H`, sem `sudo` (lá não há).
