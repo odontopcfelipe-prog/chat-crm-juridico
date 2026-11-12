@@ -1,23 +1,45 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Tag, CheckCircle2, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { Tag, CheckCircle2, RefreshCw, Plus, Trash2, Search, X } from 'lucide-react';
 import api from '@/lib/api';
 
 type Mode = 'template' | 'free';
 type Item = { name: string; price: string; includes: string };
 type Form = { doctor: string; items: Item[] };
+/** Procedimento da Tabela de Preços desta clínica (GET /procedures). */
+type Proc = {
+  id: string;
+  name: string;
+  base_price: string | number | null;
+  description?: string | null;
+  specialty?: { name: string } | null;
+};
 
+// Sugestão para clínica que nunca salvou: só os nomes. Os valores são de cada
+// clínica (vêm da Tabela de Preços ou são digitados) — antes vinham os do Instituto.
 const DEFAULT_ITEMS: Item[] = [
-  { name: 'Consulta de avaliação', price: '150', includes: '' },
+  { name: 'Consulta de avaliação', price: '', includes: '' },
   {
     name: 'Limpeza',
-    price: '350',
+    price: '',
     includes:
       'remoção de todo o tártaro com raspagem em todos os dentes (inclusive subgengival), aplicação de flúor, polimento de todos os dentes, escovação e fio dental em cada dente',
   },
-  { name: 'Manutenção de aparelho', price: '150', includes: '' },
+  { name: 'Manutenção de aparelho', price: '', includes: '' },
 ];
+
+/** Valor da tabela no jeito do campo: 350 → "350", 1500 → "1.500", 89.9 → "89,90". Sem valor → "". */
+export function precoDaTabela(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return Number.isInteger(n)
+    ? n.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+    : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const chaveNome = (s: string) =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const DEFAULT_FORM: Form = { doctor: '', items: DEFAULT_ITEMS };
 
 /** Lê o form salvo (aceita o formato antigo, de 3 campos fixos). */
@@ -86,6 +108,17 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
   // não informa valor nenhum — avisa claramente pra não parecer que já vale.
   const [neverSaved, setNeverSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tabela de Preços da clínica: o "Adicionar procedimento" escolhe dela em vez de
+  // criar item do zero. null = carregando.
+  const [procs, setProcs] = useState<Proc[] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [busca, setBusca] = useState('');
+
+  useEffect(() => {
+    api.get('/procedures')
+      .then((r) => setProcs(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setProcs([]));
+  }, []);
 
   useEffect(() => {
     api.get('/settings/ai-price-table')
@@ -105,6 +138,23 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clínica que nunca salvou: a sugestão (só nomes) pega o valor da Tabela de Preços
+  // quando o nome bate — senão o item da tabela some do seletor (já está na lista) e o
+  // valor dele ficava de fora. Uma vez só; o que já foi salvo nunca é mexido.
+  const [sugestaoPreenchida, setSugestaoPreenchida] = useState(false);
+  useEffect(() => {
+    if (sugestaoPreenchida || loading || !neverSaved || mode !== 'template' || !procs?.length) return;
+    setSugestaoPreenchida(true);
+    const porNome = new Map(procs.map((p) => [chaveNome(p.name), p]));
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it) => {
+        const p = porNome.get(chaveNome(it.name));
+        return p && !it.price.trim() ? { ...it, price: precoDaTabela(p.base_price) } : it;
+      }),
+    }));
+  }, [sugestaoPreenchida, loading, neverSaved, mode, procs]);
 
   const preview = useMemo(() => buildPriceGuide(form), [form]);
   const finalText = mode === 'template' ? preview : freeText;
@@ -132,7 +182,30 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
   const setItem = (idx: number, patch: Partial<Item>) =>
     setForm((f) => ({ ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)) }));
   const addItem = () => setForm((f) => ({ ...f, items: [...f.items, { name: '', price: '', includes: '' }] }));
+  const addFromTable = (p: Proc) =>
+    setForm((f) => ({
+      ...f,
+      items: [
+        ...f.items,
+        {
+          name: p.name.trim(),
+          price: precoDaTabela(p.base_price),
+          includes: String(p.description || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+        },
+      ],
+    }));
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+
+  // Procedimentos da tabela que ainda não estão na lista, filtrados pela busca.
+  const naLista = useMemo(() => new Set(form.items.map((i) => chaveNome(i.name))), [form.items]);
+  const opcoes = useMemo(() => {
+    const q = chaveNome(busca);
+    return (procs || []).filter(
+      (p) =>
+        !naLista.has(chaveNome(p.name)) &&
+        (!q || chaveNome(p.name).includes(q) || chaveNome(p.specialty?.name || '').includes(q)),
+    );
+  }, [procs, naLista, busca]);
   const inputCls =
     'w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60';
 
@@ -203,7 +276,7 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
                   <input
                     value={form.doctor}
                     onChange={(e) => setForm((f) => ({ ...f, doctor: e.target.value }))}
-                    placeholder="Ex.: a Dra. Suellen"
+                    placeholder="Ex.: a Dra. Ana"
                     className={inputCls}
                   />
                 </label>
@@ -248,13 +321,93 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
                       </button>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addItem}
-                    className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
-                  >
-                    <Plus size={13} /> Adicionar procedimento
-                  </button>
+                  {!pickerOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBusca('');
+                        setPickerOpen(true);
+                      }}
+                      className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+                    >
+                      <Plus size={13} /> Adicionar procedimento
+                    </button>
+                  ) : (
+                    <div className="rounded-xl border border-primary/30 bg-background p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-foreground">Escolha da Tabela de Preços</p>
+                        <button
+                          type="button"
+                          onClick={() => setPickerOpen(false)}
+                          aria-label="Fechar"
+                          className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 focus-within:border-primary/60">
+                        <Search size={14} className="text-muted-foreground shrink-0" />
+                        <input
+                          autoFocus
+                          value={busca}
+                          onChange={(e) => setBusca(e.target.value)}
+                          placeholder="Buscar procedimento ou especialidade"
+                          className="w-full bg-transparent py-2 text-sm text-foreground outline-none"
+                        />
+                      </div>
+                      {procs === null ? (
+                        <p className="text-xs text-muted-foreground py-2 flex items-center gap-2">
+                          <RefreshCw size={13} className="animate-spin" /> Carregando a tabela...
+                        </p>
+                      ) : procs.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">
+                          A Tabela de Preços desta clínica está vazia.{' '}
+                          <a href="/atendimento/settings/procedures" className="text-primary underline">
+                            Cadastrar procedimentos
+                          </a>
+                        </p>
+                      ) : opcoes.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">
+                          {busca.trim() ? 'Nenhum procedimento com esse nome na tabela.' : 'Todos os procedimentos da tabela já estão na lista.'}
+                        </p>
+                      ) : (
+                        <ul className="max-h-64 overflow-y-auto divide-y divide-border rounded-lg border border-border">
+                          {opcoes.map((p) => {
+                            const preco = precoDaTabela(p.base_price);
+                            return (
+                              <li key={p.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => addFromTable(p)}
+                                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-primary/5"
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block text-sm text-foreground truncate">{p.name}</span>
+                                    {p.specialty?.name && (
+                                      <span className="block text-[11px] text-muted-foreground truncate">{p.specialty.name}</span>
+                                    )}
+                                  </span>
+                                  <span className={`shrink-0 text-xs font-semibold ${preco ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                    {preco ? `R$ ${preco}` : 'sem valor'}
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addItem();
+                          setPickerOpen(false);
+                        }}
+                        className="text-[11px] font-semibold text-muted-foreground hover:text-primary hover:underline"
+                      >
+                        Não está na tabela? Escrever um item à mão
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Só os procedimentos desta lista têm valor informado. Os especialistas (implante, ortodontia, lentes…)
