@@ -91,6 +91,7 @@ import {
   buildSchedulingRetryInstruction,
 } from './conversation-guide';
 import { loadClinicAiContext, isChipAiEnabledForClinic, type ClinicAiContext } from './clinic-ai-context';
+import { adaptadorDoTextoGlobal } from './texto-global-da-clinica';
 import { computeDaySlots } from './tool-handlers/check-availability';
 import { findDentistConflict } from './tool-handlers/book-appointment';
 import { isAiAutobookEnabled } from './auto-book-gate';
@@ -3165,22 +3166,33 @@ STATUS DA FICHA:
       }
 
       const labCamadas = labIa ? camadasDoPromptDoLaboratorio(labIa.purpose) : null;
+      // Skills, referências e o modelo de venda são GLOBAIS e escritos para o Instituto
+      // (nome, valores e avaliadora dele). Em outra clínica, troca pelos dados DESTA
+      // antes de montar o prompt — senão a IA se apresentava como o Instituto e passava
+      // os valores dele. No Instituto (e no laboratório, que tem texto próprio) é intacto.
+      const adaptarTextoGlobal = labIa
+        ? (t: string) => t
+        : adaptadorDoTextoGlobal({
+            tenantId: profileTenantId,
+            firmName: clinicCtx.firmName,
+            doctorName: doctorName === 'a dentista avaliadora' ? null : doctorName,
+          });
       if (skill) {
         // Injetar references (SkillAssets com inject_mode=full_text) no prompt via PromptBuilder
         const references = (skill.assets || [])
           .filter((a: any) => a.inject_mode === 'full_text' && a.content_text)
-          .map((a: any) => ({ name: a.name, content: a.content_text }));
+          .map((a: any) => ({ name: a.name, content: adaptarTextoGlobal(a.content_text) }));
 
         systemPrompt = this.promptBuilder.buildSystemPrompt({
           mediaCapabilities: labCamadas?.mediaCapabilities ?? MEDIA_CAPABILITIES_HEADER,
-          behaviorRules: labCamadas?.behaviorRules ?? CORE_RULES,
-          skillPrompt: skill.system_prompt,
+          behaviorRules: labCamadas?.behaviorRules ?? adaptarTextoGlobal(CORE_RULES),
+          skillPrompt: adaptarTextoGlobal(skill.system_prompt),
           references,
           maxContextTokens: skill.max_context_tokens || 4000,
           vars,
           memoryBlock,
           pipelinesBlock,
-          finalRules: labCamadas?.finalRules ?? AGENDAMENTO_OVERRIDES,
+          finalRules: labCamadas?.finalRules ?? adaptarTextoGlobal(AGENDAMENTO_OVERRIDES),
         });
         // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
         // no prompt final enviado ao LLM.
@@ -3240,14 +3252,14 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
 retry_scheduling: true quando o paciente encerrou sem agendar ("ok", "vou pensar", "depois vejo"…) e não tem consulta marcada (ver regra PACIENTE ENCERROU SEM AGENDAR). False nos demais casos.`;
         systemPrompt = this.promptBuilder.buildSystemPrompt({
           mediaCapabilities: MEDIA_CAPABILITIES_HEADER,
-          behaviorRules: CORE_RULES,
+          behaviorRules: adaptarTextoGlobal(CORE_RULES),
           skillPrompt: fallbackSkillPrompt,
           references: [],
           maxContextTokens: 4000,
           vars,
           memoryBlock,
           pipelinesBlock,
-          finalRules: AGENDAMENTO_OVERRIDES,
+          finalRules: adaptarTextoGlobal(AGENDAMENTO_OVERRIDES),
         });
         model = await this.settings.getDefaultModel();
         maxTokens = 1500;
