@@ -38,6 +38,12 @@ export function precoDaTabela(v: unknown): string {
     : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Limites da API (PUT /settings/ai-price-table): o texto que a IA lê é CORTADO em
+// 4.000 caracteres (sem aviso — sumiam os últimos itens e o "Demais tratamentos")
+// e a lista do modelo pronto acima de 8.000 dá erro. A tela avisa e trava antes.
+export const LIMITE_TEXTO_IA = 4000;
+export const LIMITE_LISTA = 8000;
+
 const chaveNome = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const DEFAULT_FORM: Form = { doctor: '', items: DEFAULT_ITEMS };
@@ -158,8 +164,11 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
 
   const preview = useMemo(() => buildPriceGuide(form), [form]);
   const finalText = mode === 'template' ? preview : freeText;
+  const tamanhoLista = mode === 'template' ? JSON.stringify({ mode, ...form }).length : 0;
+  const grandeDemais = finalText.length > LIMITE_TEXTO_IA || tamanhoLista > LIMITE_LISTA;
 
   const save = async () => {
+    if (grandeDemais) return;
     setSaving(true);
     setError(null);
     try {
@@ -410,8 +419,8 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Só os procedimentos desta lista têm valor informado. Os especialistas (implante, ortodontia, lentes…)
-                  explicam o tratamento, mas o valor fica pra depois da consulta. Item sem valor não é informado.
+                  Quando o paciente pergunta, a IA informa o valor dos procedimentos desta lista (de qualquer especialidade).
+                  O que não está aqui ela explica e deixa o valor pra depois da consulta. Item sem valor não é informado.
                 </p>
                 <div>
                   <p className="text-[11px] font-semibold text-muted-foreground mb-1">O que a Sophia vai seguir:</p>
@@ -430,12 +439,25 @@ export function AiPriceTableCard({ onStatus }: { onStatus?: (saved: boolean) => 
               />
             )}
 
+            {grandeDemais ? (
+              <p className="text-xs font-semibold rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-2">
+                Grande demais para a IA ({finalText.length.toLocaleString('pt-BR')} de {LIMITE_TEXTO_IA.toLocaleString('pt-BR')} caracteres).
+                {mode === 'template'
+                  ? 'Encurte os textos de "o que está incluso" ou tire alguns itens.'
+                  : 'Encurte o texto.'}{' '}
+                Acima disso o fim não chegaria à IA.
+              </p>
+            ) : finalText.length > LIMITE_TEXTO_IA * 0.8 ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                {finalText.length.toLocaleString('pt-BR')} de {LIMITE_TEXTO_IA.toLocaleString('pt-BR')} caracteres: perto do limite que a IA lê.
+              </p>
+            ) : null}
             {error && <p className="text-xs text-red-500">{error}</p>}
             <div className="flex justify-end">
               <button
                 type="button"
                 onClick={save}
-                disabled={saving}
+                disabled={saving || grandeDemais}
                 className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
               >
                 {saved ? <><CheckCircle2 size={15} /> Salvo</> : saving ? 'Salvando...' : 'Salvar'}
